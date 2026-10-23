@@ -103,8 +103,10 @@ async function initApp() {
   // buildings/traffic/pedestrians stay off until their data exists.
   let cityGrid, boroughs, cityBlocks, streetDetails, trafficSystem, highwayTraffic;
   let landmarkColliders = [];
+  let tileBoot = null;
   if (isTaipei) {
     const boot = await activeTile.loadBoot();
+    tileBoot = boot;
     cityGrid = boot.buildTaipeiGround(scene, activeTile);
     markInit('tileGround');
     boroughs = { colliders: [], update: null };
@@ -141,7 +143,11 @@ async function initApp() {
   }
 
   // 4. Initialize Third-Person Controllers (Person, Car, Cyclist, Helicopter) & Multi-Camera System
-  const controllerManager = new ThirdPersonControllerManager(scene, allColliders);
+  // A registry tile hands the controllers its own world (tile bounds, flat
+  // ground, tile spawns); NYC passes nothing and keeps the legacy defaults.
+  const controllerManager = new ThirdPersonControllerManager(
+    scene, allColliders, tileBoot ? tileBoot.controllerOptions(activeTile) : undefined
+  );
   // Player state is saved per city: a tile must never restore coordinates
   // saved in another city's frame. (NYC keeps its historical key.)
   const playerStateKey = isTaipei ? `player-state:${activeTile.id}` : 'nyc-player-state';
