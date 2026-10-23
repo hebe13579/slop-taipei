@@ -36,6 +36,26 @@ async function initApp() {
     loadingFill.style.transform = `scaleX(${Math.min(1, Math.max(0, p))})`;
   };
 
+  // Data-driven tile selection: ?city=<id> (default 'nyc', the legacy built-in
+  // city built below). Tile definitions load lazily through
+  // js/tile-registry.js, so the NYC boot never evaluates tile modules; adding
+  // a tile takes one registry entry + one tile definition, no edits here or
+  // in city-config.js.
+  const { loadSelectedTile } = await import('./tile-registry.js');
+  const tileSelection = await loadSelectedTile(window.location.search);
+  const activeTile = tileSelection.tile; // null for the legacy NYC city
+  const isTaipei = !!activeTile;
+  document.body.dataset.city = tileSelection.id;
+  const labelFor = isTaipei ? activeTile.getLocationLabel : getLocationLabel;
+  // The map is a hand-built NYC atlas (boroughs, Central Park, NYC road
+  // classes); in a tile it is stubbed until a tile map is drawn from the
+  // tile's own geodata. (Declared here, consumed far below — see the
+  // typeof guard at the mapSystem creation for why.)
+  const taipeiMapStub = isTaipei ? {
+    isFullMapOpen: false, waypoint: null,
+    toggleFullMap() {}, update() {}, resizeFullCanvas() {}, renderFullMap() {}
+  } : null;
+
   if (loadingStatus) {
     loadingStatus.textContent = `Initializing Three.js r${THREE.REVISION} WebGPURenderer & TSL Shaders...`;
   }
@@ -70,40 +90,67 @@ async function initApp() {
   markInit('lighting');
 
   if (loadingStatus) {
-    loadingStatus.textContent = 'Constructing Manhattan Grid, Landmarks & Streetscape...';
+    loadingStatus.textContent = isTaipei
+      ? `Constructing ${activeTile.label} (ground, roads, water & parks)...`
+      : 'Constructing Manhattan Grid, Landmarks & Streetscape...';
   }
 
-  // 3. Build Manhattan Geography, Iconic Landmarks, Blocks, Street Details & Traffic
-  const cityGrid = buildCityGrid(scene);
-  markInit('cityGrid');
-  const boroughs = buildBoroughs(scene, { sidewalks: cityGrid.sidewalks });
-  markInit('boroughs');
-  const { colliders: landmarkColliders } = buildLandmarks(scene);
-  markInit('landmarks');
-  const cityBlocks = buildCityBlocks(scene);
-  markInit('blocks');
+  // 3. Build the selected city. NYC (default) runs the legacy builders
+  // unchanged. A registry tile runs its own ground builder and stubs every
+  // NYC-only system with an inert equivalent (see js/taipei-boot.js and the
+  // M1 PR for the precise stub list): no boroughs, NYC landmarks, piers,
+  // Central Park specifics or East River bridges exist in a tile, and
+  // buildings/traffic/pedestrians stay off until their data exists.
+  let cityGrid, boroughs, cityBlocks, streetDetails, trafficSystem, highwayTraffic;
+  let landmarkColliders = [];
+  if (isTaipei) {
+    const boot = await activeTile.loadBoot();
+    cityGrid = boot.buildTaipeiGround(scene, activeTile);
+    markInit('tileGround');
+    boroughs = { colliders: [], update: null };
+    cityBlocks = { colliders: [], allBlocks: [], update() {}, updateLights: null };
+    streetDetails = { footprints: [], signalClock: { value: 0 }, update: null };
+    trafficSystem = { network: null, update() {} };
+    highwayTraffic = { update() {} };
+  } else {
+    cityGrid = buildCityGrid(scene);
+    markInit('cityGrid');
+    boroughs = buildBoroughs(scene, { sidewalks: cityGrid.sidewalks });
+    markInit('boroughs');
+    ({ colliders: landmarkColliders } = buildLandmarks(scene));
+    markInit('landmarks');
+    cityBlocks = buildCityBlocks(scene);
+    markInit('blocks');
+    streetDetails = buildStreetDetails(scene);
+    markInit('streetDetails');
+  }
   const allColliders = [...landmarkColliders, ...cityBlocks.colliders, ...boroughs.colliders, ...(cityGrid.colliders || [])];
 
-  const streetDetails = buildStreetDetails(scene);
-  markInit('streetDetails');
-  // Buildings turned along non-grid streets have oriented colliders whose world bounds reach past their lots: they stay
-  // inside the property line anyway, so the road network (lanes & sidewalks) doesn't need them
-  const trafficSystem = createTrafficSystem(scene, cityGrid.sidewalks, [
-    ...cityGrid.footprints,
-    ...streetDetails.footprints,
-    ...allColliders.filter((c) => !c.obb)
-  ]);
-  markInit('traffic');
-  const highwayTraffic = createHighwayTraffic(scene, cityGrid.highwayLanes);
-  buildRoadPaint(scene, trafficSystem.network);
-  markInit('roadPaint');
+  if (!isTaipei) {
+    // Buildings turned along non-grid streets have oriented colliders whose world bounds reach past their lots: they stay
+    // inside the property line anyway, so the road network (lanes & sidewalks) doesn't need them
+    trafficSystem = createTrafficSystem(scene, cityGrid.sidewalks, [
+      ...cityGrid.footprints,
+      ...streetDetails.footprints,
+      ...allColliders.filter((c) => !c.obb)
+    ]);
+    markInit('traffic');
+    highwayTraffic = createHighwayTraffic(scene, cityGrid.highwayLanes);
+    buildRoadPaint(scene, trafficSystem.network);
+    markInit('roadPaint');
+  }
 
   // 4. Initialize Third-Person Controllers (Person, Car, Cyclist, Helicopter) & Multi-Camera System
   const controllerManager = new ThirdPersonControllerManager(scene, allColliders);
+  // Player state is saved per city: a tile must never restore coordinates
+  // saved in another city's frame. (NYC keeps its historical key.)
+  const playerStateKey = isTaipei ? `player-state:${activeTile.id}` : 'nyc-player-state';
   // Reuse teleport placement so saved players return at rest, close to their last positions.
+  let restoredPlayer = false;
   try {
-    const saved = JSON.parse(localStorage.getItem('nyc-player-state'));
+    const saved = JSON.parse(localStorage.getItem(playerStateKey));
     if (saved?.version === 1) {
+      restoredPlayer = true;
       for (const mode of Object.keys(controllerManager.entities)) {
         const p = saved.entities?.[mode];
         if (!p || ![p.x, p.y, p.z, p.heading].every(Number.isFinite)) continue;
@@ -113,20 +160,35 @@ async function initApp() {
       controllerManager.setMode(Object.hasOwn(controllerManager.entities, saved.activeMode) ? saved.activeMode : 'car');
     }
   } catch { /* Missing or unavailable storage does not prevent playing. */ }
+  if (isTaipei && !restoredPlayer) {
+    // First visit to the tile: every mode starts at the tile spawn (Taipei
+    // 101) instead of the controllers' built-in NYC spawn.
+    for (const mode of Object.keys(controllerManager.entities)) {
+      controllerManager.setMode(mode);
+      controllerManager.teleportActiveTo(activeTile.spawn.x, activeTile.spawn.z, activeTile.spawn.heading, 0);
+    }
+    controllerManager.setMode('car');
+  }
 
   function savePlayerState() {
     try {
       const entities = Object.fromEntries(Object.entries(controllerManager.entities).map(([mode, entity]) => [mode, {
         x: entity.position.x, y: entity.position.y, z: entity.position.z, heading: entity.heading
       }]));
-      localStorage.setItem('nyc-player-state', JSON.stringify({ version: 1, activeMode: controllerManager.activeMode, entities }));
+      localStorage.setItem(playerStateKey, JSON.stringify({ version: 1, activeMode: controllerManager.activeMode, entities }));
     } catch { /* Storage may be disabled or full. */ }
   }
 
   const cameraSystem = new CameraSystem(renderer.domElement, controllerManager);
   const touchControls = new TouchControls(controllerManager);
   const soundButton = document.getElementById('btn-sound');
-  const audioSystem = new CityAudioSystem({ controllerManager, trafficSystem, highwayTraffic, streetDetails }, {
+  // City audio is driven by the NYC traffic/street systems; in a tile it is
+  // an inert stub (the sound button simply reports unavailable) until a
+  // tile traffic increment exists to feed it.
+  const audioSystem = isTaipei ? {
+    supported: false, enabled: false, ready: false,
+    setEnabled() {}, dispose() {}, honk() {}, update() {}
+  } : new CityAudioSystem({ controllerManager, trafficSystem, highwayTraffic, streetDetails }, {
     onStateChange: updateSoundButton
   });
   function updateSoundButton() {
@@ -149,7 +211,9 @@ async function initApp() {
 
   // Island-wide static geometry: chunk & distance-cull the small props, shadow stand-ins for the big casters
   // (scene-culling.js)
-  const cullingRoots = ['ManhattanCityGrid', 'ManhattanCityBlocks', 'ManhattanStreetDetails', 'ManhattanLandmarks', 'Boroughs']
+  const cullingRoots = (isTaipei
+    ? ['TaipeiGround']
+    : ['ManhattanCityGrid', 'ManhattanCityBlocks', 'ManhattanStreetDetails', 'ManhattanLandmarks', 'Boroughs'])
     .map((name) => scene.getObjectByName(name))
     .filter(Boolean);
   setupSceneCulling(scene, cullingRoots, lightingSystem.sunLight.shadow);
@@ -213,6 +277,30 @@ async function initApp() {
   const cameraButtons = document.querySelectorAll('[data-camera]');
   const timeButtons = document.querySelectorAll('[data-time]');
   const teleportButtons = document.querySelectorAll('[data-teleport]');
+  // The teleport popover is shared markup: in a tile, its buttons are
+  // re-labelled with the tile's own teleports (extra buttons hidden), and
+  // the scenic camera buttons (fixed NYC viewpoints) are hidden — follow
+  // cameras only until a tile gets scenic presets of its own.
+  const activeTeleports = isTaipei ? activeTile.teleports : TELEPORT_LOCATIONS;
+  if (isTaipei) {
+    const entries = Object.entries(activeTile.teleports);
+    teleportButtons.forEach((btn, i) => {
+      if (i >= entries.length) {
+        btn.style.display = 'none';
+        return;
+      }
+      const [key, loc] = entries[i];
+      btn.setAttribute('data-teleport', key);
+      const nameEl = btn.querySelector('.pop-name');
+      const subEl = btn.querySelector('.pop-sub');
+      if (nameEl) nameEl.textContent = loc.name;
+      if (subEl) subEl.textContent = loc.sub;
+    });
+    document.querySelectorAll('[data-camera]').forEach((btn) => {
+      const preset = CAMERA_PRESETS.find((p) => p.id === btn.getAttribute('data-camera'));
+      if (preset && preset.category !== 'follow') btn.style.display = 'none';
+    });
+  }
   const hudToggleBtn = document.getElementById('btn-toggle-hud');
   const modeSwitch = document.getElementById('mode-switch');
   touchControls.onAvailabilityChange = placeModeIndicator;
@@ -293,6 +381,11 @@ async function initApp() {
   }
 
   function selectCamera(camId, snap = false) {
+    if (isTaipei) {
+      // Scenic presets are fixed NYC viewpoints; a tile falls back to chase.
+      const preset = CAMERA_PRESETS.find((p) => p.id === camId);
+      if (preset && preset.category !== 'follow') camId = 'chase';
+    }
     cameraSystem.setCameraPreset(camId, snap);
     cameraButtons.forEach((btn) => {
       btn.classList.toggle('active', btn.getAttribute('data-camera') === camId);
@@ -385,8 +478,8 @@ async function initApp() {
   });
 
   // Where you are: the place's name over its street corner, drawn as a pair of NYC street-name signs
-  const roadNames = new Set(ROADS.map((r) => r.name));
-  const placeNames = new Set(NYC_LANDMARKS.map((l) => l.name));
+  const roadNames = new Set(isTaipei ? activeTile.roadNames : ROADS.map((r) => r.name));
+  const placeNames = new Set(isTaipei ? activeTile.landmarks.map((l) => l.name) : NYC_LANDMARKS.map((l) => l.name));
   let locationText = '';
   function renderLocation(label) {
     if (!elLocation || label === locationText) return;
@@ -438,12 +531,17 @@ async function initApp() {
     mapSystem.waypoint = {
       x: destination.x,
       z: destination.z,
-      name: getLocationLabel(destination.x, destination.z)
+      // tests/teleports.test.cjs evaluates this region standalone with only
+      // the NYC names in scope; the typeof guards keep that harness on the
+      // NYC bindings while real tile boots use the tile values declared in
+      // initApp above. (An undeclared name is 'undefined' to typeof, never
+      // a ReferenceError.)
+      name: (typeof labelFor !== 'undefined' ? labelFor : getLocationLabel)(destination.x, destination.z)
     };
     return destination;
   }
 
-  const mapSystem = new NYCMapSystem({
+  const mapSystem = (typeof taipeiMapStub !== 'undefined' ? taipeiMapStub : null) || new NYCMapSystem({
     controllerManager,
     cameraSystem,
     trafficSystem,
@@ -463,7 +561,7 @@ async function initApp() {
   teleportButtons.forEach((btn) => {
     btn.addEventListener('click', () => {
       const key = btn.getAttribute('data-teleport');
-      const loc = TELEPORT_LOCATIONS[key];
+      const loc = (typeof activeTeleports !== 'undefined' ? activeTeleports : TELEPORT_LOCATIONS)[key];
       if (loc) {
         teleportTo(loc.x, loc.z, loc.heading);
       }
@@ -735,7 +833,7 @@ async function initApp() {
       if (elAltitude) elAltitude.textContent = altFt.toLocaleString('en-US');
       // The street corner of the player on the follow cameras, of the camera itself on the scenic ones
       const where = cameraSystem.getActivePreset().category === 'follow' ? activeEnt.position : cameraSystem.currentPos;
-      renderLocation(getLocationLabel(where.x, where.z));
+      renderLocation(labelFor(where.x, where.z));
     }
   });
 }
