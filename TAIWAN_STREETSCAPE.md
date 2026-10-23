@@ -303,7 +303,14 @@ DOT FAQ]:
 | **Yellow line** | No parking 07:00–20:00; temporary stop (< 3 min, driver ready — the statutory definition of 臨時停車， Penalty Act Art. 3) allowed | Arterial/street edges by day; parking allowed 20:00–07:00 |
 | **White line / bay marks** | Parking permitted | Stall ticks for car bays (5.0–6.0 × 2.0–2.5 m [SPEC]) and scooter bays (§b) |
 
-### c.10 Signals — vehicle heads, 小綠人， countdowns
+### c.10 Signals — vehicle heads, pedestrian heads, countdowns
+
+> **Scope decision (user, 2026-10-23): the animated 小綠人 is SKIPPED** —
+> too much work for its visual payoff at prototype stage. Pedestrian heads
+> ship as static lit figures (green walking figure / red standing figure,
+> no frame animation, no countdown digits). The animation research below
+> is kept for the record only; do not implement it unless the user
+> re-opens it. Countdown digits move to P2 with the vehicle timers.
 
 Vehicle heads: vertical 3-section (red/amber/green) like upstream's
 (y = 5.42 m head centre is fine), frequently with an added arrow section
@@ -426,8 +433,10 @@ like upstream's.
    alleys, real sidewalks (correct widths) elsewhere.
 2. Chinese street-name plates with **real geodata names** (two-line
    green plate) at junctions.
-3. 小綠人 pedestrian signals: 7-frame accelerating animation + countdown
-   digits, driven by the signal clock; ped head-start parameter.
+3. Pedestrian signals, static: upstream-style walk / don't-walk figures
+   driven by the signal clock; ped head-start parameter. (The animated
+   小綠人 + countdown digits are **deferred — out of scope per the user,
+   2026-10-23**; see §c.10 note.)
 4. Scooter intersection paint: advance stop boxes + two-stage waiting
    boxes at signalized junctions (visual layer first).
 5. Vertical Chinese shop signs + Chinese fascia theme table (§c.8).
