@@ -35,6 +35,10 @@ import { bryantParkLawn } from './landmarks.js';
 const SPAWN_Z = streetZ(37);
 const groundCollider = { type: 'ground' };
 
+// The idle pedestrian's midtown stroll range when no world options override
+// it (see the constructor's opts): it walks 5th Ave between ±340 m of z.
+const DEFAULT_IDLE_WALK_Z = { min: -340, max: 340 };
+
 const CAR_DRIVE = {
   speed: 23.5, boostSpeed: 36, reverseSpeed: 10.5, acceleration: 14, boostAcceleration: 21,
   rolling: 0.12, drag: 0.0004, brake: 9
@@ -116,8 +120,30 @@ function createNYLicensePlateTexture() {
 }
 
 class ThirdPersonControllerManager {
-  constructor(scene, colliders = []) {
+  // opts (all optional; omitting it reproduces the legacy Manhattan world
+  // exactly, which is what the NYC boot and the unit tests rely on):
+  //   bounds: {minX, maxX, minZ, maxZ} — the playable world rectangle that
+  //     movement/teleports clamp to, instead of ISLAND_BOUNDS.
+  //   clampToShore: false — skip the Manhattan shoreline clamp
+  //     (getIslandBoundsAtZ); a flat tile has no shoreline.
+  //   groundHeight(x, z, mode) — replace the NYC ground model (Central
+  //     Park / Bryant Park / block sidewalks) wholesale.
+  //   spawnByMode: { person|car|cyclist|helicopter: {x, y, z, heading} } —
+  //     per-mode spawn overrides (any field may be omitted).
+  //   idleWalkZ: {min, max} — z range the uncontrolled pedestrian strolls;
+  //     defaults to ±340 in NYC, or the tile bounds (30 m inset) when
+  //     bounds are given without an explicit range.
+  constructor(scene, colliders = [], opts = {}) {
     this.scene = scene;
+    this.worldOpts = {
+      bounds: opts.bounds || null,
+      clampToShore: opts.clampToShore !== false,
+      groundHeight: typeof opts.groundHeight === 'function' ? opts.groundHeight : null,
+      spawnByMode: opts.spawnByMode || null,
+      idleWalkZ: opts.idleWalkZ || (opts.bounds
+        ? { min: opts.bounds.minZ + 30, max: opts.bounds.maxZ - 30 }
+        : null),
+    };
     this.colliders = colliders;
     this._colliderCells = null; // built on first use, see nearColliders()
     this.activeMode = 'car'; // 'person' | 'car' | 'cyclist' | 'helicopter'
@@ -156,6 +182,36 @@ class ThirdPersonControllerManager {
     });
 
     this.bindKeyboard();
+  }
+
+  // The active world rectangle: the tile bounds when built with opts, the
+  // Manhattan island bounds otherwise. (worldOpts may be absent on
+  // prototype-built instances in unit tests — that is the NYC default.)
+  _worldBounds() {
+    return this.worldOpts?.bounds || ISLAND_BOUNDS;
+  }
+
+  // Manhattan shoreline limits at z (with the usual 8 m dry-land inset), or
+  // null when the shoreline clamp does not apply: a tile world, or a build
+  // without the coastline data.
+  _shoreAt(z) {
+    if (this.worldOpts && !this.worldOpts.clampToShore) return null;
+    if (!getIslandBoundsAtZ) return null;
+    const shore = getIslandBoundsAtZ(z);
+    return { westX: shore.westX + 8, eastX: shore.eastX - 8 };
+  }
+
+  // A mode's spawn: opts.spawnByMode wins field-by-field over the built-in
+  // (NYC) fallback passed by the entity factory.
+  _spawnFor(mode, fallback) {
+    const s = this.worldOpts?.spawnByMode?.[mode];
+    if (!s) return fallback;
+    return {
+      x: Number.isFinite(s.x) ? s.x : fallback.x,
+      y: Number.isFinite(s.y) ? s.y : fallback.y,
+      z: Number.isFinite(s.z) ? s.z : fallback.z,
+      heading: Number.isFinite(s.heading) ? s.heading : fallback.heading,
+    };
   }
 
   setCollisionListener(listener) {
@@ -319,14 +375,16 @@ class ThirdPersonControllerManager {
     }));
     const cameraBack = Math.cos(0.09) * entity.chaseDistance;
     const cameraUp = entity.chaseHeight + Math.sin(0.09) * entity.chaseDistance * 0.85;
+    const bounds = this._worldBounds();
     const clampPoint = (px, pz) => {
-      pz = Math.max(ISLAND_BOUNDS.minZ + (heli ? -6000 : 30), Math.min(ISLAND_BOUNDS.maxZ + margin, pz));
-      px = Math.max(ISLAND_BOUNDS.minX - margin, Math.min(ISLAND_BOUNDS.maxX + margin, px));
-      if (!heli && getIslandBoundsAtZ) {
-        const shore = getIslandBoundsAtZ(pz);
-        const west = shore.westX + 8, east = shore.eastX - 8;
-        if (west > east) return null;
-        px = Math.max(west, Math.min(east, px));
+      pz = Math.max(bounds.minZ + (heli ? -6000 : 30), Math.min(bounds.maxZ + margin, pz));
+      px = Math.max(bounds.minX - margin, Math.min(bounds.maxX + margin, px));
+      if (!heli) {
+        const shore = this._shoreAt(pz);
+        if (shore) {
+          if (shore.westX > shore.eastX) return null;
+          px = Math.max(shore.westX, Math.min(shore.eastX, px));
+        }
       }
       return { x: px, z: pz };
     };
@@ -360,8 +418,8 @@ class ThirdPersonControllerManager {
     const origin = clampPoint(x, z);
     if (clear(origin)) return origin;
     // Four-metre rings cover nearby streets and courtyards, with bounded work even for a click inside a large block.
-    const cx = origin ? origin.x : Math.max(ISLAND_BOUNDS.minX, Math.min(ISLAND_BOUNDS.maxX, x));
-    const cz = origin ? origin.z : Math.max(ISLAND_BOUNDS.minZ + 30, Math.min(ISLAND_BOUNDS.maxZ, z));
+    const cx = origin ? origin.x : Math.max(bounds.minX, Math.min(bounds.maxX, x));
+    const cz = origin ? origin.z : Math.max(bounds.minZ + 30, Math.min(bounds.maxZ, z));
     for (let distance = 4; distance <= 256; distance += 4) {
       for (let i = 0; i < 32; i++) {
         const angle = i * Math.PI / 16;
@@ -394,14 +452,15 @@ class ThirdPersonControllerManager {
 
     this.scene.add(root);
 
+    const spawn = this._spawnFor('person', { x: -11.6, y: ISLAND_BOUNDS.sidewalkHeight, z: SPAWN_Z + 12, heading: 0 });
     return {
       type: 'person',
       label: 'Pedestrian',
       mesh: root,
       crowd,
       rig,
-      position: new THREE.Vector3(-11.6, ISLAND_BOUNDS.sidewalkHeight, SPAWN_Z + 12),
-      heading: 0,
+      position: new THREE.Vector3(spawn.x, spawn.y, spawn.z),
+      heading: spawn.heading,
       speed: 0,
       verticalVel: 0,
       cameraTargetOffset: new THREE.Vector3(0, 1.55, 0),
@@ -500,6 +559,7 @@ class ThirdPersonControllerManager {
 
     this.scene.add(root);
 
+    const spawn = this._spawnFor('car', { x: 3.6, y: 0.0, z: SPAWN_Z + 12, heading: 0 });
     return {
       type: 'car',
       label: 'NYC Yellow Taxi',
@@ -508,8 +568,8 @@ class ThirdPersonControllerManager {
       carState,
       headLights,
       wheels,
-      position: new THREE.Vector3(3.6, 0.0, SPAWN_Z + 12),
-      heading: 0,
+      position: new THREE.Vector3(spawn.x, spawn.y, spawn.z),
+      heading: spawn.heading,
       speed: 0,
       vx: 0,
       vz: 0,
@@ -661,6 +721,7 @@ class ThirdPersonControllerManager {
 
     this.scene.add(root);
 
+    const cycSpawn = this._spawnFor('cyclist', { x: 5.2, y: 0.0, z: SPAWN_Z - 8, heading: 0 });
     return {
       type: 'cyclist',
       label: 'NYC Bike Lane Cyclist',
@@ -675,8 +736,8 @@ class ThirdPersonControllerManager {
       riderRig,
       helmet,
       headLight,
-      position: new THREE.Vector3(5.2, 0.0, SPAWN_Z - 8),
-      heading: 0,
+      position: new THREE.Vector3(cycSpawn.x, cycSpawn.y, cycSpawn.z),
+      heading: cycSpawn.heading,
       speed: 0,
       leanAngle: 0,
       pedalPhase: 0,
@@ -752,6 +813,7 @@ class ThirdPersonControllerManager {
 
     this.scene.add(root);
 
+    const heliSpawn = this._spawnFor('helicopter', { x: -110, y: 96, z: SPAWN_Z - 60, heading: 0.62 });
     return {
       type: 'helicopter',
       label: 'Sightseeing Helicopter',
@@ -759,8 +821,8 @@ class ThirdPersonControllerManager {
       tiltPivot,
       mainRotorPivot,
       tailRotorPivot,
-      position: new THREE.Vector3(-110, 96, SPAWN_Z - 60),
-      heading: 0.62,
+      position: new THREE.Vector3(heliSpawn.x, heliSpawn.y, heliSpawn.z),
+      heading: heliSpawn.heading,
       speed: 0,
       verticalSpeed: 0,
       pitchAngle: 0,
@@ -778,6 +840,8 @@ class ThirdPersonControllerManager {
   }
 
   getGroundHeight(x, z, mode = 'person') {
+    // A tile world supplies its own ground model (Taipei: the flat basin floor).
+    if (this.worldOpts?.groundHeight) return this.worldOpts.groundHeight(x, z, mode);
     // Inside Central Park (5th Ave to Central Park West, 59th St to 110th St)
     const cp = CENTRAL_PARK_BOUNDS;
     if (x > cp.minX && x < cp.maxX && z > cp.minZ && z < cp.maxZ) {
@@ -834,21 +898,22 @@ class ThirdPersonControllerManager {
   }
 
   resolveHorizontalCollision(pos, radius, yHeight = 1.0, carEntity = null, entity = carEntity) {
-    // The detailed island (the helicopter may roam out over the harbour & the boroughs)
+    // The detailed world (the helicopter may roam far out over the harbour & the boroughs / past the tile)
     const heli = this.activeMode === 'helicopter';
     const m = heli ? 6000 : 0;
-    pos.x = Math.max(ISLAND_BOUNDS.minX - m, Math.min(ISLAND_BOUNDS.maxX + m, pos.x));
-    pos.z = Math.max(ISLAND_BOUNDS.minZ + (heli ? -6000 : 30), Math.min(ISLAND_BOUNDS.maxZ + m, pos.z));
-    if (this.activeMode !== 'helicopter' && getIslandBoundsAtZ) {
-      const shore = getIslandBoundsAtZ(pos.z);
-      const minShoreX = shore.westX + 8.0;
-      const maxShoreX = shore.eastX - 8.0;
-      if (pos.x < minShoreX) {
-        pos.x = minShoreX;
-        if (carEntity && carEntity.speed) carEntity.speed *= 0.4;
-      } else if (pos.x > maxShoreX) {
-        pos.x = maxShoreX;
-        if (carEntity && carEntity.speed) carEntity.speed *= 0.4;
+    const bounds = this._worldBounds();
+    pos.x = Math.max(bounds.minX - m, Math.min(bounds.maxX + m, pos.x));
+    pos.z = Math.max(bounds.minZ + (heli ? -6000 : 30), Math.min(bounds.maxZ + m, pos.z));
+    if (this.activeMode !== 'helicopter') {
+      const shore = this._shoreAt(pos.z);
+      if (shore) {
+        if (pos.x < shore.westX) {
+          pos.x = shore.westX;
+          if (carEntity && carEntity.speed) carEntity.speed *= 0.4;
+        } else if (pos.x > shore.eastX) {
+          pos.x = shore.eastX;
+          if (carEntity && carEntity.speed) carEntity.speed *= 0.4;
+        }
       }
     }
 
@@ -1012,8 +1077,9 @@ class ThirdPersonControllerManager {
       p.speed = walkSpeed;
       p.position.x += Math.sin(p.heading) * walkSpeed * dt;
       p.position.z += Math.cos(p.heading) * walkSpeed * dt;
-      if (p.position.z < -340) p.heading = 0;
-      else if (p.position.z > 340) p.heading = Math.PI;
+      const idleZ = this.worldOpts?.idleWalkZ || DEFAULT_IDLE_WALK_Z;
+      if (p.position.z < idleZ.min) p.heading = 0;
+      else if (p.position.z > idleZ.max) p.heading = Math.PI;
     }
 
     if (this.activeMode === 'car') {
