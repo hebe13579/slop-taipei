@@ -76,7 +76,9 @@ def main():
     c.apply_file(pbf, locations=True)
     print(f'ways in tile: {len(c.ways)}, relations of interest: {len(c.relations)}')
 
-    roads = [{'type': 'way', 'id': wid, 'tags': w['tags'], 'geometry': w['geometry']}
+    # Roads keep their OSM node refs (aligned with geometry) so the M1 road
+    # graph can dedupe junctions by node id instead of only by coordinates.
+    roads = [{'type': 'way', 'id': wid, 'tags': w['tags'], 'nodes': w['nodes'], 'geometry': w['geometry']}
              for wid, w in c.ways.items() if 'highway' in w['tags']]
     def is_water(t): return t.get('natural') == 'water' or t.get('waterway') in ('riverbank',)
     def is_park(t): return t.get('leisure') == 'park' or t.get('landuse') in ('grass', 'forest', 'meadow')
