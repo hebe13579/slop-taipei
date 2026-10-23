@@ -156,6 +156,38 @@ test('water and park rings are finite, simple and non-degenerate', (t) => {
   assert.equal(checked, TAIPEI_GEO.water.length + TAIPEI_GEO.parks.length);
 });
 
+// Generation map (issue #6): the geodata's roadbeds are the curated render
+// layer over the raw roads — every roadbed traces back to raw OSM ways,
+// divided boulevards arrive merged into single wide roadbeds, and the
+// rendered carriageway length shrinks only by what merges and the link
+// policy account for (the exact accounting lives in validate.mjs).
+test('generation map roadbeds: provenance, merged boulevards, sane totals', (t) => {
+  const beds = TAIPEI_GEO.roadbeds;
+  assert.ok(Array.isArray(beds) && beds.length > 1000, 'roadbeds present in geodata');
+  const flatLen = (flat) => { let L = 0; for (let i = 2; i < flat.length; i += 2) L += Math.hypot(flat[i] - flat[i - 2], flat[i + 1] - flat[i - 1]); return L; };
+  let merged = 0, bedLen = 0;
+  for (const b of beds) {
+    assert.ok(Array.isArray(b.sourceWayIds) && b.sourceWayIds.length >= 1, `roadbed "${b.name}" has provenance`);
+    assert.ok(b.width > 0 && b.pts.length >= 4, `roadbed "${b.name}" has a centreline and width`);
+    for (let i = 0; i < b.pts.length; i++) assert.ok(Number.isFinite(b.pts[i]), `roadbed "${b.name}" finite coords`);
+    bedLen += flatLen(b.pts);
+    if (b.merged) {
+      merged++;
+      assert.ok(b.sourceWayIds.length >= 2, 'a merged roadbed combines at least two raw ways');
+    }
+  }
+  t.diagnostic(`roadbeds: ${beds.length}, merged groups ${merged}, rendered carriageway ${(bedLen / 1000).toFixed(1)} km`);
+  assert.ok(merged > 50, `expected many merged boulevards, got ${merged}`);
+  // Zhongxiao E. Rd Sec. 4 was two paired 12.8/16 m ribbons; merged it must
+  // be single roadbeds at boulevard width (>= 24 m), never the old ribbons.
+  const zx = beds.filter((b) => b.merged && b.name === '忠孝東路四段');
+  assert.ok(zx.length >= 3 && zx.every((b) => b.width >= 24), `Zhongxiao Sec.4 merged widths: ${zx.map((b) => b.width).join(', ')}`);
+  const NON_CARRIAGEWAY = new Set(['footway', 'path', 'steps', 'pedestrian', 'cycleway', 'corridor', 'elevator', 'crossing', 'platform', 'traffic_island']);
+  let rawLen = 0;
+  for (const r of TAIPEI_GEO.roads) if (!NON_CARRIAGEWAY.has(r.highway)) rawLen += flatLen(r.pts);
+  assert.ok(bedLen < rawLen && bedLen > rawLen * 0.85, `roadbed ${(bedLen / 1000).toFixed(1)} km vs raw carriageway ${(rawLen / 1000).toFixed(1)} km`);
+});
+
 test('tile registry is data-driven and defaults to nyc', async () => {
   assert.deepEqual(Object.keys(TILE_REGISTRY).sort(), ['nyc', 'taipei']);
   assert.equal(tileIdFromSearch(''), 'nyc');

@@ -1,0 +1,496 @@
+// tools/taipei/build-generation-map.mjs — generation map builder (issue #6).
+//
+// The generation map is the CURATED street-rework layer between the raw OSM
+// extract and the geodata builder:
+//
+//   tools/taipei/data/osm_*.json   (raw extract — RETAINED byte-identical,
+//                                   never edited by hand or by this script)
+//     -> tools/taipei/build-generation-map.mjs   (this file: rework RULES)
+//     -> tools/taipei/data/generation-map.json   (roadbeds: the render and
+//                                   street-section source)
+//     -> tools/taipei/build-taipei-geodata.mjs   (emits TAIPEI_GEO.roadbeds)
+//     -> js/taipei-boot.js                       (renders carriageways from
+//                                   roadbeds; routing still uses roadGraph)
+//
+// All curation is expressed as CODE (pairing rules, a link-length policy and
+// a small width-override table) so re-running this script on a future PBF
+// extract re-applies the rework automatically. Every roadbed records the
+// raw OSM way ids it derives from (sourceWayIds); validate.mjs checks that
+// provenance and flags any rule/override that matched nothing, so curation
+// cannot silently rot when the upstream data changes.
+//
+// Rework v1:
+//   1. BOULEVARD MERGE — opposing one-way carriageways of the same named
+//      trunk/primary/secondary road (roughly parallel, centrelines within
+//      45 m, opposing travel direction) merge into ONE roadbed whose width
+//      is w1 + w2 + the median gap between the centrelines. Additional
+//      parallel same-name carriageways alongside a merged pair (e.g. the
+//      slow lanes of 仁愛路) join the group and widen the span.
+//   2. RAMP/LINK POLICY — *_link ways whose total in-tile length is under
+//      120 m are excluded from roadbeds (they render as twisted spaghetti
+//      at junctions; the crossing roadbeds cover the junction visually).
+//      They remain in the roads array and the routing graph, untouched.
+//   3. WIDTH OVERRIDES — explicit per-name widths, see OVERRIDES below.
+//
+// usage: node tools/taipei/build-generation-map.mjs
+import fs from 'node:fs';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+
+const HERE = path.dirname(fileURLToPath(import.meta.url));
+const DATA = process.env.TAIPEI_DATA || path.join(HERE, 'data');
+const OUT = process.argv[2] || path.join(DATA, 'generation-map.json');
+const load = (f) => JSON.parse(fs.readFileSync(path.join(DATA, f), 'utf8'));
+
+// ---- rework configuration ----
+const PAIR_CLASSES = new Set(['trunk', 'primary', 'secondary']);
+const MAX_PAIR_DIST_M = 45;        // max centreline distance for a merge
+const MIN_PAIR_OVERLAP = 0.7;      // fraction of each segment that must pair
+const MIN_INRANGE_OVERLAP = 0.8;   // pairing density inside the overlap range
+const MIN_PAIR_SEGMENT_M = 12;     // shorter runs are junction stubs, not carriageways
+const MAX_GROUP_MEMBERS = 5;
+const LINK_MIN_LENGTH_M = 120;     // *_link ways shorter than this are not rendered
+const TAIL_MIN_LENGTH_M = 4;       // non-overlap tails shorter than this are dropped
+//
+// WIDTH OVERRIDES — by exact road name, applied instead of the inferred
+// width (explicit OSM width tag > lanes x 3.2 m > name/class default).
+// Add an entry ONLY where the inference demonstrably under-measures the
+// real roadbed, and justify it in the comment: a wrong number here is
+// worse than a narrow one, because the merge formula trusts these widths.
+// Anti-rot: an override that matches zero ways fails this script (and
+// validate.mjs), so a renamed road cannot leave a dead rule behind.
+//
+// Currently EMPTY. Candidates observed in the 2026-10-23 extract but NOT
+// overridden, because the true width cannot be demonstrated from the
+// extract alone (only that sibling segments disagree):
+//   - 信義路五段 has one 2-lane (6.4 m) run among 9.6-16 m siblings.
+//   - 仁愛路四段 has 3.2/6.4 m runs (its tree-separated slow lanes — the
+//     boulevard merge already folds these into the roadbed span).
+const OVERRIDES = {
+  // '道路名稱': 12.8, // reason, with the measurement that demonstrates it
+};
+
+// ---- frame (copied tangent-plane math from build-taipei-geodata.mjs) ----
+const LAT0 = 25.0330, LON0 = 121.5650;
+const TILE = { s: 25.020, w: 121.535, n: 25.060, e: 121.580 };
+const A = 6378137.0, E2 = 6.69437999014e-3;
+const PHI0 = (LAT0 * Math.PI) / 180, SIN0 = Math.sin(PHI0);
+const NRAD = A / Math.sqrt(1 - E2 * SIN0 * SIN0);
+const MRAD = (A * (1 - E2)) / Math.pow(1 - E2 * SIN0 * SIN0, 1.5);
+const KX = (Math.PI / 180) * NRAD * Math.cos(PHI0); // metres per degree lon
+const KY = (Math.PI / 180) * MRAD;                  // metres per degree lat
+const toWorld = (lon, lat) => [(lon - LON0) * KX, -(lat - LAT0) * KY]; // [x, z], bearing 0
+const q = (v) => Math.round(v * 10) / 10;
+const BBOX = (() => {
+  const [x0, z1] = toWorld(TILE.w, TILE.s);
+  const [x1, z0] = toWorld(TILE.e, TILE.n);
+  return { minX: q(x0), maxX: q(x1), minZ: q(z0), maxZ: q(z1) };
+})();
+
+// ---- width / layout inference (copied from build-taipei-geodata.mjs so the
+//      two builders can never disagree about a way's width or layout) ----
+const WIDTH_BY_CLASS = { motorway: 22, motorway_link: 10, trunk: 22, trunk_link: 10, primary: 18, primary_link: 9, secondary: 14, secondary_link: 8, tertiary: 11, tertiary_link: 7, unclassified: 8, residential: 8, living_street: 6, service: 5, pedestrian: 3, footway: 3, path: 3, cycleway: 3, steps: 2, track: 4, road: 8, construction: 6, busway: 7, corridor: 2, elevator: 2, platform: 3, crossing: 3, traffic_island: 2 };
+function roadWidth(tags) {
+  const w = parseFloat(tags.width || '');
+  if (Number.isFinite(w) && w > 0) return w;
+  const lanes = parseInt(tags.lanes || '', 10);
+  if (Number.isFinite(lanes) && lanes > 0) return Math.round(lanes * 3.2 * 10) / 10;
+  const name = tags.name || '';
+  if (tags.service === 'alley' || name.includes('弄')) return 3;
+  if (name.includes('巷')) return 6;
+  return WIDTH_BY_CLASS[tags.highway] ?? 6;
+}
+function pedestrianLayout(tags, width) {
+  if (tags.arcade || tags.covered === 'colonnade') return 'arcade';
+  const sw = [tags.sidewalk, tags['sidewalk:both'], tags['sidewalk:left'], tags['sidewalk:right']];
+  if (sw.some((v) => v && !['no', 'none'].includes(v))) return 'sidewalk';
+  const name = tags.name || '';
+  if (tags.service === 'alley' || name.includes('弄') || width <= 4.5) return 'shared';
+  if (name.includes('巷') || width < 8) return 'painted';
+  return 'sidewalk';
+}
+const NON_CARRIAGEWAY = new Set(['footway', 'path', 'steps', 'pedestrian', 'cycleway', 'corridor', 'elevator', 'crossing', 'platform', 'traffic_island']);
+
+// ---- polyline helpers ----
+// Clip a polyline to the tile rect, returning runs (same Liang-Barsky
+// per-segment clip as build-taipei-geodata.mjs, minus the node-id records
+// the road graph needs — provenance here is the WAY id, kept per segment).
+function clipRuns(pts, bb) {
+  const runs = [];
+  let run = [];
+  const push = (p) => {
+    const l = run[run.length - 1];
+    if (!l || Math.hypot(p[0] - l[0], p[1] - l[1]) > 0.01) run.push(p);
+  };
+  const flush = () => { if (run.length >= 2) runs.push(run); run = []; };
+  for (let i = 0; i + 1 < pts.length; i++) {
+    const [ax, az] = pts[i], [bx, bz] = pts[i + 1];
+    const dx = bx - ax, dz = bz - az;
+    let t0 = 0, t1 = 1, ok = true;
+    for (const [p, qv] of [[-dx, ax - bb.minX], [dx, bb.maxX - ax], [-dz, az - bb.minZ], [dz, bb.maxZ - az]]) {
+      if (Math.abs(p) < 1e-12) { if (qv < 0) { ok = false; break; } continue; }
+      const r = qv / p;
+      if (p < 0) t0 = Math.max(t0, r); else t1 = Math.min(t1, r);
+      if (t0 > t1) { ok = false; break; }
+    }
+    if (!ok) { flush(); continue; }
+    const pA = t0 === 0 ? [ax, az] : [ax + t0 * dx, az + t0 * dz];
+    const pB = t1 === 1 ? [bx, bz] : [ax + t1 * dx, az + t1 * dz];
+    if (t0 > 0 && run.length) flush();
+    push(pA); push(pB);
+    if (t1 < 1) flush();
+  }
+  flush();
+  return runs;
+}
+const cumLen = (pts) => {
+  const cum = [0];
+  for (let i = 1; i < pts.length; i++) cum.push(cum[i - 1] + Math.hypot(pts[i][0] - pts[i - 1][0], pts[i][1] - pts[i - 1][1]));
+  return cum;
+};
+const lineLength = (pts) => { const c = cumLen(pts); return c[c.length - 1]; };
+// Point + geometry tangent at arc length s.
+function pointAt(pts, cum, s) {
+  const L = cum[cum.length - 1];
+  const t = Math.min(Math.max(s, 0), L);
+  let lo = 0, hi = cum.length - 1;
+  while (lo + 1 < hi) { const mid = (lo + hi) >> 1; if (cum[mid] <= t) lo = mid; else hi = mid; }
+  const a = pts[lo], b = pts[lo + 1];
+  const segLen = cum[lo + 1] - cum[lo] || 1e-9;
+  const f = (t - cum[lo]) / segLen;
+  const dx = b[0] - a[0], dz = b[1] - a[1];
+  const n = Math.hypot(dx, dz) || 1;
+  return { x: a[0] + f * dx, z: a[1] + f * dz, tx: dx / n, tz: dz / n };
+}
+// Closest point on a polyline: { d, x, z, s, tx, tz } (geometry tangent).
+function closestOn(pts, cum, x, z) {
+  let best = null;
+  for (let i = 0; i + 1 < pts.length; i++) {
+    const [ax, az] = pts[i], [bx, bz] = pts[i + 1];
+    const dx = bx - ax, dz = bz - az;
+    const L2 = dx * dx + dz * dz;
+    let t = L2 > 0 ? ((x - ax) * dx + (z - az) * dz) / L2 : 0;
+    t = t < 0 ? 0 : t > 1 ? 1 : t;
+    const px = ax + t * dx, pz = az + t * dz;
+    const d = Math.hypot(x - px, z - pz);
+    if (!best || d < best.d) {
+      const n = Math.hypot(dx, dz) || 1;
+      best = { d, x: px, z: pz, s: cum[i] + t * Math.sqrt(L2), tx: dx / n, tz: dz / n };
+    }
+  }
+  return best;
+}
+// Split a polyline at arc lengths s0 < s1: returns [head, mid, tail] point
+// arrays (any may be null when degenerate).
+function splitAt(pts, cum, s0, s1) {
+  const cuts = [0, s0, s1, cum[cum.length - 1]];
+  const parts = [];
+  for (let k = 0; k + 1 < cuts.length; k++) {
+    const a = cuts[k], b = cuts[k + 1];
+    if (b - a < 0.01) { parts.push(null); continue; }
+    const out = [];
+    const pa = pointAt(pts, cum, a);
+    out.push([pa.x, pa.z]);
+    for (let i = 0; i < pts.length; i++) if (cum[i] > a + 0.01 && cum[i] < b - 0.01) out.push(pts[i]);
+    const pb = pointAt(pts, cum, b);
+    const last = out[out.length - 1];
+    if (Math.hypot(pb.x - last[0], pb.z - last[1]) > 0.01) out.push([pb.x, pb.z]);
+    parts.push(out.length >= 2 ? out : null);
+  }
+  return parts;
+}
+function rdp(pts, eps) {
+  if (pts.length < 3) return pts;
+  const keep = new Uint8Array(pts.length);
+  keep[0] = keep[pts.length - 1] = 1;
+  const stack = [[0, pts.length - 1]];
+  while (stack.length) {
+    const [a, b] = stack.pop();
+    const A = pts[a], B = pts[b];
+    const dx = B[0] - A[0], dz = B[1] - A[1], L = Math.hypot(dx, dz) || 1e-9;
+    let best = -1, bi = -1;
+    for (let i = a + 1; i < b; i++) {
+      const d = Math.abs((pts[i][0] - A[0]) * dz - (pts[i][1] - A[1]) * dx) / L;
+      if (d > best) { best = d; bi = i; }
+    }
+    if (best > eps) { keep[bi] = 1; stack.push([a, bi], [bi, b]); }
+  }
+  return pts.filter((_, i) => keep[i]);
+}
+const median = (arr) => { const s = [...arr].sort((a, b) => a - b); return s[Math.floor(s.length / 2)]; };
+const flatQ = (pts) => pts.flatMap(([x, z]) => [q(x), q(z)]);
+
+// ---- segments: one per clipped run of a carriageway way ----------------
+const overrideMatched = new Map(Object.keys(OVERRIDES).map((n) => [n, 0]));
+const segments = [];
+let carriagewayLength = 0;
+for (const el of load('osm_roads.json').elements) {
+  if (el.type !== 'way' || !el.tags?.highway || !el.geometry || el.geometry.length < 2) continue;
+  if (NON_CARRIAGEWAY.has(el.tags.highway)) continue;
+  let width = roadWidth(el.tags);
+  if (Object.hasOwn(OVERRIDES, el.tags.name)) {
+    width = OVERRIDES[el.tags.name];
+    overrideMatched.set(el.tags.name, overrideMatched.get(el.tags.name) + 1);
+  }
+  const layout = pedestrianLayout(el.tags, roadWidth(el.tags));
+  const onewayRaw = el.tags.oneway || '';
+  const runs = clipRuns(el.geometry.map((g) => toWorld(g.lon, g.lat)), BBOX);
+  for (const pts of runs) {
+    const cum = cumLen(pts);
+    const length = cum[cum.length - 1];
+    if (length < 0.05) continue;
+    carriagewayLength += length;
+    segments.push({
+      wayId: el.id, name: el.tags.name || '', highway: el.tags.highway, width,
+      pedestrianLayout: layout,
+      oneway: ['yes', 'true', '1', '-1'].includes(onewayRaw), reverse: onewayRaw === '-1',
+      layer: el.tags.layer || '', pts, cum, length,
+    });
+  }
+}
+for (const [name, n] of overrideMatched) {
+  if (n === 0) {
+    console.error(`[generation-map] FATAL: width override for "${name}" matched zero ways — the rule has rotted (road renamed or retagged?). Fix or remove it.`);
+    process.exit(1);
+  }
+}
+
+// ---- ramp/link policy ----------------------------------------------------
+const linkWayLength = new Map();
+for (const s of segments) if (s.highway.endsWith('_link')) linkWayLength.set(s.wayId, (linkWayLength.get(s.wayId) || 0) + s.length);
+const excludedLinkWays = new Set();
+let excludedLinkLength = 0;
+for (const [wayId, len] of linkWayLength) if (len < LINK_MIN_LENGTH_M) { excludedLinkWays.add(wayId); excludedLinkLength += len; }
+const isExcludedLink = (s) => s.highway.endsWith('_link') && excludedLinkWays.has(s.wayId);
+
+// ---- boulevard merge ------------------------------------------------------
+// Travel-oriented tangent of a segment at a sample (oneway=-1 geometry runs
+// against the legal travel direction).
+const travelTan = (seg, t) => (seg.reverse ? { tx: -t.tx, tz: -t.tz } : t);
+// Score a candidate pair. Returns null when the pairing tests fail, else
+// { meanDist, rangeA, rangeB } with the arc-length overlap ranges.
+const OPPOSING_DOT = Math.cos((140 * Math.PI) / 180); // travel tangents must oppose within 40 deg
+function pairEval(A, B) {
+  if (A.wayId === B.wayId) return null;
+  // Cheap pre-filter: travel chords must roughly oppose.
+  const chord = (s) => {
+    const a = s.pts[0], b = s.pts[s.pts.length - 1];
+    let dx = b[0] - a[0], dz = b[1] - a[1];
+    if (s.reverse) { dx = -dx; dz = -dz; }
+    const n = Math.hypot(dx, dz);
+    return n > 1 ? [dx / n, dz / n] : null;
+  };
+  const ca = chord(A), cb = chord(B);
+  if (!ca || !cb) return null;
+  if (ca[0] * cb[0] + ca[1] * cb[1] > -0.5) return null;
+  // Bounding boxes must come within MAX_PAIR_DIST_M of each other.
+  const bb = (s) => s.pts.reduce((m, p) => ({ x0: Math.min(m.x0, p[0]), x1: Math.max(m.x1, p[0]), z0: Math.min(m.z0, p[1]), z1: Math.max(m.z1, p[1]) }), { x0: 1e18, x1: -1e18, z0: 1e18, z1: -1e18 });
+  const ba = bb(A), bk = bb(B);
+  if (ba.x0 - MAX_PAIR_DIST_M > bk.x1 || bk.x0 - MAX_PAIR_DIST_M > ba.x1 || ba.z0 - MAX_PAIR_DIST_M > bk.z1 || bk.z0 - MAX_PAIR_DIST_M > ba.z1) return null;
+  // Sampled test, both directions: a sample is "good" when its closest point
+  // on the other centreline is within range AND the travel tangents there
+  // oppose (this rejects junction crossovers, whose tangents do not).
+  const sampleTest = (S, T) => {
+    const step = 3;
+    const n = Math.max(2, Math.round(S.length / step));
+    let good = 0, distSum = 0, sMin = Infinity, sMax = -Infinity;
+    const flags = [];
+    for (let i = 0; i <= n; i++) {
+      const s = (S.length * i) / n;
+      const p = pointAt(S.pts, S.cum, s);
+      const tp = travelTan(S, p);
+      const cp = closestOn(T.pts, T.cum, p.x, p.z);
+      const tt = travelTan(T, cp);
+      const ok = cp.d <= MAX_PAIR_DIST_M && tp.tx * tt.tx + tp.tz * tt.tz < OPPOSING_DOT;
+      flags.push({ s, ok });
+      if (ok) { good++; distSum += cp.d; if (s < sMin) sMin = s; if (s > sMax) sMax = s; }
+    }
+    if (good / (n + 1) < MIN_PAIR_OVERLAP) return null;
+    const inRange = flags.filter((f) => f.s >= sMin && f.s <= sMax);
+    if (!inRange.length || inRange.filter((f) => f.ok).length / inRange.length < MIN_INRANGE_OVERLAP) return null;
+    return { range: [sMin, sMax], distSum, good };
+  };
+  const ta = sampleTest(A, B), tb = sampleTest(B, A);
+  if (!ta || !tb) return null;
+  return { meanDist: (ta.distSum + tb.distSum) / (ta.good + tb.good), rangeA: ta.range, rangeB: tb.range };
+}
+
+const candidates = segments.filter((s) => !isExcludedLink(s) && s.name && s.oneway && PAIR_CLASSES.has(s.highway) && s.length >= MIN_PAIR_SEGMENT_M);
+const byName = new Map();
+for (const s of candidates) { if (!byName.has(s.name)) byName.set(s.name, []); byName.get(s.name).push(s); }
+const pairEvals = [];
+for (const group of byName.values()) {
+  for (let i = 0; i < group.length; i++) for (let j = i + 1; j < group.length; j++) {
+    const ev = pairEval(group[i], group[j]);
+    if (ev) pairEvals.push({ A: group[i], B: group[j], ...ev });
+  }
+}
+pairEvals.sort((a, b) => a.meanDist - b.meanDist || a.A.wayId - b.A.wayId || a.B.wayId - b.B.wayId);
+const pairedWith = new Map(); // segment -> group
+const groups = [];
+for (const ev of pairEvals) {
+  if (pairedWith.has(ev.A) || pairedWith.has(ev.B)) continue;
+  const g = { members: [{ seg: ev.A, range: ev.rangeA }, { seg: ev.B, range: ev.rangeB }], primary: ev.A };
+  groups.push(g);
+  pairedWith.set(ev.A, g); pairedWith.set(ev.B, g);
+}
+// Build a group's merged centreline + width from its current members.
+// Parameterised on the primary member's overlap range; at each sample the
+// centreline is the centroid of the members' closest points, and the width
+// is the lateral span across all members (median over samples).
+function groupGeometry(g) {
+  const P = g.primary;
+  const range = g.members.find((m) => m.seg === P).range;
+  const step = 2;
+  const n = Math.max(2, Math.round((range[1] - range[0]) / step));
+  const mids = [], spans = [], pairDists = [];
+  for (let i = 0; i <= n; i++) {
+    const s = range[0] + ((range[1] - range[0]) * i) / n;
+    const p = pointAt(P.pts, P.cum, s);
+    const ptsHere = [];
+    for (const m of g.members) {
+      if (m.seg === P) { ptsHere.push({ x: p.x, z: p.z, w: P.width }); continue; }
+      const cp = closestOn(m.seg.pts, m.seg.cum, p.x, p.z);
+      if (cp.d <= MAX_PAIR_DIST_M) ptsHere.push({ x: cp.x, z: cp.z, w: m.seg.width });
+    }
+    if (ptsHere.length < 2) continue;
+    const mx = ptsHere.reduce((a, c) => a + c.x, 0) / ptsHere.length;
+    const mz = ptsHere.reduce((a, c) => a + c.z, 0) / ptsHere.length;
+    mids.push([mx, mz]);
+    const nx = -p.tz, nz = p.tx;
+    const offs = ptsHere.map((c) => (c.x - mx) * nx + (c.z - mz) * nz);
+    spans.push(Math.max(...ptsHere.map((c, i) => offs[i] + c.w / 2)) - Math.min(...ptsHere.map((c, i) => offs[i] - c.w / 2)));
+    if (ptsHere.length === 2) pairDists.push(Math.hypot(ptsHere[0].x - ptsHere[1].x, ptsHere[0].z - ptsHere[1].z));
+  }
+  if (mids.length < 2) return null;
+  let width = median(spans);
+  if (g.members.length === 2 && pairDists.length) {
+    const [m0, m1] = g.members;
+    // The spec formula for a pair: w1 + w2 + median gap between centrelines.
+    width = Math.max(width, m0.seg.width + m1.seg.width + Math.max(0, median(pairDists) - (m0.seg.width + m1.seg.width) / 2));
+  }
+  width = Math.max(width, ...g.members.map((m) => m.seg.width));
+  const centreline = rdp(mids.filter((p, i) => i === 0 || Math.hypot(p[0] - mids[i - 1][0], p[1] - mids[i - 1][1]) > 0.05), 0.3);
+  return { centreline, width: Math.round(width * 10) / 10, length: lineLength(centreline) };
+}
+// Group extension: an unpaired candidate running alongside a merged group
+// (same name — e.g. a tree-separated slow lane) joins it when most of its
+// length lies within pairing distance of the group's centreline, travelling
+// parallel OR opposing (a slow lane travels WITH its carriageway).
+{
+  const PARALLEL_DOT = Math.cos((35 * Math.PI) / 180);
+  let joined = true;
+  while (joined) {
+    joined = false;
+    for (const C of candidates) {
+      if (pairedWith.has(C)) continue;
+      let best = null;
+      for (const g of groups) {
+        if (g.members[0].seg.name !== C.name || g.members.length >= MAX_GROUP_MEMBERS) continue;
+        const geo = groupGeometry(g);
+        if (!geo || geo.centreline.length < 2) continue;
+        const cum = cumLen(geo.centreline);
+        const n = Math.max(2, Math.round(C.length / 3));
+        let good = 0, distSum = 0, sMin = Infinity, sMax = -Infinity;
+        for (let i = 0; i <= n; i++) {
+          const s = (C.length * i) / n;
+          const p = pointAt(C.pts, C.cum, s);
+          const tp = travelTan(C, p);
+          const cp = closestOn(geo.centreline, cum, p.x, p.z);
+          const dot = tp.tx * cp.tx + tp.tz * cp.tz;
+          if (cp.d <= MAX_PAIR_DIST_M && Math.abs(dot) > PARALLEL_DOT) { good++; distSum += cp.d; if (s < sMin) sMin = s; if (s > sMax) sMax = s; }
+        }
+        if (good / (n + 1) >= MIN_PAIR_OVERLAP && (!best || distSum / good < best.meanDist)) best = { g, range: [sMin, sMax], meanDist: distSum / good };
+      }
+      if (best) { best.g.members.push({ seg: C, range: best.range }); pairedWith.set(C, best.g); joined = true; }
+    }
+  }
+}
+
+// ---- emission --------------------------------------------------------------
+const CLASS_RANK = { motorway: 0, trunk: 1, primary: 2, secondary: 3, tertiary: 4, unclassified: 5, residential: 6, living_street: 7, road: 8, busway: 9, service: 10 };
+const roadbeds = [];
+const emittedGroups = new Set();
+let mergedConstituentOverlapLength = 0, mergedLength = 0, droppedScrapLength = 0, roadbedLength = 0;
+const mergedReport = [];
+const flatLength = (flat) => { let L = 0; for (let i = 2; i < flat.length; i += 2) L += Math.hypot(flat[i] - flat[i - 2], flat[i + 1] - flat[i - 1]); return L; };
+const pushRoadbed = (entry) => { roadbeds.push(entry); roadbedLength += flatLength(entry.centreline); };
+const singleEntry = (seg, pts) => ({
+  name: seg.name, highway: seg.highway, centreline: flatQ(pts), width: seg.width,
+  pedestrianLayout: seg.pedestrianLayout, sourceWayIds: [seg.wayId],
+});
+for (const seg of segments) {
+  if (isExcludedLink(seg)) continue;
+  const g = pairedWith.get(seg);
+  if (!g) { pushRoadbed(singleEntry(seg, seg.pts)); continue; }
+  if (seg !== g.primary || emittedGroups.has(g)) continue;
+  emittedGroups.add(g);
+  const geo = groupGeometry(g);
+  if (!geo) { // pairing collapsed under resampling: fall back to singles
+    for (const m of g.members) pushRoadbed(singleEntry(m.seg, m.seg.pts));
+    continue;
+  }
+  const widest = g.members.reduce((a, m) => (m.seg.width > a.seg.width ? m : a), g.members[0]);
+  const highway = g.members.map((m) => m.seg.highway).sort((a, b) => (CLASS_RANK[a] ?? 99) - (CLASS_RANK[b] ?? 99))[0];
+  pushRoadbed({
+    name: g.primary.name, highway, centreline: flatQ(geo.centreline), width: geo.width,
+    pedestrianLayout: widest.seg.pedestrianLayout,
+    sourceWayIds: g.members.map((m) => m.seg.wayId),
+    merged: true, constituentWidths: g.members.map((m) => m.seg.width),
+  });
+  mergedLength += geo.length;
+  mergedReport.push({
+    name: g.primary.name, highway, width: geo.width,
+    members: g.members.map((m) => m.seg.wayId), memberWidths: g.members.map((m) => m.seg.width),
+    layers: g.members.map((m) => m.seg.layer || '0'), length: Math.round(geo.length),
+  });
+  // Members' non-overlap tails survive as single roadbeds.
+  for (const m of g.members) {
+    mergedConstituentOverlapLength += m.range[1] - m.range[0];
+    const parts = splitAt(m.seg.pts, m.seg.cum, m.range[0], m.range[1]);
+    for (const tail of [parts[0], parts[2]]) {
+      if (!tail) continue;
+      const tl = lineLength(tail);
+      if (tl >= TAIL_MIN_LENGTH_M) pushRoadbed(singleEntry(m.seg, tail));
+      else droppedScrapLength += tl;
+    }
+  }
+}
+
+// ---- stats + output ----------------------------------------------------------
+const stats = {
+  carriagewayRuns: segments.length,
+  carriagewayLength: Math.round(carriagewayLength * 10) / 10,
+  linkWaysTotal: linkWayLength.size,
+  linkWaysKept: linkWayLength.size - excludedLinkWays.size,
+  linkWaysExcluded: excludedLinkWays.size,
+  excludedLinkWayIds: [...excludedLinkWays].sort((a, b) => a - b),
+  excludedLinkLength: Math.round(excludedLinkLength * 10) / 10,
+  mergeGroups: mergedReport.length,
+  mergedConstituentOverlapLength: Math.round(mergedConstituentOverlapLength * 10) / 10,
+  mergedLength: Math.round(mergedLength * 10) / 10,
+  droppedScrapLength: Math.round(droppedScrapLength * 10) / 10,
+  roadbedCount: roadbeds.length,
+  roadbedLength: Math.round(roadbedLength * 10) / 10,
+  overrides: [...overrideMatched.entries()].map(([name, matchedWays]) => ({ name, width: OVERRIDES[name], matchedWays })),
+  mergedRoads: mergedReport,
+};
+const identity = stats.roadbedLength + stats.excludedLinkLength + stats.mergedConstituentOverlapLength - stats.mergedLength + stats.droppedScrapLength;
+console.log(`[generation-map] length identity: roadbeds ${stats.roadbedLength} + excludedLinks ${stats.excludedLinkLength} + mergedOverlap ${stats.mergedConstituentOverlapLength} - merged ${stats.mergedLength} + scrap ${stats.droppedScrapLength} = ${identity.toFixed(1)} vs carriageway ${stats.carriagewayLength} (delta ${(identity - stats.carriagewayLength).toFixed(1)} m)`);
+const out = {
+  version: 1,
+  generatedBy: 'tools/taipei/build-generation-map.mjs',
+  issue: 'https://github.com/hebe13579/slop-taipei/issues/6',
+  frame: { origin: 'Taipei 101 (25.0330, 121.5650)', originLatLon: [LAT0, LON0], bearingDeg: 0, units: 'm', bbox: BBOX },
+  roadbeds,
+  stats,
+};
+fs.writeFileSync(OUT, JSON.stringify(out) + '\n');
+console.log(`[generation-map] carriageway runs: ${segments.length}, ${(carriagewayLength / 1000).toFixed(1)} km`);
+console.log(`[generation-map] links: ${linkWayLength.size} ways, ${excludedLinkWays.size} excluded (< ${LINK_MIN_LENGTH_M} m, ${(excludedLinkLength / 1000).toFixed(2)} km), ${linkWayLength.size - excludedLinkWays.size} kept`);
+console.log(`[generation-map] merges: ${mergedReport.length} groups`);
+for (const m of mergedReport.sort((a, b) => b.width - a.width)) {
+  console.log(`  MERGED ${m.name} (${m.highway}) width ${m.width} m, ${m.length} m — ways [${m.members.join(', ')}] widths [${m.memberWidths.join(', ')}] layers [${m.layers.join(', ')}]`);
+}
+console.log(`[generation-map] roadbeds: ${roadbeds.length}, ${(roadbedLength / 1000).toFixed(1)} km rendered`);
+console.log(`[generation-map] wrote ${OUT} (${(fs.statSync(OUT).size / 1024).toFixed(0)} KB)`);

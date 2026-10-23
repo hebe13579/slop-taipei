@@ -1,5 +1,6 @@
 // tools/taipei/validate.mjs — M0 spike checks on the generated js/taipei-geodata.js.
 // usage: node tools/taipei/validate.mjs
+import fs from 'node:fs';
 import { TAIPEI_GEO as G } from '../../js/taipei-geodata.js';
 
 let failures = 0;
@@ -88,6 +89,43 @@ if (graph) {
   const alleyEdges = graph.edges.filter((e) => e.name.includes('弄')).length;
   check(laneEdges > 0 && alleyEdges > 0, 'graph retains named 巷 lane and 弄 alley edges', `${laneEdges} 巷 edges, ${alleyEdges} 弄 edges`);
 }
+
+// 7. Generation map (issue #6): provenance, anti-rot, length accounting.
+const gm = JSON.parse(fs.readFileSync(new URL('./data/generation-map.json', import.meta.url), 'utf8'));
+const rawRoads = JSON.parse(fs.readFileSync(new URL('./data/osm_roads.json', import.meta.url), 'utf8'));
+const rawWayIds = new Set(rawRoads.elements.filter((e) => e.type === 'way').map((e) => e.id));
+check(Array.isArray(G.roadbeds) && G.roadbeds.length > 1000, 'roadbeds present in geodata', `${Array.isArray(G.roadbeds) ? G.roadbeds.length : 0} roadbeds from the generation map`);
+let noSource = 0, unknownId = 0;
+for (const b of gm.roadbeds) {
+  if (!Array.isArray(b.sourceWayIds) || !b.sourceWayIds.length) { noSource++; continue; }
+  for (const id of b.sourceWayIds) if (!rawWayIds.has(id)) unknownId++;
+}
+check(noSource === 0 && unknownId === 0, 'every generation-map roadbed traces to raw OSM way ids', `${gm.roadbeds.length} roadbeds, ${noSource} without source, ${unknownId} unknown ids`);
+let gNoSource = 0;
+for (const b of G.roadbeds || []) if (!Array.isArray(b.sourceWayIds) || !b.sourceWayIds.length) gNoSource++;
+check(gNoSource === 0, 'every geodata roadbed carries sourceWayIds');
+const usedWayIds = new Set(gm.roadbeds.flatMap((b) => b.sourceWayIds));
+const leakedLinks = gm.stats.excludedLinkWayIds.filter((id) => usedWayIds.has(id));
+check(leakedLinks.length === 0, 'excluded short link ways appear in no roadbed', `${gm.stats.excludedLinkWayIds.length} link ways excluded (< 120 m), ${gm.stats.linkWaysKept} kept`);
+check(gm.stats.overrides.every((o) => o.matchedWays >= 1), 'every width override matched at least one way (anti-rot)', gm.stats.overrides.length ? gm.stats.overrides.map((o) => `${o.name} x${o.matchedWays}`).join(', ') : 'no overrides defined');
+check(gm.stats.mergeGroups > 0, 'boulevard merge produced merged roadbeds', `${gm.stats.mergeGroups} groups`);
+let narrowMerged = 0;
+for (const b of gm.roadbeds) if (b.merged && !(b.width + 0.05 >= Math.max(...b.constituentWidths))) narrowMerged++;
+check(narrowMerged === 0, 'merged roadbed widths >= each constituent width');
+// Length accounting, in metres, against the geodata's own roads array
+// (carriageway = the builder's NON_CARRIAGEWAY complement, incl. traffic_island).
+const BUILDER_NON_CARRIAGEWAY = new Set(['footway', 'path', 'steps', 'pedestrian', 'cycleway', 'corridor', 'elevator', 'crossing', 'platform', 'traffic_island']);
+const flatLen = (flat) => { let L = 0; for (let i = 2; i < flat.length; i += 2) L += Math.hypot(flat[i] - flat[i - 2], flat[i + 1] - flat[i - 1]); return L; };
+let preMergeM = 0;
+for (const r of G.roads) if (!BUILDER_NON_CARRIAGEWAY.has(r.highway)) preMergeM += flatLen(r.pts);
+const statsDelta = Math.abs(gm.stats.carriagewayLength - preMergeM) / preMergeM;
+check(statsDelta < 0.01, 'generation-map carriageway length matches geodata roads (same raw extract)', `stats ${(gm.stats.carriagewayLength / 1000).toFixed(1)} km vs roads ${(preMergeM / 1000).toFixed(1)} km`);
+let roadbedM = 0;
+for (const b of G.roadbeds || []) roadbedM += flatLen(b.pts);
+const accounted = roadbedM + gm.stats.excludedLinkLength + gm.stats.mergedConstituentOverlapLength - gm.stats.mergedLength + gm.stats.droppedScrapLength;
+const acctDelta = Math.abs(accounted - preMergeM) / preMergeM;
+check(acctDelta < 0.015, 'rendered roadbed length accounts for pre-merge carriageway length within 1.5%', `roadbeds ${(roadbedM / 1000).toFixed(1)} km + excluded links ${(gm.stats.excludedLinkLength / 1000).toFixed(2)} km + merged overlap ${(gm.stats.mergedConstituentOverlapLength / 1000).toFixed(1)} km - merged ${(gm.stats.mergedLength / 1000).toFixed(1)} km + scrap ${(gm.stats.droppedScrapLength / 1000).toFixed(2)} km = ${(accounted / 1000).toFixed(1)} km vs ${(preMergeM / 1000).toFixed(1)} km`);
+check(roadbedM < preMergeM, 'rendered carriageway is shorter than pre-merge (merges + link exclusion only remove)', `${(roadbedM / 1000).toFixed(1)} km < ${(preMergeM / 1000).toFixed(1)} km`);
 
 console.log(failures ? `\n${failures} CHECK(S) FAILED` : '\nALL CHECKS PASSED');
 process.exit(failures ? 1 : 0);
