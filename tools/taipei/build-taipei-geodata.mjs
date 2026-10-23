@@ -74,18 +74,48 @@ function bufferLine(pts, halfWidth) {
 // ---- roads ----
 const WIDTH_BY_CLASS = { motorway: 22, motorway_link: 10, trunk: 22, trunk_link: 10, primary: 18, primary_link: 9, secondary: 14, secondary_link: 8, tertiary: 11, tertiary_link: 7, unclassified: 8, residential: 8, living_street: 6, service: 5, pedestrian: 3, footway: 3, path: 3, cycleway: 3, steps: 2, track: 4, road: 8, construction: 6, busway: 7, corridor: 2, elevator: 2, platform: 3, crossing: 3, traffic_island: 2 };
 function roadWidth(tags) {
-  const lanes = parseInt(tags.lanes || '', 10);
-  if (Number.isFinite(lanes) && lanes > 0) return Math.round(lanes * 3.2 * 10) / 10;
+  // Taiwan streetscape rule (user direction, 2026-10-23): never widen a narrow
+  // way to a class default when OSM says how narrow it really is. An explicit
+  // width wins, then lane count, then a name-based narrow default for
+  // 巷 (lanes, ~4-8 m) / 弄 (alleys, ~2-4 m) / service alleys, then the class.
   const w = parseFloat(tags.width || '');
   if (Number.isFinite(w) && w > 0) return w;
+  const lanes = parseInt(tags.lanes || '', 10);
+  if (Number.isFinite(lanes) && lanes > 0) return Math.round(lanes * 3.2 * 10) / 10;
+  const name = tags.name || '';
+  if (tags.service === 'alley' || name.includes('弄')) return 3;
+  if (name.includes('巷')) return 6;
   return WIDTH_BY_CLASS[tags.highway] ?? 6;
 }
+// Per-road pedestrian layout for Taiwan streets (NOT the upstream uniform
+// 4.6 m sidewalk assumption): big roads get formal sidewalks, 巷 lanes get a
+// green painted walkway (標線型人行道) or shared edge, 弄 alleys are fully
+// shared, and a colonnade-covered way is a 騎樓 arcade. An explicit OSM
+// sidewalk tag beats the class/width inference; sidewalk=no falls through.
+function pedestrianLayout(tags, width) {
+  if (tags.arcade || tags.covered === 'colonnade') return 'arcade';
+  const sw = [tags.sidewalk, tags['sidewalk:both'], tags['sidewalk:left'], tags['sidewalk:right']];
+  if (sw.some((v) => v && !['no', 'none'].includes(v))) return 'sidewalk';
+  const name = tags.name || '';
+  if (tags.service === 'alley' || name.includes('弄') || width <= 4.5) return 'shared';
+  if (name.includes('巷') || width < 8) return 'painted';
+  return 'sidewalk';
+}
 // Clip a polyline to the tile rect, returning runs (an OSM way can enter/leave
-// the tile several times). Liang-Barsky per segment.
-function clipRuns(pts, bb) {
+// the tile several times). Liang-Barsky per segment. Points are records
+// {x, z, nodeId}: nodeId is the OSM node id when the point is an original way
+// vertex and the source element carried aligned `nodes` refs (the PBF
+// extractor preserves them; Overpass-style JSON without refs leaves them
+// null, and the road graph then falls back to rounded coordinates). Synthetic
+// tile-boundary points always have nodeId null.
+function clipRuns(pts, bb, nodeIds = null) {
   const runs = [];
   let run = [];
-  const push = (p) => { const l = run[run.length - 1]; if (!l || Math.hypot(p[0] - l[0], p[1] - l[1]) > 0.01) run.push(p); };
+  const push = (p) => {
+    const l = run[run.length - 1];
+    if (!l || Math.hypot(p.x - l.x, p.z - l.z) > 0.01) run.push(p);
+    else if (l.nodeId == null && p.nodeId != null) l.nodeId = p.nodeId;
+  };
   const flush = () => { if (run.length >= 2) runs.push(run); run = []; };
   for (let i = 0; i + 1 < pts.length; i++) {
     const [ax, az] = pts[i], [bx, bz] = pts[i + 1];
@@ -98,8 +128,10 @@ function clipRuns(pts, bb) {
       if (t0 > t1) { ok = false; break; }
     }
     if (!ok) { flush(); continue; }
-    const pA = t0 === 0 ? [ax, az] : [ax + t0 * dx, az + t0 * dz];
-    const pB = t1 === 1 ? [bx, bz] : [ax + t1 * dx, az + t1 * dz];
+    const idA = nodeIds && t0 === 0 ? nodeIds[i] : null;
+    const idB = nodeIds && t1 === 1 ? nodeIds[i + 1] : null;
+    const pA = t0 === 0 ? { x: ax, z: az, nodeId: idA } : { x: ax + t0 * dx, z: az + t0 * dz, nodeId: null };
+    const pB = t1 === 1 ? { x: bx, z: bz, nodeId: idB } : { x: ax + t1 * dx, z: az + t1 * dz, nodeId: null };
     if (t0 > 0 && run.length) flush(); // re-entering after a gap starts a new run
     push(pA); push(pB);
     if (t1 < 1) flush();
@@ -131,24 +163,121 @@ function clipRing(ring, bb) {
 }
 
 const roads = [];
+const graphSequences = []; // clipped carriageway runs with node ids, for the road graph below
 const roadClassCounts = {};
 let roadLenM = 0;
+const NON_CARRIAGEWAY = new Set(['footway', 'path', 'steps', 'pedestrian', 'cycleway', 'corridor', 'elevator', 'crossing', 'platform', 'traffic_island']);
 for (const el of load('osm_roads.json').elements) {
   if (el.type !== 'way' || !el.tags?.highway || !el.geometry || el.geometry.length < 2) continue;
-  const runs = clipRuns(geomPts(el), BBOX);
+  const nodeIds = Array.isArray(el.nodes) && el.nodes.length === el.geometry.length ? el.nodes : null;
+  const runs = clipRuns(geomPts(el), BBOX, nodeIds);
   if (!runs.length) continue;
   roadClassCounts[el.tags.highway] = (roadClassCounts[el.tags.highway] || 0) + 1;
-  for (const pts of runs) {
+  const width = roadWidth(el.tags);
+  const layout = pedestrianLayout(el.tags, width);
+  const onewayRaw = el.tags.oneway || '';
+  for (const records of runs) {
+    const pts = records.map((p) => [p.x, p.z]);
     let len = 0;
     for (let i = 1; i < pts.length; i++) len += Math.hypot(pts[i][0] - pts[i - 1][0], pts[i][1] - pts[i - 1][1]);
     roadLenM += len;
     roads.push({
       name: el.tags.name || '', nameEn: el.tags['name:en'] || '', highway: el.tags.highway,
-      width: roadWidth(el.tags), oneway: ['yes', 'true', '1', '-1'].includes(el.tags.oneway || ''),
+      width, oneway: ['yes', 'true', '1', '-1'].includes(onewayRaw), pedestrianLayout: layout,
       pts: flat(pts),
     });
+    if (!NON_CARRIAGEWAY.has(el.tags.highway)) {
+      graphSequences.push({
+        name: el.tags.name || el.tags['name:en'] || '', highway: el.tags.highway, width,
+        oneway: ['yes', 'true', '1', '-1'].includes(onewayRaw), reverse: onewayRaw === '-1',
+        pedestrianLayout: layout, records,
+      });
+    }
   }
 }
+
+// ---- road graph (M1) ----
+// Nodes are deduped by OSM node id where the source carried refs, else by
+// rounded (0.1 m) coordinates. A point is a junction if it is an endpoint of
+// any carriageway run or is shared by more than one run; ways are split at
+// junctions and each sub-path is RDP-simplified at 1 m (junctions and ends are
+// never simplified away), then consecutive retained points become edges.
+// For oneway=-1 ways the edge is emitted b->a so that, for one-way edges, the
+// a->b direction is always the legal travel direction.
+const GRAPH_RDP_EPS = 1.0;
+function buildRoadGraph(sequences) {
+  const keyOf = (p) => (p.nodeId != null ? `n:${p.nodeId}` : `c:${q(p.x)},${q(p.z)}`);
+  const seqCount = new Map();
+  const endpointKeys = new Set();
+  for (const s of sequences) {
+    const seen = new Set();
+    for (const p of s.records) {
+      const k = keyOf(p);
+      if (!seen.has(k)) { seqCount.set(k, (seqCount.get(k) || 0) + 1); seen.add(k); }
+    }
+    endpointKeys.add(keyOf(s.records[0]));
+    endpointKeys.add(keyOf(s.records[s.records.length - 1]));
+  }
+  const isJunction = (p) => { const k = keyOf(p); return endpointKeys.has(k) || (seqCount.get(k) || 0) > 1; };
+  const rdpRecords = (records, eps) => {
+    if (records.length < 3) return records;
+    const keep = new Uint8Array(records.length);
+    keep[0] = keep[records.length - 1] = 1;
+    const stack = [[0, records.length - 1]];
+    while (stack.length) {
+      const [a, b] = stack.pop();
+      const A = records[a], B = records[b];
+      const dx = B.x - A.x, dz = B.z - A.z, L = Math.hypot(dx, dz) || 1e-9;
+      let best = -1, bi = -1;
+      for (let i = a + 1; i < b; i++) {
+        const d = Math.abs((records[i].x - A.x) * dz - (records[i].z - A.z) * dx) / L;
+        if (d > best) { best = d; bi = i; }
+      }
+      if (best > eps) { keep[bi] = 1; stack.push([a, bi], [bi, b]); }
+    }
+    return records.filter((_, i) => keep[i]);
+  };
+  const nodeIndex = new Map();
+  const nodes = [];
+  const nodeFor = (p) => {
+    const k = keyOf(p);
+    if (!nodeIndex.has(k)) { nodeIndex.set(k, nodes.length / 2); nodes.push(q(p.x), q(p.z)); }
+    return nodeIndex.get(k);
+  };
+  const edges = [];
+  for (const s of sequences) {
+    const cuts = [0];
+    for (let i = 1; i < s.records.length - 1; i++) if (isJunction(s.records[i])) cuts.push(i);
+    cuts.push(s.records.length - 1);
+    for (let c = 0; c + 1 < cuts.length; c++) {
+      const sub = rdpRecords(s.records.slice(cuts[c], cuts[c + 1] + 1), GRAPH_RDP_EPS);
+      for (let i = 1; i < sub.length; i++) {
+        let a = nodeFor(sub[i - 1]);
+        let b = nodeFor(sub[i]);
+        if (a === b) continue;
+        const length = Math.hypot(sub[i].x - sub[i - 1].x, sub[i].z - sub[i - 1].z);
+        if (length < 0.05) continue;
+        if (s.reverse) [a, b] = [b, a];
+        edges.push({
+          a, b, name: s.name, highway: s.highway, oneway: s.oneway, width: s.width,
+          pedestrianLayout: s.pedestrianLayout, length: Math.round(length * 10) / 10,
+        });
+      }
+    }
+  }
+  return { nodes, edges };
+}
+const roadGraph = buildRoadGraph(graphSequences);
+const graphStats = (() => {
+  const n = roadGraph.nodes.length / 2;
+  const parent = Array.from({ length: n }, (_, i) => i);
+  const find = (x) => { while (parent[x] !== x) { parent[x] = parent[parent[x]]; x = parent[x]; } return x; };
+  for (const e of roadGraph.edges) { const a = find(e.a), b = find(e.b); if (a !== b) parent[b] = a; }
+  const counts = new Map();
+  for (let i = 0; i < n; i++) { const r = find(i); counts.set(r, (counts.get(r) || 0) + 1); }
+  const largest = Math.max(0, ...counts.values());
+  return { nodes: n, edges: roadGraph.edges.length, components: counts.size, largest, largestPct: n ? (100 * largest) / n : 0 };
+})();
 
 // ---- water & parks ----
 function collectPolys(file, minArea) {
@@ -285,7 +414,7 @@ blocks.sort((a, b) => b.area - a.area);
 const TAIPEI_GEO = {
   version: 1,
   frame: { origin: 'Taipei 101 (25.0330, 121.5650)', originLatLon: [LAT0, LON0], bearingDeg: 0, units: 'm', bbox: BBOX },
-  roads, water, parks, landmarks, blocks,
+  roads, roadGraph, water, parks, landmarks, blocks,
 };
 const header = `// js/taipei-geodata.js — GENERATED by tools/taipei/build-taipei-geodata.mjs (M0 spike), do not edit by hand.\n// Taipei tile lat ${TILE.s}..${TILE.n}, lon ${TILE.w}..${TILE.e} in the world frame: 1 unit = 1 m,\n// origin at Taipei 101 (25.0330, 121.5650), x = east, z = south, bearing 0 deg.\n// Sources: (c) OpenStreetMap contributors (ODbL), via Overpass queries in tools/taipei/data/ or Geofabrik extract.\n`;
 fs.writeFileSync(OUT, `${header}export const TAIPEI_GEO = ${JSON.stringify(TAIPEI_GEO)};\n`);
@@ -293,6 +422,8 @@ fs.writeFileSync(OUT, `${header}export const TAIPEI_GEO = ${JSON.stringify(TAIPE
 // ---- stats ----
 console.log('[taipei-geodata] frame bbox', JSON.stringify(BBOX), `(${((BBOX.maxX - BBOX.minX) / 1000).toFixed(2)} km x ${((BBOX.maxZ - BBOX.minZ) / 1000).toFixed(2)} km)`);
 console.log(`[taipei-geodata] roads: ${roads.length} ways, ${(roadLenM / 1000).toFixed(1)} km total`);
+console.log(`[taipei-geodata] roadGraph: ${graphStats.nodes} nodes, ${graphStats.edges} edges, ${graphStats.components} components, largest ${graphStats.largest} nodes (${graphStats.largestPct.toFixed(2)}%)`);
+console.log('[taipei-geodata] pedestrian layouts:', Object.entries(roads.reduce((m, r) => { m[r.pedestrianLayout] = (m[r.pedestrianLayout] || 0) + 1; return m; }, {})).map(([k, v]) => `${k}=${v}`).join(' '));
 console.log('[taipei-geodata] road classes:', Object.entries(roadClassCounts).sort((a, b) => b[1] - a[1]).map(([k, v]) => `${k}=${v}`).join(' '));
 console.log(`[taipei-geodata] water: ${water.length} polygons, ${(waterArea / 1e6).toFixed(3)} km2`);
 console.log(`[taipei-geodata] parks: ${parks.length} polygons, ${(parksArea / 1e6).toFixed(3)} km2`);
