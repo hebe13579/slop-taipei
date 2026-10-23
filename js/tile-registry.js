@@ -1,0 +1,56 @@
+// js/tile-registry.js
+// Data-driven city/tile selection for ?city=<id> (default: nyc).
+//
+// Each non-legacy entry is one tile definition module (see
+// js/taipei-tile.js for the shape): { id, label, short, origin, frame,
+// geodata, adaptedGeo, spawn, teleports, landmarks, roadNames,
+// getLocationLabel, districtAt, nearestRoads, nearestGraphNode,
+// streetProfile, loadBoot() }.
+//
+// Adding a tile is: (1) generate its geodata + adapter, (2) write one
+// <tile>-tile.js definition, (3) add ONE entry below. main.js and
+// city-config.js do not change. (Beitou is the planned second Taipei tile —
+// see TAIPEI_PROTOTYPE.md, "Future tile: Beitou", noted but NOT queued.)
+//
+// Tile definitions are loaded lazily via dynamic import so the default NYC
+// boot neither pays for nor evaluates tile modules it does not use.
+
+export const TILE_REGISTRY = {
+  nyc: {
+    id: 'nyc',
+    label: 'New York City',
+    short: 'NY',
+    kind: 'legacy', // the built-in static city; main.js runs its legacy path
+    load: null,
+  },
+  taipei: {
+    id: 'taipei',
+    label: "Taipei — Xinyi / Da'an / Songshan tile",
+    short: 'TP',
+    kind: 'tile',
+    load: () => import('./taipei-tile.js').then((m) => m.TAIPEI_TILE),
+  },
+  // beitou: { id: 'beitou', label: 'Beitou — Beitou / Xinbeitou tile', short: 'BT', kind: 'tile',
+  //           load: () => import('./beitou-tile.js').then((m) => m.BEITOU_TILE) },
+};
+
+/** The ?city= id from a query string, normalised; unknown ids fall back to the default (nyc). */
+export function tileIdFromSearch(search = '') {
+  try {
+    const id = new URLSearchParams(search).get('city');
+    return id && Object.hasOwn(TILE_REGISTRY, id) ? id : 'nyc';
+  } catch {
+    return 'nyc';
+  }
+}
+
+/**
+ * Resolve the selected tile: { id, entry, tile } where `tile` is the loaded
+ * tile definition, or null for the legacy NYC city.
+ */
+export async function loadSelectedTile(search = '') {
+  const id = tileIdFromSearch(search);
+  const entry = TILE_REGISTRY[id];
+  const tile = entry.load ? await entry.load() : null;
+  return { id, entry, tile };
+}
