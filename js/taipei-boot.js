@@ -146,7 +146,15 @@ export function buildTaipeiGround(scene, tile) {
   addLayer(flatPolygonGeometry(geo.water.map((w) => w.ring), 0.03), mat(0x2f6d96, 0.35), 'TaipeiWater');
   addLayer(flatPolygonGeometry(geo.parks.map((p) => p.ring), 0.04), mat(0x56854a, 0.9), 'TaipeiParks');
   addLayer(ribbonsGeometry(geo.roads.filter((r) => NON_CARRIAGEWAY.has(r.highway)), 0.05), mat(0xa9a294, 0.95), 'TaipeiPaths');
-  addLayer(ribbonsGeometry(geo.roads.filter((r) => !NON_CARRIAGEWAY.has(r.highway)), 0.06), mat(0x33363b, 0.9), 'TaipeiRoads');
+  // Carriageways render from the generation map's roadbeds when the geodata
+  // carries them (issue #6: divided boulevards merged into one roadbed,
+  // sub-120 m link ramps dropped). Per-way ribbons remain the fallback for
+  // a geodata built without a generation map. Non-carriageway paths above
+  // always come from the raw roads array.
+  const carriageways = Array.isArray(geo.roadbeds) && geo.roadbeds.length
+    ? geo.roadbeds
+    : geo.roads.filter((r) => !NON_CARRIAGEWAY.has(r.highway));
+  addLayer(ribbonsGeometry(carriageways, 0.06), mat(0x33363b, 0.9), 'TaipeiRoads');
 
   scene.add(group);
   return {
