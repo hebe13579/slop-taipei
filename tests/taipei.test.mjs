@@ -100,6 +100,62 @@ test('getLocationLabel returns a Taipei road name near Taipei 101', (t) => {
   assert.ok(taipeiDistrictAt(-2852, 362).startsWith("Da'an"));
 });
 
+// Ground-triangulation regression guard (M1 fixes increment): the boot
+// screenshots' black streaks were initially blamed on bad triangulation of
+// a water/park ring. Verification showed every ring triangulates
+// area-exactly (the streaks trace to the crowd pose shader under the
+// headless WebGL2 fallback, not the ground). These are the data invariants
+// that conclusion rests on — if a future geodata regeneration ships a
+// non-simple, non-finite or zero-area ring, the ground builder really
+// could break, and this test should fail first.
+test('water and park rings are finite, simple and non-degenerate', (t) => {
+  const ringPoints = (ring) => {
+    const pts = [];
+    for (let i = 0; i + 1 < ring.length; i += 2) pts.push([ring[i], ring[i + 1]]);
+    // Drop the duplicated closing point, as the boot builder does.
+    if (pts.length > 1 && Math.hypot(pts[0][0] - pts[pts.length - 1][0], pts[0][1] - pts[pts.length - 1][1]) < 0.01) pts.pop();
+    return pts;
+  };
+  const segCross = (a, b, c, d) => {
+    const r = [b[0] - a[0], b[1] - a[1]], s = [d[0] - c[0], d[1] - c[1]];
+    const den = r[0] * s[1] - r[1] * s[0];
+    if (den === 0) return false;
+    const u = ((c[0] - a[0]) * s[1] - (c[1] - a[1]) * s[0]) / den;
+    const v = ((c[0] - a[0]) * r[1] - (c[1] - a[1]) * r[0]) / den;
+    return u > 1e-9 && u < 1 - 1e-9 && v > 1e-9 && v < 1 - 1e-9;
+  };
+  let checked = 0;
+  for (const [kind, items] of [['water', TAIPEI_GEO.water], ['parks', TAIPEI_GEO.parks]]) {
+    for (const item of items) {
+      const pts = ringPoints(item.ring);
+      const label = `${kind} "${item.name || ''}" (${pts.length} pts)`;
+      assert.ok(pts.length >= 3, label);
+      // (Two source rings repeat one vertex mid-ring — harmless OSM noise
+      // that earcut tolerates; the triangulation stays area-exact. What
+      // must never appear is a non-finite coordinate, a self-intersection
+      // or a collapsed ring, so those are what is asserted.)
+      assert.ok(new Set(pts.map((p) => p.join(','))).size >= 3, `${label}: at least 3 distinct points`);
+      let area = 0;
+      for (let i = 0; i < pts.length; i++) {
+        const [x1, z1] = pts[i];
+        const [x2, z2] = pts[(i + 1) % pts.length];
+        assert.ok(Number.isFinite(x1) && Number.isFinite(z1), `${label}: finite coordinates`);
+        area += x1 * z2 - x2 * z1;
+      }
+      assert.ok(Math.abs(area) / 2 > 0.5, `${label}: non-degenerate area ${Math.abs(area) / 2} m²`);
+      for (let i = 0; i < pts.length; i++) {
+        for (let j = i + 2; j < pts.length; j++) {
+          if (i === 0 && j === pts.length - 1) continue;
+          assert.ok(!segCross(pts[i], pts[(i + 1) % pts.length], pts[j], pts[(j + 1) % pts.length]), `${label}: no self-intersection (segments ${i}/${j})`);
+        }
+      }
+      checked++;
+    }
+  }
+  t.diagnostic(`verified ${checked} water/park rings`);
+  assert.equal(checked, TAIPEI_GEO.water.length + TAIPEI_GEO.parks.length);
+});
+
 test('tile registry is data-driven and defaults to nyc', async () => {
   assert.deepEqual(Object.keys(TILE_REGISTRY).sort(), ['nyc', 'taipei']);
   assert.equal(tileIdFromSearch(''), 'nyc');
