@@ -146,6 +146,29 @@ one-for-one. The Taipei builder must synthesise them:
   expect merge drift if we track upstream; pin work to the fork commit above
   and rebase deliberately.
 
+## Future tile: Beitou (noted 2026-10-23 — NOT queued)
+
+The user used to live in Beitou and wants it included eventually, as a **second,
+separate rectangle tile** (its own scene, selected like `?city=beitou`) — not by
+enlarging the Xinyi tile. Beitou is ~11 km NW; a single rectangle covering both
+(~9 × 13 km, incl. Shilin, Shezi Island and the Yangmingshan foothills) is too
+large and reintroduces mid-map terrain.
+
+- Proposed bounds: lon 121.485–121.530, lat 25.115–25.155 (~4.5 × 4.4 km, same
+  scale as the M0 tile). Origin: Xinbeitou / Beitou Park (~25.136, 121.508).
+- Covers: Beitou + Xinbeitou MRT stations, Beitou Park, Beitou Hot Spring Museum,
+  Beitou Library, Thermal Valley (地熱谷), the Guangming Rd hot-spring strip,
+  Beitou Creek, Guandu plain / Tamsui River bank at the west edge.
+- Terrain approach: playable area is the flat Beitou Creek valley floor;
+  Datunshan / Yangmingshan to the north and east are scenery ring, same as the
+  main tile's mountain treatment. Thermal Valley gets the park + water treatment.
+- Landmark care list (personal to the user): Beitou Library, Hot Spring Museum,
+  Thermal Valley, Beitou Park, Xinbeitou station.
+- Status: **scope note only, per the user's instruction on 2026-10-23. Do not
+  start, queue, or create issues for this tile until the user says so.**
+  Prerequisite: the M1 tile registry design (tile id → geodata/origin/teleports)
+  so Beitou plugs in without a refactor.
+
 ## License / attribution checklist
 
 - Keep upstream `LICENSE` (MIT, © Mr.doob) and add our own copyright line for changes.
