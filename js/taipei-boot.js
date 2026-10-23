@@ -26,6 +26,14 @@ function flatPolygonGeometry(rings, y) {
   const indices = [];
   for (const ring of rings) {
     if (!ring || ring.length < 6) continue;
+    // Defence in depth: a ring with a non-finite coordinate would smear
+    // triangles across the whole tile. The generated rings are verified
+    // finite/simple/non-degenerate by tests/taipei.test.mjs, so this never
+    // triggers on current data — it exists so a bad future regeneration
+    // degrades to a missing pond, not a broken tile.
+    let finite = true;
+    for (let i = 0; i < ring.length; i++) if (!Number.isFinite(ring[i])) { finite = false; break; }
+    if (!finite) continue;
     const contour = [];
     for (let i = 0; i + 1 < ring.length; i += 2) contour.push(new THREE.Vector2(ring[i], -ring[i + 1]));
     // Drop a duplicated closing point: ShapeUtils expects an open contour.
@@ -89,6 +97,29 @@ function ribbonsGeometry(roads, y) {
 }
 
 const mat = (color, roughness = 0.95, extra = {}) => new THREE.MeshStandardNodeMaterial({ color, roughness, metalness: 0.0, ...extra });
+
+// Controller world options for a registry tile (see the opts contract in
+// js/controllers.js): the playable world is the tile's own frame — NOT
+// Manhattan's island bounds or shoreline, which would clamp away the
+// tile's western kilometre (Da'an Forest Park sits at x ≈ −2900, west of
+// NYC's west shore) and invent Central Park / sidewalk heights on the
+// flat basin floor. Ground is y = 0 everywhere; spawns cluster at the
+// tile spawn with the same relative offsets the NYC spawns use.
+export function controllerOptions(tile) {
+  const bb = tile.geodata.frame.bbox;
+  const s = tile.spawn;
+  return {
+    bounds: { minX: bb.minX, maxX: bb.maxX, minZ: bb.minZ, maxZ: bb.maxZ },
+    clampToShore: false,
+    groundHeight: () => 0,
+    spawnByMode: {
+      person: { x: s.x - 15.2, z: s.z + 12 },
+      car: { x: s.x, z: s.z + 12 },
+      cyclist: { x: s.x + 1.6, z: s.z - 8 },
+      helicopter: { x: s.x - 56, y: 96, z: s.z - 60 },
+    },
+  };
+}
 
 export function buildTaipeiGround(scene, tile) {
   const geo = tile.geodata;
