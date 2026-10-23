@@ -54,5 +54,40 @@ check(totalKm > 100, 'total road length > 100 km', `${totalKm.toFixed(1)} km all
 // 5. Blocks > 100
 check(G.blocks.length > 100, 'blocks count > 100', `${G.blocks.length} blocks`);
 
+// 6. Road graph (M1): connectivity, density, and reachability from Taipei 101
+const graph = G.roadGraph;
+check(!!graph && Array.isArray(graph.nodes) && Array.isArray(graph.edges), 'roadGraph present with nodes/edges');
+if (graph) {
+  const nodeCount = graph.nodes.length / 2;
+  let badIndex = 0, badLength = 0, badLayout = 0;
+  const LAYOUTS = new Set(['sidewalk', 'arcade', 'painted', 'shared']);
+  for (const e of graph.edges) {
+    if (!(e.a >= 0 && e.a < nodeCount && e.b >= 0 && e.b < nodeCount && e.a !== e.b)) badIndex++;
+    if (!(e.length > 0)) badLength++;
+    if (!LAYOUTS.has(e.pedestrianLayout)) badLayout++;
+  }
+  check(badIndex === 0 && badLength === 0, 'graph edges reference valid nodes with positive lengths', `${graph.edges.length} edges`);
+  check(badLayout === 0, 'every graph edge carries a pedestrianLayout (sidewalk|arcade|painted|shared)');
+  check(graph.edges.length > 3000, 'carriageway graph edges > 3000', `${graph.edges.length} edges, ${nodeCount} nodes`);
+  const parent = Array.from({ length: nodeCount }, (_, i) => i);
+  const find = (x) => { while (parent[x] !== x) { parent[x] = parent[parent[x]]; x = parent[x]; } return x; };
+  for (const e of graph.edges) { const a = find(e.a), b = find(e.b); if (a !== b) parent[b] = a; }
+  const counts = new Map();
+  for (let i = 0; i < nodeCount; i++) { const r = find(i); counts.set(r, (counts.get(r) || 0) + 1); }
+  const largest = Math.max(0, ...counts.values());
+  const pct = nodeCount ? (100 * largest) / nodeCount : 0;
+  check(pct > 80, 'largest graph component contains > 80% of carriageway nodes', `${largest}/${nodeCount} nodes (${pct.toFixed(2)}%), ${counts.size} components`);
+  if (t101) {
+    let best = Infinity;
+    for (let i = 0; i < nodeCount; i++) best = Math.min(best, Math.hypot(graph.nodes[2 * i] - t101.x, graph.nodes[2 * i + 1] - t101.z));
+    check(best < 250, "Taipei 101's nearest graph node within 250 m", `${best.toFixed(1)} m`);
+  }
+  // Narrow named ways are real roads, not decoration: the graph must retain
+  // 巷 (lane) and 弄 (alley) edges instead of dropping/widening them away.
+  const laneEdges = graph.edges.filter((e) => e.name.includes('巷')).length;
+  const alleyEdges = graph.edges.filter((e) => e.name.includes('弄')).length;
+  check(laneEdges > 0 && alleyEdges > 0, 'graph retains named 巷 lane and 弄 alley edges', `${laneEdges} 巷 edges, ${alleyEdges} 弄 edges`);
+}
+
 console.log(failures ? `\n${failures} CHECK(S) FAILED` : '\nALL CHECKS PASSED');
 process.exit(failures ? 1 : 0);
