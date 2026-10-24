@@ -4,6 +4,7 @@ import { planTaipeiBuildings, taipeiCityBlocksOptions, createTaipei101, createTa
 import { buildSidewalkBands, planStreetTrees } from './taipei-streetscape.js';
 import { AvatarFigure } from './avatar-figure.js';
 import { buildPaintedBands } from './taipei-painted.js';
+import { SURFACE_TONES, surfaceClass, buildMedianStrips, isPlazaPark, isPodiumBlock, podiumCentresOf } from './taipei-surfaces.js';
 
 // js/taipei-boot.js
 // Boot builder for registry tiles. It renders what the geodata honestly
@@ -27,10 +28,14 @@ import { buildPaintedBands } from './taipei-painted.js';
 //     flat tile at y=0 and pass through buildings for now.
 //
 // Layer heights are a flat-ground visual stack only (land 0, block rects
-// 0.02, water 0.03, parks 0.04, street-section bands 0.045,
-// non-carriageway paths 0.05, carriageways 0.06, painted-walkway green
-// band 0.065 and its white edge lines 0.066), not terrain elevation:
-// the tile is the flat basin floor.
+// 0.02, podium blocks 0.021, water 0.03, parks 0.04, plaza paving 0.041,
+// street-section bands 0.045, non-carriageway paths 0.05, carriageways
+// 0.06, boulevard median strips 0.062, painted-walkway green band
+// 0.065 and its white edge lines 0.066), not terrain elevation:
+// the tile is the flat basin floor. Carriageways render in per-class
+// surface tones and merged boulevards get a median strip (issue #29,
+// js/taipei-surfaces.js); paved civic squares (廣場) render as paving,
+// not lawn, and the 101 / City Hall blocks wear a podium tone.
 
 const NON_CARRIAGEWAY = new Set(['footway', 'path', 'steps', 'pedestrian', 'cycleway', 'corridor', 'elevator', 'crossing', 'platform', 'traffic_island']);
 
@@ -266,9 +271,24 @@ export function buildTaipeiGround(scene, tile, deps = {}) {
     group.add(mesh);
     return mesh;
   };
-  addLayer(rectsGeometry(geo.blocks, 0.02), mat(0x8f8b80), 'TaipeiBlocks');
+  // Blocks: ordinary raster blocks in the usual grey; the blocks
+  // containing the Taipei 101 / City Government landmark centres are
+  // the tower podium apron and the City Hall grounds, and wear the
+  // podium paving tone a step above (issue #29 — as undifferentiated
+  // block grey they read as bare etched ground).
+  const centres = podiumCentresOf(geo);
+  const ordinaryBlocks = [], podiumBlocks = [];
+  for (const b of geo.blocks) (isPodiumBlock(b, centres) ? podiumBlocks : ordinaryBlocks).push(b);
+  addLayer(rectsGeometry(ordinaryBlocks, 0.02), mat(SURFACE_TONES.block), 'TaipeiBlocks');
+  if (podiumBlocks.length) addLayer(rectsGeometry(podiumBlocks, 0.021), mat(SURFACE_TONES.podium), 'TaipeiPodiumBlocks');
   addLayer(flatPolygonGeometry(geo.water.map((w) => w.ring), 0.03), mat(0x2f6d96, 0.35), 'TaipeiWater');
-  addLayer(flatPolygonGeometry(geo.parks.map((p) => p.ring), 0.04), mat(0x56854a, 0.9), 'TaipeiParks');
+  // Parks stay lawn-green; polygons named 廣場 are paved civic squares
+  // in reality （市民廣場, 松壽廣場, 世貿廣場…) and render in the plaza
+  // paving tone on their own layer (issue #29).
+  const lawnParks = geo.parks.filter((p) => !isPlazaPark(p));
+  const plazaParks = geo.parks.filter(isPlazaPark);
+  addLayer(flatPolygonGeometry(lawnParks.map((p) => p.ring), 0.04), mat(SURFACE_TONES.park, 0.9), 'TaipeiParks');
+  if (plazaParks.length) addLayer(flatPolygonGeometry(plazaParks.map((p) => p.ring), 0.041), mat(SURFACE_TONES.plaza, 0.95), 'TaipeiPlazas');
   // Carriageways render from the generation map's roadbeds when the geodata
   // carries them (issue #6: divided boulevards merged into one roadbed,
   // sub-120 m link ramps dropped). Per-way ribbons remain the fallback for
@@ -293,7 +313,26 @@ export function buildTaipeiGround(scene, tile, deps = {}) {
   addLayer(positionsGeometry(sidewalkBands.positions), mat(0xb5b0a4), 'TaipeiSidewalkBands');
   console.info(`[taipei-sidewalks] ${sidewalkBands.quadCount} band quads, ${(sidewalkBands.totalBandLength / 1000).toFixed(1)} km of sidewalk band (both edges, junction-trimmed)`);
   addLayer(ribbonsGeometry(geo.roads.filter((r) => NON_CARRIAGEWAY.has(r.highway)), 0.05), mat(0xa9a294, 0.95), 'TaipeiPaths');
-  addLayer(ribbonsGeometry(carriageways, 0.06), mat(0x33363b, 0.9), 'TaipeiRoads');
+  // Carriageways in per-class surface tones (issue #29): one merged
+  // layer per class — weathered cool decks, the unchanged arterial
+  // asphalt, a hair lighter collectors, pale concrete lanes — instead
+  // of the single flat dark slab every bed used to share.
+  const byClass = { deck: [], arterial: [], collector: [], lane: [] };
+  for (const r of carriageways) byClass[surfaceClass(r)].push(r);
+  addLayer(ribbonsGeometry(byClass.deck, 0.06), mat(SURFACE_TONES.deck, 0.9), 'TaipeiRoadsDeck');
+  addLayer(ribbonsGeometry(byClass.arterial, 0.06), mat(SURFACE_TONES.arterial, 0.9), 'TaipeiRoads');
+  addLayer(ribbonsGeometry(byClass.collector, 0.06), mat(SURFACE_TONES.collector, 0.9), 'TaipeiRoadsCollector');
+  addLayer(ribbonsGeometry(byClass.lane, 0.06), mat(SURFACE_TONES.lane, 0.9), 'TaipeiRoadsLane');
+  // Boulevard medians (issue #29): a strip along the centreline of
+  // each merged bed wide enough to hold one — planted on the grand
+  // ground boulevards, plain concrete elsewhere; underpass/tunnel
+  // beds are excluded entirely by user directive. Clipped at
+  // junctions like the painted bands, so no divider crosses a
+  // junction box. Built by js/taipei-surfaces.js.
+  const medians = buildMedianStrips(carriageways);
+  addLayer(quadsGeometry(medians.plain, 0.062), mat(SURFACE_TONES.medianPlain, 0.95), 'TaipeiMediansPlain');
+  addLayer(quadsGeometry(medians.planted, 0.062), mat(SURFACE_TONES.medianPlanted, 0.95), 'TaipeiMediansPlanted');
+  console.info(`[taipei-surfaces] medians: ${medians.stats.plantedBeds} planted beds / ${medians.stats.plantedKm.toFixed(1)} km, ${medians.stats.plainBeds} plain beds / ${medians.stats.plainKm.toFixed(1)} km (${medians.stats.excludedUnderpass} underpass/tunnel beds excluded); roads by class: deck ${byClass.deck.length}, arterial ${byClass.arterial.length}, collector ${byClass.collector.length}, lane ${byClass.lane.length}`);
   // Painted walkways (§c.3): a single green band per roadbed on its
   // hashed side in the spec colour, white edge lines a hair above it.
   // All carriageways go in (not just the painted ones): the builder
