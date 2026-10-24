@@ -185,8 +185,12 @@ const OVERRIDES = {
 };
 
 // ---- frame (copied tangent-plane math from build-taipei-geodata.mjs) ----
+// The tile is the UNION of the boxes in tile-boxes.json (issue #60);
+// clips run against the union of the world-frame box rects, exactly as
+// in build-taipei-geodata.mjs, so the two builders can never disagree
+// about what is in the tile. BBOX is the union's bounding rect.
 const LAT0 = 25.0330, LON0 = 121.5650;
-const TILE = { s: 25.020, w: 121.535, n: 25.060, e: 121.580 };
+const TILE_CFG = JSON.parse(fs.readFileSync(path.join(HERE, 'tile-boxes.json'), 'utf8'));
 const A = 6378137.0, E2 = 6.69437999014e-3;
 const PHI0 = (LAT0 * Math.PI) / 180, SIN0 = Math.sin(PHI0);
 const NRAD = A / Math.sqrt(1 - E2 * SIN0 * SIN0);
@@ -195,11 +199,15 @@ const KX = (Math.PI / 180) * NRAD * Math.cos(PHI0); // metres per degree lon
 const KY = (Math.PI / 180) * MRAD;                  // metres per degree lat
 const toWorld = (lon, lat) => [(lon - LON0) * KX, -(lat - LAT0) * KY]; // [x, z], bearing 0
 const q = (v) => Math.round(v * 10) / 10;
-const BBOX = (() => {
-  const [x0, z1] = toWorld(TILE.w, TILE.s);
-  const [x1, z0] = toWorld(TILE.e, TILE.n);
-  return { minX: q(x0), maxX: q(x1), minZ: q(z0), maxZ: q(z1) };
-})();
+const BOXES_WORLD = TILE_CFG.boxes.map((b) => {
+  const [x0, z1] = toWorld(b.w, b.s);
+  const [x1, z0] = toWorld(b.e, b.n);
+  return { name: b.name, minX: q(x0), maxX: q(x1), minZ: q(z0), maxZ: q(z1) };
+});
+const BBOX = {
+  minX: Math.min(...BOXES_WORLD.map((b) => b.minX)), maxX: Math.max(...BOXES_WORLD.map((b) => b.maxX)),
+  minZ: Math.min(...BOXES_WORLD.map((b) => b.minZ)), maxZ: Math.max(...BOXES_WORLD.map((b) => b.maxZ)),
+};
 
 // ---- width / layout inference (width table copied from
 //      build-taipei-geodata.mjs; the layout classifier is imported from
@@ -223,10 +231,12 @@ const isElevatedTags = (tags) => parseInt(tags.layer || '0', 10) >= 1 || (!!tags
 const NON_CARRIAGEWAY = new Set(['footway', 'path', 'steps', 'pedestrian', 'cycleway', 'corridor', 'elevator', 'crossing', 'platform', 'traffic_island']);
 
 // ---- polyline helpers ----
-// Clip a polyline to the tile rect, returning runs (same Liang-Barsky
-// per-segment clip as build-taipei-geodata.mjs, minus the node-id records
-// the road graph needs — provenance here is the WAY id, kept per segment).
-function clipRuns(pts, bb) {
+// Clip a polyline to the UNION of the tile's box rects, returning runs
+// (same per-segment interval-merge clip as build-taipei-geodata.mjs,
+// minus the node-id records the road graph needs — provenance here is
+// the WAY id, kept per segment). Abutting boxes share an edge value,
+// so a way crossing a seam stays one continuous run.
+function clipRuns(pts, boxes) {
   const runs = [];
   let run = [];
   const push = (p) => {
@@ -234,22 +244,39 @@ function clipRuns(pts, bb) {
     if (!l || Math.hypot(p[0] - l[0], p[1] - l[1]) > 0.01) run.push(p);
   };
   const flush = () => { if (run.length >= 2) runs.push(run); run = []; };
+  const segIntervals = (ax, az, dx, dz) => {
+    const out = [];
+    for (const bb of boxes) {
+      let t0 = 0, t1 = 1, ok = true;
+      for (const [p, qv] of [[-dx, ax - bb.minX], [dx, bb.maxX - ax], [-dz, az - bb.minZ], [dz, bb.maxZ - az]]) {
+        if (Math.abs(p) < 1e-12) { if (qv < 0) { ok = false; break; } continue; }
+        const r = qv / p;
+        if (p < 0) t0 = Math.max(t0, r); else t1 = Math.min(t1, r);
+        if (t0 > t1) { ok = false; break; }
+      }
+      if (ok) out.push([t0, t1]);
+    }
+    out.sort((a, b) => a[0] - b[0]);
+    const merged = [];
+    for (const iv of out) {
+      const last = merged[merged.length - 1];
+      if (last && iv[0] <= last[1] + 1e-9) last[1] = Math.max(last[1], iv[1]);
+      else merged.push([iv[0], iv[1]]);
+    }
+    return merged;
+  };
   for (let i = 0; i + 1 < pts.length; i++) {
     const [ax, az] = pts[i], [bx, bz] = pts[i + 1];
     const dx = bx - ax, dz = bz - az;
-    let t0 = 0, t1 = 1, ok = true;
-    for (const [p, qv] of [[-dx, ax - bb.minX], [dx, bb.maxX - ax], [-dz, az - bb.minZ], [dz, bb.maxZ - az]]) {
-      if (Math.abs(p) < 1e-12) { if (qv < 0) { ok = false; break; } continue; }
-      const r = qv / p;
-      if (p < 0) t0 = Math.max(t0, r); else t1 = Math.min(t1, r);
-      if (t0 > t1) { ok = false; break; }
+    const ivs = segIntervals(ax, az, dx, dz);
+    if (!ivs.length) { flush(); continue; }
+    for (const [t0, t1] of ivs) {
+      const pA = t0 === 0 ? [ax, az] : [ax + t0 * dx, az + t0 * dz];
+      const pB = t1 === 1 ? [bx, bz] : [ax + t1 * dx, az + t1 * dz];
+      if (t0 > 0 && run.length) flush();
+      push(pA); push(pB);
+      if (t1 < 1) flush();
     }
-    if (!ok) { flush(); continue; }
-    const pA = t0 === 0 ? [ax, az] : [ax + t0 * dx, az + t0 * dz];
-    const pB = t1 === 1 ? [bx, bz] : [ax + t1 * dx, az + t1 * dz];
-    if (t0 > 0 && run.length) flush();
-    push(pA); push(pB);
-    if (t1 < 1) flush();
   }
   flush();
   return runs;
@@ -345,7 +372,7 @@ for (const el of load('osm_roads.json').elements) {
   }
   const layout = pedestrianLayout(el.tags, roadWidth(el.tags));
   const onewayRaw = el.tags.oneway || '';
-  const runs = clipRuns(el.geometry.map((g) => toWorld(g.lon, g.lat)), BBOX);
+  const runs = clipRuns(el.geometry.map((g) => toWorld(g.lon, g.lat)), BOXES_WORLD);
   for (const pts of runs) {
     const cum = cumLen(pts);
     const length = cum[cum.length - 1];
@@ -924,7 +951,7 @@ const out = {
   version: 1,
   generatedBy: 'tools/taipei/build-generation-map.mjs',
   issue: 'https://github.com/hebe13579/slop-taipei/issues/6',
-  frame: { origin: 'Taipei 101 (25.0330, 121.5650)', originLatLon: [LAT0, LON0], bearingDeg: 0, units: 'm', bbox: BBOX },
+  frame: { origin: 'Taipei 101 (25.0330, 121.5650)', originLatLon: [LAT0, LON0], bearingDeg: 0, units: 'm', bbox: BBOX, boxes: BOXES_WORLD },
   roadbeds,
   stats,
 };

@@ -15,7 +15,7 @@ All polygons/polylines are flat `[x0, z0, x1, z1, …]` arrays in the world fram
 | Field | Shape (upstream) | Consumed by | Spike (TAIPEI_GEO) |
 |---|---|---|---|
 | `version` | number (1) | — | ✅ `1` |
-| `frame` | `{bearingDeg, origin, units, cutZ, strip, sidewalk}` — `frame.cutZ` and `frame.bearingDeg` read at runtime | city-config, others | ⚠️ partial: `{origin, bearingDeg, units, bbox}` — no `cutZ/strip/sidewalk` (those are Manhattan shoreline concepts; a Taipei equivalent must be decided in M1) |
+| `frame` | `{bearingDeg, origin, units, cutZ, strip, sidewalk}` — `frame.cutZ` and `frame.bearingDeg` read at runtime | city-config, others | ⚠️ partial: `{origin, bearingDeg, units, bbox, boxes}` — no `cutZ/strip/sidewalk` (those are Manhattan shoreline concepts; a Taipei equivalent must be decided in M1). `bbox` is the bounding rect of the tile's box union (tools/taipei/tile-boxes.json); `boxes` is the union itself — ground exists only inside it (issue #60) |
 | `manhattan` | flat ring — detailed island coastline | city-config (coastline, island bounds) | ❌ no equivalent: Taipei land is a mainland tile. Spike models land implicitly as the tile rect minus `water` rings |
 | `upperManhattan` | flat ring — low-detail north part | city-config | ❌ (scenery-ring equivalent is M2) |
 | `innerShore` | flat ring — shoreline inset by the waterfront strip | build-geodata output | ❌ |

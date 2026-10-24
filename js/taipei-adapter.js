@@ -10,8 +10,11 @@ import { TAIPEI_GEO } from './taipei-geodata.js';
 //                        Taipei code paths must never call streetZ().
 //   avenues: []        — NYC named-avenue grid; same rule for avenueX().
 //   broadway: []       — NYC-specific diagonal.
-//   manhattan: []      — no island coastline; Taipei land is the tile
-//                        rectangle minus `water` (see `tileLand` below).
+//   manhattan: []      — no island coastline; Taipei land is the tile's
+//                        union of boxes (frame.boxes, issue #60) minus
+//                        `water`. `tileLand` below stays the bounding-
+//                        rect ring: nothing consumes it in Taipei mode
+//                        (the boot draws one land plane per box).
 //   upperManhattan: [], innerShore: [] — shoreline concepts, n/a.
 //   islands: {}        — none modelled in this tile.
 //   boroughs: all empty ring lists — surrounding scenery is a later tile
@@ -303,6 +306,10 @@ export function getTaipeiLocationParts(x, z) {
 export function taipeiDistrictAt(x, z) {
   const bb = TAIPEI_GEO.frame.bbox;
   if (x < bb.minX || x > bb.maxX || z < bb.minZ || z > bb.maxZ) return 'Outside the Taipei tile';
+  // West of the original tile's west edge (x = -3027.7, lon 121.535):
+  // the station district the west expansion added (issue #60). No
+  // point of the old tile has x < -3027.7, so no existing label moves.
+  if (x < -3027.7) return z < -1900 ? 'Zhongshan (Taipei Station)' : 'Zhongzheng / Wanhua (Taipei Station)';
   if (z < -1900) return x > -1500 ? 'Songshan (Keelung River)' : 'Zhongshan / Songshan Airport fringe';
   if (x >= -700) return z < -1100 ? 'Songshan' : 'Xinyi';
   return z >= -350 ? "Da'an (south)" : "Da'an";

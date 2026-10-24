@@ -29,24 +29,39 @@ Taipei works with the same trick because the city centre sits on a flat basin fl
 Start with one tile, not the whole city — upstream's detailed Manhattan is
 only ~2–3 km × ~13 km, and performance is tuned around that scale.
 
-**Tile: Xinyi / Da'an / Songshan, approx. 4 km × 4 km**
-- Bounds (approx.): lon 121.535–121.580, lat 25.020–25.060
+**Tile: a union of boxes around Taipei 101** (originally Xinyi / Da'an /
+Songshan; west base added 2026-10-24, issue #60)
+- The tile definition is a LIST of rectangles in
+  `tools/taipei/tile-boxes.json`; the tile is their union. Every pipeline
+  stage (PBF extraction → generation map → geodata → runtime) reads that
+  one file, so growing the tile = adding a box to the config, never new
+  code. The current base:
+  - **Box A:** lon 121.503–121.580, lat 25.0285–25.055
+  - **Box B (west column):** lon 121.503–121.535, lat 25.055–25.060
+  - ≈ 24.6 km² (M0 tile was lon 121.535–121.580 × lat 25.020–25.060,
+    20.1 km²). The bands the union drops — north of lat 25.055 east of
+    lon 121.535, and south of lat 25.0285 — have no ground and no data;
+    the controllers clamp to the bounding rect and push ground modes
+    out of the uncovered notch (helicopters fly over it).
 - Why this tile:
   - Xinyi Special District is a planned, near-true-north grid — the closest
     Taipei analogue to the Manhattan grid the code was written for
     (world-frame bearing can be ~0° instead of Manhattan's 29.02°).
   - Contains a hero landmark: **Taipei 101**.
   - Contains a park test case: **Da'an Forest Park** (the Central Park slot:
-    lawns, water, paths).
-  - Northern edge is the **Keelung River**, so the tile exercises rivers and
-    bridges from day one.
+    lawns, water, paths) — the full park since the 25.0285 south edge.
+  - Northern edge is the **Keelung River**, western edge the **Tamsui
+    River**, so the tile exercises rivers and bridges from day one.
   - Elephant Mountain sits just east of the tile — a close-in scenery test
     for the DEM mountain ring.
-- Frame origin (proposed): Taipei 101 / Xinyi Rd & Songren Rd area
+- Frame origin: Taipei 101 / Xinyi Rd & Songren Rd area
   (25.033, 121.565), 1 unit = 1 m, x = east, z = south, bearing 0°.
-
-Expansion after the tile works (Milestone 3+): west to Taipei Main Station /
-Ximending / the Tamsui River, then north across the Keelung River.
+- Settled future boxes (config entries in `tile-boxes.json`, **not to be
+  extracted until their phase is approved**): Box 3, the MRT red-line
+  corridor (lon 121.503–121.533, lat 25.060–25.133); Box 4, Beitou
+  (lon 121.464–121.510, lat 25.113–25.150). The height map / DEM terrain
+  is deferred until those northern boxes — the current base is all flat
+  basin floor.
 
 ## Data sources (all open)
 
@@ -132,7 +147,11 @@ one-for-one. The Taipei builder must synthesise them:
 - **M2 — It reads as Taipei:** Taipei 101, Da'an Park, Keelung River bridges,
   mountain ring, Chinese signage.
 - **M3 — Expand:** west to Taipei Main Station / Tamsui River; second river +
-  Taipei Bridge; CKS Memorial Hall.
+  Taipei Bridge; CKS Memorial Hall. **Phase 1 landed 2026-10-24 (issue
+  #60):** the box-merge pipeline + A/B footprint above — station-district
+  ground, roads, parks and buildings are in; the six approved landmarks
+  （新光人壽保險大樓， 台北車站， 中正紀念堂， 國家戲劇院， 國家音樂廳，
+  總統府） follow as phase 2 in their own PR.
 - **M4 — Flavour:** scooters in traffic, MRT entrances, night market.
 
 ## Known risks
@@ -146,28 +165,29 @@ one-for-one. The Taipei builder must synthesise them:
   expect merge drift if we track upstream; pin work to the fork commit above
   and rebase deliberately.
 
-## Future tile: Beitou (noted 2026-10-23 — NOT queued)
+## Future expansion: Beitou as Box 4 (noted 2026-10-23 — NOT queued)
 
-The user used to live in Beitou and wants it included eventually, as a **second,
-separate rectangle tile** (its own scene, selected like `?city=beitou`) — not by
-enlarging the Xinyi tile. Beitou is ~11 km NW; a single rectangle covering both
-(~9 × 13 km, incl. Shilin, Shezi Island and the Yangmingshan foothills) is too
-large and reintroduces mid-map terrain.
+The user used to live in Beitou and wants it included eventually. The
+2026-10-24 expansion decision superseded the original "second, separate
+tile" shape: Beitou becomes **Box 4 of this tile's union**
+(lon 121.464–121.510, lat 25.113–25.150, recorded in
+`tools/taipei/tile-boxes.json` as a future config entry), reached via
+Box 3, the MRT red-line corridor box. A single rectangle covering both
+was rejected (~9 × 13 km, incl. Shilin, Shezi Island and the
+Yangmingshan foothills — too large, and it reintroduces mid-map
+terrain). The northern boxes are also where the height map / DEM
+terrain lands: the Beitou box climbs the foothills, where the flat
+basin floor stops being honest.
 
-- Proposed bounds: lon 121.485–121.530, lat 25.115–25.155 (~4.5 × 4.4 km, same
-  scale as the M0 tile). Origin: Xinbeitou / Beitou Park (~25.136, 121.508).
 - Covers: Beitou + Xinbeitou MRT stations, Beitou Park, Beitou Hot Spring Museum,
   Beitou Library, Thermal Valley (地熱谷), the Guangming Rd hot-spring strip,
   Beitou Creek, Guandu plain / Tamsui River bank at the west edge.
-- Terrain approach: playable area is the flat Beitou Creek valley floor;
-  Datunshan / Yangmingshan to the north and east are scenery ring, same as the
-  main tile's mountain treatment. Thermal Valley gets the park + water treatment.
 - Landmark care list (personal to the user): Beitou Library, Hot Spring Museum,
-  Thermal Valley, Beitou Park, Xinbeitou station.
-- Status: **scope note only, per the user's instruction on 2026-10-23. Do not
-  start, queue, or create issues for this tile until the user says so.**
-  Prerequisite: the M1 tile registry design (tile id → geodata/origin/teleports)
-  so Beitou plugs in without a refactor.
+  Thermal Valley, Beitou Park, Xinbeitou station; plus 北投焚化爐 (in the
+  notch between Boxes 3/4 — needs its own small connector box) and
+  圓山大飯店 (inside Box 3), both approved with the northern phase.
+- Status: **config entry only. Do not extract, start, or queue
+  extraction work for Boxes 3/4 until the user approves that phase.**
 
 ## License / attribution checklist
 

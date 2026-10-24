@@ -214,7 +214,14 @@ test('furniture: non-signalized junctions get nothing', () => {
 
 test('geodata: tile-wide marking counts are in the audited bands', () => {
   const r = buildRoadMarkings(TAIPEI_GEO.roadbeds);
-  assert.ok(r.stats.signalized >= 120 && r.stats.signalized <= 200, `signalized ${r.stats.signalized}`);
+  // Band re-based 2026-10-24 (issue #60 west expansion): the station
+  // district's dense old-city grid took signalized junctions 165 ->
+  // 241 (junctions 897 -> 1,158); the old 200 ceiling was an M0-tile
+  // figure, not a rule.
+  assert.ok(r.stats.signalized >= 120 && r.stats.signalized <= 280, `signalized ${r.stats.signalized}`);
+  // Census pin (PR #72 rebase, 2026-10-24, on PR #70's data): the
+  // expanded map's signalized count is exactly 241.
+  assert.equal(r.stats.signalized, 241, `signalized census ${r.stats.signalized}`);
   assert.ok(r.stats.dividerKm > 50, `divider km ${r.stats.dividerKm}`);
   assert.ok(r.stats.crosswalks > 400, `crosswalks ${r.stats.crosswalks}`);
   assert.ok(r.stats.signalUnits >= r.stats.stopLines && r.stats.stopLines > 600,
@@ -274,9 +281,17 @@ test('geodata (issue #64): no signal stands on a carriageway; mast-arms only on 
   assert.equal(r.stats.clearanceUnresolved, 0, 'every corner resolved clear of the carriageways');
   // Counts by kind: every unit is one kind or the other, and the
   // mast-arm share is the divided-boulevard share of approaches.
+  // Census re-pinned 2026-10-24 for the PR #72 rebase onto the
+  // expanded map (PR #70): the station district + Ximending took the
+  // tile from 787 units (268 mast / 519 pole) to 1,196 units —
+  // exact split re-derived on the merged tree: 386 mast-arm /
+  // 810 corner-pole. The 0-inside invariant above is the binding
+  // pin; these counts are the census record and move only with a
+  // data regen, with the reason written here.
   assert.equal(r.stats.signalMast + r.stats.signalPole, r.stats.signalUnits);
-  assert.ok(r.stats.signalMast >= 150 && r.stats.signalMast <= 400, `mast units ${r.stats.signalMast}`);
-  assert.ok(r.stats.signalPole >= 400, `pole units ${r.stats.signalPole}`);
+  assert.equal(r.stats.signalUnits, 1196, `signal units ${r.stats.signalUnits}`);
+  assert.equal(r.stats.signalMast, 386, `mast units ${r.stats.signalMast}`);
+  assert.equal(r.stats.signalPole, 810, `pole units ${r.stats.signalPole}`);
   // Mast ⟺ divided, recomputed independently of the planner's own
   // helper: the approach bed splits at a drawn median, or a
   // same-name near-parallel twin arm shares its junction.

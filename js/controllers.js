@@ -53,6 +53,11 @@ const BICYCLE_DRIVE = {
 const PERSON_SPEED = { walk: 4.4, run: 8.2 };
 const HELI_SPEED = { cruise: 32.0, boost: 52.0, vertical: 16.0 };
 
+// Helicopter altitude ceiling, m (upstream value). A tile may raise it
+// via the heliCeiling world option — Taipei passes 750 so the chopper
+// can fly well above Taipei 101 (508 m); see js/taipei-boot.js.
+const HELI_CEILING = 380;
+
 // A tile may scale every mode's top-speed caps via the speedScale world
 // option (Taipei passes 2, per the user's 2026-10-23 request). Only the
 // caps scale — acceleration, braking, drag and handling are the driving
@@ -166,6 +171,19 @@ class ThirdPersonControllerManager {
   //     horizontal & vertical). Caps only: acceleration, braking, drag and
   //     handling are unchanged. Taipei passes 2; NYC never passes it and
   //     keeps the upstream caps exactly.
+  //   excludeRects: [{minX, maxX, minZ, maxZ}] — rects inside `bounds`
+  //     with NO ground (a union-of-boxes tile's dropped bands, issue
+  //     #60): ground modes are pushed out of them along the smallest-
+  //     penetration axis, an invisible wall around the void. The
+  //     helicopter flies over them freely. NYC never passes it.
+  //   heliCeiling: number > 0 — helicopter altitude ceiling in metres,
+  //     replacing HELI_CEILING (380). Taipei passes 750 (user request
+  //     2026-10-24: fly above 600 m, clearing Taipei 101's 508 m).
+  //   heliVerticalScale: number > 0 — extra multiplier on the helicopter
+  //     vertical (ascend/descend) cap ONLY, applied on top of the
+  //     speedScale-derived table; vertical acceleration is a feel
+  //     parameter and does not scale. Taipei passes 5 (cap 16 × 2 × 5
+  //     = 160 m/s, 5× the in-Taipei 32 m/s). NYC passes neither option.
   constructor(scene, colliders = [], opts = {}) {
     this.scene = scene;
     this.worldOpts = {
@@ -174,8 +192,15 @@ class ThirdPersonControllerManager {
       groundHeight: typeof opts.groundHeight === 'function' ? opts.groundHeight : null,
       avatarFigureFactory: typeof opts.avatarFigureFactory === 'function' ? opts.avatarFigureFactory : null,
       spawnByMode: opts.spawnByMode || null,
+      excludeRects: Array.isArray(opts.excludeRects) && opts.excludeRects.length ? opts.excludeRects : null,
       speedScale: (typeof opts.speedScale === 'number' && Number.isFinite(opts.speedScale) && opts.speedScale > 0)
         ? opts.speedScale
+        : 1,
+      heliCeiling: (typeof opts.heliCeiling === 'number' && Number.isFinite(opts.heliCeiling) && opts.heliCeiling > 0)
+        ? opts.heliCeiling
+        : HELI_CEILING,
+      heliVerticalScale: (typeof opts.heliVerticalScale === 'number' && Number.isFinite(opts.heliVerticalScale) && opts.heliVerticalScale > 0)
+        ? opts.heliVerticalScale
         : 1,
       idleWalkZ: opts.idleWalkZ || (opts.bounds
         ? { min: opts.bounds.minZ + 30, max: opts.bounds.maxZ - 30 }
@@ -229,6 +254,14 @@ class ThirdPersonControllerManager {
     return this.worldOpts?.bounds || ISLAND_BOUNDS;
   }
 
+  // The helicopter altitude ceiling for this world: the heliCeiling
+  // option when valid, HELI_CEILING otherwise. (worldOpts may be absent
+  // on prototype-built instances in unit tests — the NYC default.)
+  _heliCeiling() {
+    const c = this.worldOpts?.heliCeiling;
+    return (typeof c === 'number' && Number.isFinite(c) && c > 0) ? c : HELI_CEILING;
+  }
+
   // Manhattan shoreline limits at z (with the usual 8 m dry-land inset), or
   // null when the shoreline clamp does not apply: a tile world, or a build
   // without the coastline data.
@@ -237,6 +270,31 @@ class ThirdPersonControllerManager {
     if (!getIslandBoundsAtZ) return null;
     const shore = getIslandBoundsAtZ(z);
     return { westX: shore.westX + 8, eastX: shore.eastX - 8 };
+  }
+
+  // Union-tile exclusion zones (worldOpts.excludeRects, issue #60): when
+  // (x, z) lies strictly inside an exclusion rect — a dropped band of a
+  // union-of-boxes tile, where there is no ground — push it out along
+  // the smallest-penetration axis to the rect's edge. A point exactly
+  // on an edge is NOT inside, so a pushed-out point stays out on the
+  // next frame (no oscillation). Returns [x, z] unchanged when no
+  // exclusions are configured (the Manhattan default).
+  _excludePush(x, z) {
+    const rects = this.worldOpts?.excludeRects;
+    if (!rects) return [x, z];
+    for (const r of rects) {
+      if (x > r.minX && x < r.maxX && z > r.minZ && z < r.maxZ) {
+        const pens = [
+          { d: x - r.minX, x: r.minX, z },
+          { d: r.maxX - x, x: r.maxX, z },
+          { d: z - r.minZ, x, z: r.minZ },
+          { d: r.maxZ - z, x, z: r.maxZ },
+        ];
+        pens.sort((a, b) => a.d - b.d);
+        x = pens[0].x; z = pens[0].z;
+      }
+    }
+    return [x, z];
   }
 
   // A mode's spawn: opts.spawnByMode wins field-by-field over the built-in
@@ -265,6 +323,14 @@ class ThirdPersonControllerManager {
       : { walk: PERSON_SPEED.walk * scale, run: PERSON_SPEED.run * scale };
     this.heliSpeed = scale === 1 ? HELI_SPEED
       : { cruise: HELI_SPEED.cruise * scale, boost: HELI_SPEED.boost * scale, vertical: HELI_SPEED.vertical * scale };
+    // heliVerticalScale (tile option): a further multiplier on the
+    // vertical cap only, on top of speedScale. At 1 the table above is
+    // kept as-is (the shared HELI_SPEED object when nothing scales).
+    const vRaw = this.worldOpts?.heliVerticalScale;
+    const vScale = (typeof vRaw === 'number' && Number.isFinite(vRaw) && vRaw > 0) ? vRaw : 1;
+    if (vScale !== 1) {
+      this.heliSpeed = { ...this.heliSpeed, vertical: this.heliSpeed.vertical * vScale };
+    }
   }
 
   setCollisionListener(listener) {
@@ -372,7 +438,7 @@ class ThirdPersonControllerManager {
     this.resetInput();
     if (!Number.isFinite(heading)) heading = ent.heading;
     const heli = this.activeMode === 'helicopter';
-    const altitude = heli ? Math.max(0.25, Math.min(380, savedAltitude ?? Math.max(92, ent.position.y))) : 0;
+    const altitude = heli ? Math.max(0.25, Math.min(this._heliCeiling(), savedAltitude ?? Math.max(92, ent.position.y))) : 0;
     const destination = this.findTeleportPosition(x, z, heading, altitude);
     if (destination) {
       ent.position.x = destination.x;
@@ -442,6 +508,8 @@ class ThirdPersonControllerManager {
           if (shore.westX > shore.eastX) return null;
           px = Math.max(shore.westX, Math.min(shore.eastX, px));
         }
+        const ex = this._excludePush(px, pz);
+        px = ex[0]; pz = ex[1];
       }
       return { x: px, z: pz };
     };
@@ -993,6 +1061,8 @@ class ThirdPersonControllerManager {
           if (carEntity && carEntity.speed) carEntity.speed *= 0.4;
         }
       }
+      const ex = this._excludePush(pos.x, pos.z);
+      pos.x = ex[0]; pos.z = ex[1];
     }
 
     const sinH = carEntity ? Math.sin(carEntity.heading) : 0;
@@ -1382,7 +1452,7 @@ class ThirdPersonControllerManager {
     if (h.position.y < 0.25) {
       this.reportCollision(h, groundCollider, 'ground', h.position.x, 0.25, h.position.z, 0, 1, 0, -h.verticalSpeed);
     }
-    h.position.y = Math.max(0.25, Math.min(380, h.position.y));
+    h.position.y = Math.max(0.25, Math.min(this._heliCeiling(), h.position.y));
     this.resolveHorizontalCollision(h.position, 4.5, h.position.y, null, h);
 
     const targetPitch = (h.speed / maxHorizSpeed) * 0.24;

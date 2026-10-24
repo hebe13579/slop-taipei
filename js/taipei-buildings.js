@@ -26,15 +26,24 @@
 //     1.2–3 m gap between neighbouring footprints. Very large blocks
 //     (> 40,000 m² — campuses, depots, riverside tracts) use a coarser
 //     pitch and a higher vacancy rate so they don't read as carpet.
+//   - The tile is a union of boxes (issue #60): a block whose centroid
+//     is outside every box is skipped, and a lot whose centre or any
+//     footprint corner leaves the union is dropped — nothing is
+//     planned over a dropped band.
 //   - A lot is dropped when its centre falls inside a park/water
 //     polygon (exact point-in-polygon, so a park that merely overlaps a
 //     block's bbox still stays empty — Da'an Forest Park above all),
 //     when its footprint intersects the Taipei 101 landmark site, or
-//     when its centre comes within 1.6 m of a roadbed/path ribbon edge,
-//     or when any footprint corner lands inside a ribbon (block bboxes
-//     are rectangles around non-rectangular raster components; these
-//     tests keep footprints out of the road corridors that cut through
-//     a bbox's concave notches, and off the narrow lanes they flank).
+//     when it fails the exact ribbon tests of issue #65 (below):
+//     the footprint grown by ROAD_MARGIN_M must not intersect any
+//     roadbed/path ribbon segment rectangle, and a lot flanked on
+//     opposite sides by ribbons of the same named carriageway sits
+//     inside that road's divided span (a median/separator strip) and
+//     is dropped too. (The pre-#65 centre/corner sampling could not
+//     see a ribbon slicing a lot through two edges — 2,606 of the
+//     2,621 lot∩ribbon intersections citywide were that case — nor
+//     the planted strips between a boulevard's separate carriageway
+//     beds, where whole lot columns stood on the Dunhua medians.)
 //   - Heights are contextual, from distance to the tile origin (Taipei
 //     101) and the best road class adjacent to the lot:
 //       < 650 m from origin (Xinyi core)      → 25–60 m
@@ -172,7 +181,121 @@ function buildSegmentGrid(entries) {
   return { grid, key };
 }
 
-// ---- Landmark structures around Taipei 101 (issue #26) ----
+// ---- Exact ribbon exclusion (issue #65) ----
+//
+// Ribbons are the per-segment butt-cap rectangles the ground renderer
+// draws (half = max(width/2, 0.75)) — the same construction the
+// landmark overlap test audits against, so "no intersection" here
+// means no intersection with what is actually rendered as road.
+const ROAD_MARGIN_M = 0.5;       // footprint clearance kept off every ribbon edge
+const CORRIDOR_GAP_MAX_M = 20;   // same-name flank reach for the median test
+const RIBBON_GRID_CELL = 48;
+const RIBBON_REACH_M = ROAD_MARGIN_M + CORRIDOR_GAP_MAX_M + 6; // grid filing slack
+
+function buildRibbonRects(entries, flank) {
+  const rects = [];
+  for (const e of entries) {
+    const half = Math.max((e.width || 3) / 2, 0.75);
+    const pts = e.pts || [];
+    for (let i = 0; i + 3 < pts.length; i += 2) {
+      const ax = pts[i], az = pts[i + 1], bx = pts[i + 2], bz = pts[i + 3];
+      const dx = bx - ax, dz = bz - az, len = Math.hypot(dx, dz);
+      if (len < 0.01) continue;
+      const ux = dx / len, uz = dz / len;
+      const nx = (-dz / len) * half, nz = (dx / len) * half;
+      const xs = [ax + nx, bx + nx, bx - nx, ax - nx];
+      const zs = [az + nz, bz + nz, bz - nz, az - nz];
+      rects.push({
+        name: e.name || '', flank, ux, uz,
+        minX: Math.min(...xs), maxX: Math.max(...xs),
+        minZ: Math.min(...zs), maxZ: Math.max(...zs),
+        corners: [xs[0], zs[0], xs[1], zs[1], xs[2], zs[2], xs[3], zs[3]],
+      });
+    }
+  }
+  return rects;
+}
+
+// Rects are filed under every cell their bbox (expanded by
+// RIBBON_REACH_M) touches, so a query over the cells a lot's bbox
+// touches finds every rect that could intersect the lot or flank it
+// within CORRIDOR_GAP_MAX_M.
+function buildRibbonGrid(rects) {
+  const grid = new Map();
+  const key = (gx, gz) => gx * 100003 + gz;
+  rects.forEach((r, idx) => {
+    const gx0 = Math.floor((r.minX - RIBBON_REACH_M) / RIBBON_GRID_CELL);
+    const gx1 = Math.floor((r.maxX + RIBBON_REACH_M) / RIBBON_GRID_CELL);
+    const gz0 = Math.floor((r.minZ - RIBBON_REACH_M) / RIBBON_GRID_CELL);
+    const gz1 = Math.floor((r.maxZ + RIBBON_REACH_M) / RIBBON_GRID_CELL);
+    for (let gx = gx0; gx <= gx1; gx++) for (let gz = gz0; gz <= gz1; gz++) {
+      const k = key(gx, gz);
+      let bucket = grid.get(k);
+      if (!bucket) grid.set(k, bucket = []);
+      bucket.push(idx);
+    }
+  });
+  return { grid, key };
+}
+
+// The interval where a ribbon rect crosses the horizontal line z
+// (resp. the vertical line x), or null when the line misses the rect.
+// The flank tests must use these true crossings, never the rect's
+// bbox: a slanted segment's bbox overhangs the rect at any given z,
+// and a bbox-based flank test misses the very bed that borders the
+// lot (the Dunhua median columns survived a bbox flank test on
+// 0.1–0.8 m of bbox overhang).
+function ribbonSpanAtZ(r, z) {
+  const c = r.corners;
+  let lo = Infinity, hi = -Infinity;
+  for (let i = 0; i < 8; i += 2) {
+    const x1 = c[i], z1 = c[i + 1], x2 = c[(i + 2) % 8], z2 = c[(i + 3) % 8];
+    if (z1 === z) { if (x1 < lo) lo = x1; if (x1 > hi) hi = x1; }
+    if ((z1 < z && z2 > z) || (z2 < z && z1 > z)) {
+      const x = x1 + ((z - z1) * (x2 - x1)) / (z2 - z1);
+      if (x < lo) lo = x;
+      if (x > hi) hi = x;
+    }
+  }
+  return lo <= hi ? [lo, hi] : null;
+}
+function ribbonSpanAtX(r, x) {
+  const c = r.corners;
+  let lo = Infinity, hi = -Infinity;
+  for (let i = 0; i < 8; i += 2) {
+    const x1 = c[i], z1 = c[i + 1], x2 = c[(i + 2) % 8], z2 = c[(i + 3) % 8];
+    if (x1 === x) { if (z1 < lo) lo = z1; if (z1 > hi) hi = z1; }
+    if ((x1 < x && x2 > x) || (x2 < x && x1 > x)) {
+      const z = z1 + ((x - x1) * (z2 - z1)) / (x2 - x1);
+      if (z < lo) lo = z;
+      if (z > hi) hi = z;
+    }
+  }
+  return lo <= hi ? [lo, hi] : null;
+}
+
+// Separating-axis test of one ribbon rect against an axis-aligned lot
+// rect. The caller has already established bbox overlap, which covers
+// the lot's own two axes; only the ribbon's axes are projected here.
+function ribbonHitsLot(r, minX, maxX, minZ, maxZ) {
+  const c = r.corners;
+  for (const [axx, azz] of [[r.ux, r.uz], [-r.uz, r.ux]]) {
+    let rMin = Infinity, rMax = -Infinity;
+    for (let i = 0; i < 8; i += 2) {
+      const p = c[i] * axx + c[i + 1] * azz;
+      if (p < rMin) rMin = p;
+      if (p > rMax) rMax = p;
+    }
+    let lMin = Infinity, lMax = -Infinity;
+    for (const [px, pz] of [[minX, minZ], [maxX, minZ], [maxX, maxZ], [minX, maxZ]]) {
+      const p = px * axx + pz * azz;
+      if (p < lMin) lMin = p;
+      if (p > lMax) lMax = p;
+    }
+    if (rMax < lMin || lMax < rMin) return false;
+  }
+  return true;
+}
 //
 // Every entry was verified against published sources (Wikipedia /
 // CTBUH Skyscraper Center; heights are the published architectural /
@@ -242,10 +365,15 @@ const LANDMARK_STRUCTURES = [
     id: 'taipei-nan-shan-plaza', name: 'Taipei Nan Shan Plaza', nameZh: '臺北南山廣場',
     lat: 25.0344, lon: 121.566982, realHeight: 272, color: 0x2c3540,
     site: { w: 242, d: 64, dx: -5, dz: -1 },
+    // Issue #57: dark blue-grey curtain wall on the shaft; the mall
+    // podium gets a lighter, wider-bayed curtain variant and the
+    // Breeze wordmark the real podium carries.
+    facade: { kind: 'curtain', glassTint: 0x1b2836, frameTint: 0x6d7885, windowWidth: 2.6, floorHeight: 4.2, litProbability: 0.34, warmth: 0.58, reflectivity: 0.92, seed: 57.11 },
+    sign: { text: 'Breeze', w: 30, h: 5, y: 20, dx: 20, dz: 28.4, bg: '#22262c', fg: '#ece5d3', accent: '#c8372d' },
     parts: [
-      { type: 'box', w: 108, d: 54, h: 30, dx: -77, dz: 1 },
-      { type: 'box', w: 66, d: 58, h: 34, dx: 20, dz: -1 },
-      { type: 'box', w: 48, d: 38, h: 34, dx: 90, dz: 8 },
+      { type: 'box', w: 108, d: 54, h: 30, dx: -77, dz: 1, facade: { kind: 'curtain', glassTint: 0x2a3745, frameTint: 0x59636e, windowWidth: 3.2, floorHeight: 3.6, litProbability: 0.42, warmth: 0.6, reflectivity: 0.9, seed: 57.12 } },
+      { type: 'box', w: 66, d: 58, h: 34, dx: 20, dz: -1, facade: { kind: 'curtain', glassTint: 0x2a3745, frameTint: 0x59636e, windowWidth: 3.2, floorHeight: 3.6, litProbability: 0.42, warmth: 0.6, reflectivity: 0.9, seed: 57.12 } },
+      { type: 'box', w: 48, d: 38, h: 34, dx: 90, dz: 8, facade: { kind: 'curtain', glassTint: 0x2a3745, frameTint: 0x59636e, windowWidth: 3.2, floorHeight: 3.6, litProbability: 0.42, warmth: 0.6, reflectivity: 0.9, seed: 57.12 } },
       { type: 'frustum', wB: 52, dB: 40, wT: 47, dT: 36, h: 208, y0: 34 },
       { type: 'ridge', w: 47, d: 36, h: 0, ridgeH: 30, y0: 242 },
     ],
@@ -264,6 +392,9 @@ const LANDMARK_STRUCTURES = [
     id: 'the-sky-taipei', name: 'The Sky Taipei', nameZh: '台北天空塔',
     lat: 25.036458, lon: 121.566047, realHeight: 280, color: 0x5d7a6c,
     site: { w: 44, d: 96, dx: 0, dz: -2 },
+    // Issue #57: pale sage-green pleated glass — narrow bays, tall
+    // floors, high reflectivity.
+    facade: { kind: 'curtain', glassTint: 0x51665c, frameTint: 0x9fb4a6, windowWidth: 2.2, floorHeight: 4.6, litProbability: 0.3, warmth: 0.5, reflectivity: 0.94, seed: 57.13 },
     parts: [
       // Podium stops at the construction-road ribbon along the
       // outline's north edge (issue #42 audit: the ribbon's south
@@ -288,6 +419,9 @@ const LANDMARK_STRUCTURES = [
     id: 'fubon-xinyi-a25', name: 'Fubon Xinyi A25', nameZh: '富邦信義A25',
     lat: 25.039629, lon: 121.570578, realHeight: 266.3, color: 0x8fa5b5,
     site: { w: 120, d: 74, dx: 36, dz: 14 },
+    // Issue #57: light stone-and-glass grid (the prewar masonry
+    // factory reads as Piano's stone frame with glazing between).
+    facade: { kind: 'prewar', stoneColor: 0xb9bdc2, trimColor: 0x8f959c, windowGlassColor: 0x27384a, windowWidth: 3.0, floorHeight: 4.4, litProbability: 0.3, warmth: 0.55, seed: 57.14 },
     parts: [
       { type: 'box', w: 47, d: 16, h: 12, dx: 51, dz: 8 },
       { type: 'box', w: 56, d: 21, h: 15, dx: 66, dz: 38 },
@@ -316,8 +450,13 @@ const LANDMARK_STRUCTURES = [
     id: 'cathay-landmark', name: 'Cathay Landmark', nameZh: '國泰置地廣場',
     lat: 25.040488, lon: 121.566845, realHeight: 212, color: 0x51606e,
     site: { w: 126, d: 82, dx: 0, dz: 0 },
+    // Issue #57: deep blue-grey curtain wall with pale fin frames on
+    // the two slabs; the mall podium takes a wider-bayed retail
+    // variant and the Breeze Xinyi wordmark its south front carries.
+    facade: { kind: 'curtain', glassTint: 0x20384e, frameTint: 0xa8b2ba, windowWidth: 2.4, floorHeight: 4.2, litProbability: 0.33, warmth: 0.55, reflectivity: 0.93, seed: 57.15 },
+    sign: { text: 'Breeze', w: 44, h: 6, y: 14, dx: 4, dz: 39.9, bg: '#22262c', fg: '#ece5d3', accent: '#c8372d' },
     parts: [
-      { type: 'cylinder', r: 58.5, rz: 38.5, h: 26, dx: 4, dz: 1 },
+      { type: 'cylinder', r: 58.5, rz: 38.5, h: 26, dx: 4, dz: 1, facade: { kind: 'curtain', glassTint: 0x2c3e50, frameTint: 0x7e8894, windowWidth: 4.6, floorHeight: 3.6, litProbability: 0.45, warmth: 0.6, reflectivity: 0.9, seed: 57.16 } },
       { type: 'box', w: 32, d: 34, h: 186, y0: 26, dx: -11, dz: 6 },
       { type: 'box', w: 22, d: 34, h: 168, y0: 26, dx: 16, dz: 6 },
     ],
@@ -333,6 +472,9 @@ const LANDMARK_STRUCTURES = [
     id: 'uni-president-international-tower', name: 'Uni-President International Tower', nameZh: '統一國際大樓',
     lat: 25.039709, lon: 121.565405, realHeight: 154, color: 0x9a958c,
     site: { w: 112, d: 62, dx: 0, dz: 0 },
+    // Issue #57: warm beige stone cladding; the pergola fins and
+    // beams stay plain stone trim (flat), as built.
+    facade: { kind: 'prewar', stoneColor: 0xb3a78d, trimColor: 0x8d8271, windowGlassColor: 0x2a3542, windowWidth: 2.8, floorHeight: 4.8, litProbability: 0.3, warmth: 0.62, seed: 57.17 },
     parts: [
       // Main slab + a mid-height east strip: the bus-station drives
       // east of the tower notch the outline's NE and SE corners
@@ -340,11 +482,11 @@ const LANDMARK_STRUCTURES = [
       { type: 'box', w: 92, d: 57, h: 30, dx: -7 },
       { type: 'box', w: 12, d: 30, h: 30, dx: 45, dz: -7 },
       { type: 'box', w: 60, d: 40, h: 114, y0: 30 },
-      { type: 'box', w: 2.5, d: 40, h: 10, y0: 144, dx: -28.75 },
-      { type: 'box', w: 2.5, d: 40, h: 10, y0: 144, dx: 28.75 },
-      { type: 'box', w: 60, d: 3, h: 2, y0: 152, dz: -14 },
-      { type: 'box', w: 60, d: 3, h: 2, y0: 152, dz: 0 },
-      { type: 'box', w: 60, d: 3, h: 2, y0: 152, dz: 14 },
+      { type: 'box', w: 2.5, d: 40, h: 10, y0: 144, dx: -28.75, flat: 0x9a8f7a },
+      { type: 'box', w: 2.5, d: 40, h: 10, y0: 144, dx: 28.75, flat: 0x9a8f7a },
+      { type: 'box', w: 60, d: 3, h: 2, y0: 152, dz: -14, flat: 0x9a8f7a },
+      { type: 'box', w: 60, d: 3, h: 2, y0: 152, dz: 0, flat: 0x9a8f7a },
+      { type: 'box', w: 60, d: 3, h: 2, y0: 152, dz: 14, flat: 0x9a8f7a },
     ],
   },
   {
@@ -355,6 +497,10 @@ const LANDMARK_STRUCTURES = [
     id: 'tao-zhu-yin-yuan', name: 'Tao Zhu Yin Yuan', nameZh: '陶朱隱園',
     lat: 25.0386, lon: 121.5704, realHeight: 93.2, color: 0x8b978c,
     site: { w: 72, d: 56, dx: 0, dz: 0 },
+    // Issue #57: light warm residential stone; the floor height is
+    // the slab pitch itself (segH ≈ 4.17 m), so every twisted slab
+    // reads as one planted floor with its own window row.
+    facade: { kind: 'prewar', stoneColor: 0xa9b3a4, trimColor: 0x87917f, windowGlassColor: 0x223140, windowWidth: 3.0, floorHeight: 4.17, litProbability: 0.38, warmth: 0.75, seed: 57.18 },
     parts: taoZhuParts(),
   },
   {
@@ -373,6 +519,8 @@ const LANDMARK_STRUCTURES = [
     id: 'twtc-international-trade-building', name: 'TWTC International Trade Building', nameZh: '台北世界貿易中心國際貿易大樓',
     lat: 25.034444, lon: 121.561334, realHeight: 142.92, color: 0x7a5c50,
     site: { w: 68, d: 70, dx: -12.5, dz: 2.4 },
+    // Issue #57: the brown-stone grid the real slab is wrapped in.
+    facade: { kind: 'prewar', stoneColor: 0x8a6a58, trimColor: 0x6e5546, windowGlassColor: 0x1f2c3c, windowWidth: 2.6, floorHeight: 4.1, litProbability: 0.3, warmth: 0.6, seed: 57.19 },
     parts: [
       { type: 'box', w: 36, d: 60, h: 137.92 },
       { type: 'box', w: 33, d: 60, h: 5, y0: 137.92 },
@@ -392,6 +540,9 @@ const LANDMARK_STRUCTURES = [
     id: 'taipei-city-hall', name: 'Taipei City Hall', nameZh: '臺北市市政大樓',
     lat: 25.0375, lon: 121.56444, realHeight: 54.42, color: 0x8a7f72,
     site: { w: 152, d: 228, dx: 0, dz: 0 },
+    // Issue #57: formal municipal rhythm — grey stone, tall floors,
+    // wide bays, few lit windows.
+    facade: { kind: 'prewar', stoneColor: 0x9d968a, trimColor: 0x7d766b, windowGlassColor: 0x24303e, windowWidth: 3.0, floorHeight: 4.5, litProbability: 0.26, warmth: 0.6, seed: 57.20 },
     plaza: { w: 96, d: 34, dx: -193.5, dz: -22.5 },
     parts: [
       { type: 'box', w: 36, d: 216, h: 54.42 },
@@ -411,9 +562,20 @@ const LANDMARK_STRUCTURES = [
     id: 'taipei-dome', name: 'Taipei Dome', nameZh: '臺北大巨蛋',
     lat: 25.042306, lon: 121.560083, realHeight: 64, color: 0xcfc9bb,
     site: { w: 270, d: 200, dx: 0, dz: 0 },
+    // Issue #57: the drum is panelled metal, not glass — the
+    // curtain factory tuned to near-zero lit windows, wide panels
+    // and matched glass/frame tones reads as panel bands; the cap
+    // is a flat silvery shell (see the part note). The entrance
+    // gets an abstract glyph band (project stylization).
+    facade: { kind: 'curtain', glassTint: 0xb7b1a1, frameTint: 0xa39c8c, windowWidth: 7.6, floorHeight: 5.5, litProbability: 0.05, warmth: 0.5, reflectivity: 0.5, seed: 57.21 },
+    sign: { glyphs: 7, w: 40, h: 4.5, y: 11, dx: 0, dz: 95.4, bg: '#3a3f45', fg: '#ddd6c2' },
     parts: [
       { type: 'cylinder', r: 125, rz: 95, h: 22 },
-      { type: 'dome', rx: 125, rz: 95, h: 42, y0: 22 },
+      // The cap is a smooth titanium shell: the curtain factory's
+      // hardcoded dark gravel-roof branch would take over its
+      // up-facing normals, so the cap wears a flat silvery metal
+      // tone instead (the drum keeps the panel grid).
+      { type: 'dome', rx: 125, rz: 95, h: 42, y0: 22, flat: { color: 0xcac5b6, roughness: 0.42, metalness: 0.35 } },
     ],
   },
   {
@@ -433,16 +595,21 @@ const LANDMARK_STRUCTURES = [
     id: 'sun-yat-sen-memorial-hall', name: 'Sun Yat-sen Memorial Hall', nameZh: '國父紀念館',
     lat: 25.04001, lon: 121.5603, realHeight: 30.4, color: 0x9c8a66,
     site: { w: 124, d: 124, dx: 0, dz: 0 },
+    // Issue #57: warm sandstone walls; the palace roof tiers, ridge
+    // and corner pylons stay flat ochre (glazed-tile tone), the
+    // terrace flat stone. A gold glyph band marks the entrance.
+    facade: { kind: 'prewar', stoneColor: 0xbfae8e, trimColor: 0x9a8a68, windowGlassColor: 0x2c3844, windowWidth: 3.2, floorHeight: 5.2, litProbability: 0.22, warmth: 0.7, seed: 57.22 },
+    sign: { glyphs: 6, w: 30, h: 3, y: 11.5, dx: 0, dz: 48.4, bg: '#4a3826', fg: '#e8cf9a' },
     parts: [
-      { type: 'box', w: 108, d: 108, h: 1.5 },
+      { type: 'box', w: 108, d: 108, h: 1.5, flat: 0xa89a80 },
       { type: 'box', w: 96, d: 96, h: 15.5, y0: 1.5 },
-      { type: 'frustum', wB: 104, dB: 104, wT: 90, dT: 90, h: 4, y0: 17 },
-      { type: 'frustum', wB: 90, dB: 90, wT: 74, dT: 74, h: 3.5, y0: 21 },
-      { type: 'ridge', w: 74, d: 74, h: 0, ridgeH: 5.9, y0: 24.5 },
-      { type: 'box', w: 5, d: 5, h: 3.5, y0: 21, dx: -42, dz: -42 },
-      { type: 'box', w: 5, d: 5, h: 3.5, y0: 21, dx: 42, dz: -42 },
-      { type: 'box', w: 5, d: 5, h: 3.5, y0: 21, dx: -42, dz: 42 },
-      { type: 'box', w: 5, d: 5, h: 3.5, y0: 21, dx: 42, dz: 42 },
+      { type: 'frustum', wB: 104, dB: 104, wT: 90, dT: 90, h: 4, y0: 17, flat: 0xa06a42 },
+      { type: 'frustum', wB: 90, dB: 90, wT: 74, dT: 74, h: 3.5, y0: 21, flat: 0xa06a42 },
+      { type: 'ridge', w: 74, d: 74, h: 0, ridgeH: 5.9, y0: 24.5, flat: 0xa06a42 },
+      { type: 'box', w: 5, d: 5, h: 3.5, y0: 21, dx: -42, dz: -42, flat: 0xa06a42 },
+      { type: 'box', w: 5, d: 5, h: 3.5, y0: 21, dx: 42, dz: -42, flat: 0xa06a42 },
+      { type: 'box', w: 5, d: 5, h: 3.5, y0: 21, dx: -42, dz: 42, flat: 0xa06a42 },
+      { type: 'box', w: 5, d: 5, h: 3.5, y0: 21, dx: 42, dz: 42, flat: 0xa06a42 },
     ],
   },
   {
@@ -465,6 +632,10 @@ const LANDMARK_STRUCTURES = [
     id: 'w-taipei', name: 'W Taipei', nameZh: '台北W飯店',
     lat: 25.0405433, lon: 121.5647998, realHeight: 151, color: 0x8fa8b8,
     site: { w: 168, d: 104, dx: 26, dz: -4 },
+    // Issue #57: dark hotel grid glass, and the white W mark the
+    // real tower carries on its south face.
+    facade: { kind: 'curtain', glassTint: 0x18222c, frameTint: 0x8b95a1, windowWidth: 2.8, floorHeight: 4.2, litProbability: 0.36, warmth: 0.6, reflectivity: 0.92, seed: 57.23 },
+    sign: { text: 'W', w: 12, h: 12, y: 130, dx: 73, dz: 14.4, bg: '#10151b', fg: '#f2f2f2' },
     parts: [
       { type: 'box', w: 128, d: 14, h: 17, dx: 14, dz: 36.2 },
       { type: 'box', w: 96, d: 13, h: 17, dx: 34, dz: -34.3 },
@@ -490,11 +661,16 @@ const LANDMARK_STRUCTURES = [
     id: 'songshan-cultural-park', name: 'Songshan Cultural and Creative Park', nameZh: '松山文創園區',
     lat: 25.0436127, lon: 121.5602251, realHeight: 30, color: 0x8a6a54,
     site: { w: 244, d: 140, dx: 33, dz: 18 },
+    // Issue #57: brick-red masonry for the factory hall and boiler
+    // room; the roof ridge and chimney stay flat brick/tile tones.
+    // An abstract glyph band marks the hall entrance.
+    facade: { kind: 'prewar', stoneColor: 0x9a6a52, trimColor: 0x7c5540, windowGlassColor: 0x232f3a, windowWidth: 3.2, floorHeight: 5.0, litProbability: 0.28, warmth: 0.72, seed: 57.24 },
+    sign: { glyphs: 6, w: 38, h: 3.4, y: 7.2, dx: 0, dz: 46.9, bg: '#4a3226', fg: '#e6d9c3' },
     parts: [
       { type: 'box', w: 165, d: 93, h: 10 },
-      { type: 'ridge', w: 165, d: 93, h: 0, ridgeH: 4, y0: 10 },
+      { type: 'ridge', w: 165, d: 93, h: 0, ridgeH: 4, y0: 10, flat: 0x6e4a38 },
       { type: 'box', w: 17, d: 25, h: 8, dx: 140.4, dz: 69.3 },
-      { type: 'cylinder', r: 3.2, h: 30, dx: 140.4, dz: 61.6 },
+      { type: 'cylinder', r: 3.2, h: 30, dx: 140.4, dz: 61.6, flat: 0x8a5a44 },
     ],
   },
   {
@@ -514,6 +690,12 @@ const LANDMARK_STRUCTURES = [
     id: 'eslite-spectrum-songyan', name: 'Eslite Spectrum Songyan', nameZh: '誠品生活松菸',
     lat: 25.0445705, lon: 121.5613061, realHeight: 63, estimated: true, color: 0xb0aca2,
     site: { w: 156, d: 68, dx: -8, dz: 4 },
+    // Issue #57: pale stone with wide ribbon windows (windowRatioX
+    // 0.78), and the eslite wordmark band over the mall entrance —
+    // the real building carries the lowercase Latin mark on deep
+    // green.
+    facade: { kind: 'prewar', stoneColor: 0xcac2b2, trimColor: 0xa39a88, windowGlassColor: 0x26313e, windowWidth: 2.6, floorHeight: 4.5, windowRatioX: 0.78, windowRatioY: 0.62, litProbability: 0.34, warmth: 0.62, seed: 57.25 },
+    sign: { text: 'eslite', w: 40, h: 4.6, y: 10, dx: 2, dz: 30.4, bg: '#173f35', fg: '#f0ead8' },
     parts: [
       { type: 'box', w: 120, d: 46, h: 63, dx: 2, dz: 7 },
       { type: 'box', w: 52, d: 40, h: 34, dx: -52, dz: -2 },
@@ -538,9 +720,12 @@ const LANDMARK_STRUCTURES = [
     id: 'taipei-arena', name: 'Taipei Arena', nameZh: '臺北小巨蛋',
     lat: 25.0507173, lon: 121.5501273, realHeight: 31, estimated: true, color: 0xcac5b8,
     site: { w: 172, d: 174, dx: 0, dz: 0 },
+    // Issue #57: silvery shell panels (the curtain factory at
+    // near-zero lit windows and wide panels, as on the Dome).
+    facade: { kind: 'curtain', glassTint: 0xb2b6b8, frameTint: 0x969ca0, windowWidth: 6.8, floorHeight: 5.5, litProbability: 0.04, warmth: 0.5, reflectivity: 0.6, seed: 57.26 },
     parts: [
       { type: 'cylinder', r: 74, rz: 80, h: 22, dx: -5 },
-      { type: 'dome', rx: 74, rz: 80, h: 9, y0: 22, dx: -5 },
+      { type: 'dome', rx: 74, rz: 80, h: 9, y0: 22, dx: -5, flat: { color: 0xc4c8ca, roughness: 0.42, metalness: 0.35 } },
       { type: 'box', w: 50, d: 82, h: 13, dx: 46, dz: -4 },
     ],
   },
@@ -568,6 +753,10 @@ function resolveLandmark(def, originLatLon) {
     color: def.color, site, openGround,
     sites: openGround ? [site, openGround] : [site],
     parts: def.parts,
+    // Issue #57: the structure's facade treatment + optional sign,
+    // pure registry data (the builders turn them into materials).
+    facade: def.facade || null,
+    sign: def.sign || null,
   };
 }
 
@@ -585,7 +774,17 @@ export function taipeiLandmarkStructures(geodata) {
 }
 
 export function planTaipeiBuildings(geodata) {
-  const stats = { blocksSeen: 0, blocksSkippedSmall: 0, blocksSkippedParkWater: 0, lotsDroppedVacancy: 0, lotsDroppedParkWater: 0, lotsDroppedTowerSite: 0, lotsDroppedRoad: 0 };
+  const stats = { blocksSeen: 0, blocksSkippedSmall: 0, blocksSkippedParkWater: 0, blocksSkippedOutsideUnion: 0, lotsDroppedVacancy: 0, lotsDroppedParkWater: 0, lotsDroppedTowerSite: 0, lotsDroppedRoad: 0, lotsDroppedMedian: 0, lotsDroppedOutsideUnion: 0 };
+  // Union-of-boxes tile (issue #60): the geodata frame carries the
+  // tile's boxes; ground exists only inside them. Raster blocks are
+  // masked to the union by the builder, but a block's bbox can still
+  // wrap a union corner, so the planner re-checks: a block whose
+  // centroid is outside every box is skipped, and a lot whose centre
+  // or any footprint corner leaves the union is dropped — no building
+  // may hang over a dropped band. A geodata without boxes (older
+  // extracts) plans exactly as before.
+  const unionBoxes = Array.isArray(geodata.frame?.boxes) && geodata.frame.boxes.length ? geodata.frame.boxes : null;
+  const inUnion = (x, z) => !unionBoxes || unionBoxes.some((b) => x >= b.minX && x <= b.maxX && z >= b.minZ && z <= b.maxZ);
   const polys = [];
   for (const p of geodata.parks || []) polys.push({ ring: p.ring, bb: ringBbox(p.ring) });
   for (const w of geodata.water || []) polys.push({ ring: w.ring, bb: ringBbox(w.ring) });
@@ -617,6 +816,66 @@ export function planTaipeiBuildings(geodata) {
     return { clearance, rank };
   };
 
+  // Exact ribbon verdicts (issue #65), over the same carriageway +
+  // path set as the segment grid: 'road' when the margin-grown
+  // footprint intersects a ribbon, 'median' when the lot is flanked
+  // on opposite sides by same-name carriageway ribbons (the divided
+  // span of one road — its median/separator strips are raster land
+  // between separate beds, so no ribbon covers them), else null.
+  const ribbonRects = [...buildRibbonRects(carriageways, true), ...buildRibbonRects(paths, false)];
+  const ribbonGrid = buildRibbonGrid(ribbonRects);
+  const ribbonVerdict = (cx, cz, w, d) => {
+    const minX = cx - w / 2, maxX = cx + w / 2, minZ = cz - d / 2, maxZ = cz + d / 2;
+    const gMinX = minX - ROAD_MARGIN_M, gMaxX = maxX + ROAD_MARGIN_M;
+    const gMinZ = minZ - ROAD_MARGIN_M, gMaxZ = maxZ + ROAD_MARGIN_M;
+    const west = new Map(), east = new Map(), north = new Map(), south = new Map();
+    const seen = new Set();
+    const gx0 = Math.floor(minX / RIBBON_GRID_CELL), gx1 = Math.floor(maxX / RIBBON_GRID_CELL);
+    const gz0 = Math.floor(minZ / RIBBON_GRID_CELL), gz1 = Math.floor(maxZ / RIBBON_GRID_CELL);
+    for (let gx = gx0; gx <= gx1; gx++) for (let gz = gz0; gz <= gz1; gz++) {
+      const bucket = ribbonGrid.grid.get(ribbonGrid.key(gx, gz));
+      if (!bucket) continue;
+      for (const idx of bucket) {
+        if (seen.has(idx)) continue;
+        seen.add(idx);
+        const r = ribbonRects[idx];
+        if (r.maxX >= gMinX && r.minX <= gMaxX && r.maxZ >= gMinZ && r.minZ <= gMaxZ
+          && ribbonHitsLot(r, gMinX, gMaxX, gMinZ, gMaxZ)) return 'road';
+        if (r.flank && r.name) {
+          const spanZ = ribbonSpanAtZ(r, cz);
+          if (spanZ) {
+            if (spanZ[1] <= minX + 0.5) {
+              const dd = minX - spanZ[1];
+              if (dd < (west.get(r.name) ?? Infinity)) west.set(r.name, dd);
+            }
+            if (spanZ[0] >= maxX - 0.5) {
+              const dd = spanZ[0] - maxX;
+              if (dd < (east.get(r.name) ?? Infinity)) east.set(r.name, dd);
+            }
+          }
+          const spanX = ribbonSpanAtX(r, cx);
+          if (spanX) {
+            if (spanX[1] <= minZ + 0.5) {
+              const dd = minZ - spanX[1];
+              if (dd < (north.get(r.name) ?? Infinity)) north.set(r.name, dd);
+            }
+            if (spanX[0] >= maxZ - 0.5) {
+              const dd = spanX[0] - maxZ;
+              if (dd < (south.get(r.name) ?? Infinity)) south.set(r.name, dd);
+            }
+          }
+        }
+      }
+    }
+    for (const [name, dd] of west) {
+      if (dd <= CORRIDOR_GAP_MAX_M && (east.get(name) ?? Infinity) <= CORRIDOR_GAP_MAX_M) return 'median';
+    }
+    for (const [name, dd] of north) {
+      if (dd <= CORRIDOR_GAP_MAX_M && (south.get(name) ?? Infinity) <= CORRIDOR_GAP_MAX_M) return 'median';
+    }
+    return null;
+  };
+
   const t101 = (geodata.landmarks || {})['Taipei 101'];
   const towerSite = t101
     ? { minX: t101.x - t101.w / 2, maxX: t101.x + t101.w / 2, minZ: t101.z - t101.d / 2, maxZ: t101.z + t101.d / 2 }
@@ -638,6 +897,7 @@ export function planTaipeiBuildings(geodata) {
     stats.blocksSeen++;
     if (!(block.area >= 150)) { stats.blocksSkippedSmall++; continue; }
     if (inPoly(block.cx, block.cz)) { stats.blocksSkippedParkWater++; continue; }
+    if (!inUnion(block.cx, block.cz)) { stats.blocksSkippedOutsideUnion++; continue; }
     const inset = 3.0; // street-section band margin (see header)
     const minX = block.bbox.minX + inset, maxX = block.bbox.maxX - inset;
     const minZ = block.bbox.minZ + inset, maxZ = block.bbox.maxZ - inset;
@@ -655,12 +915,20 @@ export function planTaipeiBuildings(geodata) {
       for (let row = 0; row < rows; row++) {
         const seed = Math.imul(bi + 1, 73856093) ^ Math.imul(col + 1, 19349663) ^ Math.imul(row + 1, 83492791);
         if (hash01(seed ^ 0x51ab) < vacancy) { stats.lotsDroppedVacancy++; continue; }
-        const cx = minX + (col + 0.5) * cellW;
-        const cz = minZ + (row + 0.5) * cellD;
+        // The emitted lot centre is rounded to 0.1 m (see the push
+        // below); run every exclusion test at THAT point, not the raw
+        // grid centre. The two can straddle a polygon edge — the west
+        // expansion regen (issue #60) produced a lot whose raw centre
+        // sat 5 mm outside a park sliver while its rounded, emitted
+        // centre sat inside it, passing the planner and failing the
+        // audit. One point, tested once, no disagreement.
+        const cx = Math.round((minX + (col + 0.5) * cellW) * 10) / 10;
+        const cz = Math.round((minZ + (row + 0.5) * cellD) * 10) / 10;
         const gap = 1.2 + hash01(seed ^ 0x77c3) * 1.8;
         const w = cellW - gap, d = cellD - gap;
         if (w < 7 || d < 7) continue;
         if (inPoly(cx, cz)) { stats.lotsDroppedParkWater++; continue; }
+        if (!inUnion(cx, cz)) { stats.lotsDroppedOutsideUnion++; continue; }
         let onLandmarkSite = false;
         for (const s of exclusionSites) {
           if (cx + w / 2 > s.minX && cx - w / 2 < s.maxX && cz + d / 2 > s.minZ && cz - d / 2 < s.maxZ) { onLandmarkSite = true; break; }
@@ -669,16 +937,18 @@ export function planTaipeiBuildings(geodata) {
           stats.lotsDroppedTowerSite++;
           continue;
         }
-        const { clearance, rank } = roadInfoAt(cx, cz);
-        if (clearance < 1.6) { stats.lotsDroppedRoad++; continue; }
-        // The centre test alone lets a wide lot beside a narrow lane
-        // overhang the lane itself; require every footprint corner to
-        // stay out of the ribbons too (corner clearance < 0 = inside).
-        let cornerInRoad = false;
+        const verdict = ribbonVerdict(cx, cz, w, d);
+        if (verdict === 'road') { stats.lotsDroppedRoad++; continue; }
+        if (verdict === 'median') { stats.lotsDroppedMedian++; continue; }
+        // The ribbon verdicts say nothing about the tile union
+        // (issue #60): no footprint corner may hang over a dropped
+        // band, where there is no ground at all.
+        let cornerOutsideUnion = false;
         for (const [ox, oz] of [[-1, -1], [-1, 1], [1, -1], [1, 1]]) {
-          if (roadInfoAt(cx + (ox * w) / 2, cz + (oz * d) / 2).clearance < 0) { cornerInRoad = true; break; }
+          if (!inUnion(cx + (ox * w) / 2, cz + (oz * d) / 2)) { cornerOutsideUnion = true; break; }
         }
-        if (cornerInRoad) { stats.lotsDroppedRoad++; continue; }
+        if (cornerOutsideUnion) { stats.lotsDroppedOutsideUnion++; continue; }
+        const { rank } = roadInfoAt(cx, cz);
         const dOrigin = Math.hypot(cx, cz);
         let lo, hi;
         if (dOrigin < 650) { lo = 25; hi = 60; }        // Xinyi commercial core
@@ -958,13 +1228,27 @@ export function taipei101OrnamentPositions(ornaments) {
   return positions;
 }
 
-export function createTaipei101(THREE, plan) {
+export function createTaipei101(THREE, plan, factories) {
   if (!plan.tower) return null;
   const t = plan.tower;
   const towerGroup = new THREE.Group();
   towerGroup.name = 'Taipei101';
-  const glassMat = new THREE.MeshStandardNodeMaterial({ color: 0x2e4f45, roughness: 0.35, metalness: 0.15 });
-  const podium = new THREE.Mesh(new THREE.BoxGeometry(t.podium.w, t.podium.h, t.podium.d), glassMat);
+  // Issue #57: the shaft's flat glass colour becomes a real curtain
+  // wall — dark green-teal glazing at the tower's floor rhythm —
+  // and the mall blocks a green-grey punched-stone facade, when the
+  // boot module injects the TSL factories (this file stays
+  // import-free for the node suite; without factories the original
+  // flat tones render, as before). The spire keeps the flat tone:
+  // a window grid would be noise at its radius. Massing, the
+  // ornaments and the curved shell are untouched.
+  const glassMat = factories
+    ? factories.createCurtainWallMaterial({ glassTint: 0x14342a, frameTint: 0x3d5c50, windowWidth: 2.6, floorHeight: 3.9, litProbability: 0.32, warmth: 0.55, reflectivity: 0.9, seed: 57.101, boxLocal: false })
+    : new THREE.MeshStandardNodeMaterial({ color: 0x2e4f45, roughness: 0.35, metalness: 0.15 });
+  const mallMat = factories
+    ? factories.createPreWarBuildingMaterial({ stoneColor: 0x77877c, trimColor: 0x5d6f63, windowGlassColor: 0x1d2b26, windowWidth: 3.4, floorHeight: 3.75, litProbability: 0.3, warmth: 0.7, seed: 57.102, boxLocal: false })
+    : new THREE.MeshStandardNodeMaterial({ color: 0x51655a, roughness: 0.8, metalness: 0.05 });
+  const spireMat = new THREE.MeshStandardNodeMaterial({ color: 0x2e4f45, roughness: 0.35, metalness: 0.15 });
+  const podium = new THREE.Mesh(new THREE.BoxGeometry(t.podium.w, t.podium.h, t.podium.d), factories ? mallMat : glassMat);
   podium.position.set(t.x, t.podium.h / 2, t.z);
   podium.castShadow = true;
   podium.receiveShadow = true;
@@ -976,7 +1260,6 @@ export function createTaipei101(THREE, plan) {
   // (cylinder theta from −90° to +90° puts the arc at z ≥ 0 = south
   // in the tile frame; DoubleSide because the theta seam is open and
   // the underside shows over the court).
-  const mallMat = new THREE.MeshStandardNodeMaterial({ color: 0x51655a, roughness: 0.8, metalness: 0.05 });
   const shellMat = new THREE.MeshStandardNodeMaterial({ color: 0xb9beb2, roughness: 0.6, metalness: 0.05, side: THREE.DoubleSide });
   for (const part of t.podiumParts || []) {
     if (part.type === 'box') {
@@ -1017,7 +1300,7 @@ export function createTaipei101(THREE, plan) {
     topMesh.receiveShadow = true;
     towerGroup.add(topMesh);
   }
-  const spire = new THREE.Mesh(new THREE.CylinderGeometry(0.5, 1.4, t.spire.h, 6), glassMat);
+  const spire = new THREE.Mesh(new THREE.CylinderGeometry(0.5, 1.4, t.spire.h, 6), spireMat);
   spire.position.set(t.x, t.spire.y0 + t.spire.h / 2, t.z);
   spire.castShadow = true;
   towerGroup.add(spire);
@@ -1087,40 +1370,167 @@ function ridgeGeometry(THREE, part) {
   return soupGeometry(THREE, list);
 }
 
-// The landmark structures around Taipei 101 as plain meshes, one
-// subgroup per structure (named by id), each in its own plain
-// material tint — the same massing register as createTaipei101.
-// `THREE` is passed in for the same reason as createTaipei101.
-export function createTaipeiLandmarkTowers(THREE, plan) {
+// ---- Landmark facade materials + signage (issue #57) ----
+// Upstream's landmarks get their detail from shared procedural TSL
+// materials (js/landmarks.js + js/tsl-materials.js), not from
+// textures or extra geometry — the same factories the F0–F9 families
+// use. The registry carries each structure's assignment as pure data
+// (`facade`: { kind: 'curtain' | 'prewar', ...factoryOpts }, with
+// optional per-part `facade` variants and `flat` colour overrides for
+// roofs, pergolas and chimneys). The factories are injected by the
+// boot module / gallery because this file must stay import-free for
+// the node test suite; without them every part falls back to the
+// flat tint it rendered with before this pass. The factories are
+// world-space, so boxes, cylinders, domes and the frustum/ridge
+// triangle soup all take the same grid with no UV work, and because
+// the styles are uniform-driven they cost no extra shader programs
+// and no texture memory.
+function landmarkFacadeMaterial(THREE, factories, facade, fallbackColor, doubleSide) {
+  if (factories && facade && (facade.kind === 'curtain' || facade.kind === 'prewar')) {
+    const opts = { ...facade, boxLocal: false };
+    delete opts.kind;
+    let mat = facade.kind === 'curtain'
+      ? factories.createCurtainWallMaterial(opts)
+      : factories.createPreWarBuildingMaterial(opts);
+    if (doubleSide && mat.side !== THREE.DoubleSide) {
+      // The frustum/ridge soup renders DoubleSide (winding safety);
+      // clone so the shared factory cache entry keeps its own side.
+      mat = mat.clone();
+      mat.side = THREE.DoubleSide;
+    }
+    return mat;
+  }
+  const mat = new THREE.MeshStandardNodeMaterial({ color: fallbackColor, roughness: 0.5, metalness: 0.1 });
+  if (doubleSide) mat.side = THREE.DoubleSide;
+  return mat;
+}
+
+// A landmark's sign as a canvas-texture plane, in the upstream
+// MetLife-sign precedent (js/landmarks.js). Latin wordmarks are the
+// ones the real building carries (Breeze, W, eslite); Chinese
+// signage stays abstract glyph blocks, per the project stylization
+// — character-like blocks with a stroke gap, never real characters.
+// Deterministic: glyph widths come from a fixed pattern.
+function landmarkSignMesh(THREE, s) {
+  const sign = s.sign;
+  if (!sign || typeof document === 'undefined') return null;
+  const cw = 512;
+  const ch = Math.max(16, Math.round((cw * sign.h) / sign.w));
+  const canvas = document.createElement('canvas');
+  canvas.width = cw;
+  canvas.height = ch;
+  const g = canvas.getContext('2d');
+  if (!g) return null;
+  g.fillStyle = sign.bg;
+  g.fillRect(0, 0, cw, ch);
+  if (sign.accent) {
+    // Brand block at the left (the Breeze red square).
+    const b = ch * 0.62;
+    g.fillStyle = sign.accent;
+    g.fillRect(ch * 0.22, (ch - b) / 2, b, b);
+    g.fillStyle = sign.bg;
+    g.fillRect(ch * 0.22 + b * 0.24, (ch - b) / 2 + b * 0.24, b * 0.52, b * 0.52);
+  }
+  if (sign.text) {
+    g.fillStyle = sign.fg;
+    g.textAlign = 'center';
+    g.textBaseline = 'middle';
+    const fontPx = Math.round(ch * (sign.text.length <= 1 ? 0.8 : 0.56));
+    g.font = `${sign.text === 'Breeze' ? 'italic ' : ''}700 ${fontPx}px Georgia, 'Times New Roman', serif`;
+    g.fillText(sign.text, sign.accent ? cw / 2 + ch * 0.4 : cw / 2, ch / 2 + fontPx * 0.05);
+  } else if (sign.glyphs) {
+    const widths = [0.92, 0.55, 0.74, 1.0, 0.62, 0.84, 0.7, 0.95];
+    const gh = ch * 0.52, gy = (ch - gh) / 2;
+    const unit = (cw * 0.8) / sign.glyphs;
+    let x = cw * 0.1;
+    g.fillStyle = sign.fg;
+    for (let i = 0; i < sign.glyphs; i++) {
+      const gw = Math.min(unit * (0.2 + 0.68 * widths[i % widths.length]), unit * 0.9);
+      const r = gh * 0.12;
+      g.beginPath();
+      g.moveTo(x + r, gy);
+      g.lineTo(x + gw - r, gy);
+      g.arcTo(x + gw, gy, x + gw, gy + r, r);
+      g.lineTo(x + gw, gy + gh - r);
+      g.arcTo(x + gw, gy + gh, x + gw - r, gy + gh, r);
+      g.lineTo(x + r, gy + gh);
+      g.arcTo(x, gy + gh, x, gy + gh - r, r);
+      g.lineTo(x, gy + r);
+      g.arcTo(x, gy, x + r, gy, r);
+      g.fill();
+      // A horizontal stroke gap, so the block reads as a glyph.
+      g.fillStyle = sign.bg;
+      g.fillRect(x + gw * 0.18, gy + gh * 0.42, gw * 0.64, gh * 0.13);
+      g.fillStyle = sign.fg;
+      x += unit;
+    }
+  }
+  const tex = new THREE.CanvasTexture(canvas);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  tex.anisotropy = 4;
+  const mesh = new THREE.Mesh(
+    new THREE.PlaneGeometry(sign.w, sign.h),
+    new THREE.MeshBasicNodeMaterial({ map: tex })
+  );
+  mesh.position.set(s.x + (sign.dx || 0), sign.y, s.z + (sign.dz || 0));
+  mesh.name = 'LandmarkSign';
+  return mesh;
+}
+
+// The landmark structures around Taipei 101, one subgroup per
+// structure (named by id). Massing is the registry's parts exactly
+// as before; issue #57 layers the per-structure facade material,
+// per-part variants/flat overrides and the sign on top.
+// `THREE` (and the TSL `factories`) are passed in for the same
+// reason as createTaipei101.
+export function createTaipeiLandmarkTowers(THREE, plan, factories) {
   if (!plan.landmarkTowers || !plan.landmarkTowers.length) return null;
   const group = new THREE.Group();
   group.name = 'TaipeiLandmarkTowers';
   for (const s of plan.landmarkTowers) {
-    const mat = new THREE.MeshStandardNodeMaterial({ color: s.color, roughness: 0.5, metalness: 0.1 });
-    const flatMat = new THREE.MeshStandardNodeMaterial({ color: s.color, roughness: 0.5, metalness: 0.1, side: THREE.DoubleSide });
+    const mat = landmarkFacadeMaterial(THREE, factories, s.facade, s.color, false);
+    const soupMat = landmarkFacadeMaterial(THREE, factories, s.facade, s.color, true);
+    const flatCache = new Map();
+    const flatPartMaterial = (flat, doubleSide) => {
+      // `flat` is a colour, or { color, roughness, metalness } where
+      // a part needs a specific finish (the arena/dome shells).
+      const spec = typeof flat === 'number' ? { color: flat, roughness: 0.85, metalness: 0.02 } : flat;
+      const key = `${spec.color}|${spec.roughness}|${spec.metalness}|${doubleSide ? 1 : 0}`;
+      if (!flatCache.has(key)) {
+        const m = new THREE.MeshStandardNodeMaterial({ color: spec.color, roughness: spec.roughness, metalness: spec.metalness });
+        if (doubleSide) m.side = THREE.DoubleSide;
+        flatCache.set(key, m);
+      }
+      return flatCache.get(key);
+    };
+    const partMaterial = (part, soup) => {
+      if (part.flat !== undefined && part.flat !== null) return flatPartMaterial(part.flat, soup);
+      if (part.facade) return landmarkFacadeMaterial(THREE, factories, part.facade, s.color, soup);
+      return soup ? soupMat : mat;
+    };
     const sub = new THREE.Group();
     sub.name = s.id;
     for (const part of s.parts) {
       const y0 = part.y0 || 0;
       let mesh = null;
       if (part.type === 'box') {
-        mesh = new THREE.Mesh(new THREE.BoxGeometry(part.w, part.h, part.d), mat);
+        mesh = new THREE.Mesh(new THREE.BoxGeometry(part.w, part.h, part.d), partMaterial(part, false));
         mesh.position.set(s.x + (part.dx || 0), y0 + part.h / 2, s.z + (part.dz || 0));
         if (part.rotY) mesh.rotation.y = part.rotY;
       } else if (part.type === 'cylinder') {
-        mesh = new THREE.Mesh(new THREE.CylinderGeometry(part.r, part.r, part.h, 24), mat);
+        mesh = new THREE.Mesh(new THREE.CylinderGeometry(part.r, part.r, part.h, 24), partMaterial(part, false));
         if (part.rz) mesh.scale.z = part.rz / part.r; // elliptical plan
         mesh.position.set(s.x + (part.dx || 0), y0 + part.h / 2, s.z + (part.dz || 0));
       } else if (part.type === 'dome') {
         // Half-ellipsoid: a unit hemisphere scaled to the part's radii.
-        mesh = new THREE.Mesh(new THREE.SphereGeometry(1, 28, 14, 0, Math.PI * 2, 0, Math.PI / 2), mat);
+        mesh = new THREE.Mesh(new THREE.SphereGeometry(1, 28, 14, 0, Math.PI * 2, 0, Math.PI / 2), partMaterial(part, false));
         mesh.scale.set(part.rx, part.h, part.rz);
         mesh.position.set(s.x + (part.dx || 0), y0, s.z + (part.dz || 0));
       } else if (part.type === 'frustum') {
-        mesh = new THREE.Mesh(frustumGeometry(THREE, part), flatMat);
+        mesh = new THREE.Mesh(frustumGeometry(THREE, part), partMaterial(part, true));
         mesh.position.set(s.x, y0, s.z);
       } else if (part.type === 'ridge') {
-        mesh = new THREE.Mesh(ridgeGeometry(THREE, part), flatMat);
+        mesh = new THREE.Mesh(ridgeGeometry(THREE, part), partMaterial(part, true));
         mesh.position.set(s.x, y0, s.z);
       }
       if (mesh) {
@@ -1129,6 +1539,8 @@ export function createTaipeiLandmarkTowers(THREE, plan) {
         sub.add(mesh);
       }
     }
+    const signMesh = landmarkSignMesh(THREE, s);
+    if (signMesh) sub.add(signMesh);
     group.add(sub);
   }
   return group;

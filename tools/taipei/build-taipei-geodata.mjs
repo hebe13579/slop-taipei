@@ -7,8 +7,12 @@
 // is copied from it.
 //
 // Frame: origin Taipei 101, LAT0=25.0330 LON0=121.5650, bearing 0 deg,
-// 1 unit = 1 m, x = east, z = south (north = -z). Tile bbox:
-// lat 25.020..25.060, lon 121.535..121.580.
+// 1 unit = 1 m, x = east, z = south (north = -z). The tile is the UNION
+// of the boxes in tools/taipei/tile-boxes.json (issue #60): every clip
+// below runs against the union of the box rects, so geometry crossing a
+// box seam stays whole and the dropped bands between/around the boxes
+// carry no data at all. frame.bbox is the union's bounding rect (the
+// runtime clamp rect); frame.boxes carries the union itself.
 // usage: node tools/taipei/build-taipei-geodata.mjs [out.js]
 import fs from 'node:fs';
 import path from 'node:path';
@@ -22,7 +26,7 @@ const load = (f) => JSON.parse(fs.readFileSync(path.join(DATA, f), 'utf8'));
 
 // ---- frame (copied tangent-plane math from upstream tools/geo-base.mjs) ----
 const LAT0 = 25.0330, LON0 = 121.5650;
-const TILE = { s: 25.020, w: 121.535, n: 25.060, e: 121.580 };
+const TILE_CFG = JSON.parse(fs.readFileSync(path.join(HERE, 'tile-boxes.json'), 'utf8'));
 const A = 6378137.0, E2 = 6.69437999014e-3;
 const PHI0 = (LAT0 * Math.PI) / 180, SIN0 = Math.sin(PHI0);
 const NRAD = A / Math.sqrt(1 - E2 * SIN0 * SIN0);
@@ -31,11 +35,19 @@ const KX = (Math.PI / 180) * NRAD * Math.cos(PHI0); // metres per degree lon
 const KY = (Math.PI / 180) * MRAD;                  // metres per degree lat
 const toWorld = (lon, lat) => [(lon - LON0) * KX, -(lat - LAT0) * KY]; // [x, z], bearing 0
 const q = (v) => Math.round(v * 10) / 10;
-const BBOX = (() => {
-  const [x0, z1] = toWorld(TILE.w, TILE.s); // south-west: z is max (south = +z)
-  const [x1, z0] = toWorld(TILE.e, TILE.n);
-  return { minX: q(x0), maxX: q(x1), minZ: q(z0), maxZ: q(z1) };
-})();
+// The tile's boxes as world-frame rects (issue #60). Abutting boxes
+// share an edge VALUE (both derive it from the same lon/lat through the
+// same q() rounding), so seam arithmetic below is exact.
+const BOXES_WORLD = TILE_CFG.boxes.map((b) => {
+  const [x0, z1] = toWorld(b.w, b.s); // south-west: z is max (south = +z)
+  const [x1, z0] = toWorld(b.e, b.n);
+  return { name: b.name, minX: q(x0), maxX: q(x1), minZ: q(z0), maxZ: q(z1) };
+});
+// The union's bounding rect: frame.bbox, the runtime clamp rect.
+const BBOX = {
+  minX: Math.min(...BOXES_WORLD.map((b) => b.minX)), maxX: Math.max(...BOXES_WORLD.map((b) => b.maxX)),
+  minZ: Math.min(...BOXES_WORLD.map((b) => b.minZ)), maxZ: Math.max(...BOXES_WORLD.map((b) => b.maxZ)),
+};
 
 // ---- geometry helpers (from upstream geo-base.mjs, trimmed) ----
 function ringArea(pts) { // pts: [[x,z],...]
@@ -91,14 +103,20 @@ function roadWidth(tags) {
 // pedestrianLayout lives in ./pedestrian-layout.mjs, shared with
 // build-generation-map.mjs so the two builders can never disagree.
 
-// Clip a polyline to the tile rect, returning runs (an OSM way can enter/leave
-// the tile several times). Liang-Barsky per segment. Points are records
-// {x, z, nodeId}: nodeId is the OSM node id when the point is an original way
-// vertex and the source element carried aligned `nodes` refs (the PBF
-// extractor preserves them; Overpass-style JSON without refs leaves them
-// null, and the road graph then falls back to rounded coordinates). Synthetic
-// tile-boundary points always have nodeId null.
-function clipRuns(pts, bb, nodeIds = null) {
+// Clip a polyline to the UNION of the tile's box rects, returning runs
+// (an OSM way can enter/leave the union several times). Per segment the
+// Liang-Barsky interval against EACH box is computed and the intervals
+// merged before points are emitted: the boxes abut on shared edges, so
+// a way crossing a seam yields ONE continuous run through the seam
+// point (computed identically from both sides) instead of two runs
+// ending at the same place — that is the whole seam story for ways.
+// Points are records {x, z, nodeId}: nodeId is the OSM node id when the
+// point is an original way vertex and the source element carried
+// aligned `nodes` refs (the PBF extractor preserves them; Overpass-style
+// JSON without refs leaves them null, and the road graph then falls back
+// to rounded coordinates). Synthetic boundary points always have
+// nodeId null.
+function clipRuns(pts, boxes, nodeIds = null) {
   const runs = [];
   let run = [];
   const push = (p) => {
@@ -107,24 +125,41 @@ function clipRuns(pts, bb, nodeIds = null) {
     else if (l.nodeId == null && p.nodeId != null) l.nodeId = p.nodeId;
   };
   const flush = () => { if (run.length >= 2) runs.push(run); run = []; };
+  const segIntervals = (ax, az, dx, dz) => {
+    const out = [];
+    for (const bb of boxes) {
+      let t0 = 0, t1 = 1, ok = true;
+      for (const [p, qv] of [[-dx, ax - bb.minX], [dx, bb.maxX - ax], [-dz, az - bb.minZ], [dz, bb.maxZ - az]]) {
+        if (Math.abs(p) < 1e-12) { if (qv < 0) { ok = false; break; } continue; }
+        const r = qv / p;
+        if (p < 0) t0 = Math.max(t0, r); else t1 = Math.min(t1, r);
+        if (t0 > t1) { ok = false; break; }
+      }
+      if (ok) out.push([t0, t1]);
+    }
+    out.sort((a, b) => a[0] - b[0]);
+    const merged = [];
+    for (const iv of out) {
+      const last = merged[merged.length - 1];
+      if (last && iv[0] <= last[1] + 1e-9) last[1] = Math.max(last[1], iv[1]);
+      else merged.push([iv[0], iv[1]]);
+    }
+    return merged;
+  };
   for (let i = 0; i + 1 < pts.length; i++) {
     const [ax, az] = pts[i], [bx, bz] = pts[i + 1];
     const dx = bx - ax, dz = bz - az;
-    let t0 = 0, t1 = 1, ok = true;
-    for (const [p, qv] of [[-dx, ax - bb.minX], [dx, bb.maxX - ax], [-dz, az - bb.minZ], [dz, bb.maxZ - az]]) {
-      if (Math.abs(p) < 1e-12) { if (qv < 0) { ok = false; break; } continue; }
-      const r = qv / p;
-      if (p < 0) t0 = Math.max(t0, r); else t1 = Math.min(t1, r);
-      if (t0 > t1) { ok = false; break; }
+    const ivs = segIntervals(ax, az, dx, dz);
+    if (!ivs.length) { flush(); continue; }
+    for (const [t0, t1] of ivs) {
+      const idA = nodeIds && t0 === 0 ? nodeIds[i] : null;
+      const idB = nodeIds && t1 === 1 ? nodeIds[i + 1] : null;
+      const pA = t0 === 0 ? { x: ax, z: az, nodeId: idA } : { x: ax + t0 * dx, z: az + t0 * dz, nodeId: null };
+      const pB = t1 === 1 ? { x: bx, z: bz, nodeId: idB } : { x: ax + t1 * dx, z: az + t1 * dz, nodeId: null };
+      if (t0 > 0 && run.length) flush(); // re-entering after a gap starts a new run
+      push(pA); push(pB);
+      if (t1 < 1) flush();
     }
-    if (!ok) { flush(); continue; }
-    const idA = nodeIds && t0 === 0 ? nodeIds[i] : null;
-    const idB = nodeIds && t1 === 1 ? nodeIds[i + 1] : null;
-    const pA = t0 === 0 ? { x: ax, z: az, nodeId: idA } : { x: ax + t0 * dx, z: az + t0 * dz, nodeId: null };
-    const pB = t1 === 1 ? { x: bx, z: bz, nodeId: idB } : { x: ax + t1 * dx, z: az + t1 * dz, nodeId: null };
-    if (t0 > 0 && run.length) flush(); // re-entering after a gap starts a new run
-    push(pA); push(pB);
-    if (t1 < 1) flush();
   }
   flush();
   return runs;
@@ -151,6 +186,20 @@ function clipRing(ring, bb) {
   if (poly.length >= 3) poly.push(poly[0]);
   return poly;
 }
+// Clip a closed ring to the UNION of the box rects: one Sutherland–
+// Hodgman piece per box. The boxes abut on shared edges (they never
+// overlap in area), so the pieces tile ring ∩ union without double
+// area; a ring crossing a seam comes back as multiple pieces, which
+// downstream consumers (collectPolys) emit as sibling polygons with
+// the same name/tags — the seam story for areas.
+function clipRingUnion(ring, boxes) {
+  const out = [];
+  for (const bb of boxes) {
+    const piece = clipRing(ring, bb);
+    if (piece.length >= 4) out.push(piece);
+  }
+  return out;
+}
 
 const roads = [];
 const graphSequences = []; // clipped carriageway runs with node ids, for the road graph below
@@ -160,7 +209,7 @@ const NON_CARRIAGEWAY = new Set(['footway', 'path', 'steps', 'pedestrian', 'cycl
 for (const el of load('osm_roads.json').elements) {
   if (el.type !== 'way' || !el.tags?.highway || !el.geometry || el.geometry.length < 2) continue;
   const nodeIds = Array.isArray(el.nodes) && el.nodes.length === el.geometry.length ? el.nodes : null;
-  const runs = clipRuns(geomPts(el), BBOX, nodeIds);
+  const runs = clipRuns(geomPts(el), BOXES_WORLD, nodeIds);
   if (!runs.length) continue;
   roadClassCounts[el.tags.highway] = (roadClassCounts[el.tags.highway] || 0) + 1;
   const width = roadWidth(el.tags);
@@ -300,11 +349,11 @@ function collectPolys(file, minArea) {
   for (const el of load(file).elements) {
     for (const rawRing of elRings(el)) {
       if (rawRing.length < 4) continue;
-      const ring = clipRing(rawRing, BBOX);
-      if (ring.length < 4) continue;
-      const area = Math.abs(ringArea(ring));
-      if (area < minArea) continue;
-      out.push({ name: el.tags?.name || el.tags?.['name:en'] || '', ring: flat(ring), area });
+      for (const ring of clipRingUnion(rawRing, BOXES_WORLD)) {
+        const area = Math.abs(ringArea(ring));
+        if (area < minArea) continue;
+        out.push({ name: el.tags?.name || el.tags?.['name:en'] || '', ring: flat(ring), area });
+      }
     }
   }
   return out;
@@ -320,8 +369,9 @@ for (const el of load('osm_water.json').elements) {
   if (near.length < 2) continue;
   const wtag = parseFloat(el.tags.width || '');
   const raw = bufferLine(near, (Number.isFinite(wtag) ? wtag : 160) / 2);
-  const ring = raw ? clipRing(raw, BBOX) : null;
-  if (ring && ring.length >= 4) riverPolys.push({ name: el.tags.name || el.tags['name:en'] || '', ring: flat(ring), area: Math.abs(ringArea(ring)), derived: 'centreline-buffer' });
+  for (const ring of raw ? clipRingUnion(raw, BOXES_WORLD) : []) {
+    riverPolys.push({ name: el.tags.name || el.tags['name:en'] || '', ring: flat(ring), area: Math.abs(ringArea(ring)), derived: 'centreline-buffer' });
+  }
 }
 const waterRaw = [...collectPolys('osm_water.json', 50), ...riverPolys];
 const parksRaw = collectPolys('osm_parks.json', 100);
@@ -348,6 +398,17 @@ for (const el of load('osm_landmarks.json').elements) {
 const RES = 2; // m per cell (spike resolution; upstream used 1 m)
 const W = Math.ceil((BBOX.maxX - BBOX.minX) / RES), H = Math.ceil((BBOX.maxZ - BBOX.minZ) / RES);
 const grid = new Uint8Array(W * H).fill(1);
+// Union mask (issue #60): the raster spans the union's bounding rect,
+// but a cell whose centre falls outside EVERY tile box is not land —
+// the dropped bands of the union (e.g. north of lat 25.055 east of
+// lon 121.535) form no blocks, exactly as if the tile ended there.
+const inUnionCell = (x, z) => BOXES_WORLD.some((b) => x >= b.minX && x <= b.maxX && z >= b.minZ && z <= b.maxZ);
+for (let j = 0; j < H; j++) {
+  const cz = BBOX.minZ + (j + 0.5) * RES;
+  for (let i = 0; i < W; i++) {
+    if (!inUnionCell(BBOX.minX + (i + 0.5) * RES, cz)) grid[j * W + i] = 0;
+  }
+}
 function fillRing(ringFlat, val) { // scanline even-odd fill, ring as flat [x,z,...]
   const pts = [];
   for (let i = 0; i < ringFlat.length; i += 2) pts.push([ringFlat[i], ringFlat[i + 1]]);
@@ -428,10 +489,11 @@ blocks.sort((a, b) => b.area - a.area);
 // ---- emit ----
 const TAIPEI_GEO = {
   version: 1,
-  frame: { origin: 'Taipei 101 (25.0330, 121.5650)', originLatLon: [LAT0, LON0], bearingDeg: 0, units: 'm', bbox: BBOX },
+  frame: { origin: 'Taipei 101 (25.0330, 121.5650)', originLatLon: [LAT0, LON0], bearingDeg: 0, units: 'm', bbox: BBOX, boxes: BOXES_WORLD },
   roads, roadGraph, roadbeds, water, parks, landmarks, blocks,
 };
-const header = `// js/taipei-geodata.js — GENERATED by tools/taipei/build-taipei-geodata.mjs (M0 spike), do not edit by hand.\n// Taipei tile lat ${TILE.s}..${TILE.n}, lon ${TILE.w}..${TILE.e} in the world frame: 1 unit = 1 m,\n// origin at Taipei 101 (25.0330, 121.5650), x = east, z = south, bearing 0 deg.\n// Sources: (c) OpenStreetMap contributors (ODbL), via Overpass queries in tools/taipei/data/ or Geofabrik extract.\n`;
+const boxDesc = TILE_CFG.boxes.map((b) => `${b.name}: lat ${b.s}..${b.n}, lon ${b.w}..${b.e}`).join('; ');
+const header = `// js/taipei-geodata.js — GENERATED by tools/taipei/build-taipei-geodata.mjs (M0 spike), do not edit by hand.\n// Taipei tile = union of boxes (${boxDesc}; tools/taipei/tile-boxes.json) in the world frame: 1 unit = 1 m,\n// origin at Taipei 101 (25.0330, 121.5650), x = east, z = south, bearing 0 deg.\n// Sources: (c) OpenStreetMap contributors (ODbL), via Overpass queries in tools/taipei/data/ or Geofabrik extract.\n`;
 fs.writeFileSync(OUT, `${header}export const TAIPEI_GEO = ${JSON.stringify(TAIPEI_GEO)};\n`);
 
 // ---- stats ----

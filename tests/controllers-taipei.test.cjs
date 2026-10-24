@@ -38,7 +38,10 @@ function loadManagerClass() {
         streetZ: () => 0,
         isTypingInField: () => false,
         ISLAND_BOUNDS: { minX: -500, maxX: 500, minZ: -500, maxZ: 500, sidewalkHeight: 0.22 },
-        CENTRAL_PARK_BOUNDS: { minX: -3000, maxX: -2800, minZ: 200, maxZ: 500 },
+        // Stub bounds wide enough to cover the Da'an centroid (-3004.9,
+        // 228.7): the full park entered the tile with the west
+        // expansion (issue #60), moving its centre west of -3000.
+        CENTRAL_PARK_BOUNDS: { minX: -3100, maxX: -2800, minZ: 200, maxZ: 500 },
         getIslandBoundsAtZ: () => ({ westX: -500, eastX: 500 }),
         blockAt: () => null
       },
@@ -56,11 +59,13 @@ function loadManagerClass() {
 // frame from the generated geodata.
 async function taipeiWorldOpts() {
   const { TAIPEI_GEO } = await import('../js/taipei-geodata.js');
+  const { unionExclusionRects } = await import('../js/taipei-union.js');
   const bb = TAIPEI_GEO.frame.bbox;
   return {
     geodata: TAIPEI_GEO,
     opts: {
       bounds: { minX: bb.minX, maxX: bb.maxX, minZ: bb.minZ, maxZ: bb.maxZ },
+      excludeRects: unionExclusionRects(TAIPEI_GEO.frame.boxes, bb),
       clampToShore: false,
       groundHeight: () => 0,
       spawnByMode: null,
@@ -283,11 +288,136 @@ test('speedScale in the loop: person, cyclist and helicopter caps', async () => 
   assert.ok(Math.abs(nycHeli.verticalSpeed - 16) < 1e-6, 'no option: heli vertical cap stays 16 m/s');
 });
 
+// --- heliCeiling + heliVerticalScale (user request 2026-10-24) ---------
+// Taipei flies higher and climbs faster: ceiling 750 m (above the
+// requested 600 m and Taipei 101's 508 m) and the vertical cap ×5 over
+// the current in-Taipei rate (16 × speedScale 2 × 5 = 160 m/s, ascend
+// and descend alike). NYC (no options) keeps 380 m and 16 m/s exactly.
+
+test('heli options: derived vertical cap and ceiling honour the options, NYC defaults pinned', () => {
+  const Class = loadManagerClass();
+  const taipei = speedHarness(Class, { speedScale: 2, heliVerticalScale: 5, heliCeiling: 750 });
+  assert.deepEqual({ ...taipei.heliSpeed }, { cruise: 64, boost: 104, vertical: 160 },
+    'vertical scale touches the vertical cap only, on top of speedScale');
+  assert.equal(taipei._heliCeiling(), 750);
+  const vOnly = speedHarness(Class, { heliVerticalScale: 5 });
+  assert.deepEqual({ ...vOnly.heliSpeed }, { cruise: 32, boost: 52, vertical: 80 },
+    'heliVerticalScale alone: 16 x 5 = 80 m/s');
+  for (const worldOpts of [{}, { heliVerticalScale: 1 }, { heliVerticalScale: 0 }, { heliVerticalScale: NaN },
+    { heliCeiling: 0 }, { heliCeiling: NaN }, { heliCeiling: -5 }]) {
+    const nyc = speedHarness(Class, worldOpts);
+    assert.equal(nyc.heliSpeed.vertical, 16, 'no valid heliVerticalScale: upstream vertical cap');
+    assert.equal(nyc._heliCeiling(), 380, 'no valid heliCeiling: upstream ceiling');
+  }
+  const bare = bareManager(Class, null);
+  assert.equal(bare._heliCeiling(), 380, 'no worldOpts at all: upstream ceiling');
+});
+
+test('heli options in the loop: Taipei climbs/descends at 160 m/s to a 750 m ceiling, NYC caps stay', async () => {
+  const Class = loadManagerClass();
+  const { opts } = await taipeiWorldOpts();
+  const heliRun = (worldOpts, keys) => {
+    const controller = speedHarness(Class, worldOpts);
+    const helicopter = {
+      position: { x: 0, y: 100, z: 0 }, heading: 0, speed: 0, verticalSpeed: 0,
+      pitchAngle: 0, rollAngle: 0,
+      tiltPivot: { rotation: { x: 0, z: 0 }, position: { y: 0 } }
+    };
+    controller.entities = { helicopter };
+    Object.assign(controller.keys, keys);
+    for (let i = 0; i < 3600; i++) controller.updateHelicopter(1 / 60, 0);
+    return helicopter;
+  };
+  const taipeiOpts = { ...opts, speedScale: 2, heliVerticalScale: 5, heliCeiling: 750 };
+  const climber = heliRun(taipeiOpts, { up: true });
+  assert.ok(Math.abs(climber.verticalSpeed - 160) < 1e-6, 'Taipei ascend cap 160 m/s');
+  assert.equal(climber.position.y, 750, 'Taipei ceiling clamps altitude at 750 m');
+  const descender = heliRun(taipeiOpts, { down: true });
+  assert.ok(Math.abs(descender.verticalSpeed + 160) < 1e-6, 'Taipei descend cap -160 m/s');
+  const nyc = heliRun({ ...opts }, { up: true });
+  assert.ok(Math.abs(nyc.verticalSpeed - 16) < 1e-6, 'no options: ascend cap stays 16 m/s');
+  assert.equal(nyc.position.y, 380, 'no options: ceiling stays 380 m');
+});
+
+test('heli ceiling: teleport/restore altitude clamps to the world ceiling', async () => {
+  const Class = loadManagerClass();
+  const { opts } = await taipeiWorldOpts();
+  const run = (worldOpts, savedAltitude) => {
+    const controller = bareManager(Class, worldOpts);
+    const position = (x = 0, y = 0, z = 0) => ({ x, y, z, copy(p) { this.x = p.x; this.y = p.y; this.z = p.z; } });
+    const pivot = () => ({ position: position(), rotation: { x: 0, y: 0, z: 0 } });
+    const ent = {
+      type: 'helicopter', position: position(0, 100, 0), heading: 0, speed: 3, verticalSpeed: 2,
+      pitchAngle: 0, rollAngle: 0, mesh: pivot(), tiltPivot: pivot()
+    };
+    controller.activeMode = 'helicopter';
+    controller.entities = { helicopter: ent };
+    controller.keys = Object.fromEntries(['forward', 'backward', 'left', 'right', 'up', 'down', 'boost'].map((a) => [a, false]));
+    controller._pressedCodes = new Set();
+    controller.resetInput = Class.prototype.resetInput;
+    controller.teleportActiveTo(0, 0, 0, savedAltitude);
+    return ent.position.y;
+  };
+  assert.equal(run({ ...opts, heliCeiling: 750 }, 900), 750, 'saved altitude above the Taipei ceiling clamps to 750 m');
+  assert.equal(run({ ...opts, heliCeiling: 750 }, 700), 700, 'saved altitude under the ceiling is kept');
+  assert.equal(run({ ...opts }, 900), 380, 'no option: restore clamps to the upstream 380 m');
+});
+
 test('taipei speedScale wiring (source contract)', () => {
   const boot = readFileSync(join(__dirname, '../js/taipei-boot.js'), 'utf8');
   assert.match(boot, /speedScale: 2/);
+  assert.match(boot, /heliCeiling: 750/, 'tile boot raises the helicopter ceiling to 750 m');
+  assert.match(boot, /heliVerticalScale: 5/, 'tile boot multiplies helicopter ascend/descend by 5');
   const main = readFileSync(join(__dirname, '../js/main.js'), 'utf8');
   assert.match(main, /controllerManager\.worldOpts\?\.speedScale/, 'HUD meter full scale follows the controller speedScale');
+});
+
+// --- excludeRects (issue #60): the union's dropped bands have no
+// ground; ground modes are pushed out, the helicopter is not. ---
+
+test('taipei world: the NE notch pushes ground modes out to its nearest edge', async () => {
+  const Class = loadManagerClass();
+  const { geodata, opts } = await taipeiWorldOpts();
+  assert.equal(opts.excludeRects.length, 1, 'the A+B union has exactly one exclusion rect');
+  const notch = opts.excludeRects[0];
+  const taipei = bareManager(Class, opts);
+  taipei.activeMode = 'person';
+
+  // A point in the notch (old tile's Songshan fringe) nearer its
+  // southern edge (lat 25.055) is pushed out through that edge.
+  const pos = { x: 0, y: 0, z: notch.maxZ - 100 };
+  taipei.resolveHorizontalCollision(pos, 0.48, 1);
+  assert.ok(!(pos.x > notch.minX && pos.x < notch.maxX && pos.z > notch.minZ && pos.z < notch.maxZ),
+    `pushed out of the notch, now at (${pos.x}, ${pos.z})`);
+  assert.equal(pos.z, notch.maxZ, 'nearest edge is the notch south edge');
+
+  // A point just inside the west edge is pushed west instead.
+  const pos2 = { x: notch.minX + 5, y: 0, z: (notch.minZ + notch.maxZ) / 2 };
+  taipei.resolveHorizontalCollision(pos2, 0.48, 1);
+  assert.equal(pos2.x, notch.minX);
+
+  // A point exactly ON an edge is not inside and stays put.
+  const pos3 = { x: 0, y: 0, z: notch.maxZ };
+  taipei.resolveHorizontalCollision(pos3, 0.48, 1);
+  assert.deepEqual([pos3.x, pos3.z], [0, notch.maxZ]);
+
+  // The helicopter flies over the notch freely.
+  const heli = bareManager(Class, opts);
+  heli.activeMode = 'helicopter';
+  const pos4 = { x: 0, y: 100, z: geodata.frame.bbox.minZ + 100 };
+  heli.resolveHorizontalCollision(pos4, 0.48, 1);
+  assert.deepEqual([pos4.x, pos4.z], [0, geodata.frame.bbox.minZ + 100], 'helicopter is not pushed');
+});
+
+test('taipei world: without excludeRects the notch is reachable (NYC-style default)', async () => {
+  const Class = loadManagerClass();
+  const { geodata, opts } = await taipeiWorldOpts();
+  const { excludeRects, ...noExcl } = opts;
+  const m = bareManager(Class, noExcl);
+  m.activeMode = 'person';
+  const pos = { x: 0, y: 0, z: geodata.frame.bbox.minZ + 100 };
+  m.resolveHorizontalCollision(pos, 0.48, 1);
+  assert.deepEqual([pos.x, pos.z], [0, geodata.frame.bbox.minZ + 100]);
 });
 
 test('taipei-boot wires the tile world into main.js (source contract)', () => {
@@ -296,6 +426,9 @@ test('taipei-boot wires the tile world into main.js (source contract)', () => {
   assert.match(boot, /bounds:\s*\{\s*minX: bb\.minX, maxX: bb\.maxX, minZ: bb\.minZ, maxZ: bb\.maxZ \}/);
   assert.match(boot, /clampToShore: false/);
   assert.match(boot, /groundHeight: \(\) => 0/);
+  // Issue #60: the union's dropped bands reach the controllers.
+  assert.match(boot, /excludeRects: unionExclusionRects\(tile\.geodata\.frame\.boxes, bb\)/);
+  assert.match(source, /excludeRects: Array\.isArray\(opts\.excludeRects\)/);
   assert.match(boot, /spawnByMode:/);
   // Issue #12: on the WebGL fallback the tile boot swaps the avatar crowds
   // for CPU-posed figures; on WebGPU the factory stays null.
