@@ -744,7 +744,21 @@ test('taiwan types: family zoning, distribution and rooftop clamp', (t) => {
   // filter's own counters (lotsDroppedRoad 24,262 → 29,082, plus 114
   // median drops) account for exactly the 4,934 lots removed (23,106
   // → 18,172), 641 of them glass — re-pinning the count to 1747.
-  assert.equal(glass, 1747, 'glass family counts untouched by the Taiwan-type assignment');
+  // Issue #62 then turned the lot grids of the 1,501 blocks whose
+  // fronting streets run at an angle (5,569 turned lots): a turned
+  // grid repacks inside its block's inset bbox — its frame extent
+  // reaches past the rect's corners, and the 26,222 candidates that
+  // land outside are skipped, while the exact true-footprint tests
+  // (rotated SAT vs ribbons/sites, rotated corners vs parks/union)
+  // drop a few hundred more. The plan goes to 16,808 lots; every
+  // family gives up lots in proportion to its presence on angled
+  // blocks (F0 −295, F1 −365, F2 −237, F3 −93, F4 −9, F5 −31,
+  // F6 −87, F7 −63, F8 −92, F9 −92), 133 of them glass —
+  // re-pinning the count to 1614. Blocks on the true grids are
+  // byte-identical to the pre-#62 plan (the axis path is untouched;
+  // forcing the orientation epsilon off reproduces 18,172 / 1747
+  // exactly), so the whole delta is the turned blocks' repack.
+  assert.equal(glass, 1614, 'glass family counts untouched by the Taiwan-type assignment');
   const masonry = opts.lots.filter((l) => l.mat <= 2).length;
   // Range re-based for issue #65: the exact ribbon exclusion removed
   // ~4,400 masonry lots that stood on ribbons or in medians; masonry
