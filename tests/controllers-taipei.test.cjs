@@ -283,9 +283,86 @@ test('speedScale in the loop: person, cyclist and helicopter caps', async () => 
   assert.ok(Math.abs(nycHeli.verticalSpeed - 16) < 1e-6, 'no option: heli vertical cap stays 16 m/s');
 });
 
+// --- heliCeiling + heliVerticalScale (user request 2026-10-24) ---------
+// Taipei flies higher and climbs faster: ceiling 750 m (above the
+// requested 600 m and Taipei 101's 508 m) and the vertical cap ×5 over
+// the current in-Taipei rate (16 × speedScale 2 × 5 = 160 m/s, ascend
+// and descend alike). NYC (no options) keeps 380 m and 16 m/s exactly.
+
+test('heli options: derived vertical cap and ceiling honour the options, NYC defaults pinned', () => {
+  const Class = loadManagerClass();
+  const taipei = speedHarness(Class, { speedScale: 2, heliVerticalScale: 5, heliCeiling: 750 });
+  assert.deepEqual({ ...taipei.heliSpeed }, { cruise: 64, boost: 104, vertical: 160 },
+    'vertical scale touches the vertical cap only, on top of speedScale');
+  assert.equal(taipei._heliCeiling(), 750);
+  const vOnly = speedHarness(Class, { heliVerticalScale: 5 });
+  assert.deepEqual({ ...vOnly.heliSpeed }, { cruise: 32, boost: 52, vertical: 80 },
+    'heliVerticalScale alone: 16 x 5 = 80 m/s');
+  for (const worldOpts of [{}, { heliVerticalScale: 1 }, { heliVerticalScale: 0 }, { heliVerticalScale: NaN },
+    { heliCeiling: 0 }, { heliCeiling: NaN }, { heliCeiling: -5 }]) {
+    const nyc = speedHarness(Class, worldOpts);
+    assert.equal(nyc.heliSpeed.vertical, 16, 'no valid heliVerticalScale: upstream vertical cap');
+    assert.equal(nyc._heliCeiling(), 380, 'no valid heliCeiling: upstream ceiling');
+  }
+  const bare = bareManager(Class, null);
+  assert.equal(bare._heliCeiling(), 380, 'no worldOpts at all: upstream ceiling');
+});
+
+test('heli options in the loop: Taipei climbs/descends at 160 m/s to a 750 m ceiling, NYC caps stay', async () => {
+  const Class = loadManagerClass();
+  const { opts } = await taipeiWorldOpts();
+  const heliRun = (worldOpts, keys) => {
+    const controller = speedHarness(Class, worldOpts);
+    const helicopter = {
+      position: { x: 0, y: 100, z: 0 }, heading: 0, speed: 0, verticalSpeed: 0,
+      pitchAngle: 0, rollAngle: 0,
+      tiltPivot: { rotation: { x: 0, z: 0 }, position: { y: 0 } }
+    };
+    controller.entities = { helicopter };
+    Object.assign(controller.keys, keys);
+    for (let i = 0; i < 3600; i++) controller.updateHelicopter(1 / 60, 0);
+    return helicopter;
+  };
+  const taipeiOpts = { ...opts, speedScale: 2, heliVerticalScale: 5, heliCeiling: 750 };
+  const climber = heliRun(taipeiOpts, { up: true });
+  assert.ok(Math.abs(climber.verticalSpeed - 160) < 1e-6, 'Taipei ascend cap 160 m/s');
+  assert.equal(climber.position.y, 750, 'Taipei ceiling clamps altitude at 750 m');
+  const descender = heliRun(taipeiOpts, { down: true });
+  assert.ok(Math.abs(descender.verticalSpeed + 160) < 1e-6, 'Taipei descend cap -160 m/s');
+  const nyc = heliRun({ ...opts }, { up: true });
+  assert.ok(Math.abs(nyc.verticalSpeed - 16) < 1e-6, 'no options: ascend cap stays 16 m/s');
+  assert.equal(nyc.position.y, 380, 'no options: ceiling stays 380 m');
+});
+
+test('heli ceiling: teleport/restore altitude clamps to the world ceiling', async () => {
+  const Class = loadManagerClass();
+  const { opts } = await taipeiWorldOpts();
+  const run = (worldOpts, savedAltitude) => {
+    const controller = bareManager(Class, worldOpts);
+    const position = (x = 0, y = 0, z = 0) => ({ x, y, z, copy(p) { this.x = p.x; this.y = p.y; this.z = p.z; } });
+    const pivot = () => ({ position: position(), rotation: { x: 0, y: 0, z: 0 } });
+    const ent = {
+      type: 'helicopter', position: position(0, 100, 0), heading: 0, speed: 3, verticalSpeed: 2,
+      pitchAngle: 0, rollAngle: 0, mesh: pivot(), tiltPivot: pivot()
+    };
+    controller.activeMode = 'helicopter';
+    controller.entities = { helicopter: ent };
+    controller.keys = Object.fromEntries(['forward', 'backward', 'left', 'right', 'up', 'down', 'boost'].map((a) => [a, false]));
+    controller._pressedCodes = new Set();
+    controller.resetInput = Class.prototype.resetInput;
+    controller.teleportActiveTo(0, 0, 0, savedAltitude);
+    return ent.position.y;
+  };
+  assert.equal(run({ ...opts, heliCeiling: 750 }, 900), 750, 'saved altitude above the Taipei ceiling clamps to 750 m');
+  assert.equal(run({ ...opts, heliCeiling: 750 }, 700), 700, 'saved altitude under the ceiling is kept');
+  assert.equal(run({ ...opts }, 900), 380, 'no option: restore clamps to the upstream 380 m');
+});
+
 test('taipei speedScale wiring (source contract)', () => {
   const boot = readFileSync(join(__dirname, '../js/taipei-boot.js'), 'utf8');
   assert.match(boot, /speedScale: 2/);
+  assert.match(boot, /heliCeiling: 750/, 'tile boot raises the helicopter ceiling to 750 m');
+  assert.match(boot, /heliVerticalScale: 5/, 'tile boot multiplies helicopter ascend/descend by 5');
   const main = readFileSync(join(__dirname, '../js/main.js'), 'utf8');
   assert.match(main, /controllerManager\.worldOpts\?\.speedScale/, 'HUD meter full scale follows the controller speedScale');
 });
