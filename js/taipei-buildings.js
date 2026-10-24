@@ -44,8 +44,9 @@
 //     tile beige, brick) with a small per-lot brightness jitter.
 //
 // Taipei 101 itself is a massing placeholder, not a model: a podium
-// plus the tower's signature eight stacked, flared trapezoid tiers and
-// a spire, at the landmark's true 508 m overall height, in dark
+// plus the tower's signature eight identical stacked, flared
+// trapezoid tiers, a narrower top section and a spire, at the
+// landmark's true 508 m overall height, in dark
 // glass-green. It stands on the northern part of the landmark site so
 // the tile's spawn points (at the landmark point, south of it) stay in
 // the open. Detailed facade treatment is later scope.
@@ -236,24 +237,31 @@ export function planTaipeiBuildings(geodata) {
     }
   }
 
-  // Taipei 101 massing (see header): podium + 8 flared trapezoid tiers
-  // + spire at the true 508 m overall height, centred on the northern
-  // part of the landmark site so the spawn points stay clear.
+  // Taipei 101 massing (see header): podium + 8 identical flared
+  // trapezoid tiers + a narrower top section + spire at the true
+  // 508 m overall height, centred on the northern part of the
+  // landmark site so the spawn points stay clear. The eight tiers are
+  // identical modules, like the real tower's stacked sections: each
+  // steps in at its base (the bamboo joint) and flares back out to
+  // the same lip, so the shaft holds a constant width instead of
+  // tapering as it rises.
   let tower = null;
   if (t101) {
     const tx = t101.x - 10, tz = t101.z - 45;
     const podium = { w: 76, d: 64, h: 9 };
-    const tierTop = 458, tiers = [];
-    const jointHW = (i) => 25 - (13 * i) / 8; // half-width at each of the 9 tier joints
+    // Vertical budget: 9 (podium) + 8 × 52 (tiers) + 41 (top section)
+    // + 42 (spire) = 508.
+    const tierH = 52, tiers = [];
     for (let i = 0; i < 8; i++) {
       tiers.push({
-        y0: podium.h + ((tierTop - podium.h) * i) / 8,
-        h: (tierTop - podium.h) / 8,
-        hwBottom: jointHW(i) - (i > 0 ? 1.4 : 0), // step in at each bamboo joint
-        hwTop: jointHW(i + 1) + 1.2,              // flare out to the tier's lip
+        y0: podium.h + tierH * i,
+        h: tierH,
+        hwBottom: 22.4, // step in at each bamboo joint
+        hwTop: 25.0,    // flare out to the tier's lip
       });
     }
-    tower = { x: tx, z: tz, podium, tiers, spire: { y0: tierTop, h: 508 - tierTop, w: 2.4 }, totalHeight: 508 };
+    const top = { y0: podium.h + tierH * 8, h: 41, hwBottom: 14.0, hwTop: 13.0 };
+    tower = { x: tx, z: tz, podium, tiers, top, spire: { y0: top.y0 + top.h, h: 508 - (top.y0 + top.h), w: 2.4 }, totalHeight: 508 };
   }
   return { lots, tower, stats };
 }
@@ -295,8 +303,9 @@ export function taipeiCityBlocksOptions(geodata, plan = planTaipeiBuildings(geod
   };
 }
 
-// The Taipei 101 massing as plain meshes (podium + eight flared tiers +
-// spire, dark glass-green). `THREE` is passed in (the boot module owns
+// The Taipei 101 massing as plain meshes (podium + eight identical
+// flared tiers + narrower top section + spire, dark glass-green).
+// `THREE` is passed in (the boot module owns
 // the three import) so the planner above stays three-free and
 // unit-testable in plain node. Returns null when the geodata has no
 // Taipei 101 landmark.
@@ -321,6 +330,17 @@ export function createTaipei101(THREE, plan) {
     m.castShadow = true;
     m.receiveShadow = true;
     towerGroup.add(m);
+  }
+  if (t.top) {
+    // The narrower top section under the spire, as one more tapered
+    // square frustum (same construction as the tiers).
+    const topGeo = new THREE.CylinderGeometry(t.top.hwTop * Math.SQRT2, t.top.hwBottom * Math.SQRT2, t.top.h, 4, 1);
+    const topMesh = new THREE.Mesh(topGeo, glassMat);
+    topMesh.rotation.y = Math.PI / 4;
+    topMesh.position.set(t.x, t.top.y0 + t.top.h / 2, t.z);
+    topMesh.castShadow = true;
+    topMesh.receiveShadow = true;
+    towerGroup.add(topMesh);
   }
   const spire = new THREE.Mesh(new THREE.CylinderGeometry(0.5, 1.4, t.spire.h, 6), glassMat);
   spire.position.set(t.x, t.spire.y0 + t.spire.h / 2, t.z);
