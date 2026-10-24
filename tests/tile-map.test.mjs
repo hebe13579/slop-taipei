@@ -3,6 +3,7 @@ import test from 'node:test';
 
 import { TAIPEI_GEO } from '../js/taipei-geodata.js';
 import { TAIPEI_TILE } from '../js/taipei-tile.js';
+import { taipeiLandmarkStructures } from '../js/taipei-buildings.js';
 import { buildTileMapModel, TileMapView, TileMapSystem } from '../js/tile-map.js';
 
 // Issue #7: the tile-driven in-game map. The model is built purely from the
@@ -126,6 +127,48 @@ test('full-map viewport math: screenToWorld inverts the render transform, telepo
   const expectZoom = Math.min(1200 / (model.widthM * 1.06), 800 / (model.heightM * 1.06));
   assert.ok(Math.abs(sys.viewZoom - expectZoom) < 1e-9, `fit zoom ${sys.viewZoom} == ${expectZoom}`);
   assert.ok(model.widthM * sys.viewZoom <= 1200 && model.heightM * sys.viewZoom <= 800, 'the whole tile fits');
+});
+
+// Issue #33: the map's landmark layer is the LANDMARK_STRUCTURES
+// registry itself (plus Taipei 101) — marker count equals registry
+// count, every marker sits at its structure's world position with its
+// published height and Chinese name, and search finds landmarks by
+// their Chinese names as well as English.
+test('landmark markers come from the structure registry, labelled in Chinese', (t) => {
+  const structures = taipeiLandmarkStructures(TAIPEI_GEO);
+  assert.equal(model.landmarks.length, structures.length + 1, 'one marker per registry structure, plus Taipei 101');
+  const lm101 = TAIPEI_GEO.landmarks['Taipei 101'];
+  const m101 = model.landmarks.find((l) => l.id === 'taipei-101');
+  assert.ok(m101, 'Taipei 101 has a landmark marker');
+  assert.equal(m101.x, lm101.x);
+  assert.equal(m101.z, lm101.z);
+  assert.equal(m101.height, 508);
+  assert.equal(m101.nameZh, '台北101');
+  for (const s of structures) {
+    const m = model.landmarks.find((l) => l.id === s.id);
+    assert.ok(m, `marker exists for ${s.id}`);
+    assert.ok(Math.abs(m.x - s.x) <= 0.11 && Math.abs(m.z - s.z) <= 0.11, `${s.id} marker at the structure's world position`);
+    assert.equal(m.height, s.height, `${s.id} marker carries the published height`);
+    assert.equal(m.nameZh, s.nameZh, `${s.id} marker carries the Chinese name`);
+    assert.ok(m.nameZh.length > 0, `${s.id} Chinese name present for the full-map label`);
+  }
+  t.diagnostic(`landmark markers: ${model.landmarks.map((l) => `${l.nameZh} ${l.height}m`).join(' · ')}`);
+
+  // Search flies to a landmark by its Chinese name, and English still works.
+  const sys = Object.create(TileMapSystem.prototype);
+  sys.model = model;
+  sys.viewZoom = 0.2;
+  const dome = model.landmarks.find((l) => l.id === 'taipei-dome');
+  sys.search('大巨蛋');
+  assert.equal(sys.viewCenterX, dome.x, 'search 大巨蛋 centres on the Dome');
+  assert.equal(sys.viewCenterZ, dome.z);
+  const hall = model.landmarks.find((l) => l.id === 'sun-yat-sen-memorial-hall');
+  sys.search('國父紀念館');
+  assert.equal(sys.viewCenterX, hall.x, 'search 國父紀念館 centres on the Memorial Hall');
+  assert.equal(sys.viewCenterZ, hall.z);
+  const nanShan = model.landmarks.find((l) => l.id === 'taipei-nan-shan-plaza');
+  sys.search('nan shan');
+  assert.equal(sys.viewCenterX, nanShan.x, 'English search still finds landmarks');
 });
 
 test('a tile without a generation map falls back to raw roads', () => {

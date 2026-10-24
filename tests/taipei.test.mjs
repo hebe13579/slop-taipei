@@ -388,6 +388,12 @@ test('landmark structures: true positions and heights, sites kept clear', (t) =>
     'tao-zhu-yin-yuan': { h: 93.2, x: 545.0, z: -620.3 },
     'twtc-international-trade-building': { h: 142.92, x: -386.8, z: -157.0 },
     'taipei-city-hall': { h: 54.42, x: -56.5, z: -498.5 },
+    // Batch 2 (issue #33): the Dome's 64 m is the above-ground height
+    // (74.5 m published total minus the 10.5 m sunken field); the
+    // Memorial Hall's 30.4 m is the official figure in the zh-Wikipedia
+    // article body, positioned on its OSM footprint (see registry).
+    'taipei-dome': { h: 64, x: -496.2, z: -1030.9 },
+    'sun-yat-sen-memorial-hall': { h: 30.4, x: -474.3, z: -776.5 },
   };
   assert.equal(plan.landmarkTowers.length, Object.keys(expected).length, 'all verified structures present');
   const partTop = (p) => (p.y0 || 0) + p.h + (p.type === 'ridge' ? p.ridgeH : 0);
@@ -422,6 +428,45 @@ test('landmark structures: true positions and heights, sites kept clear', (t) =>
   const t101 = TAIPEI_GEO.landmarks['Taipei 101'];
   const [c101x, c101z] = latLonToTile(25.033651, 121.564781, TAIPEI_GEO.frame.originLatLon);
   assert.ok(Math.abs(c101x - t101.x) < 100 && Math.abs(c101z - t101.z) < 100, 'frame conversion consistent with the geodata landmarks');
+});
+
+// Issue #33 batch 2: the two new silhouettes are honest massing — the
+// Dome is an elliptical drum under a half-ellipsoid cap, and the
+// Memorial Hall's upswept palace roof is the documented stylization
+// (stepped frustum tiers + ridge + corner pylons), registered as hall
+// mass only so Zhongshan Park around it stays open.
+test('landmark batch 2: dome cap and stylized memorial-hall roof', () => {
+  const plan = planTaipeiBuildings(TAIPEI_GEO);
+  const dome = plan.landmarkTowers.find((s) => s.id === 'taipei-dome');
+  assert.ok(dome, 'taipei dome registered');
+  const drum = dome.parts.find((p) => p.type === 'cylinder');
+  const cap = dome.parts.find((p) => p.type === 'dome');
+  assert.ok(drum && cap, 'dome = elliptical drum + dome cap');
+  assert.ok(drum.rz < drum.r, 'drum plan is elliptical (170 m span across z)');
+  assert.equal(cap.y0 + cap.h, 64, 'dome cap peaks at the 64 m above-ground height');
+  // The drum's south rim stays clear of Zhongxiao Road's roadbed.
+  let nearest = Infinity;
+  for (const r of TAIPEI_GEO.roadbeds) {
+    for (let i = 0; i + 1 < r.pts.length; i += 2) {
+      nearest = Math.min(nearest, Math.hypot(r.pts[i] - dome.x, r.pts[i + 1] - dome.z));
+    }
+  }
+  assert.ok(nearest > drum.rz, 'no roadbed point inside the drum ellipse');
+
+  const hall = plan.landmarkTowers.find((s) => s.id === 'sun-yat-sen-memorial-hall');
+  assert.ok(hall, 'memorial hall registered');
+  const frustums = hall.parts.filter((p) => p.type === 'frustum');
+  const ridge = hall.parts.find((p) => p.type === 'ridge');
+  assert.ok(frustums.length >= 2 && ridge, 'roof massed as stepped frustum tiers under a ridge');
+  assert.equal(ridge.y0 + ridge.ridgeH, 30.4, 'ridge peaks at the published 30.4 m');
+  const pylons = hall.parts.filter((p) => p.type === 'box' && p.dx !== undefined && Math.abs(p.dx) === Math.abs(p.dz));
+  assert.equal(pylons.length, 4, 'four corner pylons');
+  // Hall mass only: the exclusion is the hall's own footprint, and the
+  // mass stands on the geodata's OSM footprint for the building.
+  assert.ok(hall.site.maxX - hall.site.minX <= 130 && hall.site.maxZ - hall.site.minZ <= 130, 'site is the hall footprint, not the park');
+  assert.equal(hall.openGround, null, 'no extra open-ground registration — the park is already park');
+  const osm = TAIPEI_GEO.landmarks['Sun Yat-sen Memorial Hall'];
+  assert.ok(Math.abs(hall.x - osm.x) <= 2 && Math.abs(hall.z - osm.z) <= 2, 'hall stands on its OSM footprint');
 });
 
 // Issue #11: the plan is rendered by upstream's buildCityBlocks, fed
