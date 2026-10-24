@@ -341,7 +341,14 @@ export function planStreetTrees(geodata, plan, opts = {}) {
   const inTowerSite = (x, z) => {
     if (!tower) return false;
     const w = (tower.podium?.w || 76) / 2 + 1, d = (tower.podium?.d || 76) / 2 + 1;
-    return Math.abs(x - tower.x) <= w && Math.abs(z - tower.z) <= d;
+    if (Math.abs(x - tower.x) <= w && Math.abs(z - tower.z) <= d) return true;
+    // Issue #40: the mall podium blocks stand beyond the tower-zone
+    // base — keep trees out of their footprints too.
+    for (const part of tower.podiumParts || []) {
+      if (part.type !== 'box') continue;
+      if (Math.abs(x - (tower.x + (part.dx || 0))) <= part.w / 2 + 1 && Math.abs(z - (tower.z + (part.dz || 0))) <= part.d / 2 + 1) return true;
+    }
+    return false;
   };
 
   const polys = [];
