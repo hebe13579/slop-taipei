@@ -6,7 +6,7 @@ import { ribbonPoly, pointInPoly } from '../js/taipei-painted.js';
 import { medianStripWidth } from '../js/taipei-surfaces.js';
 import * as markings from '../js/taipei-markings.js';
 import {
-  LANE_W, DASH_LEN, DASH_GAP, DIVIDER_W,
+  LANE_W, DASH_LEN, DASH_GAP, DIVIDER_W, MAST_ARM_MIN, MAST_ARM_MAX,
   laneLayout, dividersFor, buildLaneDividers,
   detectJunctions, buildJunctionFurniture, buildRoadMarkings,
 } from '../js/taipei-markings.js';
@@ -156,6 +156,52 @@ test('furniture: 4-way gets a crosswalk, stop line and signal per approach', () 
   assert.ok(east && east.x < 0 && east.z < 0, `east signal at ${east?.x},${east?.z}`);
 });
 
+test('signals (issue #64): every unit stands on a corner, outside every carriageway', () => {
+  const beds = fourWay();
+  const f = buildJunctionFurniture(beds, detectJunctions(beds));
+  const polys = beds.map(ribbonPoly);
+  assert.equal(f.signals.length, 4);
+  for (const s of f.signals) {
+    for (const p of polys) assert.ok(!pointInPoly([s.x, s.z], p), `signal at ${s.x},${s.z} inside a carriageway ribbon`);
+  }
+  // A skewed (45°) crossing — the angle-corrected box extent and
+  // the clearance solver keep the corners clear there too.
+  const skew = [
+    bed('EW Blvd', 'secondary', 20, [1], [-100, 0, 0, 0]),
+    bed('EW Blvd', 'secondary', 20, [1], [0, 0, 100, 0]),
+    bed('Diag Rd', 'primary', 16, [2], [0, 0, -70, -70]),
+    bed('Diag Rd', 'primary', 16, [2], [0, 0, 70, 70]),
+  ];
+  const js = detectJunctions(skew);
+  assert.equal(js.length, 1);
+  assert.equal(js[0].signalized, true);
+  const f2 = buildJunctionFurniture(skew, js);
+  assert.equal(f2.signals.length, 4);
+  const polys2 = skew.map(ribbonPoly);
+  for (const s of f2.signals) {
+    for (const p of polys2) assert.ok(!pointInPoly([s.x, s.z], p), `skew signal at ${s.x},${s.z} inside a carriageway ribbon`);
+  }
+});
+
+test('signals (issue #64): mast-arm (T) only on divided approaches, corner pole elsewhere', () => {
+  const beds = fourWay(); // EW: 30 m merged bed with a median; NS: 24 m single carriageway
+  const f = buildJunctionFurniture(beds, detectJunctions(beds));
+  const ewSignals = f.signals.filter((s) => beds[s.bed].name === 'EW Blvd');
+  const nsSignals = f.signals.filter((s) => beds[s.bed].name === 'NS Ave');
+  assert.equal(ewSignals.length, 2);
+  assert.equal(nsSignals.length, 2);
+  for (const s of ewSignals) {
+    assert.equal(s.kind, 'mast', 'divided EW approach gets the mast-arm unit');
+    assert.ok(s.armLen >= MAST_ARM_MIN && s.armLen <= MAST_ARM_MAX, `armLen ${s.armLen} in clamps`);
+  }
+  for (const s of nsSignals) {
+    assert.equal(s.kind, 'pole', 'undivided NS approach gets the plain corner pole');
+    assert.equal(s.armLen, 0);
+  }
+  assert.equal(f.stats.mastSignals, 2);
+  assert.equal(f.stats.poleSignals, 2);
+});
+
 test('furniture: non-signalized junctions get nothing', () => {
   const beds = [
     bed('Main Rd', 'secondary', 20, [1], [-100, 0, 0, 0]),
@@ -197,5 +243,57 @@ test('geodata: acceptance junction 信義路五段 × 松仁路 is signalized an
     const inSongren = songrenPolys.some((p) => pointInPoly(c, p));
     const inXinyi = xinyiPolys.some((p) => pointInPoly(c, p));
     assert.ok(!(inSongren && inXinyi), `dash centre ${c} inside the junction box (both ribbons)`);
+  }
+});
+
+test('geodata (issue #64): no signal stands on a carriageway; mast-arms only on divided approaches', () => {
+  const beds = TAIPEI_GEO.roadbeds;
+  const r = buildRoadMarkings(beds);
+  // 0 units inside any roadbed ribbon, tile-wide (the audit metric
+  // of issue #64: 468 of 787 inside before the rework, 116 of them
+  // inside two or more ribbons — the middle of the junction).
+  const polys = beds.map(ribbonPoly);
+  const GRID = 100;
+  const grid = new Map();
+  polys.forEach((poly, i) => {
+    const xs = poly.map((p) => p[0]), zs = poly.map((p) => p[1]);
+    for (let gx = Math.floor(Math.min(...xs) / GRID); gx <= Math.floor(Math.max(...xs) / GRID); gx++)
+      for (let gz = Math.floor(Math.min(...zs) / GRID); gz <= Math.floor(Math.max(...zs) / GRID); gz++) {
+        const k = `${gx},${gz}`;
+        if (!grid.has(k)) grid.set(k, []);
+        grid.get(k).push(i);
+      }
+  });
+  const insideAny = (x, z) => {
+    const cand = grid.get(`${Math.floor(x / GRID)},${Math.floor(z / GRID)}`) || [];
+    return cand.some((ci) => pointInPoly([x, z], polys[ci]));
+  };
+  for (const s of r.signals) {
+    assert.ok(!insideAny(s.x, s.z), `signal at ${Math.round(s.x)},${Math.round(s.z)} inside a roadbed ribbon`);
+  }
+  assert.equal(r.stats.clearanceUnresolved, 0, 'every corner resolved clear of the carriageways');
+  // Counts by kind: every unit is one kind or the other, and the
+  // mast-arm share is the divided-boulevard share of approaches.
+  assert.equal(r.stats.signalMast + r.stats.signalPole, r.stats.signalUnits);
+  assert.ok(r.stats.signalMast >= 150 && r.stats.signalMast <= 400, `mast units ${r.stats.signalMast}`);
+  assert.ok(r.stats.signalPole >= 400, `pole units ${r.stats.signalPole}`);
+  // Mast ⟺ divided, recomputed independently of the planner's own
+  // helper: the approach bed splits at a drawn median, or a
+  // same-name near-parallel twin arm shares its junction.
+  const sigJunctions = r.junctions.filter((j) => j.signalized);
+  for (const s of r.signals) {
+    const j = sigJunctions.find((jj) => jj.arms.some((a) => a.bed === s.bed
+      && Math.abs(a.dirX - s.faceX) < 0.01 && Math.abs(a.dirZ - s.faceZ) < 0.01));
+    assert.ok(j, `signal for bed ${s.bed} joins a signalized junction`);
+    const arm = j.arms.find((a) => a.bed === s.bed && Math.abs(a.dirX - s.faceX) < 0.01 && Math.abs(a.dirZ - s.faceZ) < 0.01);
+    let divided = laneLayout(beds[s.bed]).medianHalf > 0;
+    if (!divided) {
+      divided = j.arms.some((b) => b !== arm && b.bed !== arm.bed && b.name === arm.name
+        && b.dirX * arm.dirX + b.dirZ * arm.dirZ > Math.cos((25 * Math.PI) / 180));
+    }
+    assert.equal(s.kind === 'mast', divided,
+      `${divided ? 'divided' : 'undivided'} approach (bed ${beds[s.bed].name}) got kind ${s.kind}`);
+    if (s.kind === 'mast') assert.ok(s.armLen >= MAST_ARM_MIN && s.armLen <= MAST_ARM_MAX, `armLen ${s.armLen}`);
+    else assert.equal(s.armLen, 0);
   }
 });
