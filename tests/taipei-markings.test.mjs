@@ -288,10 +288,18 @@ test('geodata (issue #64): no signal stands on a carriageway; mast-arms only on 
   // 810 corner-pole. The 0-inside invariant above is the binding
   // pin; these counts are the census record and move only with a
   // data regen, with the reason written here.
+  // Re-pinned again for issue #75 (junction audit 2): the
+  // handcrafted roundabout sites suppress furniture on their
+  // ring arms — 34 ring-arm approaches at the 7 claimed
+  // junctions (仁愛敦南圓環 + 東門圓環） each lose the corner-pole
+  // unit they would have carried: 1,196 -> 1,162 units, all 34
+  // from the pole split (810 -> 776); mast-arm units are
+  // unaffected (386). stats.ringArmsSkipped = 34 records the
+  // suppressed arms.
   assert.equal(r.stats.signalMast + r.stats.signalPole, r.stats.signalUnits);
-  assert.equal(r.stats.signalUnits, 1196, `signal units ${r.stats.signalUnits}`);
+  assert.equal(r.stats.signalUnits, 1162, `signal units ${r.stats.signalUnits}`);
   assert.equal(r.stats.signalMast, 386, `mast units ${r.stats.signalMast}`);
-  assert.equal(r.stats.signalPole, 810, `pole units ${r.stats.signalPole}`);
+  assert.equal(r.stats.signalPole, 776, `pole units ${r.stats.signalPole}`);
   // Mast ⟺ divided, recomputed independently of the planner's own
   // helper: the approach bed splits at a drawn median, or a
   // same-name near-parallel twin arm shares its junction.
