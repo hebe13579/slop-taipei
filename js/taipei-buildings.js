@@ -296,27 +296,30 @@ const LANDMARK_STRUCTURES = [
     ],
   },
   {
-    // 212 m, 46F, completed 2015 (Wikipedia / CTBUH). A slender
-    // vertically-striped slab on the Breeze Xinyi podium; the top
-    // arcs down toward the east in a smooth curve — massed as four
-    // descending steps.
-    // Footprint corrected in issue #42 to the OSM outline (way
-    // 378443967 國泰置地廣場, 122.3 × 78.8 m): the batch-1 axis sat
-    // ~13 m east, pushing the podium's east edge onto a service
-    // roadbed.
+    // 212 m, 46F, completed 2015 (Wikipedia / CTBUH). The massing
+    // is TWO combined rectangular slabs — a taller main slab and a
+    // stepped, slightly shorter secondary slab joined along the
+    // top section — on a wide, low, curved-front mall podium (the
+    // user's reference photo, 2026-10-24; this replaces the earlier
+    // massing, a single slab under a four-step staircase crown,
+    // which the photo contradicts). 微風信義 Breeze Xinyi is NOT a
+    // separate structure: it is the department store inside this
+    // tower (忠孝東路五段68號 — the podium, B2–4F, plus the
+    // restaurants at 45–47F), so the podium mass below is its
+    // representation (the Breeze Nan Shan precedent above).
+    // Position is issue #42's re-pin to the OSM outline (way
+    // 378443967 國泰置地廣場, 122.3 × 78.8 m → tile (186.2,
+    // −829.5)); the podium takes the outline's own ellipse — the
+    // curved south front — pulled in slightly at the SW corner,
+    // clear of the service drive that notches that corner (the
+    // issue #42/#43 audits: min clearance 3.0 m, overlap 0).
     id: 'cathay-landmark', name: 'Cathay Landmark', nameZh: '國泰置地廣場',
     lat: 25.040488, lon: 121.566845, realHeight: 212, color: 0x51606e,
     site: { w: 126, d: 82, dx: 0, dz: 0 },
     parts: [
-      // Two boxes: the west cap stops north of the service drive
-      // that notches the outline's SW corner (issue #42 audit).
-      { type: 'box', w: 105, d: 77, h: 26, dx: 8 },
-      { type: 'box', w: 15, d: 63, h: 26, dx: -52, dz: -7 },
-      { type: 'box', w: 58, d: 36, h: 158, y0: 26 },
-      { type: 'box', w: 14.5, d: 36, h: 28, y0: 184, dx: -21.75 },
-      { type: 'box', w: 14.5, d: 36, h: 21, y0: 184, dx: -7.25 },
-      { type: 'box', w: 14.5, d: 36, h: 14, y0: 184, dx: 7.25 },
-      { type: 'box', w: 14.5, d: 36, h: 7, y0: 184, dx: 21.75 },
+      { type: 'cylinder', r: 58.5, rz: 38.5, h: 26, dx: 4, dz: 1 },
+      { type: 'box', w: 32, d: 34, h: 186, y0: 26, dx: -11, dz: 6 },
+      { type: 'box', w: 22, d: 34, h: 168, y0: 26, dx: 16, dz: 6 },
     ],
   },
   {
@@ -442,6 +445,105 @@ const LANDMARK_STRUCTURES = [
       { type: 'box', w: 5, d: 5, h: 3.5, y0: 21, dx: 42, dz: 42 },
     ],
   },
+  {
+    // Batch 3 (issue #43). 151 m: this is the Taipei City Hall Bus
+    // Station complex (市府轉運站, 忠孝東路五段10號) — W Taipei
+    // occupies floors 8–31 of the tower. Height 151 m per
+    // Wikipedia's tallest-buildings list and its Xinyi Planning
+    // District table (the complex's own article says 150 m; the
+    // OSM outline, way 312729918 at 160.3 × 85.6 m, is tagged
+    // 145.4 m — the published 151 m is used). The complex is
+    // built AROUND its bus loop: a service roadbed in the geodata
+    // rings the station court through the middle of the outline,
+    // and the merged Keelung Road roadbed swath clips the
+    // outline's west strip, so the podium is massed as the three
+    // blocks that stand clear of every roadbed — the south
+    // (Uni-Hankyu) block, the north strip and the east block —
+    // with the tower on the east block, where the hotel slab
+    // actually rises. Issue #43 audit: min clearance 1.4 m,
+    // overlap 0.
+    id: 'w-taipei', name: 'W Taipei', nameZh: '台北W飯店',
+    lat: 25.0405433, lon: 121.5647998, realHeight: 151, color: 0x8fa8b8,
+    site: { w: 168, d: 104, dx: 26, dz: -4 },
+    parts: [
+      { type: 'box', w: 128, d: 14, h: 17, dx: 14, dz: 36.2 },
+      { type: 'box', w: 96, d: 13, h: 17, dx: 34, dz: -34.3 },
+      { type: 'box', w: 58, d: 58, h: 17, dx: 73, dz: -8 },
+      { type: 'box', w: 52, d: 40, h: 134, y0: 17, dx: 73, dz: -6 },
+    ],
+  },
+  {
+    // Batch 3 (issue #43). The 1937 tobacco factory (製菸工廠):
+    // a 165 × 93 m two-storey Baroque-revival hall around a
+    // central courtyard (zh-Wikipedia; OSM relation 3067837
+    // measures 167.1 × 95.7 m), massed as one hall block under a
+    // ridge roof — the courtyard is not cut out (hall mass only,
+    // the park around it stays open; the SYS Hall precedent) —
+    // plus the boiler room (鍋爐房, OSM way 228920411) and its
+    // chimney SE of the hall, the park's two recognisable parts.
+    // No published chimney height exists and no height tag was
+    // found for it in OSM: the chimney's 30 m is an ESTIMATE, from
+    // the stack's proportion against the two-storey hall in
+    // photographs of the park, and it is the entry's tallest
+    // part, so realHeight follows it. Issue #43 audit: min
+    // clearance 7.9 m, overlap 0.
+    id: 'songshan-cultural-park', name: 'Songshan Cultural and Creative Park', nameZh: '松山文創園區',
+    lat: 25.0436127, lon: 121.5602251, realHeight: 30, color: 0x8a6a54,
+    site: { w: 244, d: 140, dx: 33, dz: 18 },
+    parts: [
+      { type: 'box', w: 165, d: 93, h: 10 },
+      { type: 'ridge', w: 165, d: 93, h: 0, ridgeH: 4, y0: 10 },
+      { type: 'box', w: 17, d: 25, h: 8, dx: 140.4, dz: 69.3 },
+      { type: 'cylinder', r: 3.2, h: 30, dx: 140.4, dz: 61.6 },
+    ],
+  },
+  {
+    // Batch 3 (issue #43). 誠品生活松菸 is the retail inside the
+    // Taipei New Horizon Building (臺北文創大樓, Toyo Ito) — the
+    // terraced crescent at the park's NE corner (OSM way
+    // 229059792, 164.7 × 68.4 m): the mall at B1–3F, eslite
+    // hotel and offices above, 14 storeys. NO height in metres
+    // is published anywhere (only floor counts), so 63 m is an
+    // ESTIMATE — 14 levels at a 4.5 m mixed mall/office/hotel
+    // floor-to-floor average — and the entry is flagged
+    // estimated. The OSM building parts step down across the
+    // west half (the terraces); the slab sits on the outline's
+    // southern two-thirds, clear of the park service roadbed
+    // that dips across the outline's north edge. Issue #43
+    // audit: min clearance 2.3 m, overlap 0.
+    id: 'eslite-spectrum-songyan', name: 'Eslite Spectrum Songyan', nameZh: '誠品生活松菸',
+    lat: 25.0445705, lon: 121.5613061, realHeight: 63, estimated: true, color: 0xb0aca2,
+    site: { w: 156, d: 68, dx: -8, dz: 4 },
+    parts: [
+      { type: 'box', w: 120, d: 46, h: 63, dx: 2, dz: 7 },
+      { type: 'box', w: 52, d: 40, h: 34, dx: -52, dz: -2 },
+    ],
+  },
+  {
+    // Batch 3 (issue #43). ESTIMATED HEIGHT — no published
+    // overall height exists for Taipei Arena (its zh-Wikipedia
+    // article carries no height field at all; the often-quoted
+    // 42.3 m is KAOHSIUNG Arena — never use it). Estimate
+    // method: brightness transects across the Esri z18 satellite
+    // frame put the sunlit dome plateau's rim at ≈ 22 m,
+    // cross-checked against the published programme (5 storeys
+    // above ground, 2 basement); the shallow cap adds ≈ 9 m
+    // from the roof profile in photographs → 31 m (bracket
+    // 27–35 m), flagged estimated. The footprint is the OSM
+    // outline (way 244001544, 158.8 × 160.7 m, 19,498 m²; the
+    // published site area is 5,986 坪 ≈ 19,788 m²): the silver
+    // egg — an elliptical drum under a shallow dome cap — with
+    // the ice-rink annex (冰上樂園, its 61 × 30 m rink) attached
+    // east. Issue #43 audit: min clearance 1.0 m, overlap 0.
+    id: 'taipei-arena', name: 'Taipei Arena', nameZh: '臺北小巨蛋',
+    lat: 25.0507173, lon: 121.5501273, realHeight: 31, estimated: true, color: 0xcac5b8,
+    site: { w: 172, d: 174, dx: 0, dz: 0 },
+    parts: [
+      { type: 'cylinder', r: 74, rz: 80, h: 22, dx: -5 },
+      { type: 'dome', rx: 74, rz: 80, h: 9, y0: 22, dx: -5 },
+      { type: 'box', w: 50, d: 82, h: 13, dx: 46, dz: -4 },
+    ],
+  },
 ];
 
 // Resolve a structure definition into plan data: true tile-frame
@@ -461,6 +563,7 @@ function resolveLandmark(def, originLatLon) {
     id: def.id, name: def.name, nameZh: def.nameZh,
     x, z, lat: def.lat, lon: def.lon,
     realHeight: def.realHeight, height: def.realHeight,
+    estimated: !!def.estimated,
     distFromOrigin: Math.round(Math.hypot(x, z)),
     color: def.color, site, openGround,
     sites: openGround ? [site, openGround] : [site],
@@ -477,7 +580,7 @@ export function taipeiLandmarkStructures(geodata) {
   const originLatLon = (geodata.frame && geodata.frame.originLatLon) || [25.033, 121.565];
   return LANDMARK_STRUCTURES.map((def) => {
     const r = resolveLandmark(def, originLatLon);
-    return { id: r.id, name: r.name, nameZh: r.nameZh, x: r.x, z: r.z, height: r.realHeight };
+    return { id: r.id, name: r.name, nameZh: r.nameZh, x: r.x, z: r.z, height: r.realHeight, estimated: r.estimated };
   });
 }
 
