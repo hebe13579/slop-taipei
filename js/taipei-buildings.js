@@ -26,6 +26,10 @@
 //     1.2–3 m gap between neighbouring footprints. Very large blocks
 //     (> 40,000 m² — campuses, depots, riverside tracts) use a coarser
 //     pitch and a higher vacancy rate so they don't read as carpet.
+//   - The tile is a union of boxes (issue #60): a block whose centroid
+//     is outside every box is skipped, and a lot whose centre or any
+//     footprint corner leaves the union is dropped — nothing is
+//     planned over a dropped band.
 //   - A lot is dropped when its centre falls inside a park/water
 //     polygon (exact point-in-polygon, so a park that merely overlaps a
 //     block's bbox still stays empty — Da'an Forest Park above all),
@@ -585,7 +589,17 @@ export function taipeiLandmarkStructures(geodata) {
 }
 
 export function planTaipeiBuildings(geodata) {
-  const stats = { blocksSeen: 0, blocksSkippedSmall: 0, blocksSkippedParkWater: 0, lotsDroppedVacancy: 0, lotsDroppedParkWater: 0, lotsDroppedTowerSite: 0, lotsDroppedRoad: 0 };
+  const stats = { blocksSeen: 0, blocksSkippedSmall: 0, blocksSkippedParkWater: 0, blocksSkippedOutsideUnion: 0, lotsDroppedVacancy: 0, lotsDroppedParkWater: 0, lotsDroppedTowerSite: 0, lotsDroppedRoad: 0, lotsDroppedOutsideUnion: 0 };
+  // Union-of-boxes tile (issue #60): the geodata frame carries the
+  // tile's boxes; ground exists only inside them. Raster blocks are
+  // masked to the union by the builder, but a block's bbox can still
+  // wrap a union corner, so the planner re-checks: a block whose
+  // centroid is outside every box is skipped, and a lot whose centre
+  // or any footprint corner leaves the union is dropped — no building
+  // may hang over a dropped band. A geodata without boxes (older
+  // extracts) plans exactly as before.
+  const unionBoxes = Array.isArray(geodata.frame?.boxes) && geodata.frame.boxes.length ? geodata.frame.boxes : null;
+  const inUnion = (x, z) => !unionBoxes || unionBoxes.some((b) => x >= b.minX && x <= b.maxX && z >= b.minZ && z <= b.maxZ);
   const polys = [];
   for (const p of geodata.parks || []) polys.push({ ring: p.ring, bb: ringBbox(p.ring) });
   for (const w of geodata.water || []) polys.push({ ring: w.ring, bb: ringBbox(w.ring) });
@@ -638,6 +652,7 @@ export function planTaipeiBuildings(geodata) {
     stats.blocksSeen++;
     if (!(block.area >= 150)) { stats.blocksSkippedSmall++; continue; }
     if (inPoly(block.cx, block.cz)) { stats.blocksSkippedParkWater++; continue; }
+    if (!inUnion(block.cx, block.cz)) { stats.blocksSkippedOutsideUnion++; continue; }
     const inset = 3.0; // street-section band margin (see header)
     const minX = block.bbox.minX + inset, maxX = block.bbox.maxX - inset;
     const minZ = block.bbox.minZ + inset, maxZ = block.bbox.maxZ - inset;
@@ -655,12 +670,20 @@ export function planTaipeiBuildings(geodata) {
       for (let row = 0; row < rows; row++) {
         const seed = Math.imul(bi + 1, 73856093) ^ Math.imul(col + 1, 19349663) ^ Math.imul(row + 1, 83492791);
         if (hash01(seed ^ 0x51ab) < vacancy) { stats.lotsDroppedVacancy++; continue; }
-        const cx = minX + (col + 0.5) * cellW;
-        const cz = minZ + (row + 0.5) * cellD;
+        // The emitted lot centre is rounded to 0.1 m (see the push
+        // below); run every exclusion test at THAT point, not the raw
+        // grid centre. The two can straddle a polygon edge — the west
+        // expansion regen (issue #60) produced a lot whose raw centre
+        // sat 5 mm outside a park sliver while its rounded, emitted
+        // centre sat inside it, passing the planner and failing the
+        // audit. One point, tested once, no disagreement.
+        const cx = Math.round((minX + (col + 0.5) * cellW) * 10) / 10;
+        const cz = Math.round((minZ + (row + 0.5) * cellD) * 10) / 10;
         const gap = 1.2 + hash01(seed ^ 0x77c3) * 1.8;
         const w = cellW - gap, d = cellD - gap;
         if (w < 7 || d < 7) continue;
         if (inPoly(cx, cz)) { stats.lotsDroppedParkWater++; continue; }
+        if (!inUnion(cx, cz)) { stats.lotsDroppedOutsideUnion++; continue; }
         let onLandmarkSite = false;
         for (const s of exclusionSites) {
           if (cx + w / 2 > s.minX && cx - w / 2 < s.maxX && cz + d / 2 > s.minZ && cz - d / 2 < s.maxZ) { onLandmarkSite = true; break; }
@@ -674,11 +697,16 @@ export function planTaipeiBuildings(geodata) {
         // The centre test alone lets a wide lot beside a narrow lane
         // overhang the lane itself; require every footprint corner to
         // stay out of the ribbons too (corner clearance < 0 = inside).
+        // The same corners must stay inside the tile union (issue #60).
         let cornerInRoad = false;
+        let cornerOutsideUnion = false;
         for (const [ox, oz] of [[-1, -1], [-1, 1], [1, -1], [1, 1]]) {
-          if (roadInfoAt(cx + (ox * w) / 2, cz + (oz * d) / 2).clearance < 0) { cornerInRoad = true; break; }
+          const kx = cx + (ox * w) / 2, kz = cz + (oz * d) / 2;
+          if (roadInfoAt(kx, kz).clearance < 0) { cornerInRoad = true; break; }
+          if (!inUnion(kx, kz)) cornerOutsideUnion = true;
         }
         if (cornerInRoad) { stats.lotsDroppedRoad++; continue; }
+        if (cornerOutsideUnion) { stats.lotsDroppedOutsideUnion++; continue; }
         const dOrigin = Math.hypot(cx, cz);
         let lo, hi;
         if (dOrigin < 650) { lo = 25; hi = 60; }        // Xinyi commercial core

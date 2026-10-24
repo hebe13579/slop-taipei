@@ -38,7 +38,10 @@ function loadManagerClass() {
         streetZ: () => 0,
         isTypingInField: () => false,
         ISLAND_BOUNDS: { minX: -500, maxX: 500, minZ: -500, maxZ: 500, sidewalkHeight: 0.22 },
-        CENTRAL_PARK_BOUNDS: { minX: -3000, maxX: -2800, minZ: 200, maxZ: 500 },
+        // Stub bounds wide enough to cover the Da'an centroid (-3004.9,
+        // 228.7): the full park entered the tile with the west
+        // expansion (issue #60), moving its centre west of -3000.
+        CENTRAL_PARK_BOUNDS: { minX: -3100, maxX: -2800, minZ: 200, maxZ: 500 },
         getIslandBoundsAtZ: () => ({ westX: -500, eastX: 500 }),
         blockAt: () => null
       },
@@ -56,11 +59,13 @@ function loadManagerClass() {
 // frame from the generated geodata.
 async function taipeiWorldOpts() {
   const { TAIPEI_GEO } = await import('../js/taipei-geodata.js');
+  const { unionExclusionRects } = await import('../js/taipei-union.js');
   const bb = TAIPEI_GEO.frame.bbox;
   return {
     geodata: TAIPEI_GEO,
     opts: {
       bounds: { minX: bb.minX, maxX: bb.maxX, minZ: bb.minZ, maxZ: bb.maxZ },
+      excludeRects: unionExclusionRects(TAIPEI_GEO.frame.boxes, bb),
       clampToShore: false,
       groundHeight: () => 0,
       spawnByMode: null,
@@ -290,12 +295,63 @@ test('taipei speedScale wiring (source contract)', () => {
   assert.match(main, /controllerManager\.worldOpts\?\.speedScale/, 'HUD meter full scale follows the controller speedScale');
 });
 
+// --- excludeRects (issue #60): the union's dropped bands have no
+// ground; ground modes are pushed out, the helicopter is not. ---
+
+test('taipei world: the NE notch pushes ground modes out to its nearest edge', async () => {
+  const Class = loadManagerClass();
+  const { geodata, opts } = await taipeiWorldOpts();
+  assert.equal(opts.excludeRects.length, 1, 'the A+B union has exactly one exclusion rect');
+  const notch = opts.excludeRects[0];
+  const taipei = bareManager(Class, opts);
+  taipei.activeMode = 'person';
+
+  // A point in the notch (old tile's Songshan fringe) nearer its
+  // southern edge (lat 25.055) is pushed out through that edge.
+  const pos = { x: 0, y: 0, z: notch.maxZ - 100 };
+  taipei.resolveHorizontalCollision(pos, 0.48, 1);
+  assert.ok(!(pos.x > notch.minX && pos.x < notch.maxX && pos.z > notch.minZ && pos.z < notch.maxZ),
+    `pushed out of the notch, now at (${pos.x}, ${pos.z})`);
+  assert.equal(pos.z, notch.maxZ, 'nearest edge is the notch south edge');
+
+  // A point just inside the west edge is pushed west instead.
+  const pos2 = { x: notch.minX + 5, y: 0, z: (notch.minZ + notch.maxZ) / 2 };
+  taipei.resolveHorizontalCollision(pos2, 0.48, 1);
+  assert.equal(pos2.x, notch.minX);
+
+  // A point exactly ON an edge is not inside and stays put.
+  const pos3 = { x: 0, y: 0, z: notch.maxZ };
+  taipei.resolveHorizontalCollision(pos3, 0.48, 1);
+  assert.deepEqual([pos3.x, pos3.z], [0, notch.maxZ]);
+
+  // The helicopter flies over the notch freely.
+  const heli = bareManager(Class, opts);
+  heli.activeMode = 'helicopter';
+  const pos4 = { x: 0, y: 100, z: geodata.frame.bbox.minZ + 100 };
+  heli.resolveHorizontalCollision(pos4, 0.48, 1);
+  assert.deepEqual([pos4.x, pos4.z], [0, geodata.frame.bbox.minZ + 100], 'helicopter is not pushed');
+});
+
+test('taipei world: without excludeRects the notch is reachable (NYC-style default)', async () => {
+  const Class = loadManagerClass();
+  const { geodata, opts } = await taipeiWorldOpts();
+  const { excludeRects, ...noExcl } = opts;
+  const m = bareManager(Class, noExcl);
+  m.activeMode = 'person';
+  const pos = { x: 0, y: 0, z: geodata.frame.bbox.minZ + 100 };
+  m.resolveHorizontalCollision(pos, 0.48, 1);
+  assert.deepEqual([pos.x, pos.z], [0, geodata.frame.bbox.minZ + 100]);
+});
+
 test('taipei-boot wires the tile world into main.js (source contract)', () => {
   const boot = readFileSync(join(__dirname, '../js/taipei-boot.js'), 'utf8');
   assert.match(boot, /export function controllerOptions\(tile, env = \{\}\)/);
   assert.match(boot, /bounds:\s*\{\s*minX: bb\.minX, maxX: bb\.maxX, minZ: bb\.minZ, maxZ: bb\.maxZ \}/);
   assert.match(boot, /clampToShore: false/);
   assert.match(boot, /groundHeight: \(\) => 0/);
+  // Issue #60: the union's dropped bands reach the controllers.
+  assert.match(boot, /excludeRects: unionExclusionRects\(tile\.geodata\.frame\.boxes, bb\)/);
+  assert.match(source, /excludeRects: Array\.isArray\(opts\.excludeRects\)/);
   assert.match(boot, /spawnByMode:/);
   // Issue #12: on the WebGL fallback the tile boot swaps the avatar crowds
   // for CPU-posed figures; on WebGPU the factory stays null.

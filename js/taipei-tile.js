@@ -36,7 +36,7 @@ const wuchangPark = parkPoint('五常公園'); // Songshan district
 
 export const TAIPEI_TILE = {
   id: 'taipei',
-  label: "Taipei — Xinyi / Da'an / Songshan tile",
+  label: "Taipei — Xinyi / Da'an / Songshan / Zhongzheng tile",
   short: 'TP',
   // Street-details profile slot: the Taiwan streetscape spec
   // (TAIWAN_STREETSCAPE.md, being written on its own branch) will attach

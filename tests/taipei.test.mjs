@@ -146,11 +146,16 @@ test('location sign leads with the road you are on, cross street second', (t) =>
 
   // (c) Da'an Forest Park centroid: inside the park, on no road — the
   // fallback nearest-roads label applies, no crash, no invented current road.
+  // Label re-pinned 2026-10-24 (issue #60): the old tile clipped the
+  // park at lon 121.535, so the teleport (the park ring's bbox centre)
+  // sat in the park's eastern sliver near 建國南路. The full park is in
+  // the union now; its true centre's nearest roads are the western
+  // edge's 新生南路二段 & 金華街.
   const daan = TAIPEI_TILE.teleports.daanpark;
   assert.equal(currentTaipeiRoad(daan.x, daan.z), null);
   const parkLabel = getTaipeiLocationLabel(daan.x, daan.z);
   t.diagnostic(`Da'an centroid label: ${parkLabel}`);
-  assert.equal(parkLabel, '建國南路二段');
+  assert.equal(parkLabel, '新生南路二段 & 金華街');
 
   // (d) Taipei 101 spawn: the landmark centre is a block interior (off every
   // roadbed), so the familiar landmark + nearest-pair label is unchanged;
@@ -726,7 +731,9 @@ test('taiwan types: family zoning, distribution and rooftop clamp', (t) => {
   // data and is 2364 on main after PR #53 regenerated the road data
   // (3 glass-eligible lots fewer in the plan); the gate re-pinned the
   // absolute number for the merged data, as with PR #35's band-km pin.
-  assert.equal(glass, 2364, 'glass family counts untouched by the Taiwan-type assignment');
+  // Re-pinned 2026-10-24 for the west-expansion data (issue #60):
+  // 23,106 lots (was 21,336) yield 2,388 glass lots.
+  assert.equal(glass, 2388, 'glass family counts untouched by the Taiwan-type assignment');
   const masonry = opts.lots.filter((l) => l.mat <= 2).length;
   assert.ok(masonry > 12000 && masonry < 16000, `masonry 0-2 reduced but still present (${masonry})`);
   assert.equal(typeof opts.rooftopGearClamp, 'function', 'options carry the rooftop-gear clamp');

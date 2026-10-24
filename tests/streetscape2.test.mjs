@@ -229,8 +229,17 @@ test('real tile: park trees are deterministic, capped, and Da-an reads as woodla
   assert.ok(daan >= 600 && daan <= 1600, `Da-an woodland density (${daan})`);
   const capped = planParkTrees(TAIPEI_GEO, plan, { cap: 400 });
   assert.equal(capped.trees.length, 400, 'cap hits exactly');
-  const full = new Set(a.trees.map((x) => `${x.x},${x.z}`));
-  assert.ok(capped.trees.every((x) => full.has(`${x.x},${x.z}`)), 'capped plan is a subset of the full plan');
+  // The subset invariant is against the UNTHINNED plan: since the west
+  // expansion (issue #60) the tile's raw planting exceeds PARK_TREE_CAP,
+  // so the default plan `a` is itself stride-thinned and a 400-cap
+  // thinning (different per-park strides) is not a subset of it. What
+  // must hold — and what this pins — is that thinning never invents
+  // trees: every capped tree exists in the unthinned plan.
+  const unthinned = planParkTrees(TAIPEI_GEO, plan, { cap: Number.MAX_SAFE_INTEGER });
+  t.diagnostic(`unthinned park planting ${unthinned.trees.length} (default cap ${PARK_TREE_CAP})`);
+  const full = new Set(unthinned.trees.map((x) => `${x.x},${x.z}`));
+  assert.ok(capped.trees.every((x) => full.has(`${x.x},${x.z}`)), 'capped plan is a subset of the unthinned plan');
+  assert.ok(a.trees.every((x) => full.has(`${x.x},${x.z}`)), 'default plan is a subset of the unthinned plan');
 });
 
 test('real tile: park tree exclusion audit (brute force)', () => {

@@ -166,6 +166,11 @@ class ThirdPersonControllerManager {
   //     horizontal & vertical). Caps only: acceleration, braking, drag and
   //     handling are unchanged. Taipei passes 2; NYC never passes it and
   //     keeps the upstream caps exactly.
+  //   excludeRects: [{minX, maxX, minZ, maxZ}] — rects inside `bounds`
+  //     with NO ground (a union-of-boxes tile's dropped bands, issue
+  //     #60): ground modes are pushed out of them along the smallest-
+  //     penetration axis, an invisible wall around the void. The
+  //     helicopter flies over them freely. NYC never passes it.
   constructor(scene, colliders = [], opts = {}) {
     this.scene = scene;
     this.worldOpts = {
@@ -174,6 +179,7 @@ class ThirdPersonControllerManager {
       groundHeight: typeof opts.groundHeight === 'function' ? opts.groundHeight : null,
       avatarFigureFactory: typeof opts.avatarFigureFactory === 'function' ? opts.avatarFigureFactory : null,
       spawnByMode: opts.spawnByMode || null,
+      excludeRects: Array.isArray(opts.excludeRects) && opts.excludeRects.length ? opts.excludeRects : null,
       speedScale: (typeof opts.speedScale === 'number' && Number.isFinite(opts.speedScale) && opts.speedScale > 0)
         ? opts.speedScale
         : 1,
@@ -237,6 +243,31 @@ class ThirdPersonControllerManager {
     if (!getIslandBoundsAtZ) return null;
     const shore = getIslandBoundsAtZ(z);
     return { westX: shore.westX + 8, eastX: shore.eastX - 8 };
+  }
+
+  // Union-tile exclusion zones (worldOpts.excludeRects, issue #60): when
+  // (x, z) lies strictly inside an exclusion rect — a dropped band of a
+  // union-of-boxes tile, where there is no ground — push it out along
+  // the smallest-penetration axis to the rect's edge. A point exactly
+  // on an edge is NOT inside, so a pushed-out point stays out on the
+  // next frame (no oscillation). Returns [x, z] unchanged when no
+  // exclusions are configured (the Manhattan default).
+  _excludePush(x, z) {
+    const rects = this.worldOpts?.excludeRects;
+    if (!rects) return [x, z];
+    for (const r of rects) {
+      if (x > r.minX && x < r.maxX && z > r.minZ && z < r.maxZ) {
+        const pens = [
+          { d: x - r.minX, x: r.minX, z },
+          { d: r.maxX - x, x: r.maxX, z },
+          { d: z - r.minZ, x, z: r.minZ },
+          { d: r.maxZ - z, x, z: r.maxZ },
+        ];
+        pens.sort((a, b) => a.d - b.d);
+        x = pens[0].x; z = pens[0].z;
+      }
+    }
+    return [x, z];
   }
 
   // A mode's spawn: opts.spawnByMode wins field-by-field over the built-in
@@ -442,6 +473,8 @@ class ThirdPersonControllerManager {
           if (shore.westX > shore.eastX) return null;
           px = Math.max(shore.westX, Math.min(shore.eastX, px));
         }
+        const ex = this._excludePush(px, pz);
+        px = ex[0]; pz = ex[1];
       }
       return { x: px, z: pz };
     };
@@ -993,6 +1026,8 @@ class ThirdPersonControllerManager {
           if (carEntity && carEntity.speed) carEntity.speed *= 0.4;
         }
       }
+      const ex = this._excludePush(pos.x, pos.z);
+      pos.x = ex[0]; pos.z = ex[1];
     }
 
     const sinH = carEntity ? Math.sin(carEntity.heading) : 0;

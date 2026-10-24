@@ -12,8 +12,9 @@ const bb = G.frame.bbox;
 const MARGIN = 1; // builder clips to the frame bbox; allow rounding slack
 
 // 1. All coordinates inside the frame bbox (the tile is offset from the origin:
-//    it spans x -3027.7..1513.8, z -2990.9..1440.1, so max |coord| is ~3028 m,
-//    not ~2600 m as first guessed — the origin at Taipei 101 is not tile-centred).
+//    the box union spans x -6257.2..1513.8, z -2990.9..498.5 — the origin at
+//    Taipei 101 is not tile-centred, and the union's west edge (lon 121.503)
+//    is the far side now).
 let maxAbs = 0, outOfBounds = 0;
 const scan = (flatArr) => {
   for (let i = 0; i + 1 < flatArr.length; i += 2) {
