@@ -191,6 +191,9 @@
     import {
       planTaipeiBuildings,
       taipeiCityBlocksOptions,
+      taipeiArcadeParts,
+      taipeiVerticalSigns,
+      clampTaipeiRooftopGear,
       createTaipei101,
       createTaipeiLandmarkTowers,
     } from './js/taipei-buildings.js';
@@ -244,26 +247,26 @@
       {
         id: 6, name: 'Taiwan Tile Shophouse', kind: 'Tile-clad flats · shopfront ground floor',
         floor: 3.35, swatches: [['Tile', '#e9e2d0'], ['Accent', '#c9a582'], ['Sign', '#a8232a']],
-        samples: [17, 27, 37],
-        zone: 'Taiwan type 1 of 4 (issue #17): the user’s reference block — off-white/cream small tiles, painted semi-circular balcony columns, AC boxes, coloured sign panels over glazed shops. Planner: the Taiwan set takes ~72–75% of the masonry lots at 15–40 m, split between F6–F9 by height weights; F6 runs the full 15–40 m.',
+        samples: [17, 27, 37, 48],
+        zone: 'Taiwan type 1 of 4 (issue #17): the user’s reference block — off-white/cream small tiles, painted semi-circular balcony columns, AC boxes, coloured sign panels over glazed shops. Planner: the Taiwan set takes ~72–75% of the masonry lots at 15–40 m, split between F6–F9 by height weights; F6 runs the full 15–40 m. The 48 m Taller sample (issue #55) is a review-only stretch past the 40 m cap — above 40 m the planner still sends every lot to glass.',
       },
       {
         id: 7, name: 'Taiwan Arcade Shophouse', kind: 'Red-brown tile · 騎樓 arcade front',
         floor: 3.45, swatches: [['Tile', '#a9714f'], ['Accent', '#7c4a34'], ['Sign', '#a8232a']],
-        samples: [16, 22, 27],
-        zone: 'Taiwan type 2 of 4: red-brown brick-tone tile, wide piers and a deep ground-floor recess so the frontage reads as a 騎樓 arcade; straight rail balconies. Planner: Taiwan set, capped under 28 m.',
+        samples: [16, 22, 27, 36],
+        zone: 'Taiwan type 2 of 4: red-brown brick-tone tile, wide piers and — since issue #55 — a REAL recessed 騎樓： the ground floor steps 3.6 m back inside a colonnade of blank tile columns at the front edge, full perimeter, and the upper block sits on top. Straight rail balconies painted above. Planner: Taiwan set, capped under 36 m (raised from 28 — the colonnade is a ground-floor treatment; arcade blocks of 9–10 storeys are common).',
       },
       {
         id: 8, name: 'Taiwan Walk-up Slab', kind: 'Beige tile · dense grid · window grilles',
         floor: 3.1, swatches: [['Tile', '#d9c49c'], ['Accent', '#a98f66'], ['Glass', '#1b2833']],
-        samples: [16, 23, 29],
-        zone: 'Taiwan type 3 of 4: beige/brown 70s–80s tile, denser window grid, security-grille （鐵窗） speckle, rail balconies on most columns, fewer ground-floor shops. Planner: Taiwan set, capped under 30 m.',
+        samples: [16, 23, 29, 36],
+        zone: 'Taiwan type 3 of 4: beige/brown 70s–80s tile, denser window grid, security-grille （鐵窗） speckle, rail balconies on most columns, fewer ground-floor shops. Planner: Taiwan set, capped under 36 m (raised from 30 in issue #55 — the tile vocabulary runs on the taller 80s slabs too).',
       },
       {
         id: 9, name: 'Taiwan Pebble-dash Mid-rise', kind: '洗石子 concrete · ribbon windows',
         floor: 3.25, swatches: [['Pebble-dash', '#cac2b4'], ['Trim', '#9a927f'], ['Glass', '#1b2833']],
-        samples: [20, 30, 39],
-        zone: 'Taiwan type 4 of 4: plain washed-stone （洗石子） concrete, ribbon windows, no balconies, signs on only half the shop bays. Planner: Taiwan set, 15–40 m at the lowest of the four weights.',
+        samples: [20, 30, 39, 48],
+        zone: 'Taiwan type 4 of 4: plain washed-stone （洗石子） concrete, ribbon windows, no balconies, signs on only half the shop bays. Planner: Taiwan set, 15–40 m at the lowest of the four weights. The 48 m Taller sample (issue #55) is review-only, past the 40 m cap like F6.',
       },
     ];
 
@@ -275,8 +278,12 @@
       { label: 'Mid', h: 24, w: 21, d: 18, z: 313 },
       { label: 'High', h: 48, w: 25, d: 21, z: 378 },
     ];
+    // Issue #55: a fourth, taller row — staged ONLY for the four Taiwan
+    // types (their `samples` arrays carry a 4th height); the six upstream
+    // families keep the original three rows.
+    const TALLER_ROW = { label: 'Taller', h: 60, w: 27, d: 22, z: 443 };
     const sampleX = (familyId) => (familyId - 4.5) * 36;
-    const STAGE = { minX: -180, maxX: 180, minZ: 195, maxZ: 435 };
+    const STAGE = { minX: -180, maxX: 180, minZ: 195, maxZ: 478 };
     const STAGE_CENTRE = { x: 0, z: 313 };
 
     const statusEl = document.getElementById('load-status');
@@ -441,7 +448,7 @@
       land.position.set(60, 0, -180);
       land.receiveShadow = true;
       scene.add(land);
-      const pad = new THREE.Mesh(new THREE.PlaneGeometry(352, 262).rotateX(-Math.PI / 2), groundMat(0x8f8b80));
+      const pad = new THREE.Mesh(new THREE.PlaneGeometry(352, 330).rotateX(-Math.PI / 2), groundMat(0x8f8b80));
       pad.position.set(STAGE_CENTRE.x, 0.02, STAGE_CENTRE.z);
       pad.receiveShadow = true;
       scene.add(pad);
@@ -449,15 +456,36 @@
       // --- Facade family samples: real planned lots through upstream ---
       setStatus('Building the facade family samples with buildCityBlocks…');
       const sampleLots = [];
+      const taiwanSampleLots = [];
       for (const fam of FAMILIES) {
-        for (let i = 0; i < SAMPLE_ROWS.length; i++) {
-          const row = SAMPLE_ROWS[i];
+        // Taiwan types (samples array of 4) also stage the Taller row.
+        const rows = fam.samples && fam.samples.length > SAMPLE_ROWS.length
+          ? [...SAMPLE_ROWS, TALLER_ROW] : SAMPLE_ROWS;
+        for (let i = 0; i < rows.length; i++) {
+          const row = rows[i];
           const cx = sampleX(fam.id);
           const h = fam.samples ? fam.samples[i] : row.h;
-          sampleLots.push({ x0: cx - row.w / 2, x1: cx + row.w / 2, z0: row.z - row.d / 2, z1: row.z + row.d / 2, h, mat: fam.id });
+          const lot = { x0: cx - row.w / 2, x1: cx + row.w / 2, z0: row.z - row.d / 2, z1: row.z + row.d / 2, h, mat: fam.id };
+          // Issues #55/#56: Taiwan samples are wired exactly as the
+          // city wires its lots — F7 gets its recessed arcade massing,
+          // Taiwan types roll their vertical signs, and the second
+          // buildCityBlocks call below applies the gear clamp (clamped
+          // HVAC + sparse stainless tanks / 鐵皮屋 where hashes land).
+          // The upstream families stage through the plain call, exactly
+          // as in the game's own city, cedar towers and all.
+          if (fam.id === 7) lot.arcade = taipeiArcadeParts(lot);
+          if (fam.id >= 6) {
+            const signs = taipeiVerticalSigns(lot);
+            if (signs.length) lot.signs = signs;
+            taiwanSampleLots.push(lot);
+          } else {
+            sampleLots.push(lot);
+          }
         }
       }
       const cityBlocks = buildCityBlocks(scene, { lots: sampleLots, bounds: { ...STAGE }, initial: [STAGE_CENTRE.x, STAGE_CENTRE.z], colliders: false });
+      const taiwanBlocks = buildCityBlocks(scene, { lots: taiwanSampleLots, bounds: { ...STAGE }, initial: [STAGE_CENTRE.x, STAGE_CENTRE.z], colliders: false, rooftopGearClamp: clampTaipeiRooftopGear, silverTanks: true });
+      taiwanBlocks.update(STAGE_CENTRE.x, STAGE_CENTRE.z, true);
       cityBlocks.update(STAGE_CENTRE.x, STAGE_CENTRE.z, true);
 
       // --- Taipei 101 + landmark structures: the game's own groups ---
@@ -473,10 +501,10 @@
       labels.name = 'GalleryLabels';
       for (const fam of FAMILIES) {
         const sp = makeLabel([`F${fam.id}`, fam.name], 62, true);
-        sp.position.set(sampleX(fam.id), 48 + 17, SAMPLE_ROWS[2].z);
+        sp.position.set(sampleX(fam.id), 48 + 17, TALLER_ROW.z);
         labels.add(sp);
       }
-      for (const row of SAMPLE_ROWS) {
+      for (const row of [...SAMPLE_ROWS, TALLER_ROW]) {
         const sp = makeLabel([row.label], 30);
         sp.position.set(STAGE.minX + 6, row.h + 8, row.z);
         labels.add(sp);
@@ -516,9 +544,12 @@
       inspector.innerHTML = `
         <h2>Facade families — ${planTotal.toLocaleString('en-US')} planned lots</h2>
         ${famHtml}
-        <p class="note">Samples force every family at three sizes for review; in the city the
-        planner's zone rules (above) decide which families actually reach each height.
-        Heights snap to whole storeys, as in the game.</p>
+        <p class="note">Samples force every family at three sizes for review — the four Taiwan
+        types add a fourth, taller size (issue #55) — and in the city the planner's zone rules
+        (above) decide which families actually reach each height. Taiwan samples are wired like
+        city lots: F7 carries its recessed arcade, Taiwan types roll vertical signs （直式招牌，
+        issue #56), and roofs take the gear clamp with its sparse stainless tanks and 鐵皮屋
+        where the per-lot hashes land. Heights snap to whole storeys, as in the game.</p>
         <h2>Landmarks — true scale, true positions</h2>
         ${lmHtml}
         <p class="note"><b>Palette note:</b> the per-lot colour palette in taipei-buildings.js
@@ -565,13 +596,13 @@
       let frames = 0;
       setInterval(() => {
         const info = renderer.info;
-        statusbar.innerHTML = `<b>${backend}</b> · plan <b>${planTotal.toLocaleString('en-US')}</b> lots · samples <b>${sampleLots.length}</b> buildings · landmarks <b>${1 + plan.landmarkTowers.length}</b> · <b>${info.render.calls}</b> draw calls · <b>${(info.render.triangles / 1000).toFixed(0)}k</b> tris`;
+        statusbar.innerHTML = `<b>${backend}</b> · plan <b>${planTotal.toLocaleString('en-US')}</b> lots · samples <b>${sampleLots.length + taiwanSampleLots.length}</b> buildings · landmarks <b>${1 + plan.landmarkTowers.length}</b> · <b>${info.render.calls}</b> draw calls · <b>${(info.render.triangles / 1000).toFixed(0)}k</b> tris`;
       }, 1000);
 
       window.__gallery.plan = { totalLots: planTotal, familyCounts, landmarks: plan.landmarkTowers.map((s) => s.id) };
       window.__gallery.scene = scene;
       window.__gallery.cityBlocks = cityBlocks;
-      window.__gallery.sampleLots = sampleLots.length;
+      window.__gallery.sampleLots = sampleLots.length + taiwanSampleLots.length;
 
       window.addEventListener('resize', () => {
         camera.aspect = window.innerWidth / window.innerHeight;

@@ -731,7 +731,9 @@ function buildCityBlocks(scene, opts = null) {
       const w = p.x1 - p.x0;
       const d = p.z1 - p.z0;
       const h = p.y1 - p.y0;
-      const box = { x: p.x0 + w * 0.5, y: p.y0 + h * 0.5, z: p.z0 + d * 0.5, w, h, d, faces: wallKinds(b, p, shops, o), tone };
+      // A part may pin all four faces to one wall kind via p.walls
+      // (issue #55: arcade columns are blank tile-clad piers all round).
+      const box = { x: p.x0 + w * 0.5, y: p.y0 + h * 0.5, z: p.z0 + d * 0.5, w, h, d, faces: p.walls != null ? [p.walls, p.walls, p.walls, p.walls] : wallKinds(b, p, shops, o), tone };
       buckets[mat].push(box);
       blk.facadeBoxes.push(box);
       blk.footprints.push({ x0: p.x0, x1: p.x1, z0: p.z0, z1: p.z1, h: p.y1, tone });
@@ -2009,13 +2011,34 @@ function buildCityBlocks(scene, opts = null) {
       maxH: 0,
       avenueFronts: { w: [], e: [] },
       facadeBoxes: [],
-      voidLots: []
+      voidLots: [],
+      // Issue #56: vertical sign panels (from the lot, planner policy)
+      // and 鐵皮屋 rooftop additions (from the gear clamp below).
+      signs: Array.isArray(lot.signs) ? lot.signs : [],
+      rooftopAdds: []
     };
     rand = mulberry32((Math.imul(Math.round(minX * 4), 73856093) ^ Math.imul(Math.round(minZ * 4), 19349663) ^ 10019) >>> 0);
     const mat = lot.mat;
     const b = building(blockDetail, mat, rect(minX, maxX, minZ, maxZ));
     const floors = Math.max(1, Math.round(lot.h / storeys[mat]));
-    mass(b, [rect(minX, maxX, minZ, maxZ)], 0, floors);
+    if (lot.arcade && floors >= 2) {
+      // Issue #55 — the F7 騎樓 as real massing (parts computed by
+      // taipeiArcadeParts in js/taipei-buildings.js): the ground storey
+      // is the inset core plus a colonnade of blank tile-clad columns
+      // standing at the lot's edges; the upper floors sit on top at the
+      // full footprint, so the walkway passes underneath them. The
+      // core's walls still paint F7 shopfronts (commit's wall kinds give
+      // ground parts shop fronts), the columns are blank piers, and the
+      // upper part starts at storey 1 so it grows no second ground
+      // floor. The ground-storey boxes also carry the block's footprint
+      // and collider rows, so collision keeps the full lot outline.
+      const a = lot.arcade;
+      mass(b, [a.core], 0, 1);
+      const colStart = b.parts.length;
+      mass(b, a.columns, 0, 1);
+      for (let i = colStart; i < b.parts.length; i++) b.parts[i].walls = WALL_KINDS.blankStone;
+    }
+    mass(b, [rect(minX, maxX, minZ, maxZ)], lot.arcade && floors >= 2 ? 1 : 0, floors);
     commit(blockDetail, b, mat >= 6
       // Taiwan types (issue #17): no stone cornice, no water tower (rooftop
       // gear is clamped below anyway); ground-floor shop share per type —
@@ -2033,6 +2056,9 @@ function buildCityBlocks(scene, opts = null) {
       const gear = opts.rooftopGearClamp(blockDetail, lot);
       blockDetail.waterTowers = gear.waterTowers;
       blockDetail.hvacUnits = gear.hvacUnits;
+      // Issue #56: the Taipei clamp also returns its 鐵皮屋 rooftop
+      // additions (other clamps simply don't — undefined stays empty).
+      blockDetail.rooftopAdds = gear.rooftopAdds || [];
     }
     delete blockDetail.facadeBoxes;
     delete blockDetail.voidLots;
@@ -2526,6 +2552,114 @@ function buildCityBlocks(scene, opts = null) {
   shedInst.frustumCulled = false;
   group.add(shedInst);
 
+  // 6b. Stainless rooftop water tanks (issue #56, Taipei only): when the
+  // caller passes silverTanks, the gear slots the clamp fills hold
+  // stainless tanks instead of cedar towers — a plain silver cylinder
+  // with a shallow conical cap, no trestle, about 2 m across where the
+  // cedar barrel is 3.5. Manhattan never passes the flag.
+  const silverTanks = !!(opts && opts.silverTanks);
+  let tankInst = null;
+  let tankTopInst = null;
+  if (silverTanks) {
+    const tankMat = new THREE.MeshStandardNodeMaterial({ color: 0xd7dce1, roughness: 0.3, metalness: 0.85 });
+    tankInst = new THREE.InstancedMesh(new THREE.CylinderGeometry(1.0, 1.0, 2.0, 14), tankMat, MAX_WATER_TOWERS);
+    tankTopInst = new THREE.InstancedMesh(new THREE.CylinderGeometry(0.7, 1.03, 0.36, 14), tankMat, MAX_WATER_TOWERS);
+    tankInst.castShadow = tankInst.receiveShadow = true;
+    tankTopInst.castShadow = tankTopInst.receiveShadow = true;
+    tankInst.frustumCulled = tankTopInst.frustumCulled = false;
+    group.add(tankInst, tankTopInst);
+  }
+
+  // 6c. 鐵皮屋 rooftop additions (issue #56): a sheet-metal hut box plus
+  // its single-pitch sheet roof — two instanced unit boxes, coloured per
+  // instance from the weathered palette (the awning instance-colour
+  // pattern). Filled from blk.rooftopAdds, which only the Taipei gear
+  // clamp produces; Manhattan blocks never carry any.
+  const MAX_ROOFTOP_ADDS = 512;
+  const hutPalette = [0x9e3d34, 0x4a6b52, 0x7d8894, 0x8a4a3a].map((c) => new THREE.Color(c));
+  const hutInst = new THREE.InstancedMesh(unitBox, new THREE.MeshStandardNodeMaterial({ color: 0xffffff, roughness: 0.58, metalness: 0.35 }), MAX_ROOFTOP_ADDS);
+  const hutRoofInst = new THREE.InstancedMesh(unitBox, new THREE.MeshStandardNodeMaterial({ color: 0xffffff, roughness: 0.46, metalness: 0.5 }), MAX_ROOFTOP_ADDS);
+  hutInst.castShadow = hutInst.receiveShadow = true;
+  hutRoofInst.castShadow = hutRoofInst.receiveShadow = true;
+  hutInst.frustumCulled = hutRoofInst.frustumCulled = false;
+  for (let i = 0; i < MAX_ROOFTOP_ADDS; i++) {
+    hutInst.setColorAt(i, hutPalette[i % hutPalette.length]);
+    hutRoofInst.setColorAt(i, hutPalette[i % hutPalette.length]);
+  }
+  group.add(hutInst, hutRoofInst);
+
+  // 6d. Vertical signs （直式招牌， issue #56): thin panels mounted
+  // perpendicular to Taiwan-type facades — real instanced boxes whose
+  // panel colour and abstract glyph bars are hashed per panel in the
+  // shader (coloured panel + glyph marks, no rendered text — the same
+  // stylization as the facade signage bands; the facade materials hash
+  // their sign colours in-shader too, and instanceColor does not reach
+  // a custom colorNode on the WebGL backend), with a slight emissive
+  // so the panels read as lit sign boxes. Filled from blk.signs
+  // (planner policy data); Manhattan blocks never carry any.
+  const MAX_VSIGNS = 1024;
+  const vSignMat = new THREE.MeshStandardNodeMaterial({ roughness: 0.42, metalness: 0.08 });
+  const vSignLook = () => {
+    const uvN = uv();
+    // Per-panel seeds from the ONE world coordinate that is constant
+    // across a whole broad face: the coordinate along the face normal
+    // (a panel's broad faces are its ±x or ±z planes). A world xz hash
+    // would change mid-face — the panel is up to 1.4 m deep — and
+    // stripe the colours; the face coordinate cannot. The two faces
+    // of a panel hash separately (different glyphs per side, like real
+    // two-sided signs), while the colour hash quantizes to 2 m cells
+    // so both faces land on the same colour unless a cell boundary
+    // falls inside the panel's 0.18 m thickness.
+    const nW = normalWorldGeometry;
+    const faceCoord = mix(positionWorld.z, positionWorld.x, step(abs(nW.z), abs(nW.x)));
+    // mx_noise_float spans -1..1 (the yard material normalizes it the
+    // same way); every hash below is taken in 0..1.
+    const hashN = (v) => mx_noise_float(v).mul(0.5).add(0.5);
+    const seed = hashN(vec2(floor(faceCoord.mul(2.63)), 3.17));
+    const hc = hashN(vec2(floor(faceCoord.mul(0.5)), 8.41));
+    // Panel colour from the street photo's palette, hashed per panel.
+    let panel = color(0xc22f2f); // red
+    panel = mix(panel, color(0xf2b705), step(0.16, hc)); // yellow
+    panel = mix(panel, color(0x1f7a4d), step(0.32, hc)); // green
+    panel = mix(panel, color(0x2456a6), step(0.48, hc)); // blue
+    panel = mix(panel, color(0xf0ead8), step(0.64, hc)); // warm white
+    panel = mix(panel, color(0x0f766e), step(0.80, hc)); // teal
+    panel = mix(panel, color(0xd95d39), step(0.90, hc)); // orange-red
+    const slots = floor(seed.mul(2.99)).add(3.0); // 3–5 glyph slots up the panel
+    const slotId = floor(uvN.y.mul(slots));
+    const gl = vec2(uvN.x, fract(uvN.y.mul(slots)));
+    const base = seed.mul(41.7).add(slotId.mul(7.31));
+    const h1 = hashN(vec2(base, 1.7));
+    const h2 = hashN(vec2(base, 3.1));
+    const h3 = hashN(vec2(base, 5.3));
+    const h4 = hashN(vec2(base, 7.9));
+    const h5 = hashN(vec2(base, 9.2));
+    const fw = fwidth(uvN.x).add(0.02);
+    const bar = (v, a, b) => smoothstep(float(a).sub(fw), float(a).add(fw), v)
+      .mul(smoothstep(float(b).add(fw), float(b).sub(fw), v));
+    const vBars = max(bar(gl.x, 0.16, 0.34).mul(step(0.42, h1)),
+      max(bar(gl.x, 0.43, 0.57).mul(step(0.5, h2)), bar(gl.x, 0.66, 0.84).mul(step(0.42, h3))));
+    const hBars = max(bar(gl.y, 0.22, 0.4).mul(step(0.48, h4)), bar(gl.y, 0.58, 0.76).mul(step(0.48, h5)));
+    // Glyphs live on the vertical faces, inset from the panel edges.
+    const zone = step(0.1, uvN.x).mul(step(uvN.x, 0.9)).mul(float(1).sub(step(0.5, abs(normalWorldGeometry.y))));
+    const glyph = max(vBars, hBars).mul(zone);
+    const lum = panel.r.mul(0.35).add(panel.g.mul(0.45)).add(panel.b.mul(0.2));
+    const ink = mix(color(0xf4ead2), color(0x8c2b23), step(0.62, lum)); // cream ink, dark red-brown on pale panels
+    return { panel, ink, glyph };
+  };
+  vSignMat.colorNode = Fn(() => {
+    const { panel, ink, glyph } = vSignLook();
+    return mix(panel, ink, glyph.mul(0.92));
+  })();
+  vSignMat.emissiveNode = Fn(() => {
+    const { panel, ink, glyph } = vSignLook();
+    return mix(panel, ink, glyph).mul(0.26);
+  })();
+  const vSignInst = new THREE.InstancedMesh(unitBox, vSignMat, MAX_VSIGNS);
+  vSignInst.castShadow = vSignInst.receiveShadow = true;
+  vSignInst.frustumCulled = false;
+  group.add(vSignInst);
+
   // 7. Ground-floor storefront clustered SpotLights (awnings/fascia signs)
   const storeLightGroup = new THREE.Group();
   storeLightGroup.name = 'StoreClusteredLights';
@@ -2594,6 +2728,8 @@ function buildCityBlocks(scene, opts = null) {
     let feCount = 0;
     let awningCount = 0;
     let shedCount = 0;
+    let hutCount = 0;
+    let vSignCount = 0;
     const signCounts = signInsts.map(() => 0);
 
     for (let bIdx = 0; bIdx < nearbyBlocks.length; bIdx++) {
@@ -2612,23 +2748,39 @@ function buildCityBlocks(scene, opts = null) {
         corniceInst.setMatrixAt(corniceCount++, dummy.matrix);
       }
 
-      // 2. Rooftop cedar water towers
-      for (let i = 0; i < blk.waterTowers.length && wtCount < MAX_WATER_TOWERS; i++) {
-        const wt = blk.waterTowers[i];
-        dummy.scale.set(1, 1, 1);
+      // 2. Rooftop cedar water towers — or, in silver-tank mode (issue
+      //    #56, Taipei), the clamp's sparse stainless tanks in the same
+      //    slots: cylinder + cap at the roof, no trestle, counts shared.
+      if (silverTanks) {
+        for (let i = 0; i < blk.waterTowers.length && wtCount < MAX_WATER_TOWERS; i++) {
+          const wt = blk.waterTowers[i];
+          dummy.scale.set(1, 1, 1);
+          dummy.position.set(wt.x, wt.y + 1.0, wt.z);
+          dummy.updateMatrix();
+          tankInst.setMatrixAt(wtCount, dummy.matrix);
+          dummy.position.set(wt.x, wt.y + 2.18, wt.z);
+          dummy.updateMatrix();
+          tankTopInst.setMatrixAt(wtCount, dummy.matrix);
+          wtCount++;
+        }
+      } else {
+        for (let i = 0; i < blk.waterTowers.length && wtCount < MAX_WATER_TOWERS; i++) {
+          const wt = blk.waterTowers[i];
+          dummy.scale.set(1, 1, 1);
 
-        dummy.position.set(wt.x, wt.y + 1.3, wt.z);
-        dummy.updateMatrix();
-        legsInst.setMatrixAt(wtCount, dummy.matrix);
+          dummy.position.set(wt.x, wt.y + 1.3, wt.z);
+          dummy.updateMatrix();
+          legsInst.setMatrixAt(wtCount, dummy.matrix);
 
-        dummy.position.set(wt.x, wt.y + 4.2, wt.z);
-        dummy.updateMatrix();
-        barrelInst.setMatrixAt(wtCount, dummy.matrix);
+          dummy.position.set(wt.x, wt.y + 4.2, wt.z);
+          dummy.updateMatrix();
+          barrelInst.setMatrixAt(wtCount, dummy.matrix);
 
-        dummy.position.set(wt.x, wt.y + 6.7, wt.z);
-        dummy.updateMatrix();
-        coneInst.setMatrixAt(wtCount, dummy.matrix);
-        wtCount++;
+          dummy.position.set(wt.x, wt.y + 6.7, wt.z);
+          dummy.updateMatrix();
+          coneInst.setMatrixAt(wtCount, dummy.matrix);
+          wtCount++;
+        }
       }
 
       // 3. Rooftop HVAC & mechanical bulkheads
@@ -2679,6 +2831,57 @@ function buildCityBlocks(scene, opts = null) {
         dummy.updateMatrix();
         shedInst.setMatrixAt(shedCount++, dummy.matrix);
       }
+
+      // 7. Vertical signs (issue #56): policy panels on the block, each
+      //    standing perpendicular to its facade, base above the ground
+      //    floor. Registry lots only — Manhattan blocks carry no signs.
+      for (let i = 0; i < (blk.signs || []).length && vSignCount < MAX_VSIGNS; i++) {
+        const s = blk.signs[i];
+        const cy = s.y0 + s.h * 0.5;
+        if (s.side === 's' || s.side === 'n') {
+          dummy.position.set(blk.minX + s.along * (blk.maxX - blk.minX), cy,
+            s.side === 's' ? blk.maxZ + s.out * 0.5 : blk.minZ - s.out * 0.5);
+          dummy.scale.set(s.thick, s.h, s.out);
+        } else {
+          dummy.position.set(s.side === 'e' ? blk.maxX + s.out * 0.5 : blk.minX - s.out * 0.5, cy,
+            blk.minZ + s.along * (blk.maxZ - blk.minZ));
+          dummy.scale.set(s.out, s.h, s.thick);
+        }
+        dummy.updateMatrix();
+        vSignInst.setMatrixAt(vSignCount, dummy.matrix);
+        vSignCount++;
+      }
+
+      // 8. 鐵皮屋 rooftop additions (issue #56): the hut box, then its
+      //    single-pitch sheet — a thin box rotated about the hut's ridge
+      //    axis, centred so its low edge lands just above the hut's top.
+      for (let i = 0; i < (blk.rooftopAdds || []).length && hutCount < MAX_ROOFTOP_ADDS; i++) {
+        const a = blk.rooftopAdds[i];
+        const ry = blk.ry || 0;
+        dummy.rotation.set(0, ry, 0);
+        dummy.position.set(a.x, a.y + a.h * 0.5, a.z);
+        dummy.scale.set(a.w, a.h, a.d);
+        dummy.updateMatrix();
+        hutInst.setMatrixAt(hutCount, dummy.matrix);
+        hutInst.setColorAt(hutCount, hutPalette[a.colorIdx % hutPalette.length]);
+        const along = a.axis === 'z' ? a.d : a.w;
+        const across = a.axis === 'z' ? a.w : a.d;
+        const slopeLen = along / Math.cos(a.pitch) + 0.5;
+        const rise = along * Math.tan(a.pitch) * 0.5;
+        if (a.axis === 'z') {
+          dummy.rotation.set(a.dir * a.pitch, ry, 0);
+          dummy.scale.set(across + 0.6, 0.09, slopeLen);
+        } else {
+          dummy.rotation.set(0, ry, a.dir * a.pitch);
+          dummy.scale.set(slopeLen, 0.09, across + 0.6);
+        }
+        dummy.position.set(a.x, a.y + a.h + 0.06 + rise, a.z);
+        dummy.updateMatrix();
+        hutRoofInst.setMatrixAt(hutCount, dummy.matrix);
+        hutRoofInst.setColorAt(hutCount, hutPalette[a.colorIdx % hutPalette.length]);
+        hutCount++;
+        dummy.rotation.set(0, ry, 0);
+      }
     }
     dummy.rotation.set(0, 0, 0);
 
@@ -2709,6 +2912,27 @@ function buildCityBlocks(scene, opts = null) {
 
     shedInst.count = shedCount;
     flagRange(shedInst.instanceMatrix, shedCount);
+
+    // Issue #56 pools: in silver-tank mode the cedar tower pools stay
+    // empty and the tank pools take the shared tower count.
+    if (silverTanks) {
+      legsInst.count = 0;
+      barrelInst.count = 0;
+      coneInst.count = 0;
+      tankInst.count = wtCount;
+      tankTopInst.count = wtCount;
+      flagRange(tankInst.instanceMatrix, wtCount);
+      flagRange(tankTopInst.instanceMatrix, wtCount);
+    }
+    hutInst.count = hutCount;
+    hutRoofInst.count = hutCount;
+    flagRange(hutInst.instanceMatrix, hutCount);
+    flagRange(hutRoofInst.instanceMatrix, hutCount);
+    if (hutInst.instanceColor) flagRange(hutInst.instanceColor, hutCount);
+    if (hutRoofInst.instanceColor) flagRange(hutRoofInst.instanceColor, hutCount);
+
+    vSignInst.count = vSignCount;
+    flagRange(vSignInst.instanceMatrix, vSignCount);
   }
 
   function smoothFade(d, start, end) {
