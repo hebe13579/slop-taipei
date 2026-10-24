@@ -12,6 +12,16 @@
 // space with no pedestrian geometry (§c.4). (Issue #16: the previous
 // rule painted any 巷 and anything < 8 m, which put green bands on
 // 98% sub-8 m roadbeds, where they read as bike lanes.)
+// Painted is also never a MAIN-road treatment (issue #25): a trunk /
+// primary / secondary way is a main road whatever its mapped width —
+// the 8–12 m population on those classes is unmerged fragments and
+// junction fans of wide arterials (信義路, 仁愛路, 敦化南路…), and a
+// green band on them reads as a bike lane on the main carriageway.
+// Those take the formal-sidewalk fallback instead.
+const MAIN_ROAD_CLASSES = new Set([
+  'motorway', 'motorway_link', 'trunk', 'trunk_link',
+  'primary', 'primary_link', 'secondary', 'secondary_link',
+]);
 export function pedestrianLayout(tags, width) {
   // A deck (layer >= 1, or any bridge tag) is not a street: it carries
   // no pedestrian layout at all — no painted stripes, no sidewalk band.
@@ -22,6 +32,6 @@ export function pedestrianLayout(tags, width) {
   if (sw.some((v) => v && !['no', 'none'].includes(v))) return 'sidewalk';
   const name = tags.name || '';
   if (tags.service === 'alley' || name.includes('弄') || width < 8) return 'shared';
-  if (width <= 12) return 'painted';
+  if (width <= 12 && !MAIN_ROAD_CLASSES.has(tags.highway || '')) return 'painted';
   return 'sidewalk';
 }

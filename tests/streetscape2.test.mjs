@@ -78,7 +78,12 @@ test('real tile: bands cover the arterials and respect every crossing carriagewa
   const beds = TAIPEI_GEO.roadbeds;
   const out = buildSidewalkBands(beds, 0.045);
   t.diagnostic(`band quads ${out.quadCount}, band-km ${(out.totalBandLength / 1000).toFixed(1)}`);
-  assert.ok(out.quadCount > 4000);
+  // Quad count is segment-based: after issue #30's centreline
+  // simplification (Douglas-Peucker eps 1.5 m) the same coverage is
+  // fewer, longer quads (6,425 quads/181.4 km before, 3,449/190.5 km
+  // after). The coverage invariant is the band length, not the count.
+  assert.ok(out.quadCount > 3000);
+  assert.ok(out.totalBandLength > 170000);
   assert.ok(out.bandLengthByClass.primary > 0 && out.bandLengthByClass.secondary > 0);
   // Every sampled quad centre must clear every carriageway it does not
   // belong to: find the quad's owner (the sidewalk bed whose band line

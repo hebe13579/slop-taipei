@@ -92,9 +92,10 @@ test('elevated carriageways: merged deck is one wide bed with layout shared (iss
     // 9.6 m classify as street treatments (painted / sidewalk band).
     way(203, { name: '高架連絡道', highway: 'secondary', oneway: 'yes', lanes: '2', layer: '1', bridge: 'yes' }, [pt(200, 100), pt(200, 250)]),
     way(205, { name: '高架連絡道', highway: 'secondary', oneway: 'yes', lanes: '3', layer: '2' }, [pt(250, 100), pt(250, 250)]),
-    // Ground control (9.6 m, 巷 name): 'painted' under both classifier
-    // generations — the deck guard must not leak to grade level.
-    way(204, { name: '測試巷', highway: 'secondary', oneway: 'yes', lanes: '3' }, [pt(300, 100), pt(300, 250)]),
+    // Ground control (9.6 m, 巷 name, tertiary — a non-main class, so the
+    // issue #25 main-road rule does not apply): 'painted' under both
+    // classifier generations — the deck guard must not leak to grade level.
+    way(204, { name: '測試巷', highway: 'tertiary', oneway: 'yes', lanes: '3' }, [pt(300, 100), pt(300, 250)]),
     tokenDeckWay(),
   ]);
   const deck = gm.roadbeds.find((rb) => rb.merged && rb.sourceWayIds.includes(201));

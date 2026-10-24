@@ -54,6 +54,20 @@ test('wider than 12 m without tags falls back to sidewalk', () => {
   assert.equal(pedestrianLayout({ highway: 'primary' }, 30), 'sidewalk');
 });
 
+// Issue #25: painted is never a main-road treatment. An 8–12 m way on a
+// trunk/primary/secondary class is a fragment of a wide arterial, not
+// an 8–12 m street — it takes the sidewalk fallback, not a green band.
+test('main-road classes are never painted, even at 8–12 m', () => {
+  for (const highway of ['motorway', 'trunk', 'primary', 'secondary', 'trunk_link', 'primary_link', 'secondary_link']) {
+    assert.equal(pedestrianLayout({ highway }, 9.6), 'sidewalk', `${highway} at 9.6 m`);
+    assert.equal(pedestrianLayout({ highway }, 12), 'sidewalk', `${highway} at 12 m`);
+  }
+  // …while the same widths on local classes stay painted.
+  assert.equal(pedestrianLayout({ highway: 'tertiary' }, 9.6), 'painted');
+  assert.equal(pedestrianLayout({ highway: 'unclassified' }, 10), 'painted');
+  assert.equal(pedestrianLayout({ highway: 'residential' }, 12), 'painted');
+});
+
 // Data-level pins on the regenerated geodata: the painted population is
 // exactly the 8–12 m band. Merged boulevard spans wider than 12 m take
 // the boulevard layout even when their widest constituent carriageway
@@ -70,4 +84,14 @@ test('painted roads and roadbeds in the generated geodata are all 8–12 m', () 
     paintedBeds.every((b) => b.width >= 8 && b.width <= 12),
     `painted roadbeds outside 8–12 m: ${paintedBeds.filter((b) => b.width < 8 || b.width > 12).slice(0, 3).map((b) => `${b.name} ${b.width}`)}`,
   );
+});
+
+// Issue #25 data pin: no painted road or roadbed sits on a main-road
+// class — the green band can never be born on a main carriageway.
+test('no painted road or roadbed in the geodata is a main-road class', () => {
+  const MAIN = new Set(['motorway', 'motorway_link', 'trunk', 'trunk_link', 'primary', 'primary_link', 'secondary', 'secondary_link']);
+  const badRoads = TAIPEI_GEO.roads.filter((r) => r.pedestrianLayout === 'painted' && MAIN.has(r.highway));
+  assert.equal(badRoads.length, 0, `painted main-class roads: ${badRoads.slice(0, 3).map((r) => `${r.name} ${r.highway}`)}`);
+  const badBeds = TAIPEI_GEO.roadbeds.filter((b) => b.pedestrianLayout === 'painted' && MAIN.has(b.highway));
+  assert.equal(badBeds.length, 0, `painted main-class roadbeds: ${badBeds.slice(0, 3).map((b) => `${b.name} ${b.highway}`)}`);
 });

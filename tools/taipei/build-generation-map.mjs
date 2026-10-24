@@ -54,6 +54,33 @@
 //      (nothing else covers a ramp's diagonal between deck and ground —
 //      dropping it leaves a hole at the interchange).
 //
+// Rework v3 (issues #25 + #30 — main-road bands + shape pass):
+//   6. TERTIARY PAIRING — divided tertiary carriageways （松仁路， 市府路）
+//      merge like boulevards; under v1/v2 their ribbons never merged, so
+//      the median gap — and any band on the pair-facing side — read as a
+//      stripe down the middle of the road. Pairing/extension also gained
+//      an adjacency rule: a pair whose bare median gap exceeds
+//      MAX_PAIR_GAP_M with an elevated through-carriageway running
+//      between them is not one roadbed （建國北路 ground pair flanking
+//      the 建國快速道路 deck stays two ribbons + the deck bed).
+//   7. CENTRELINE SIMPLIFICATION — every emitted centreline is
+//      Douglas–Peucker simplified at SIMPLIFY_EPS_M (1.5 m): the render
+//      does not need 1:1 vertex fidelity with OSM, and a straight road
+//      should render as a straight ribbon (user direction 2026-10-23).
+//   8. ORPHAN SUPPRESSION — a non-merged bed already (almost) entirely
+//      covered by merged/wider beds is dropped (see ORPHAN_* constants):
+//      unclaimed middle ranges of merged constituents otherwise render
+//      as stray fragments inside the merged bed (the 15 m dash on
+//      信義路五段). Elevated corridors get the same treatment as any
+//      boulevard — one wide ground ribbon, ramps as simple connectors;
+//      underpass ways are ordinary surface roads (no sunken modelling).
+//   9. FRONTAGE DEMOTION — a painted bed mostly running inside a wider
+//      bed's footprint keeps its bed but loses its band (FRONTAGE_INSIDE).
+//      Together with the classifier's main-road rule (issue #25,
+//      pedestrian-layout.mjs) and junction-clipped band rendering
+//      (js/taipei-painted.js), no green band is born on, or crosses, a
+//      main carriageway.
+//
 // usage: node tools/taipei/build-generation-map.mjs
 import fs from 'node:fs';
 import path from 'node:path';
@@ -66,7 +93,14 @@ const OUT = process.argv[2] || path.join(DATA, 'generation-map.json');
 const load = (f) => JSON.parse(fs.readFileSync(path.join(DATA, f), 'utf8'));
 
 // ---- rework configuration ----
-const PAIR_CLASSES = new Set(['trunk', 'primary', 'secondary']);
+// Pairing classes (issue #30): tertiary joins trunk/primary/secondary.
+// A named one-way pair of tertiary carriageways is a divided road by
+// construction (松仁路, 市府路 — their two ribbons never merged under the
+// old class gate, leaving the median gap — and any walkway band on the
+// pair-facing side — reading as a stripe down the middle of the road).
+// The pairing gates (same name, opposing travel, centrelines within
+// 45 m, density tests) still decide; class only sets eligibility.
+const PAIR_CLASSES = new Set(['trunk', 'primary', 'secondary', 'tertiary']);
 const MAX_PAIR_DIST_M = 45;        // max centreline distance for a merge
 const MIN_PAIR_OVERLAP = 0.7;      // fraction of each segment that must pair
 const MIN_INRANGE_OVERLAP = 0.8;   // pairing density inside the overlap range
@@ -76,6 +110,29 @@ const LINK_MIN_LENGTH_M = 120;     // *_link ways shorter than this are not rend
 const TAIL_MIN_LENGTH_M = 4;       // non-overlap tails shorter than this are dropped
 const MIN_CLAIM_RANGE_M = 25;      // a pairing range trimmed below this is not worth a merged bed
 const GROUP_DILATE_M = 14;         // merged-bed geometry reaches this far past the claimed range at both ends (junction wedge stitch)
+const MAX_PAIR_GAP_M = 15;         // max bare median gap between paired ribbons' edges (issue #30 median-gap rule, see pairEval)
+// Shape pass (issue #30 — the render does not need 1:1 vertex fidelity
+// with OSM; simplicity beats wander): every emitted centreline is
+// Douglas–Peucker simplified at this tolerance, so a straight boulevard
+// renders as a clean straight ribbon and per-vertex survey jitter drops
+// out. 1.5 m is well under a lane width (3.2 m), so genuine curves and
+// junction fans keep their shape.
+const SIMPLIFY_EPS_M = 1.5;
+// Orphan suppression (issue #30): a non-merged roadbed whose ribbon is
+// already (almost) entirely drawn by other roadbeds adds only fragments
+// and z-fighting — the classic case is an unclaimed middle range of a
+// merged constituent emitted as a short single INSIDE the merged bed
+// (the stray 15 m painted dash on 信義路五段). Suppress when >= 90% of
+// the centreline length lies inside other beds' ribbons (short beds),
+// or >= 98% at any length (a frontage trace wholly inside a boulevard).
+const ORPHAN_COVER = 0.9;
+const ORPHAN_COVER_LONG = 0.98;
+const ORPHAN_SHORT_M = 150;
+// Frontage demotion (issue #30): a surviving painted bed whose length
+// mostly runs INSIDE a wider bed's footprint is a frontage/service
+// trace on top of that carriageway — it keeps its bed (it may extend
+// beyond the wide bed) but loses its walkway band.
+const FRONTAGE_INSIDE = 0.5;
 //
 // WIDTH OVERRIDES — by exact road name, applied instead of the inferred
 // width (explicit OSM width tag > lanes x 3.2 m > name/class default).
@@ -306,6 +363,44 @@ const isExcludedLink = (s) => s.highway.endsWith('_link') && excludedLinkWays.ha
 // Travel-oriented tangent of a segment at a sample (oneway=-1 geometry runs
 // against the legal travel direction).
 const travelTan = (seg, t) => (seg.reverse ? { tx: -t.tx, tz: -t.tz } : t);
+// "Something between them" test (issue #30): sampled points of elevated
+// NON-LINK carriageways (decks, viaducts). Link ramps are excluded —
+// they braid between carriageways at every interchange and say nothing
+// about adjacency. Used only as one half of the combined rejection in
+// pairEval; it never excludes individual samples.
+const elevatedGrid = new Map();
+for (const s of segments) {
+  if (!isElevatedTags(s) || s.highway.endsWith('_link')) continue;
+  const n = Math.max(2, Math.round(s.length / 4));
+  for (let i = 0; i <= n; i++) {
+    const p = pointAt(s.pts, s.cum, (s.length * i) / n);
+    const k = `${Math.floor(p.x / 25)},${Math.floor(p.z / 25)}`;
+    if (!elevatedGrid.has(k)) elevatedGrid.set(k, []);
+    elevatedGrid.get(k).push([p.x, p.z, s]);
+  }
+}
+// exA/exB: the two segments being tested — a connector ENDS on its own
+// centrelines by construction, so their own points never count.
+const nearElevated = (x, z, exA, exB) => {
+  for (let gx = Math.floor((x - 4) / 25); gx <= Math.floor((x + 4) / 25); gx++)
+    for (let gz = Math.floor((z - 4) / 25); gz <= Math.floor((z + 4) / 25); gz++) {
+      const cell = elevatedGrid.get(`${gx},${gz}`) || [];
+      for (const [ex, ez, seg] of cell) {
+        if (seg === exA || seg === exB) continue;
+        if (Math.hypot(ex - x, ez - z) <= 4) return true;
+      }
+    }
+  return false;
+};
+const crossesElevated = (a, b, exA, exB) => {
+  const len = Math.hypot(b.x - a.x, b.z - a.z);
+  const steps = Math.max(1, Math.ceil(len / 4));
+  for (let i = 0; i <= steps; i++) {
+    const t = i / steps;
+    if (nearElevated(a.x + (b.x - a.x) * t, a.z + (b.z - a.z) * t, exA, exB)) return true;
+  }
+  return false;
+};
 // Score a candidate pair. Returns null when the pairing tests fail, else
 // { meanDist, rangeA, rangeB } with the arc-length overlap ranges.
 const OPPOSING_DOT = Math.cos((140 * Math.PI) / 180); // travel tangents must oppose within 40 deg
@@ -334,7 +429,7 @@ function pairEval(A, B) {
   const sampleTest = (S, T) => {
     const step = 3;
     const n = Math.max(2, Math.round(S.length / step));
-    let good = 0, distSum = 0, sMin = Infinity, sMax = -Infinity;
+    let good = 0, distSum = 0, sMin = Infinity, sMax = -Infinity, blocked = 0;
     const flags = [];
     for (let i = 0; i <= n; i++) {
       const s = (S.length * i) / n;
@@ -343,6 +438,7 @@ function pairEval(A, B) {
       const cp = closestOn(T.pts, T.cum, p.x, p.z);
       const tt = travelTan(T, cp);
       const ok = cp.d <= MAX_PAIR_DIST_M && tp.tx * tt.tx + tp.tz * tt.tz < OPPOSING_DOT;
+      if (ok && crossesElevated(p, cp, S, T)) blocked++;
       flags.push({ s, ok });
       if (ok) { good++; distSum += cp.d; if (s < sMin) sMin = s; if (s > sMax) sMax = s; }
     }
@@ -354,6 +450,7 @@ function pairEval(A, B) {
       coverage: (sMax - sMin) / S.length,
       density: inRange.filter((f) => f.ok).length / inRange.length,
       distSum, good,
+      blockedFrac: good ? blocked / good : 0,
     };
   };
   const ta = sampleTest(A, B), tb = sampleTest(B, A);
@@ -367,7 +464,19 @@ function pairEval(A, B) {
   const shortCoverage = A.length <= B.length ? ta.coverage : tb.coverage;
   if (shortCoverage < MIN_PAIR_OVERLAP) return null;
   if (ta.density < MIN_INRANGE_OVERLAP || tb.density < MIN_INRANGE_OVERLAP) return null;
-  return { meanDist: (ta.distSum + tb.distSum) / (ta.good + tb.good), rangeA: ta.range, rangeB: tb.range };
+  const meanDist = (ta.distSum + tb.distSum) / (ta.good + tb.good);
+  // "Not adjacent" rejection (issue #30): a pair is rejected only when
+  // BOTH (a) the bare gap between the ribbon edges exceeds
+  // MAX_PAIR_GAP_M, and (b) an elevated through-carriageway runs
+  // between them for most of the overlap. The 建國北路 ground pair is
+  // the case: ~33 m of gap with the 建國快速道路 deck inside it — it
+  // must stay two ground ribbons flanking the deck bed, not one 56 m
+  // bed paved across it. A wide gap alone is NOT grounds for rejection:
+  // twin-bore tunnels （象山/文山） and split expressway carriageways
+  // legitimately run 20-35 m apart with nothing between them, and the
+  // flat-world shape for them is still one clean wide ribbon.
+  if (meanDist - (A.width + B.width) / 2 > MAX_PAIR_GAP_M && (ta.blockedFrac >= 0.5 || tb.blockedFrac >= 0.5)) return null;
+  return { meanDist, rangeA: ta.range, rangeB: tb.range };
 }
 
 const candidates = segments.filter((s) => !isExcludedLink(s) && s.name && s.oneway && PAIR_CLASSES.has(s.highway) && s.length >= MIN_PAIR_SEGMENT_M);
@@ -467,7 +576,7 @@ function groupGeometry(g) {
     width = Math.max(width, m0.seg.width + m1.seg.width + Math.max(0, median(pairDists) - (m0.seg.width + m1.seg.width) / 2));
   }
   width = Math.max(width, ...g.members.map((m) => m.seg.width));
-  const centreline = rdp(mids.filter((p, i) => i === 0 || Math.hypot(p[0] - mids[i - 1][0], p[1] - mids[i - 1][1]) > 0.05), 0.3);
+  const centreline = rdp(mids.filter((p, i) => i === 0 || Math.hypot(p[0] - mids[i - 1][0], p[1] - mids[i - 1][1]) > 0.05), SIMPLIFY_EPS_M);
   return { centreline, width: Math.round(width * 10) / 10, length: lineLength(centreline) };
 }
 // Group extension: an unpaired candidate running alongside a merged group
@@ -497,7 +606,10 @@ function groupGeometry(g) {
           const dot = tp.tx * cp.tx + tp.tz * cp.tz;
           if (cp.d <= MAX_PAIR_DIST_M && Math.abs(dot) > PARALLEL_DOT) { good++; distSum += cp.d; if (s < sMin) sMin = s; if (s > sMax) sMax = s; }
         }
-        if (good / (n + 1) >= MIN_PAIR_OVERLAP && (!best || distSum / good < best.meanDist)) best = { g, range: [sMin, sMax], meanDist: distSum / good };
+        // Median-gap rule, extension form: the candidate must sit at
+        // the group's edge (gap to the group ribbon within the bound),
+        // not across a deck or another road.
+        if (good / (n + 1) >= MIN_PAIR_OVERLAP && distSum / good - (C.width + geo.width) / 2 <= MAX_PAIR_GAP_M && (!best || distSum / good < best.meanDist)) best = { g, range: [sMin, sMax], meanDist: distSum / good };
       }
       if (best) { best.g.members.push({ seg: C, range: best.range, geoRange: best.range }); addClaim(C, best.g, best.range); joined = true; }
     }
@@ -511,10 +623,15 @@ let mergedConstituentOverlapLength = 0, mergedLength = 0, droppedScrapLength = 0
 const mergedReport = [];
 const flatLength = (flat) => { let L = 0; for (let i = 2; i < flat.length; i += 2) L += Math.hypot(flat[i] - flat[i - 2], flat[i + 1] - flat[i - 1]); return L; };
 const pushRoadbed = (entry) => { roadbeds.push(entry); roadbedLength += flatLength(entry.centreline); };
-const singleEntry = (seg, pts) => ({
-  name: seg.name, highway: seg.highway, centreline: flatQ(pts), width: seg.width,
-  pedestrianLayout: seg.pedestrianLayout, sourceWayIds: [seg.wayId],
-});
+let simplificationShorteningM = 0; // single beds only (merged shortening cancels out of the length identity)
+const singleEntry = (seg, pts) => {
+  const simplified = rdp(pts, SIMPLIFY_EPS_M);
+  simplificationShorteningM += lineLength(pts) - lineLength(simplified);
+  return {
+    name: seg.name, highway: seg.highway, centreline: flatQ(simplified), width: seg.width,
+    pedestrianLayout: seg.pedestrianLayout, sourceWayIds: [seg.wayId],
+  };
+};
 // Wholly unpaired segments render as single roadbeds.
 for (const seg of segments) {
   if (isExcludedLink(seg)) continue;
@@ -573,6 +690,94 @@ for (const seg of segments) {
   }
 }
 
+// ---- shape pass: orphan suppression + frontage demotion (issue #30) -----
+// Coverage is measured against ribbon POLYGONS (square-ended, as rendered),
+// sampled every ~2 m along the candidate's centreline. Coverers are beds
+// that are merged or strictly wider — a bed is never suppressed by equals
+// or narrows, so duplicate-width neighbours cannot erase each other.
+const pairsOf = (flat) => { const p = []; for (let i = 0; i < flat.length; i += 2) p.push([flat[i], flat[i + 1]]); return p; };
+function bedRibbon(pts, width) {
+  const half = Math.max((width || 3) / 2, 0.75);
+  const L = [], R = [];
+  for (let i = 0; i < pts.length; i++) {
+    const a = pts[Math.max(0, i - 1)], c = pts[Math.min(pts.length - 1, i + 1)];
+    let dx = c[0] - a[0], dz = c[1] - a[1];
+    const n = Math.hypot(dx, dz) || 1; dx /= n; dz /= n;
+    L.push([pts[i][0] - dz * half, pts[i][1] + dx * half]);
+    R.push([pts[i][0] + dz * half, pts[i][1] - dx * half]);
+  }
+  return [...L, ...R.reverse()];
+}
+function pip(p, poly) {
+  let inside = false;
+  for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
+    const [xi, zi] = poly[i], [xj, zj] = poly[j];
+    if ((zi > p[1]) !== (zj > p[1]) && p[0] < ((xj - xi) * (p[1] - zi)) / (zj - zi) + xi) inside = !inside;
+  }
+  return inside;
+}
+const bedGeoms = roadbeds.map((b) => {
+  const pts = pairsOf(b.centreline);
+  return { pts, cum: cumLen(pts), poly: bedRibbon(pts, b.width) };
+});
+const bedGrid = new Map();
+bedGeoms.forEach((g, i) => {
+  const xs = g.poly.map((p) => p[0]), zs = g.poly.map((p) => p[1]);
+  for (let gx = Math.floor(Math.min(...xs) / 100); gx <= Math.floor(Math.max(...xs) / 100); gx++)
+    for (let gz = Math.floor(Math.min(...zs) / 100); gz <= Math.floor(Math.max(...zs) / 100); gz++) {
+      const k = `${gx},${gz}`;
+      if (!bedGrid.has(k)) bedGrid.set(k, []);
+      bedGrid.get(k).push(i);
+    }
+});
+const sampleCover = (bi, covererOk) => {
+  const { pts, cum } = bedGeoms[bi];
+  const total = cum[cum.length - 1];
+  const n = Math.max(2, Math.round(total / 2));
+  let cov = 0;
+  for (let i = 0; i <= n; i++) {
+    const p = pointAt(pts, cum, (total * i) / n);
+    const cand = bedGrid.get(`${Math.floor(p.x / 100)},${Math.floor(p.z / 100)}`) || [];
+    for (const oj of cand) {
+      if (oj === bi || !covererOk(oj)) continue;
+      if (pip([p.x, p.z], bedGeoms[oj].poly)) { cov++; break; }
+    }
+  }
+  return cov / (n + 1);
+};
+const suppressedReport = [];
+const demotedReport = [];
+let suppressedLength = 0;
+{
+  const keep = new Array(roadbeds.length).fill(true);
+  roadbeds.forEach((b, bi) => {
+    if (b.merged) return;
+    if (b.highway.endsWith('_link')) return; // links are connectors (ramps), never fragments — they stay (issues #22/#30)
+    const len = flatLength(b.centreline);
+    if (len > 1000) return; // longer than 1 km is a road, not a fragment (documented cap)
+    const covMW = sampleCover(bi, (oj) => roadbeds[oj].merged || roadbeds[oj].width > b.width + 0.05);
+    if ((covMW >= ORPHAN_COVER && len <= ORPHAN_SHORT_M) || covMW >= ORPHAN_COVER_LONG) {
+      keep[bi] = false;
+      suppressedLength += len;
+      suppressedReport.push({ name: b.name, highway: b.highway, sourceWayIds: b.sourceWayIds, lengthM: Math.round(len), coveredPct: Math.round(covMW * 100) });
+      return;
+    }
+    if (b.pedestrianLayout === 'painted') {
+      const fracWider = sampleCover(bi, (oj) => roadbeds[oj].width > b.width + 0.05);
+      if (fracWider >= FRONTAGE_INSIDE) {
+        b.pedestrianLayout = 'shared';
+        demotedReport.push({ name: b.name, highway: b.highway, sourceWayIds: b.sourceWayIds, insidePct: Math.round(fracWider * 100) });
+      }
+    }
+  });
+  if (suppressedReport.length) {
+    const kept = roadbeds.filter((_, i) => keep[i]);
+    roadbeds.length = 0;
+    roadbeds.push(...kept);
+    roadbedLength -= suppressedLength;
+  }
+}
+
 // ---- stats + output ----------------------------------------------------------
 const stats = {
   carriagewayRuns: segments.length,
@@ -586,13 +791,17 @@ const stats = {
   mergedConstituentOverlapLength: Math.round(mergedConstituentOverlapLength * 10) / 10,
   mergedLength: Math.round(mergedLength * 10) / 10,
   droppedScrapLength: Math.round(droppedScrapLength * 10) / 10,
+  suppressedLength: Math.round(suppressedLength * 10) / 10,
+  suppressedBeds: suppressedReport,
+  simplificationShorteningM: Math.round(simplificationShorteningM * 10) / 10,
+  demotedFrontageBeds: demotedReport,
   roadbedCount: roadbeds.length,
   roadbedLength: Math.round(roadbedLength * 10) / 10,
   overrides: [...overrideMatched.entries()].map(([name, matchedWays]) => ({ name, width: OVERRIDES[name], matchedWays })),
   mergedRoads: mergedReport,
 };
-const identity = stats.roadbedLength + stats.excludedLinkLength + stats.mergedConstituentOverlapLength - stats.mergedLength + stats.droppedScrapLength;
-console.log(`[generation-map] length identity: roadbeds ${stats.roadbedLength} + excludedLinks ${stats.excludedLinkLength} + mergedOverlap ${stats.mergedConstituentOverlapLength} - merged ${stats.mergedLength} + scrap ${stats.droppedScrapLength} = ${identity.toFixed(1)} vs carriageway ${stats.carriagewayLength} (delta ${(identity - stats.carriagewayLength).toFixed(1)} m)`);
+const identity = stats.roadbedLength + stats.excludedLinkLength + stats.mergedConstituentOverlapLength - stats.mergedLength + stats.droppedScrapLength + stats.suppressedLength + stats.simplificationShorteningM;
+console.log(`[generation-map] length identity: roadbeds ${stats.roadbedLength} + excludedLinks ${stats.excludedLinkLength} + mergedOverlap ${stats.mergedConstituentOverlapLength} - merged ${stats.mergedLength} + scrap ${stats.droppedScrapLength} + suppressed ${stats.suppressedLength} + simplifyShortening ${stats.simplificationShorteningM} = ${identity.toFixed(1)} vs carriageway ${stats.carriagewayLength} (delta ${(identity - stats.carriagewayLength).toFixed(1)} m)`);
 const out = {
   version: 1,
   generatedBy: 'tools/taipei/build-generation-map.mjs',
