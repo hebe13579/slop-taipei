@@ -12,7 +12,7 @@ import {
 } from '../js/taipei-adapter.js';
 import { TAIPEI_TILE } from '../js/taipei-tile.js';
 import { TILE_REGISTRY, tileIdFromSearch, loadSelectedTile } from '../js/tile-registry.js';
-import { planTaipeiBuildings, taipeiCityBlocksOptions, pointInRing, latLonToTile } from '../js/taipei-buildings.js';
+import { planTaipeiBuildings, taipeiCityBlocksOptions, pointInRing, latLonToTile, taipei101OrnamentPositions } from '../js/taipei-buildings.js';
 
 // M1 foundation: the Taipei tile's adapter, road graph, teleports and tile
 // registry. Numbers printed via t.diagnostic are the actual generated values.
@@ -366,6 +366,110 @@ test('buildings plan: deterministic, excludes parks/water/101 site, tower presen
   assert.ok(plan.tower.top.hwTop < tier0.hwBottom, 'top section narrower than the tiers');
   assert.equal(plan.tower.spire.y0 + plan.tower.spire.h, 508, 'spire tip at 508 m');
   assert.ok(plan.tower.x > site.minX && plan.tower.x < site.maxX && plan.tower.z > site.minZ && plan.tower.z < site.maxZ, 'tower stands on its landmark site');
+});
+
+// Issue #40: the 101 podium is the real mall massing and the tier
+// joints wear ornaments. Invariants: the shaft budget is untouched
+// (508 m, identical tiers — asserted above too), every podium part
+// stands inside the landmark site AND clear of every roadbed ribbon
+// (issue #42's rule), the mall blocks follow the geodata "Taipei 101
+// MALL" outline, the entrance court on the tower axis stays open
+// (the landmark/spawn point stands in it), and all eight joints
+// carry 4 corner discs + 4 face pieces — coins at joint 1 only,
+// where the real pedestal meets the tower.
+test('taipei 101 mall podium and joint ornaments (issue #40)', (t) => {
+  const plan = planTaipeiBuildings(TAIPEI_GEO);
+  const tower = plan.tower;
+  const t101 = TAIPEI_GEO.landmarks['Taipei 101'];
+  const mall = TAIPEI_GEO.landmarks['Taipei 101 MALL'];
+  const site = { minX: t101.x - t101.w / 2, maxX: t101.x + t101.w / 2, minZ: t101.z - t101.d / 2, maxZ: t101.z + t101.d / 2 };
+  const mallRect = { minX: mall.x - mall.w / 2, maxX: mall.x + mall.w / 2, minZ: mall.z - mall.d / 2, maxZ: mall.z + mall.d / 2 };
+
+  assert.equal(tower.totalHeight, 508, 'total height unchanged');
+  assert.deepEqual(tower.podium, { w: 62, d: 62, h: 9 }, 'tower-zone base block');
+  const boxes = tower.podiumParts.filter((p) => p.type === 'box');
+  const shell = tower.podiumParts.find((p) => p.type === 'shell');
+  assert.equal(boxes.length, 2, 'two mall blocks flank the court');
+  assert.ok(shell, 'curved roof shell present');
+  assert.equal(shell.y0 + shell.h, 38, 'shell top at the published podium main-roof height (124 ft)');
+
+  const partRect = (p) => {
+    const cx = tower.x + (p.dx || 0), cz = tower.z + (p.dz || 0);
+    if (p.type === 'box') return { minX: cx - p.w / 2, maxX: cx + p.w / 2, minZ: cz - p.d / 2, maxZ: cz + p.d / 2 };
+    return { minX: cx - p.rB, maxX: cx + p.rB, minZ: cz, maxZ: cz + p.rB }; // shell bbox (arc opens south)
+  };
+  const rects = [
+    { name: 'base', rect: { minX: tower.x - tower.podium.w / 2, maxX: tower.x + tower.podium.w / 2, minZ: tower.z - tower.podium.d / 2, maxZ: tower.z + tower.podium.d / 2 }, inMall: false },
+    ...tower.podiumParts.map((p) => ({ name: p.type, rect: partRect(p), inMall: true })),
+  ];
+  const inRect = (r, x, z) => x >= r.minX && x <= r.maxX && z >= r.minZ && z <= r.maxZ;
+  for (const { name, rect, inMall } of rects) {
+    assert.ok(rect.minX >= site.minX && rect.maxX <= site.maxX && rect.minZ >= site.minZ && rect.maxZ <= site.maxZ, `${name} inside the landmark site`);
+    if (inMall) assert.ok(rect.minX >= mallRect.minX - 0.01 && rect.maxX <= mallRect.maxX + 0.01 && rect.minZ >= mallRect.minZ - 0.01 && rect.maxZ <= mallRect.maxZ + 0.01, `${name} follows the OSM mall outline`);
+    assert.ok(!inRect(rect, t101.x, t101.z), `${name} keeps off the landmark/spawn point (entrance court stays open)`);
+  }
+
+  // Exact rect-to-segment distance (endpoint-in-rect or edge
+  // crossing = 0), minus each ribbon's half width, must stay > 0.
+  const distToSegment = (px, pz, ax, az, bx, bz) => {
+    const dx = bx - ax, dz = bz - az, len2 = dx * dx + dz * dz;
+    let tt = len2 > 0 ? ((px - ax) * dx + (pz - az) * dz) / len2 : 0;
+    tt = Math.max(0, Math.min(1, tt));
+    return Math.hypot(ax + tt * dx - px, az + tt * dz - pz);
+  };
+  const distPtRect = (px, pz, r) => Math.hypot(Math.max(r.minX - px, 0, px - r.maxX), Math.max(r.minZ - pz, 0, pz - r.maxZ));
+  const segSeg = (ax, az, bx, bz, cx, cz, dx, dz) => {
+    const o = (px, pz, qx, qz, rx, rz) => (qx - px) * (rz - pz) - (qz - pz) * (rx - px);
+    return (o(ax, az, bx, bz, cx, cz) > 0) !== (o(ax, az, bx, bz, dx, dz) > 0) && (o(cx, cz, dx, dz, ax, az) > 0) !== (o(cx, cz, dx, dz, bx, bz) > 0);
+  };
+  const distSegRect = (ax, az, bx, bz, r) => {
+    if (inRect(r, ax, az) || inRect(r, bx, bz)) return 0;
+    const corners = [[r.minX, r.minZ], [r.maxX, r.minZ], [r.maxX, r.maxZ], [r.minX, r.maxZ]];
+    for (let i = 0; i < 4; i++) if (segSeg(ax, az, bx, bz, ...corners[i], ...corners[(i + 1) % 4])) return 0;
+    let d = Math.min(distPtRect(ax, az, r), distPtRect(bx, bz, r));
+    for (const [cx, cz] of corners) d = Math.min(d, distToSegment(cx, cz, ax, az, bx, bz));
+    return d;
+  };
+  for (const { name, rect } of rects) {
+    let minClear = Infinity;
+    for (const b of TAIPEI_GEO.roadbeds) {
+      const half = Math.max((b.width || 3) / 2, 0.75);
+      for (let i = 0; i + 3 < b.pts.length; i += 2) {
+        minClear = Math.min(minClear, distSegRect(b.pts[i], b.pts[i + 1], b.pts[i + 2], b.pts[i + 3], rect) - half);
+      }
+    }
+    t.diagnostic(`101 podium ${name}: min roadbed clearance ${minClear.toFixed(1)} m`);
+    assert.ok(minClear > 0, `${name} clears every roadbed (got ${minClear.toFixed(2)} m)`);
+  }
+
+  // Ornaments: 8 per joint × 8 joints; coins only at the first.
+  const orn = tower.ornaments;
+  assert.equal(orn.length, 64, '64 ornaments total');
+  const jointTops = tower.tiers.map((tier) => tier.y0 + tier.h);
+  assert.deepEqual([...new Set(orn.map((o) => o.jointY))].sort((a, b) => a - b), jointTops, 'ornaments at all eight tier joints');
+  for (const jy of jointTops) {
+    const at = orn.filter((o) => o.jointY === jy);
+    assert.equal(at.length, 8, `joint ${jy}: eight ornaments`);
+    const discs = at.filter((o) => o.kind === 'disc');
+    const faces = at.filter((o) => o.kind !== 'disc');
+    assert.equal(discs.length, 4, `joint ${jy}: four corner discs`);
+    assert.equal(faces.length, 4, `joint ${jy}: four face pieces`);
+    for (const d of discs) {
+      assert.ok(Math.abs(Math.abs(d.x - tower.x) - 25) < 0.01 && Math.abs(Math.abs(d.z - tower.z) - 25) < 0.01, 'disc sits on a tier corner');
+      assert.equal(d.r, 3.4, 'corner disc radius');
+    }
+    for (const f of faces) {
+      const onX = Math.abs(f.x - tower.x) > 20, onZ = Math.abs(f.z - tower.z) > 20;
+      assert.ok(onX !== onZ, 'face piece centred on a face');
+      if (jy === jointTops[0]) { assert.equal(f.kind, 'coin', 'joint 1 faces wear the coin discs'); assert.equal(f.r, 5.2); }
+      else { assert.equal(f.kind, 'plaque', 'upper joints wear square plaques'); assert.equal(f.w, 6.4); assert.equal(f.h, 6.4); }
+    }
+    for (const o of at) assert.ok(o.y < jy && o.y > jy - 12, `joint ${jy}: ornament hangs just below the lip`);
+  }
+  // The merged soup: exact triangle budget, all finite.
+  const soup = taipei101OrnamentPositions(orn);
+  assert.equal(soup.length, (32 * 56 + 4 * 72 + 28 * 12) * 9, 'ornament soup triangle budget (2,416 tris)');
+  assert.ok(soup.every(Number.isFinite), 'ornament soup coordinates finite');
 });
 
 // Issue #26: the landmark structures around Taipei 101 (plus City
