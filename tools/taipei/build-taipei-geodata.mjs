@@ -92,7 +92,12 @@ function roadWidth(tags) {
 // green painted walkway (標線型人行道) or shared edge, 弄 alleys are fully
 // shared, and a colonnade-covered way is a 騎樓 arcade. An explicit OSM
 // sidewalk tag beats the class/width inference; sidewalk=no falls through.
+// A deck (layer >= 1, or any bridge tag) is not a street: it carries no
+// pedestrian layout at all — no painted walkway stripes, no sidewalk
+// band. 'shared' is the enum's no-geometry value (issue #22). This copy
+// must stay in sync with build-generation-map.mjs.
 function pedestrianLayout(tags, width) {
+  if (parseInt(tags.layer || '0', 10) >= 1 || (!!tags.bridge && tags.bridge !== 'no')) return 'shared';
   if (tags.arcade || tags.covered === 'colonnade') return 'arcade';
   const sw = [tags.sidewalk, tags['sidewalk:both'], tags['sidewalk:left'], tags['sidewalk:right']];
   if (sw.some((v) => v && !['no', 'none'].includes(v))) return 'sidewalk';
