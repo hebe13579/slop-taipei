@@ -55,7 +55,7 @@
 
 import { ribbonPoly, pointInPoly, buildPolyGrid, pointInAnyPoly } from './taipei-painted.js';
 import { medianKind, medianStripWidth, buildMedianStrips } from './taipei-surfaces.js';
-import { planJunctionCaps, ringPoints } from './taipei-junctions.js';
+import { planJunctionCaps, planRoundabouts, ringPoints } from './taipei-junctions.js';
 
 export const LANE_W = 3.2;               // generator's width-per-lane conversion
 export const DASH_LEN = 3;               // m of paint per dash
@@ -458,11 +458,24 @@ export function junctionArmDivided(junction, arm, roadbeds) {
 // suppress feeds buildLaneDividers' stop-line zones.
 export function buildJunctionFurniture(roadbeds, junctions) {
   const stripes = [], stopLines = [], signals = [];
+  // Provenance (issue #75 audit/tests): the junction index that
+  // generated each stripe / stop-line quad, aligned with the
+  // stripes / stopLines arrays.
+  const stripeJunction = [], stopLineJunction = [];
   const suppress = new Map();
   const stats = {
     junctions: 0, crosswalks: 0, stopLines: 0, signals: 0, skippedArms: 0,
     mastSignals: 0, poleSignals: 0, clearanceMoved: 0, clearanceUnresolved: 0, clearanceFallback: 0,
+    ringArmsSkipped: 0,
   };
+  // Roundabout claims (issue #75): at a junction a roundabout site
+  // claims, arms running on the site's ring carriageway get NO
+  // furniture — the #66 audit measured their zebras spraying
+  // diagonally across the ring. Entry arms keep their furniture,
+  // so crossings stand on the ring entries only.
+  const sites = planRoundabouts(roadbeds, junctions);
+  const claimOf = new Map();
+  for (const s of sites) for (const ji of s.claimedJunctions) claimOf.set(ji, s);
   // Ribbon index for the signal clearance solver (built once; the
   // divider builder rebuilds its own for dashes).
   const ribbonPolys = roadbeds.map(ribbonPoly);
@@ -481,11 +494,13 @@ export function buildJunctionFurniture(roadbeds, junctions) {
     for (const ci of cand) if (pointInPoly([x, z], ribbonPolys[ci])) return true;
     return false;
   };
-  for (const j of junctions) {
-    if (!j.signalized) continue;
+  junctions.forEach((j, ji) => {
+    if (!j.signalized) return;
     stats.junctions++;
+    const site = claimOf.get(ji);
     for (const arm of j.arms) {
       const bed = roadbeds[arm.bed];
+      if (site && site.ringName && bed.name === site.ringName) { stats.ringArmsSkipped++; continue; }
       const half = arm.width / 2;
       // Arc position along the arm's own bed, measured from the
       // junction centre: the bed end sits at signed distance sd from
@@ -507,6 +522,7 @@ export function buildJunctionFurniture(roadbeds, junctions) {
               c.x + ux * d + vx * oLo, c.z + uz * d + vz * oLo,
               c.x - ux * d + vx * oLo, c.z - uz * d + vz * oLo,
             ]);
+            stripeJunction.push(ji);
           }
           stats.crosswalks++;
         } else stats.skippedArms++;
@@ -529,6 +545,7 @@ export function buildJunctionFurniture(roadbeds, junctions) {
               c.x + ux * d + vx * oHi, c.z + uz * d + vz * oHi,
               c.x - ux * d + vx * oHi, c.z - uz * d + vz * oHi,
             ]);
+            stopLineJunction.push(ji);
             stats.stopLines++;
           }
         }
@@ -630,8 +647,8 @@ export function buildJunctionFurniture(roadbeds, junctions) {
         if (divided) stats.mastSignals++; else stats.poleSignals++;
       }
     }
-  }
-  return { stripes, stopLines, signals, suppress, stats };
+  });
+  return { stripes, stopLines, signals, suppress, stats, stripeJunction, stopLineJunction };
 }
 
 // buildRoadMarkings(roadbeds, medianStrips?, caps?, junctions?)
@@ -643,10 +660,12 @@ export function buildJunctionFurniture(roadbeds, junctions) {
 // are forwarded to the divider builder as occluders. The junction
 // FURNITURE (crosswalks, stop lines) is deliberately NOT cap-
 // filtered: crosswalks are placed by the same crossHalf arithmetic
-// the caps are built from, so a stripe at a short-arm junction
-// lands on its own junction's cap surface at the mouth — measured
-// on current data, 3,953 stripe centres sit inside their OWN cap
-// and exactly 0 inside a foreign one (junction-evidence/AUDIT.md).
+// the caps are built from — at major junctions the #75 box cap
+// reaches past the stop line, so the furniture sits ON its own
+// junction's plain asphalt field (junction2-evidence/AUDIT.md).
+// At roundabout-claimed junctions, ring-carriageway arms get no
+// furniture at all (see buildJunctionFurniture): the crossings
+// stand on the ring entries only.
 export function buildRoadMarkings(roadbeds, medianStrips = null, caps = null, junctionsIn = null) {
   const junctions = junctionsIn || detectJunctions(roadbeds);
   if (!caps) caps = planJunctionCaps(roadbeds, junctions);
@@ -659,6 +678,8 @@ export function buildRoadMarkings(roadbeds, medianStrips = null, caps = null, ju
     dashes: dividers.dashes,
     stripes: furniture.stripes,
     stopLines: furniture.stopLines,
+    stripeJunction: furniture.stripeJunction,
+    stopLineJunction: furniture.stopLineJunction,
     signals: furniture.signals,
     stats: {
       junctions: junctions.length,
@@ -676,6 +697,7 @@ export function buildRoadMarkings(roadbeds, medianStrips = null, caps = null, ju
       clearanceUnresolved: furniture.stats.clearanceUnresolved,
       clearanceFallback: furniture.stats.clearanceFallback,
       skippedArms: furniture.stats.skippedArms,
+      ringArmsSkipped: furniture.stats.ringArmsSkipped,
     },
   };
 }
