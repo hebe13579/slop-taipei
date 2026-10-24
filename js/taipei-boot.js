@@ -1,6 +1,7 @@
 import * as THREE from 'three/webgpu';
 
 import { planTaipeiBuildings, taipeiCityBlocksOptions, createTaipei101 } from './taipei-buildings.js';
+import { AvatarFigure } from './avatar-figure.js';
 
 // js/taipei-boot.js
 // Boot builder for registry tiles. It renders what the geodata honestly
@@ -152,13 +153,20 @@ const mat = (color, roughness = 0.95, extra = {}) => new THREE.MeshStandardNodeM
 // NYC's west shore) and invent Central Park / sidewalk heights on the
 // flat basin floor. Ground is y = 0 everywhere; spawns cluster at the
 // tile spawn with the same relative offsets the NYC spawns use.
-export function controllerOptions(tile) {
+// `env.webglFallback` (main.js passes the live renderer backend): on the
+// WebGL2 fallback the crowd material's storage-buffer skinning
+// miscompiles and the avatar crowds streak across the tile (issue #12),
+// so the controllers get a factory for CPU-posed avatar figures instead.
+// On a real WebGPU renderer the factory stays null and the skinned
+// crowds render exactly as upstream intends.
+export function controllerOptions(tile, env = {}) {
   const bb = tile.geodata.frame.bbox;
   const s = tile.spawn;
   return {
     bounds: { minX: bb.minX, maxX: bb.maxX, minZ: bb.minZ, maxZ: bb.maxZ },
     clampToShore: false,
     groundHeight: () => 0,
+    avatarFigureFactory: env.webglFallback ? (appearance) => new AvatarFigure(appearance) : null,
     spawnByMode: {
       person: { x: s.x - 15.2, z: s.z + 12 },
       car: { x: s.x, z: s.z + 12 },

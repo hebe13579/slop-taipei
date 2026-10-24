@@ -161,11 +161,15 @@ test('taipei world: a teleport lands exactly at Da\'an Forest Park centroid', as
 
 test('taipei-boot wires the tile world into main.js (source contract)', () => {
   const boot = readFileSync(join(__dirname, '../js/taipei-boot.js'), 'utf8');
-  assert.match(boot, /export function controllerOptions\(tile\)/);
+  assert.match(boot, /export function controllerOptions\(tile, env = \{\}\)/);
   assert.match(boot, /bounds:\s*\{\s*minX: bb\.minX, maxX: bb\.maxX, minZ: bb\.minZ, maxZ: bb\.maxZ \}/);
   assert.match(boot, /clampToShore: false/);
   assert.match(boot, /groundHeight: \(\) => 0/);
   assert.match(boot, /spawnByMode:/);
+  // Issue #12: on the WebGL fallback the tile boot swaps the avatar crowds
+  // for CPU-posed figures; on WebGPU the factory stays null.
+  assert.match(boot, /avatarFigureFactory: env\.webglFallback \? \(appearance\) => new AvatarFigure\(appearance\) : null/);
   const main = readFileSync(join(__dirname, '../js/main.js'), 'utf8');
-  assert.match(main, /tileBoot \? tileBoot\.controllerOptions\(activeTile\) : undefined/);
+  assert.match(main, /tileBoot\.controllerOptions\(activeTile, \{ webglFallback: renderer\.backend\?\.isWebGLBackend === true \}\)/);
+  assert.match(main, /: undefined/);
 });
