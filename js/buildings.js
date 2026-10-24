@@ -38,6 +38,7 @@ import {
 import {
   createPreWarBuildingMaterial,
   createCurtainWallMaterial,
+  createTileShophouseMaterial,
   createFacadeBoxes,
   createBillboardMaterial,
   WALL_KINDS
@@ -388,6 +389,88 @@ function buildCityBlocks(scene, opts = null) {
       warmth: 0.48,
       reflectivity: 0.95,
       seed: 94.3
+    }],
+    // 6: Taiwan tile shophouse (issue #17) — appended so the six upstream
+    // indices never move. Only the Taipei planner assigns families 6-9;
+    // Manhattan's matFor never returns them, so NYC renders as before.
+    // The four Taiwan types share one parameterized factory (see
+    // createTileShophouseMaterial) and differ by style opts:
+    // 6: white/cream small-tile shophouse, semi-round balcony columns.
+    [createTileShophouseMaterial, {
+      windowWidth: 2.55,
+      floorHeight: 3.35,
+      litProbability: 0.52,
+      warmth: 0.84,
+      seed: 137.7
+    }],
+    // 7: Arcade shophouse （騎樓） — red-brown brick-tone tile, wide piers,
+    // deep ground-floor recess, straight rail balconies.
+    [createTileShophouseMaterial, {
+      windowWidth: 2.7,
+      floorHeight: 3.45,
+      windowRatioX: 0.50,
+      windowRatioY: 0.58,
+      litProbability: 0.50,
+      warmth: 0.86,
+      seed: 211.3,
+      cornerPier: 0.85,
+      tilePalette: [0xa9714f, 0x9c5f43, 0xb3815e, 0x8a5138],
+      accentColor: 0x7c4a34,
+      trimColor: 0x8a6a4e,
+      tileModule: 0.36,
+      acThreshold: 0.76,
+      grilleProb: 0.10,
+      balconyStyle: 1,
+      balconyThreshold: 0.60,
+      balconyPalette: [0xcbb59a, 0xb89a76],
+      recess: 0.62
+    }],
+    // 8: Walk-up slab — beige/brown 70s-80s tile, dense window grid,
+    // security-grille speckle, rail balconies on most columns.
+    [createTileShophouseMaterial, {
+      windowWidth: 2.05,
+      floorHeight: 3.1,
+      windowRatioX: 0.58,
+      windowRatioY: 0.62,
+      litProbability: 0.55,
+      warmth: 0.80,
+      seed: 322.9,
+      cornerPier: 0.4,
+      tilePalette: [0xd9c49c, 0xcbb086, 0xbf9d72, 0xd3c2a4],
+      accentColor: 0xa98f66,
+      accentEvery: 0,
+      trimColor: 0xa08b62,
+      tileModule: 0.24,
+      acThreshold: 0.62,
+      grilleProb: 0.55,
+      balconyStyle: 1,
+      balconyThreshold: 0.38,
+      balconyPalette: [0xd6c8a8, 0xc4b28c],
+      signRate: 0.7,
+      recess: 0.30,
+      wallRoughness: 0.66
+    }],
+    // 9: Pebble-dash mid-rise （洗石子） — washed-stone concrete, ribbon
+    // windows, no balconies, signs on only half the shop bays.
+    [createTileShophouseMaterial, {
+      windowWidth: 3.6,
+      floorHeight: 3.25,
+      windowRatioX: 0.80,
+      windowRatioY: 0.42,
+      litProbability: 0.50,
+      warmth: 0.78,
+      seed: 433.1,
+      cornerPier: 0.5,
+      tilePalette: [0xcac2b4, 0xbfb7a8, 0xd2ccc0, 0xb3aa9a],
+      accentEvery: 0,
+      trimColor: 0x9a927f,
+      pebble: 1.0,
+      acThreshold: 0.82,
+      grilleProb: 0.04,
+      balconyStyle: 2,
+      signRate: 0.5,
+      recess: 0.25,
+      wallRoughness: 0.9
     }]
   ];
   const materials = facades.map(([create, opts]) => create({ ...opts, boxLocal: true }));
@@ -1933,9 +2016,24 @@ function buildCityBlocks(scene, opts = null) {
     const b = building(blockDetail, mat, rect(minX, maxX, minZ, maxZ));
     const floors = Math.max(1, Math.round(lot.h / storeys[mat]));
     mass(b, [rect(minX, maxX, minZ, maxZ)], 0, floors);
-    commit(blockDetail, b, mat >= 3
-      ? { cornice: false, roof: 'mech', shops: 0.3 }
-      : { roof: 'prewar', wtP: 0.35, shops: 0.3 });
+    commit(blockDetail, b, mat >= 6
+      // Taiwan types (issue #17): no stone cornice, no water tower (rooftop
+      // gear is clamped below anyway); ground-floor shop share per type —
+      // shophouses and arcades are retail-led, the walk-up and pebble-dash
+      // are housing-led with some shops.
+      ? { cornice: false, roof: 'prewar', wtP: 0, shops: [0.85, 0.9, 0.45, 0.35][mat - 6] }
+      : mat >= 3
+        ? { cornice: false, roof: 'mech', shops: 0.3 }
+        : { roof: 'prewar', wtP: 0.35, shops: 0.3 });
+    // Issue #17 rooftop-gear clamp: when the caller supplies a gear policy
+    // (Taipei does, via taipeiCityBlocksOptions), it rewrites the committed
+    // gear — there it removes water towers entirely and shrinks HVAC units
+    // to fit inside the lot rect. Applies to every lot, not just family 6.
+    if (typeof opts.rooftopGearClamp === 'function') {
+      const gear = opts.rooftopGearClamp(blockDetail, lot);
+      blockDetail.waterTowers = gear.waterTowers;
+      blockDetail.hvacUnits = gear.hvacUnits;
+    }
     delete blockDetail.facadeBoxes;
     delete blockDetail.voidLots;
     blockDetail.footprints.sort((a, b2) => a.h - b2.h);
