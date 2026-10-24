@@ -23,7 +23,8 @@ import { AvatarFigure } from './avatar-figure.js';
 // Layer heights are a flat-ground visual stack only (land 0, block rects
 // 0.02, water 0.03, parks 0.04, street-section bands 0.045,
 // non-carriageway paths 0.05, carriageways 0.06, painted-walkway green
-// stripes 0.065), not terrain elevation: the tile is the flat basin floor.
+// band 0.065 and its white edge lines 0.066), not terrain elevation:
+// the tile is the flat basin floor.
 
 const NON_CARRIAGEWAY = new Set(['footway', 'path', 'steps', 'pedestrian', 'cycleway', 'corridor', 'elevator', 'crossing', 'platform', 'traffic_island']);
 
@@ -102,46 +103,76 @@ function ribbonsGeometry(roads, y) {
   return geo;
 }
 
-// Green edge stripes for 標線型人行道 (painted walkways): two thin bands
-// just inside the roadbed edges, following the centreline. Winding
-// mirrors ribbonsGeometry (first offset strictly greater than second,
-// so the computed normals point up).
-function stripesGeometry(roadbeds, y) {
+// 標線型人行道 (painted walkways, TAIWAN_STREETSCAPE.md §c.3): a solid
+// green band on ONE side of the carriageway, bounded by white lines on
+// both of its edges — the real marking is a single-side band, not the
+// twin edge stripes this replaced (issue #16: two green bands on narrow
+// lanes read as bike lanes). The side is a stable hash of the roadbed's
+// provenance (first source way id + name + first point), so a road keeps
+// its side across boots. Winding mirrors ribbonsGeometry (first offset
+// strictly greater than second, so the computed normals point up).
+const PAINTED_BAND_W = 1.35;     // §c.3 band width 1.1–1.8 m
+const PAINTED_LINE_W = 0.10;     // §c.3 white border lines 0.10–0.15 m
+const PAINTED_EDGE_INSET = 0.05; // outer white line sits just inside the carriageway edge
+
+function paintedSide(r) {
+  const key = `${r.sourceWayIds?.[0] ?? ''}|${r.name || ''}|${r.pts[0]},${r.pts[1]}`;
+  let h = 2166136261; // FNV-1a
+  for (let i = 0; i < key.length; i++) { h ^= key.charCodeAt(i); h = Math.imul(h, 16777619); }
+  return (h >>> 0) % 2 === 0 ? 1 : -1;
+}
+
+function stripQuad(positions, o, ax, az, bx, bz, nx, nz, o1, o2, y) {
+  const p = Math.max(o1, o2), q = Math.min(o1, o2);
+  positions.set([
+    ax + nx * p, y, az + nz * p, bx + nx * p, y, bz + nz * p, bx + nx * q, y, bz + nz * q,
+    ax + nx * p, y, az + nz * p, bx + nx * q, y, bz + nz * q, ax + nx * q, y, az + nz * q,
+  ], o);
+  return o + 18;
+}
+
+// Returns { band, edges } geometries: the green band at yBand and its two
+// white border lines at yEdge (a hair above, so they never z-fight).
+function paintedGeometries(roadbeds, yBand, yEdge) {
   let segments = 0;
   for (const r of roadbeds) segments += Math.max(0, r.pts.length / 2 - 1);
-  const positions = new Float32Array(segments * 2 * 18);
-  let o = 0;
+  const bandPos = new Float32Array(segments * 18);
+  const edgePos = new Float32Array(segments * 2 * 18);
+  let ob = 0, oe = 0;
   for (const r of roadbeds) {
     const half = Math.max((r.width || 3) / 2, 0.75);
-    if (half < 1.4) continue; // too narrow to carry two stripes
+    // Band + both lines must fit on one side without crossing the centre.
+    if (half < PAINTED_EDGE_INSET + PAINTED_LINE_W * 2 + PAINTED_BAND_W + 0.1) continue;
+    const s = paintedSide(r);
+    const outer1 = s * (half - PAINTED_EDGE_INSET);
+    const outer2 = s * (half - PAINTED_EDGE_INSET - PAINTED_LINE_W);
+    const inner1 = s * (half - PAINTED_EDGE_INSET - PAINTED_LINE_W - PAINTED_BAND_W);
+    const inner2 = s * (half - PAINTED_EDGE_INSET - PAINTED_LINE_W * 2 - PAINTED_BAND_W);
     for (let i = 0; i + 3 < r.pts.length; i += 2) {
       const ax = r.pts[i], az = r.pts[i + 1], bx = r.pts[i + 2], bz = r.pts[i + 3];
       const dx = bx - ax, dz = bz - az;
       const len = Math.hypot(dx, dz);
       if (len < 0.01) continue;
       const nx = -dz / len, nz = dx / len;
-      for (const s of [1, -1]) {
-        const o1 = s * (half - 0.05), o2 = s * (half - 1.25);
-        const p = Math.max(o1, o2), q = Math.min(o1, o2);
-        positions.set([
-          ax + nx * p, y, az + nz * p, bx + nx * p, y, bz + nz * p, bx + nx * q, y, bz + nz * q,
-          ax + nx * p, y, az + nz * p, bx + nx * q, y, bz + nz * q, ax + nx * q, y, az + nz * q,
-        ], o);
-        o += 18;
-      }
+      ob = stripQuad(bandPos, ob, ax, az, bx, bz, nx, nz, outer2, inner1, yBand);
+      oe = stripQuad(edgePos, oe, ax, az, bx, bz, nx, nz, outer1, outer2, yEdge);
+      oe = stripQuad(edgePos, oe, ax, az, bx, bz, nx, nz, inner1, inner2, yEdge);
     }
   }
-  const geo = new THREE.BufferGeometry();
-  geo.setAttribute('position', new THREE.BufferAttribute(positions.subarray(0, o), 3));
-  geo.computeVertexNormals();
-  return geo;
+  const toGeo = (positions, o) => {
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute('position', new THREE.BufferAttribute(positions.subarray(0, o), 3));
+    geo.computeVertexNormals();
+    return geo;
+  };
+  return { band: toGeo(bandPos, ob), edges: toGeo(edgePos, oe) };
 }
 
 // Street-section band widths beyond the carriageway, by pedestrianLayout
 // (TAIWAN_STREETSCAPE.md §c): a formal sidewalk adds ~2 m a side; an
 // arcade (騎樓) band is the 3.6 m colonnade floor the buildings front
-// onto. Painted walkways get green stripes on the carriageway instead
-// (stripesGeometry); shared streets get no band at all.
+// onto. Painted walkways get a green band on the carriageway instead
+// (paintedGeometries); shared streets get no band at all.
 const BAND_EXTRA = { sidewalk: 2.0, arcade: 3.6 };
 
 const mat = (color, roughness = 0.95, extra = {}) => new THREE.MeshStandardNodeMaterial({ color, roughness, metalness: 0.0, ...extra });
@@ -223,7 +254,11 @@ export function buildTaipeiGround(scene, tile, deps = {}) {
   addLayer(ribbonsGeometry(widened('arcade'), 0.045), mat(0xc2b59d), 'TaipeiArcadeBands');
   addLayer(ribbonsGeometry(geo.roads.filter((r) => NON_CARRIAGEWAY.has(r.highway)), 0.05), mat(0xa9a294, 0.95), 'TaipeiPaths');
   addLayer(ribbonsGeometry(carriageways, 0.06), mat(0x33363b, 0.9), 'TaipeiRoads');
-  addLayer(stripesGeometry(carriageways.filter((r) => r.pedestrianLayout === 'painted'), 0.065), mat(0x35794a, 0.9), 'TaipeiPaintedStripes');
+  // Painted walkways (§c.3): a single green band per roadbed on its
+  // hashed side in the spec colour, white edge lines a hair above it.
+  const painted = paintedGeometries(carriageways.filter((r) => r.pedestrianLayout === 'painted'), 0.065, 0.066);
+  addLayer(painted.band, mat(0x1e9e57, 0.9), 'TaipeiPaintedStripes');
+  addLayer(painted.edges, mat(0xf2f2f2, 0.9), 'TaipeiPaintedStripeEdges');
 
   // Buildings on the raster blocks + the Taipei 101 massing. The lot
   // plan is js/taipei-buildings.js's; the rendering is upstream's
