@@ -48,13 +48,13 @@ async function initApp() {
   document.body.dataset.city = tileSelection.id;
   const labelFor = isTaipei ? activeTile.getLocationLabel : getLocationLabel;
   // The map is a hand-built NYC atlas (boroughs, Central Park, NYC road
-  // classes); in a tile it is stubbed until a tile map is drawn from the
-  // tile's own geodata. (Declared here, consumed far below — see the
-  // typeof guard at the mapSystem creation for why.)
-  const taipeiMapStub = isTaipei ? {
-    isFullMapOpen: false, waypoint: null,
-    toggleFullMap() {}, update() {}, resizeFullCanvas() {}, renderFullMap() {}
-  } : null;
+  // classes); a tile instead gets its own map drawn from the tile's
+  // geodata / generation map (js/tile-map.js, issue #7). Loaded lazily
+  // here so the NYC boot never evaluates it. (Declared here, consumed far
+  // below — see the typeof guards at the mapSystem creation for why the
+  // split exists: tests/teleports.test.cjs evaluates that region with
+  // neither TileMapSystem nor activeTile in scope.)
+  const TileMapSystem = isTaipei ? (await import('./tile-map.js')).TileMapSystem : null;
 
   if (loadingStatus) {
     loadingStatus.textContent = `Initializing Three.js r${THREE.REVISION} WebGPURenderer & TSL Shaders...`;
@@ -552,7 +552,7 @@ async function initApp() {
     return destination;
   }
 
-  const mapSystem = (typeof taipeiMapStub !== 'undefined' ? taipeiMapStub : null) || new NYCMapSystem({
+  const mapDeps = {
     controllerManager,
     cameraSystem,
     trafficSystem,
@@ -567,7 +567,10 @@ async function initApp() {
       }
     },
     onTeleport: teleportTo
-  });
+  };
+  const mapSystem = (typeof TileMapSystem !== 'undefined' && TileMapSystem)
+    ? new TileMapSystem({ ...mapDeps, tile: typeof activeTile !== 'undefined' ? activeTile : null })
+    : new NYCMapSystem(mapDeps);
 
   teleportButtons.forEach((btn) => {
     btn.addEventListener('click', () => {
