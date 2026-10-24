@@ -6,10 +6,13 @@ import { planTaipeiBuildings } from '../js/taipei-buildings.js';
 import {
   buildSidewalkBands,
   planStreetTrees,
+  planParkTrees,
   sidewalkBandWidth,
   buildSegmentGrid,
   distToSegment,
+  pointInRing,
   TREE_CAP,
+  PARK_TREE_CAP,
 } from '../js/taipei-streetscape.js';
 
 // Issues #27 (sidewalks) and #28 (street trees): the geometry/placement
@@ -174,4 +177,110 @@ test('synthetic: trees keep out of lots and junctions, medians need a merged sur
   assert.ok(!trees.some((x) => Math.abs(x.z - 400) < 25 && x.kind === 'sidewalk'), 'no sidewalk rows without a sidewalk layout');
   assert.ok(!trees.some((x) => Math.abs(x.x - 30) < 8 && Math.abs(x.z - 17.5) < 5), 'lot footprint stays empty');
   assert.ok(!trees.some((x) => Math.abs(x.x) < 6 && Math.abs(x.z) < 20 && x.kind === 'median'), 'median row breaks at the crossing street');
+});
+
+// ---------------------------------------------------------------------
+// Issue #41 — park trees
+
+test('synthetic: park planting skips plazas and respects water, paths, lots and sites', () => {
+  const geo = {
+    roadbeds: [],
+    roads: [{ name: '', highway: 'footway', width: 3, pts: [0, 150, 200, 150] }],
+    water: [{ name: 'pond', ring: [80, 80, 120, 80, 120, 120, 80, 120] }],
+    parks: [
+      { name: 'Test Park', ring: [0, 0, 200, 0, 200, 200, 0, 200] },
+      // Overlaps the first park's corner: a plaza here must still win —
+      // it is paved, not planting ground.
+      { name: '市民廣場', ring: [150, 150, 260, 150, 260, 260, 150, 260] },
+    ],
+  };
+  const plan = {
+    lots: [{ x: 30, z: 30, w: 40, d: 40, h: 10, color: 0 }],
+    tower: null,
+    landmarkTowers: [{ sites: [{ minX: 150, maxX: 190, minZ: 10, maxZ: 50 }] }],
+  };
+  const { trees, stats } = planParkTrees(geo, plan);
+  assert.ok(trees.length > 50, `park planted (${trees.length} trees)`);
+  assert.ok(trees.every((t) => t.kind === 'park'));
+  // All inside the green park; the overlapping plaza polygon is
+  // skipped whole as a planting SOURCE (it is paved, #29).
+  assert.ok(trees.every((t) => pointInRing(t.x, t.z, geo.parks[0].ring)), 'every tree inside the source park');
+  assert.ok(trees.every((t) => t.park === 'Test Park'), 'plaza never a planting source');
+  assert.ok(!trees.some((t) => t.x >= 80 && t.x <= 120 && t.z >= 80 && t.z <= 120), 'pond stays empty');
+  assert.ok(!trees.some((t) => Math.abs(t.z - 150) < 3.3 - 0.01), 'footpath margin stays empty');
+  assert.ok(!trees.some((t) => Math.abs(t.x - 30) <= 20.3 && Math.abs(t.z - 30) <= 20.3), 'lot footprint stays empty');
+  assert.ok(!trees.some((t) => t.x >= 149.5 && t.x <= 190.5 && t.z >= 9.5 && t.z <= 50.5), 'landmark site stays empty');
+  assert.ok(stats.rejected.water > 0 && stats.rejected.path > 0, 'exclusions actually engaged');
+});
+
+test('real tile: park trees are deterministic, capped, and Da-an reads as woodland', (t) => {
+  const plan = planTaipeiBuildings(TAIPEI_GEO);
+  const a = planParkTrees(TAIPEI_GEO, plan);
+  const b = planParkTrees(TAIPEI_GEO, plan);
+  t.diagnostic(`park trees ${a.trees.length}, by class ${JSON.stringify(Object.fromEntries(Object.entries(a.stats.byClass).map(([k, v]) => [k, v.trees])))}`);
+  assert.deepEqual(
+    a.trees.map((x) => [x.x, x.z]),
+    b.trees.map((x) => [x.x, x.z]),
+    'identical inputs plant identical park trees',
+  );
+  assert.ok(a.trees.length > 3000 && a.trees.length <= PARK_TREE_CAP, `combined planting in budget (${a.trees.length})`);
+  const daan = a.trees.filter((x) => x.park === '大安森林公園').length;
+  t.diagnostic(`Da-an Forest Park trees ${daan}`);
+  assert.ok(daan >= 600 && daan <= 1600, `Da-an woodland density (${daan})`);
+  const capped = planParkTrees(TAIPEI_GEO, plan, { cap: 400 });
+  assert.equal(capped.trees.length, 400, 'cap hits exactly');
+  const full = new Set(a.trees.map((x) => `${x.x},${x.z}`));
+  assert.ok(capped.trees.every((x) => full.has(`${x.x},${x.z}`)), 'capped plan is a subset of the full plan');
+});
+
+test('real tile: park tree exclusion audit (brute force)', () => {
+  const plan = planTaipeiBuildings(TAIPEI_GEO);
+  const { trees } = planParkTrees(TAIPEI_GEO, plan);
+  const withBB = (ring) => {
+    let minX = Infinity, maxX = -Infinity, minZ = Infinity, maxZ = -Infinity;
+    for (let i = 0; i < ring.length; i += 2) {
+      minX = Math.min(minX, ring[i]); maxX = Math.max(maxX, ring[i]);
+      minZ = Math.min(minZ, ring[i + 1]); maxZ = Math.max(maxZ, ring[i + 1]);
+    }
+    return { ring, minX, maxX, minZ, maxZ };
+  };
+  const inAny = (list, x, z) => list.some((p) => x >= p.minX && x <= p.maxX && z >= p.minZ && z <= p.maxZ && pointInRing(x, z, p.ring));
+  const plantable = TAIPEI_GEO.parks.filter((p) => !(p.name || '').includes('廣場')).map((p) => withBB(p.ring));
+  const waterBB = TAIPEI_GEO.water.map((w) => withBB(w.ring));
+  const bedGrid = buildSegmentGrid(TAIPEI_GEO.roadbeds, 60);
+  const pathGrid = buildSegmentGrid(TAIPEI_GEO.roads.filter((r) => ['footway', 'path', 'steps', 'pedestrian', 'cycleway', 'corridor', 'elevator', 'crossing', 'platform', 'traffic_island'].includes(r.highway)), 60);
+  const towerHalf = plan.tower ? (plan.tower.podium?.w || 76) / 2 + 1 : 0;
+  const sites = [
+    ...(plan.tower ? [{ minX: plan.tower.x - towerHalf, maxX: plan.tower.x + towerHalf, minZ: plan.tower.z - towerHalf, maxZ: plan.tower.z + towerHalf }] : []),
+    ...(plan.landmarkTowers || []).flatMap((lt) => lt.sites || []),
+  ];
+  for (const tree of trees) {
+    assert.ok(inAny(plantable, tree.x, tree.z), `tree at ${tree.x.toFixed(0)},${tree.z.toFixed(0)} outside every plantable park`);
+    assert.ok(!inAny(waterBB, tree.x, tree.z), `tree in water at ${tree.x.toFixed(0)},${tree.z.toFixed(0)}`);
+    for (const s of bedGrid.near(tree.x, tree.z)) {
+      const d = distToSegment(tree.x, tree.z, s.ax, s.az, s.bx, s.bz);
+      assert.ok(d >= s.half + 0.9 - 0.01, `tree inside a carriageway (d=${d.toFixed(2)}, half=${s.half})`);
+    }
+    for (const s of pathGrid.near(tree.x, tree.z)) {
+      const d = distToSegment(tree.x, tree.z, s.ax, s.az, s.bx, s.bz);
+      assert.ok(d >= s.half + 1.8 - 0.01, `tree on a park path (d=${d.toFixed(2)}, half=${s.half})`);
+    }
+    assert.ok(!plan.lots.some((lot) => Math.abs(tree.x - lot.x) <= lot.w / 2 + 0.3 && Math.abs(tree.z - lot.z) <= lot.d / 2 + 0.3), `tree inside a lot at ${tree.x.toFixed(0)},${tree.z.toFixed(0)}`);
+    assert.ok(!sites.some((r) => tree.x >= r.minX - 0.5 && tree.x <= r.maxX + 0.5 && tree.z >= r.minZ - 0.5 && tree.z <= r.maxZ + 0.5), `tree inside a landmark site at ${tree.x.toFixed(0)},${tree.z.toFixed(0)}`);
+  }
+  // Grid-free spot check on a stride sample: full segment scans, no
+  // index trust (mirrors PR #34's brute-force standard).
+  const allSegs = (items) => items.flatMap((r) => {
+    const out = [];
+    for (let i = 0; i + 3 < r.pts.length; i += 2) out.push({ ax: r.pts[i], az: r.pts[i + 1], bx: r.pts[i + 2], bz: r.pts[i + 3], half: Math.max((r.width || 3) / 2, 0.75) });
+    return out;
+  });
+  const bedSegs = allSegs(TAIPEI_GEO.roadbeds);
+  for (let i = 0; i < trees.length; i += 37) {
+    const tree = trees[i];
+    for (const s of bedSegs) {
+      const d = distToSegment(tree.x, tree.z, s.ax, s.az, s.bx, s.bz);
+      assert.ok(d >= s.half + 0.9 - 0.01, `sampled tree inside a carriageway (d=${d.toFixed(2)}, half=${s.half})`);
+    }
+  }
 });
