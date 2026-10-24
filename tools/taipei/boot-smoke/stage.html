@@ -1,0 +1,103 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>boot smoke stage (DEV ONLY — not part of the game)</title>
+<!--
+  DEV-ONLY staging page for the boot smoke test (issue #59,
+  tools/taipei/boot-smoke.mjs). It is not linked from index.html and
+  no game code loads it. It exists so a headless browser can run the
+  REAL Taipei boot path — loadSelectedTile('?city=taipei') ->
+  tile.loadBoot() -> buildTaipeiGround(scene, tile, { buildCityBlocks })
+  — behind a real WebGPURenderer on its WebGL2 fallback, the same
+  backend the game uses on phones without WebGPU, and expose the
+  result on window.__done / window.__error for the smoke runner.
+
+  Imports use absolute /js/... paths so the page works from this
+  directory (the runner also serves this exact file at a virtual
+  route when smoke-testing a foreign checkout via --root). The
+  three.js importmap below is the game's own jsDelivr importmap,
+  unchanged; the smoke runner's static server rewrites those URLs to
+  a local three.js mirror when one is configured, because the gate
+  sandbox cannot reach the CDN (issue #38). The live site is never
+  rewritten — it keeps loading three.js from jsDelivr.
+-->
+<style>html,body{margin:0;height:100%;overflow:hidden;background:#87a6c0}#loading-status{position:fixed;left:8px;top:8px;color:#fff;font:14px monospace;z-index:9}</style>
+<script type="importmap">
+{ "imports": {
+  "three": "https://cdn.jsdelivr.net/gh/mrdoob/three.js@dev/build/three.webgpu.js",
+  "three/webgpu": "https://cdn.jsdelivr.net/gh/mrdoob/three.js@dev/build/three.webgpu.js",
+  "three/tsl": "https://cdn.jsdelivr.net/gh/mrdoob/three.js@dev/build/three.tsl.js",
+  "three/addons/": "https://cdn.jsdelivr.net/gh/mrdoob/three.js@dev/examples/jsm/"
+} }
+</script>
+</head>
+<body>
+<div id="loading-overlay"></div>
+<div id="loading-status">starting</div>
+<script type="module">
+const status = (t) => { document.getElementById('loading-status').textContent = t; console.info('[stage] ' + t); };
+try {
+  status('importing three');
+  const THREE = await import('three/webgpu');
+  const { ClusteredLighting } = await import('three/addons/lighting/ClusteredLighting.js');
+  const { LightingSystem } = await import('/js/lighting.js');
+  const { buildCityBlocks } = await import('/js/buildings.js');
+  status('importing tile registry');
+  const { loadSelectedTile } = await import('/js/tile-registry.js');
+  const sel = await loadSelectedTile('?city=taipei');
+  const tile = sel.tile;
+
+  const renderer = new THREE.WebGPURenderer({ antialias: true, powerPreference: 'high-performance', reversedDepthBuffer: true });
+  renderer.setPixelRatio(1.0);
+  renderer.setSize(1000, 700);
+  renderer.shadowMap.enabled = true;
+  renderer.lighting = new ClusteredLighting(256, 32, 28, 48);
+  document.body.appendChild(renderer.domElement);
+  await renderer.init();
+
+  const scene = new THREE.Scene();
+  scene.background = new THREE.Color(0x87a6c0);
+  window.__scene = scene;
+  const lighting = new LightingSystem(scene, renderer);
+  lighting.applyPreset('midday');
+
+  status('buildTaipeiGround');
+  const boot = await tile.loadBoot();
+  const t0 = performance.now();
+  // buildTaipeiGround is async (issue #63): await it so __done means
+  // the build has actually finished — the pre-#63 synchronous version
+  // of this page set __done after a fire-and-forget call, which the
+  // staged builder would have raced past.
+  const ground = await boot.buildTaipeiGround(scene, tile, { buildCityBlocks });
+  const ms = Math.round(performance.now() - t0);
+  window.__buildMs = ms;
+  window.__groundChildren = ground && ground.group ? ground.group.children.length : 0;
+  // Speed under SwiftShader: only the signal mesh casts shadows here.
+  let sigTris = 0;
+  scene.traverse((o) => {
+    if (o.isMesh) {
+      if (o.name === 'TaipeiTrafficSignals') { o.castShadow = true; sigTris = (o.geometry.getAttribute('position').count || 0) / 3; }
+      else o.castShadow = false;
+    }
+  });
+  status(`buildTaipeiGround done in ${ms}ms, children=${scene.children.length}, signalTris=${Math.round(sigTris)}`);
+  window.__signalTris = Math.round(sigTris);
+
+  const q = new URLSearchParams(location.search);
+  const cx = Number(q.get('x') ?? 339.5), cz = Number(q.get('z') ?? 19.4), r = Number(q.get('r') ?? 70);
+  const camera = new THREE.PerspectiveCamera(46, 1000 / 700, 0.5, 4000);
+  camera.position.set(cx + r * 0.75, r * 0.85, cz + r * 0.75);
+  camera.lookAt(cx, 2, cz);
+  window.__renderedFrames = 0;
+  renderer.setAnimationLoop(() => { renderer.render(scene, camera); window.__renderedFrames++; });
+  document.getElementById('loading-overlay').remove();
+  window.__done = true;
+} catch (e) {
+  window.__error = String(e && e.stack || e);
+  status('ERROR ' + window.__error);
+  console.error(e);
+}
+</script>
+</body>
+</html>
