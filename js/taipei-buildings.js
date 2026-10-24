@@ -553,18 +553,104 @@ export function planTaipeiBuildings(geodata) {
 }
 
 // Facade material for a planned lot, as an index into upstream
-// buildings.js's six facade families (0-2 masonry pre-war/brick/
-// brownstone, 3-5 curtain-wall glass). Deterministic from the lot's
-// position, like everything else in the plan: the Xinyi-core towers go
-// glass, boulevard mid-rises mix glass and masonry, residential
-// interiors stay masonry.
+// buildings.js's facade families (0-2 masonry pre-war/brick/brownstone,
+// 3-5 curtain-wall glass, 6-9 the Taiwan types — issue #17).
+// Deterministic from the lot's position, like everything else in the
+// plan: the Xinyi-core towers go glass, boulevard mid-rises mix glass
+// and masonry, residential interiors stay masonry. The four Taiwan types
+// (6 tile shophouse, 7 arcade shophouse, 8 walk-up slab, 9 pebble-dash
+// mid-rise) take a large share of the lots the pre-#17 rules put on
+// MASONRY in the 15–40 m band where Taipei's classic mixed-use blocks
+// live — 72% of the masonry pool at 15–22 m, 75% at 22–40 m — split
+// between the types by height-plausibility weights (see taiwanTypeFor).
+// The glass rolls in both bands are evaluated first with the exact
+// pre-#17 formulas, so the glass families' counts are untouched; above
+// 40 m and below 15 m nothing changes at all.
 function facadeMatFor(lot) {
   const seed = (Math.imul(Math.round(lot.x * 10), 73856093) ^ Math.imul(Math.round(lot.z * 10), 19349663) ^ 0x101) | 0;
   const r = hash01(seed);
   if (lot.h >= 40) return [3, 4, 5][Math.floor(r * 3) % 3];
-  if (lot.h >= 22) return r < 0.5 ? [3, 4, 5][Math.floor(r * 6) % 3] : [0, 1][Math.floor((r - 0.5) * 4) % 2];
+  if (lot.h >= 22) {
+    if (r < 0.5) return [3, 4, 5][Math.floor(r * 6) % 3]; // glass half, unchanged
+    const u = (r - 0.5) * 2; // masonry half, rescaled to 0..1
+    if (u < 0.75) return taiwanTypeFor(lot, seed);
+    const v = (u - 0.75) * 4;
+    return [0, 1][Math.floor(v * 2) % 2];
+  }
+  if (lot.h >= 15) {
+    if (r < 0.1) return 3; // glass accent, unchanged
+    const u = (r - 0.1) / 0.9; // masonry pool, rescaled to 0..1
+    if (u < 0.72) return taiwanTypeFor(lot, seed);
+    const v = (u - 0.72) / 0.28;
+    return [0, 1, 2][Math.floor(v * 3) % 3];
+  }
   if (lot.h >= 12) return r < 0.1 ? 3 : [0, 1, 2][Math.floor(r * 3) % 3];
   return [0, 1, 2][Math.floor(r * 3) % 3];
+}
+
+// Which Taiwan type a Taiwan-set lot becomes, by height plausibility —
+// a second hash of the same seed picks within the weights, and a type's
+// weight is zero outside its band, which is what caps each type:
+//   6 tile shophouse  15–40 m, weight 3 throughout
+//   7 arcade shophouse 15–28 m, weight 3 (騎樓 blocks stay low)
+//   8 walk-up slab     15–30 m, weight 3 (70s–80s walk-ups)
+//   9 pebble-dash      15–40 m, weight 2.2 (洗石子 runs from 5-storey
+//     walk-ups to mid-rises, but is the least common of the four)
+function taiwanTypeFor(lot, seed) {
+  const h = lot.h;
+  const weights = [
+    [6, h >= 15 && h < 40 ? 3 : 0],
+    [7, h >= 15 && h < 28 ? 3 : 0],
+    [8, h >= 15 && h < 30 ? 3 : 0],
+    [9, h >= 15 && h < 40 ? 2.2 : 0],
+  ];
+  const total = weights.reduce((s, [, w]) => s + w, 0);
+  let pick = hash01(seed ^ 0x9e3779b9) * total;
+  for (const [mat, w] of weights) {
+    if (pick < w) return mat;
+    pick -= w;
+  }
+  return 6;
+}
+
+// Rooftop-gear clamp (issue #17): upstream's commit() sizes bulkhead/HVAC
+// units from a Manhattan range (up to ~65% of the roof's width across on
+// big boxes, tall on small ones) and can drop a cedar water tower on any
+// non-mech roof. On narrow Taipei lots that produced rooftop boxes wider
+// than the building and HVAC fan wells stretched into ellipses (the unit
+// boxes are scaled non-uniformly per roof, so an over-wide unit means an
+// elliptical fan). Taipei policy, applied by js/buildings.js's lot mode
+// right after each commit: no water towers at all (wrong vocabulary for
+// Taipei), and every unit must fit INSIDE the lot rect with margin —
+// shrunk toward square (aspect ≤ 1.3, so fan wells stay near-circular),
+// capped at 4.2 m across and 3.0 m tall, and dropped when the roof is too
+// small to hold a unit honestly (smaller dimension < 3.6 m, or the shrunk
+// unit would fall under 1.8 m). Pure data — unit-tested.
+export function clampTaipeiRooftopGear(gear, lot) {
+  const roofW = lot.x1 - lot.x0;
+  const roofD = lot.z1 - lot.z0;
+  const roofMin = Math.min(roofW, roofD);
+  const units = [];
+  if (roofMin >= 3.6) {
+    for (const u of gear.hvacUnits || []) {
+      let w = Math.min(u.w, roofW - 1.0, 4.2);
+      let d = Math.min(u.d, roofD - 1.0, 4.2);
+      if (w < 1.8 || d < 1.8) continue;
+      if (w > d * 1.3) w = d * 1.3;
+      if (d > w * 1.3) d = w * 1.3;
+      const xLo = lot.x0 + w / 2 + 0.25, xHi = lot.x1 - w / 2 - 0.25;
+      const zLo = lot.z0 + d / 2 + 0.25, zHi = lot.z1 - d / 2 - 0.25;
+      if (xHi < xLo || zHi < zLo) continue;
+      units.push({
+        ...u,
+        w, d,
+        h: Math.min(u.h, 3.0),
+        x: Math.min(Math.max(u.x, xLo), xHi),
+        z: Math.min(Math.max(u.z, zLo), zHi),
+      });
+    }
+  }
+  return { waterTowers: [], hvacUnits: units };
 }
 
 // Adapt a plan into the options upstream's buildCityBlocks (js/
@@ -586,6 +672,10 @@ export function taipeiCityBlocksOptions(geodata, plan = planTaipeiBuildings(geod
     bounds: { ...geodata.frame.bbox },
     initial: [0, 0],
     colliders: false,
+    // Issue #17: Taipei's rooftop-gear policy (no water towers; HVAC units
+    // clamped to the roof) — buildCityBlocks' lot mode applies it to the
+    // committed gear of every lot when present.
+    rooftopGearClamp: clampTaipeiRooftopGear,
   };
 }
 
