@@ -531,6 +531,13 @@ test('landmark structures: true positions and heights, sites kept clear', (t) =>
     'national-concert-hall': { h: 37, x: -4616.0, z: -441.4 },
     'national-theater': { h: 37, x: -4718.7, z: -256.9 },
     'presidential-office-building': { h: 60, x: -5351.6, z: -774.7 },
+    // Batch 5 (issue #86): Beimen on its #77 junction island.
+    // The 19 m is the accepted overall estimate (no published
+    // figure exists — flagged estimated in the registry), and
+    // the position is the island centre the junction treatment
+    // fitted between the generated carriageways, NOT the
+    // published gate point ~19 m WNW (see registry comment).
+    'beimen': { h: 19, x: -5410.1, z: -1625.0 },
   };
   assert.equal(plan.landmarkTowers.length, Object.keys(expected).length, 'all verified structures present');
   const partTop = (p) => (p.y0 || 0) + p.h + (p.type === 'ridge' ? p.ridgeH : 0);
@@ -659,9 +666,12 @@ test('landmark batch 3: two-slab Cathay rebuild, W, Songshan, Eslite, Arena', ()
   assert.equal(arena.estimated, true, 'arena height is an estimate (no published height exists)');
   for (const s of plan.landmarkTowers) {
     // Batch 4 (issue #74) adds two more estimated heights: the two
-    // national halls' 37 m is OSM-derived, not published.
+    // national halls' 37 m is OSM-derived, not published. Batch 5
+    // (issue #86) adds Beimen: its ~19 m overall height is the
+    // accepted estimate — no published figure exists at all.
     if (s.id !== 'eslite-spectrum-songyan' && s.id !== 'taipei-arena'
-      && s.id !== 'national-concert-hall' && s.id !== 'national-theater') {
+      && s.id !== 'national-concert-hall' && s.id !== 'national-theater'
+      && s.id !== 'beimen') {
       assert.equal(s.estimated, false, `${s.id} height is published, not estimated`);
     }
   }
@@ -751,6 +761,37 @@ test('landmark batch 4: station district — crown, clock tower, terrace hall, p
     const pin = TAIPEI_TILE.landmarks.find((l) => l.id === id);
     assert.ok(pin && pin.nameZh && pin.height > 0, `${id} has a map pin with a Chinese name`);
   }
+});
+
+// Issue #86 batch 5: Beimen (Cheng-en Gate) on the plaza island
+// its #77 junction treatment fitted — two stone platform blocks
+// flanking the single passage, the red-brick gatehouse bridging
+// them, and the stepped tile roof under its ridge cap, every
+// part turned to the island capsule's axis. The footprint vs
+// roadbeds half of the contract is the unedited issue-#42 test.
+test('landmark batch 5: beimen gate on its junction island', () => {
+  const plan = planTaipeiBuildings(TAIPEI_GEO);
+  const gate = plan.landmarkTowers.find((s) => s.id === 'beimen');
+  assert.ok(gate, 'beimen registered');
+  assert.equal(gate.estimated, true, 'height is an estimate (no published figure exists)');
+  const partTop = (p) => (p.y0 || 0) + p.h + (p.type === 'ridge' ? p.ridgeH : 0);
+  assert.equal(Math.max(...gate.parts.map(partTop)), 19, 'ridge cap tops out at the estimated 19 m');
+  // Two platform blocks flank the passage; the gatehouse walls
+  // bridge the gap above them (y0 5.2, checked via part tops).
+  const platform = gate.parts.filter((p) => !p.y0 && p.h === 5.2);
+  assert.equal(platform.length, 2, 'platform massed as two blocks around the passage');
+  assert.ok(gate.parts.some((p) => p.flat === 0x35302b && p.h === 4.6), 'passage carries its shadow plug');
+  const centreDist = Math.hypot(platform[0].dx - platform[1].dx, platform[0].dz - platform[1].dz);
+  const passage = centreDist - platform[0].w;
+  assert.ok(passage > 4 && passage < 7, `passage gap reads at gate scale (${passage.toFixed(1)} m along the axis)`);
+  for (const p of gate.parts) {
+    assert.equal(p.type, 'box', 'beimen is stacked rotated boxes only (ridge/frustum parts cannot rotate)');
+    assert.ok(Math.abs(p.rotY - Math.atan2(-0.531, -0.848)) < 0.001, 'every part turns with the island axis');
+  }
+  // The island and its apron stay open ground around the gate.
+  assert.ok(gate.openGround, 'beimen registers its island plaza as open ground');
+  const pin = TAIPEI_TILE.landmarks.find((l) => l.id === 'beimen');
+  assert.ok(pin && pin.nameZh === '北門' && pin.height === 19, 'beimen has a map pin with its Chinese name');
 });
 
 // Issue #11: the plan is rendered by upstream's buildCityBlocks, fed
