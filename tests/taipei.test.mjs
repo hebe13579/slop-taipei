@@ -10,6 +10,7 @@ import {
 } from '../js/taipei-adapter.js';
 import { TAIPEI_TILE } from '../js/taipei-tile.js';
 import { TILE_REGISTRY, tileIdFromSearch, loadSelectedTile } from '../js/tile-registry.js';
+import { planTaipeiBuildings, pointInRing } from '../js/taipei-buildings.js';
 
 // M1 foundation: the Taipei tile's adapter, road graph, teleports and tile
 // registry. Numbers printed via t.diagnostic are the actual generated values.
@@ -204,4 +205,50 @@ test('tile registry is data-driven and defaults to nyc', async () => {
   // The registry entry is the ONLY place a future tile (e.g. Beitou) needs
   // to be added; no tile id is hardcoded in the selection logic.
   assert.equal(TILE_REGISTRY.taipei.kind, 'tile');
+});
+
+// Buildings increment: the procedural lot plan over the raster blocks.
+// The invariants that keep the city honest: the plan is deterministic,
+// no building stands in a park or in water (Da'an Forest Park stays
+// empty), the Taipei 101 site is kept clear for the massing, and the
+// massing itself is present at the landmark with its eight tiers.
+test('buildings plan: deterministic, excludes parks/water/101 site, tower present', (t) => {
+  const plan = planTaipeiBuildings(TAIPEI_GEO);
+  const again = planTaipeiBuildings(TAIPEI_GEO);
+  assert.equal(plan.lots.length, again.lots.length, 'building count stable across runs');
+  assert.deepEqual(plan.lots.slice(0, 100), again.lots.slice(0, 100), 'lot plan deterministic across runs');
+  assert.deepEqual(plan.tower, again.tower, 'tower plan deterministic across runs');
+  t.diagnostic(`buildings: ${plan.lots.length} lots, stats ${JSON.stringify(plan.stats)}`);
+  assert.ok(plan.lots.length > 5000, `expected a city of buildings, got ${plan.lots.length}`);
+
+  const ringBbox = (ring) => {
+    let minX = Infinity, maxX = -Infinity, minZ = Infinity, maxZ = -Infinity;
+    for (let i = 0; i + 1 < ring.length; i += 2) {
+      minX = Math.min(minX, ring[i]); maxX = Math.max(maxX, ring[i]);
+      minZ = Math.min(minZ, ring[i + 1]); maxZ = Math.max(maxZ, ring[i + 1]);
+    }
+    return { minX, maxX, minZ, maxZ };
+  };
+  const polys = [...TAIPEI_GEO.parks, ...TAIPEI_GEO.water].map((p) => ({ name: p.name, ring: p.ring, bb: ringBbox(p.ring) }));
+  for (const lot of plan.lots) {
+    for (const p of polys) {
+      if (lot.x < p.bb.minX || lot.x > p.bb.maxX || lot.z < p.bb.minZ || lot.z > p.bb.maxZ) continue;
+      assert.ok(!pointInRing(lot.x, lot.z, p.ring), `building at ${lot.x},${lot.z} inside "${p.name || 'water'}"`);
+    }
+    assert.ok(lot.h >= 8 && lot.h <= 60, `height ${lot.h} within the contextual tiers`);
+    assert.ok(lot.w >= 7 && lot.d >= 7, 'footprint sane');
+  }
+  // Some Xinyi-core lots reach the tall tier.
+  assert.ok(plan.lots.some((l) => Math.hypot(l.x, l.z) < 650 && l.h >= 40), 'tall buildings near Taipei 101');
+
+  const t101 = TAIPEI_GEO.landmarks['Taipei 101'];
+  const site = { minX: t101.x - t101.w / 2, maxX: t101.x + t101.w / 2, minZ: t101.z - t101.d / 2, maxZ: t101.z + t101.d / 2 };
+  for (const lot of plan.lots) {
+    const hit = lot.x + lot.w / 2 > site.minX && lot.x - lot.w / 2 < site.maxX && lot.z + lot.d / 2 > site.minZ && lot.z - lot.d / 2 < site.maxZ;
+    assert.ok(!hit, `building at ${lot.x},${lot.z} intrudes on the Taipei 101 site`);
+  }
+  assert.ok(plan.tower, 'Taipei 101 massing planned');
+  assert.equal(plan.tower.tiers.length, 8, 'eight bamboo-joint tiers');
+  assert.equal(plan.tower.totalHeight, 508, 'true overall height');
+  assert.ok(plan.tower.x > site.minX && plan.tower.x < site.maxX && plan.tower.z > site.minZ && plan.tower.z < site.maxZ, 'tower stands on its landmark site');
 });
