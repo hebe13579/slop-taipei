@@ -352,6 +352,19 @@ test('buildings plan: deterministic, excludes parks/water/101 site, tower presen
   assert.ok(plan.tower, 'Taipei 101 massing planned');
   assert.equal(plan.tower.tiers.length, 8, 'eight bamboo-joint tiers');
   assert.equal(plan.tower.totalHeight, 508, 'true overall height');
+  // The eight tiers are identical modules (the real tower's stacked
+  // sections do not taper): same height and half-widths on every tier,
+  // each flaring wider at its lip than at its stepped-in base. The
+  // vertical budget podium + tiers + top section + spire sums to 508.
+  const [tier0] = plan.tower.tiers;
+  for (const tier of plan.tower.tiers) {
+    assert.equal(tier.h, tier0.h, 'tier heights identical');
+    assert.equal(tier.hwBottom, tier0.hwBottom, 'tier base half-widths identical');
+    assert.equal(tier.hwTop, tier0.hwTop, 'tier lip half-widths identical');
+    assert.ok(tier.hwTop > tier.hwBottom, 'each tier flares out to its lip');
+  }
+  assert.ok(plan.tower.top.hwTop < tier0.hwBottom, 'top section narrower than the tiers');
+  assert.equal(plan.tower.spire.y0 + plan.tower.spire.h, 508, 'spire tip at 508 m');
   assert.ok(plan.tower.x > site.minX && plan.tower.x < site.maxX && plan.tower.z > site.minZ && plan.tower.z < site.maxZ, 'tower stands on its landmark site');
 });
 
