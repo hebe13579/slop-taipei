@@ -35,6 +35,13 @@ async function initApp() {
     if (loadingTrack) loadingTrack.classList.remove('is-indeterminate');
     loadingFill.style.transform = `scaleX(${Math.min(1, Math.max(0, p))})`;
   };
+  // Taipei construction reports real staged progress (issue #63, see
+  // js/taipei-progress.js) and fills the first share of the bar with
+  // it; shader compilation below fills the remainder via progressBase.
+  // NYC never sets progressBase, so its bar remains exactly the
+  // compile fraction it has always been.
+  const TAIPEI_BUILD_PROGRESS_SHARE = 0.5;
+  let progressBase = 0;
 
   // Data-driven tile selection: ?city=<id> (default 'nyc', the legacy built-in
   // city built below). Tile definitions load lazily through
@@ -136,7 +143,18 @@ async function initApp() {
   if (isTaipei) {
     const boot = await activeTile.loadBoot();
     tileBoot = boot;
-    cityGrid = boot.buildTaipeiGround(scene, activeTile, { buildCityBlocks });
+    cityGrid = await boot.buildTaipeiGround(scene, activeTile, {
+      buildCityBlocks,
+      // Real staged progress (issue #63): the boot fires this as each
+      // construction stage actually completes — the loader names the
+      // finished stage and fills its share of the bar. No estimates:
+      // if a stage stalls, the bar and the stage name freeze on it.
+      onProgress: ({ label, fraction }) => {
+        if (loadingStatus) loadingStatus.textContent = `Constructing ${activeTile.label} — ${label} (${Math.round(fraction * 100)}%)`;
+        setLoadingProgress(fraction * TAIPEI_BUILD_PROGRESS_SHARE);
+      },
+    });
+    progressBase = TAIPEI_BUILD_PROGRESS_SHARE;
     markInit('tileGround');
     boroughs = { colliders: [], update: null };
     // The tile's buildings are built by the same upstream system as
@@ -784,7 +802,7 @@ async function initApp() {
         if (loadingStatus) {
           loadingStatus.textContent = `Compiling Shaders & Render Pipelines... ${Math.round((done / jobs.length) * 100)}%`;
         }
-        setLoadingProgress(done / jobs.length);
+        setLoadingProgress(progressBase + (done / jobs.length) * (1 - progressBase));
       }
     };
     await Promise.all(Array.from({ length: COMPILE_POOL }, worker));

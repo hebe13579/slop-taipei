@@ -10,6 +10,7 @@ import { planJunctionCaps, planRoundabouts, ringPoints, CAP_Y, ISLAND_Y } from '
 import { buildDeckGeometry, PIER_W, PIER_D } from './taipei-viaduct.js';
 import { unionExclusionRects, clipRectToBoxes } from './taipei-union.js';
 import { createCurtainWallMaterial, createPreWarBuildingMaterial } from './tsl-materials.js';
+import { createBuildProgress, TAIPEI_BUILD_STAGES } from './taipei-progress.js';
 
 // js/taipei-boot.js
 // Boot builder for registry tiles. It renders what the geodata honestly
@@ -419,11 +420,40 @@ export function controllerOptions(tile, env = {}) {
   };
 }
 
-export function buildTaipeiGround(scene, tile, deps = {}) {
+// Between construction stages the boot yields to the browser so the
+// loading screen can paint the progress the stage just reported
+// (issue #63). rAF is the paint signal; the timeout is the fallback
+// for a backgrounded tab, where rAF never fires and waiting on it
+// would stall the build itself.
+const yieldForPaint = () => new Promise((resolve) => {
+  let settled = false;
+  const done = () => { if (!settled) { settled = true; resolve(); } };
+  if (typeof requestAnimationFrame === 'function') requestAnimationFrame(done);
+  setTimeout(done, 60);
+});
+
+// Async since issue #63: construction runs in the stages listed in
+// js/taipei-progress.js, reporting each stage as it completes via
+// deps.onProgress and yielding for a paint between stages. The stage
+// boundaries below sit exactly where the builders' own console.info
+// lines already divided the work — no builder is restructured.
+export async function buildTaipeiGround(scene, tile, deps = {}) {
   const geo = tile.geodata;
   const bb = geo.frame.bbox;
   const group = new THREE.Group();
   group.name = 'TaipeiGround';
+
+  const progress = createBuildProgress(deps.onProgress);
+  let stageNo = 0;
+  let stageStart = performance.now();
+  const completeStage = async (id, detail = '') => {
+    const ms = Math.round(performance.now() - stageStart);
+    const fraction = progress.complete(id, detail);
+    stageNo++;
+    console.info(`[taipei-progress] stage ${stageNo}/${TAIPEI_BUILD_STAGES.length} '${id}' complete in ${ms}ms (fraction ${fraction.toFixed(3)}${detail ? `; ${detail}` : ''})`);
+    await yieldForPaint();
+    stageStart = performance.now();
+  };
 
   // Land: one plane per tile box (issue #60) — the union's shape, so
   // the dropped bands between/around the boxes show sky/void like any
@@ -474,6 +504,7 @@ export function buildTaipeiGround(scene, tile, deps = {}) {
   const plazaParks = geo.parks.filter(isPlazaPark);
   addLayer(flatPolygonGeometry(lawnParks.map((p) => p.ring), 0.04), mat(SURFACE_TONES.park, 0.9), 'TaipeiParks');
   if (plazaParks.length) addLayer(flatPolygonGeometry(plazaParks.map((p) => p.ring), 0.041), mat(SURFACE_TONES.plaza, 0.95), 'TaipeiPlazas');
+  await completeStage('ground', `${landRects.length} land boxes, ${groundBlocks.length} blocks, ${geo.water.length} water polygons, ${geo.parks.length} parks`);
   // Carriageways render from the generation map's roadbeds when the geodata
   // carries them (issue #6: divided boulevards merged into one roadbed,
   // sub-120 m link ramps dropped). Per-way ribbons remain the fallback for
@@ -513,6 +544,7 @@ export function buildTaipeiGround(scene, tile, deps = {}) {
   addLayer(ribbonsGeometry(byClass.arterial, 0.06), mat(SURFACE_TONES.arterial, 0.9), 'TaipeiRoads');
   addLayer(ribbonsGeometry(byClass.collector, 0.06), mat(SURFACE_TONES.collector, 0.9), 'TaipeiRoadsCollector');
   addLayer(ribbonsGeometry(byClass.lane, 0.06), mat(SURFACE_TONES.lane, 0.9), 'TaipeiRoadsLane');
+  await completeStage('roads', `${carriageways.length} roadbeds, ${sidewalkBands.quadCount} sidewalk band quads`);
   // Junction caps (issues #66/#75, js/taipei-junctions.js): one
   // paved polygon per detected junction, in the widest arm's
   // surface tone at 0.061 — a plain junction-BOX cap at major
@@ -547,6 +579,7 @@ export function buildTaipeiGround(scene, tile, deps = {}) {
   if (islandsByKind.planted.length) addLayer(flatPolygonGeometry(islandsByKind.planted, ISLAND_Y), mat(SURFACE_TONES.park, 0.9), 'TaipeiRoundaboutIslands-planted');
   if (islandsByKind.plaza.length) addLayer(flatPolygonGeometry(islandsByKind.plaza, ISLAND_Y), mat(SURFACE_TONES.plaza, 0.9), 'TaipeiRoundaboutIslands-plaza');
   console.info(`[taipei-junctions] ${caps.length} junction caps over ${junctions.length} detected junctions (${caps.reduce((s, c) => s + c.area, 0).toLocaleString('en-US')} m² of junction box paved); ${caps.filter((c) => c.kind === 'box').length} box / ${caps.filter((c) => c.kind === 'fitted').length} fitted; roundabouts handcrafted: ${roundabouts.map((s) => `${s.id} disc r=${s.discR}${s.islandR ? ` island r=${s.islandR}` : ' capsule island'} (${s.claimedJunctions.length} junctions claimed${s.aprons.length ? `, ${s.aprons.length} entry aprons` : ''})`).join(', ')}`);
+  await completeStage('junctions', `${caps.length} caps + ${roundabouts.length} roundabouts over ${junctions.length} junctions`);
   // Boulevard medians (issue #29): a strip along the centreline of
   // each merged bed wide enough to hold one — planted on the grand
   // ground boulevards, plain concrete elsewhere; underpass/tunnel
@@ -565,6 +598,7 @@ export function buildTaipeiGround(scene, tile, deps = {}) {
   const painted = paintedGeometries(carriageways, 0.065, 0.066, capPolys);
   addLayer(painted.band, mat(0x1e9e57, 0.9), 'TaipeiPaintedStripes');
   addLayer(painted.edges, mat(0xf2f2f2, 0.9), 'TaipeiPaintedStripeEdges');
+  await completeStage('medians', `${medians.stats.plantedBeds + medians.stats.plainBeds} median beds, painted walkways clipped at ${capPolys.length} junction caps`);
   // Road detail (issue #45, js/taipei-markings.js): dashed white lane
   // dividers between same-direction lanes (never on a median, broken
   // at junctions), zebra crosswalks + stop lines at signalized
@@ -582,6 +616,7 @@ export function buildTaipeiGround(scene, tile, deps = {}) {
   const signalMesh = buildSignalMesh(markings.signals);
   if (signalMesh) group.add(signalMesh);
   console.info(`[taipei-markings] ${markings.stats.dividerKm.toFixed(1)} km of lane dividers on ${markings.stats.dividerBeds} beds; ${markings.stats.signalized} signalized junctions, ${markings.stats.crosswalks} crosswalks, ${markings.stats.stopLines} stop lines, ${markings.stats.signalUnits} static signal units (${markings.stats.signalMast} mast-arm / ${markings.stats.signalPole} corner-pole, ${markings.stats.clearanceUnresolved} unresolved corners) planned in ${Math.round(performance.now() - markingsStart)}ms`);
+  await completeStage('markings', `${markings.stats.crosswalks} crosswalks, ${markings.stats.signalUnits} signal units`);
 
   // Elevated highway decks (issue #61, js/taipei-viaduct.js): the
   // 建國 / 市民大道 / 基隆路高架 corridors and their ramps as real
@@ -603,6 +638,7 @@ export function buildTaipeiGround(scene, tile, deps = {}) {
     if (pierMesh) group.add(pierMesh);
     console.info(`[taipei-decks] ${deckGeo.lineCount} deck lines (${geo.elevatedRoads.stats?.lineKm ?? '?'} km), ${deckGeo.pierCount} piers, ${deckGeo.triCount.toLocaleString('en-US')} triangles in ${Math.round(performance.now() - decksStart)}ms`);
   }
+  await completeStage('decks', geo.elevatedRoads?.lines?.length ? `${geo.elevatedRoads.lines.length} elevated lines` : 'no elevated roads in tile');
 
   // Buildings on the raster blocks + the Taipei 101 massing. The lot
   // plan is js/taipei-buildings.js's; the rendering is upstream's
@@ -628,6 +664,7 @@ export function buildTaipeiGround(scene, tile, deps = {}) {
   const landmarkTowers = createTaipeiLandmarkTowers(THREE, plan, landmarkFactories);
   if (landmarkTowers) group.add(landmarkTowers);
   console.info(`[taipei-buildings] ${plan.lots.length} buildings via upstream building system + Taipei 101 massing (508 m) + ${plan.landmarkTowers.length} landmark structures planned in ${Math.round(performance.now() - buildingsStart)}ms`);
+  await completeStage('buildings', `${plan.lots.length} buildings, ${plan.landmarkTowers.length} landmark structures + Taipei 101`);
 
   // Street trees (issue #28) + park trees (issue #41): ONE InstancedMesh
   // for the whole tile, planted by taipei-streetscape.js after the
@@ -640,6 +677,7 @@ export function buildTaipeiGround(scene, tile, deps = {}) {
   const treeMesh = buildStreetTreeMesh([...treePlan.trees, ...parkTreePlan.trees]);
   if (treeMesh) group.add(treeMesh);
   console.info(`[taipei-trees] ${treePlan.trees.length} street trees (${treePlan.stats.sidewalk} sidewalk, ${treePlan.stats.median} median${treePlan.stats.capped ? `, capped at ${treePlan.stats.cap}` : ''}) + ${parkTreePlan.trees.length} park trees${parkTreePlan.stats.capped ? ` (capped at ${parkTreePlan.stats.cap})` : ''} planned in ${Math.round(performance.now() - treesStart)}ms`);
+  await completeStage('trees', `${treePlan.trees.length + parkTreePlan.trees.length} trees`);
 
   scene.add(group);
   return {
