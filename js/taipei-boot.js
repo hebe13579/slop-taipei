@@ -220,16 +220,25 @@ function buildStreetTreeMesh(trees) {
 }
 
 // ---------------------------------------------------------------------
-// Traffic signal units (issue #45): one static unit in local space,
-// lamps facing +Z (the approaching driver) — a pole, a short mast arm
-// and a horizontal 3-lamp head in the Taiwan arrangement (red left
-// from the driver's seat), lenses in muted UNLIT colours (no phase
-// cycle in this increment), plus the pedestrian signal box with a
-// static lit red panel (no figure animation, no countdown — standing
-// user directive). Placements come from taipei-markings.js; every
-// unit is the same vertex-coloured geometry, transformed per
-// placement and merged into ONE mesh / one draw call.
-function signalUnitGeometry() {
+// Traffic signal units (issues #45 + #64): static units in local
+// space, lamps facing +Z (the approaching driver), in TWO kinds the
+// planner in taipei-markings.js chooses per approach:
+//   'pole' — a plain corner pole with a short bracket head;
+//   'mast' — the T-shape mast-arm unit for DIVIDED approaches only:
+//     a horizontal arm reaching from the corner pole over the
+//     approach carriageway (local −X: the placed frame maps +X to
+//     the driver's right, so the carriageway lies toward −X), with
+//     3-lamp heads hanging along it.
+// Both carry the horizontal 3-lamp head in the Taiwan arrangement
+// (red left from the driver's seat), lenses in muted UNLIT colours
+// (no phase cycle), plus the pedestrian signal box with a static
+// lit red panel on the pole (no figure animation, no countdown —
+// standing user directive); the pedestrian panel shares the unit's
+// corner placement. Placements stand at roadside corners, clear of
+// every carriageway (issue #64). Every unit is vertex-coloured
+// geometry, transformed per placement and merged into ONE mesh /
+// one draw call.
+function signalPartsGeometry(build) {
   const parts = [];
   const addPart = (geo, color, x, y, z, rx = 0) => {
     const g = geo.index ? geo.toNonIndexed() : geo;
@@ -241,14 +250,17 @@ function signalUnitGeometry() {
     for (let i = 0; i < pos.count; i++) { colors[i * 3] = c.r; colors[i * 3 + 1] = c.g; colors[i * 3 + 2] = c.b; }
     parts.push({ pos: pos.array, nor: g.getAttribute('normal').array, colors });
   };
-  addPart(new THREE.CylinderGeometry(0.09, 0.12, 5.6, 6), 0x2b2e33, 0, 2.8, 0); // pole
-  addPart(new THREE.BoxGeometry(0.14, 0.14, 2.4), 0x2b2e33, 0, 5.52, 1.05); // mast arm
-  addPart(new THREE.BoxGeometry(1.5, 0.44, 0.3), 0x17191d, 0, 5.02, 2.1); // head housing
-  addPart(new THREE.CylinderGeometry(0.145, 0.145, 0.06, 10), 0x7a1f16, -0.48, 5.02, 2.27, Math.PI / 2); // red lens (unlit)
-  addPart(new THREE.CylinderGeometry(0.145, 0.145, 0.06, 10), 0x7a5c14, 0, 5.02, 2.27, Math.PI / 2); // amber lens (unlit)
-  addPart(new THREE.CylinderGeometry(0.145, 0.145, 0.06, 10), 0x1d5c2a, 0.48, 5.02, 2.27, Math.PI / 2); // green lens (unlit)
-  addPart(new THREE.BoxGeometry(0.52, 0.64, 0.2), 0x17191d, 0, 2.9, 0.14); // pedestrian signal box
-  addPart(new THREE.BoxGeometry(0.38, 0.5, 0.03), 0xa8321f, 0, 2.9, 0.25); // static lit red panel
+  const head = (hx, hy, hz) => {
+    addPart(new THREE.BoxGeometry(1.5, 0.44, 0.3), 0x17191d, hx, hy, hz); // head housing
+    addPart(new THREE.CylinderGeometry(0.145, 0.145, 0.06, 10), 0x7a1f16, hx - 0.48, hy, hz + 0.17, Math.PI / 2); // red lens (unlit)
+    addPart(new THREE.CylinderGeometry(0.145, 0.145, 0.06, 10), 0x7a5c14, hx, hy, hz + 0.17, Math.PI / 2); // amber lens (unlit)
+    addPart(new THREE.CylinderGeometry(0.145, 0.145, 0.06, 10), 0x1d5c2a, hx + 0.48, hy, hz + 0.17, Math.PI / 2); // green lens (unlit)
+  };
+  const pedBox = () => {
+    addPart(new THREE.BoxGeometry(0.52, 0.64, 0.2), 0x17191d, 0, 2.9, 0.14); // pedestrian signal box
+    addPart(new THREE.BoxGeometry(0.38, 0.5, 0.03), 0xa8321f, 0, 2.9, 0.25); // static lit red panel
+  };
+  build(addPart, head, pedBox);
   const total = parts.reduce((s, p) => s + p.pos.length, 0);
   const positions = new Float32Array(total);
   const normals = new Float32Array(total);
@@ -262,27 +274,56 @@ function signalUnitGeometry() {
   return geo;
 }
 
+function signalPoleGeometry() {
+  return signalPartsGeometry((addPart, head, pedBox) => {
+    addPart(new THREE.CylinderGeometry(0.09, 0.12, 5.6, 6), 0x2b2e33, 0, 2.8, 0); // pole
+    addPart(new THREE.BoxGeometry(0.14, 0.14, 0.9), 0x2b2e33, 0, 5.38, 0.38); // bracket toward the approach
+    head(0, 5.05, 0.72);
+    pedBox();
+  });
+}
+
+function signalMastGeometry(armLen) {
+  return signalPartsGeometry((addPart, head, pedBox) => {
+    addPart(new THREE.CylinderGeometry(0.09, 0.12, 5.6, 6), 0x2b2e33, 0, 2.8, 0); // pole
+    addPart(new THREE.BoxGeometry(armLen, 0.16, 0.16), 0x2b2e33, -armLen / 2, 5.55, 0); // mast arm over the carriageway (−X)
+    const heads = armLen >= 6.5 ? [-armLen * 0.45, -armLen + 0.8] : [-armLen + 0.8];
+    for (const hx of heads) {
+      addPart(new THREE.BoxGeometry(0.08, 0.42, 0.08), 0x2b2e33, hx, 5.32, 0); // hanger
+      head(hx, 4.95, 0);
+    }
+    pedBox();
+  });
+}
+
 function buildSignalMesh(signals) {
   if (!signals.length) return null;
-  const base = signalUnitGeometry();
-  const vcount = base.getAttribute('position').count;
-  // Buffers hold FLOATS: vcount vertices x 3 components per signal unit.
-  // (Allocating vcount * signals.length here under-allocated 3x and
-  // Float32Array.set threw RangeError mid-boot — the P1 hang at the
-  // "Constructing Taipei" stage.)
-  const positions = new Float32Array(vcount * 3 * signals.length);
-  const normals = new Float32Array(vcount * 3 * signals.length);
-  const colors = new Float32Array(vcount * 3 * signals.length);
+  const poleBase = signalPoleGeometry();
+  // Merge the per-unit transformed geometries by concatenating
+  // their attribute arrays. Buffers hold FLOATS and are sized from
+  // the arrays themselves, so the total is exact by construction —
+  // mast units carry per-unit arm lengths and cannot share one
+  // vcount (the PR #58 under-allocation came from assuming one:
+  // vcount vertices x 3 float components per unit, never vcount x
+  // units).
+  const chunks = [];
+  let total = 0;
   const dummy = new THREE.Object3D();
-  signals.forEach((s, i) => {
+  signals.forEach((s) => {
+    const base = s.kind === 'mast' ? signalMastGeometry(s.armLen || 8) : poleBase;
     dummy.position.set(s.x, 0, s.z);
     dummy.rotation.set(0, Math.atan2(s.faceX, s.faceZ), 0);
     dummy.updateMatrix();
     const g = base.clone().applyMatrix4(dummy.matrix);
-    positions.set(g.getAttribute('position').array, i * vcount * 3);
-    normals.set(g.getAttribute('normal').array, i * vcount * 3);
-    colors.set(g.getAttribute('color').array, i * vcount * 3);
+    const p = g.getAttribute('position').array;
+    chunks.push({ p, n: g.getAttribute('normal').array, c: g.getAttribute('color').array });
+    total += p.length;
   });
+  const positions = new Float32Array(total);
+  const normals = new Float32Array(total);
+  const colors = new Float32Array(total);
+  let o = 0;
+  for (const ch of chunks) { positions.set(ch.p, o); normals.set(ch.n, o); colors.set(ch.c, o); o += ch.p.length; }
   const geo = new THREE.BufferGeometry();
   geo.setAttribute('position', new THREE.BufferAttribute(positions, 3));
   geo.setAttribute('normal', new THREE.BufferAttribute(normals, 3));
@@ -432,7 +473,7 @@ export function buildTaipeiGround(scene, tile, deps = {}) {
   );
   const signalMesh = buildSignalMesh(markings.signals);
   if (signalMesh) group.add(signalMesh);
-  console.info(`[taipei-markings] ${markings.stats.dividerKm.toFixed(1)} km of lane dividers on ${markings.stats.dividerBeds} beds; ${markings.stats.signalized} signalized junctions, ${markings.stats.crosswalks} crosswalks, ${markings.stats.stopLines} stop lines, ${markings.stats.signalUnits} static signal units planned in ${Math.round(performance.now() - markingsStart)}ms`);
+  console.info(`[taipei-markings] ${markings.stats.dividerKm.toFixed(1)} km of lane dividers on ${markings.stats.dividerBeds} beds; ${markings.stats.signalized} signalized junctions, ${markings.stats.crosswalks} crosswalks, ${markings.stats.stopLines} stop lines, ${markings.stats.signalUnits} static signal units (${markings.stats.signalMast} mast-arm / ${markings.stats.signalPole} corner-pole, ${markings.stats.clearanceUnresolved} unresolved corners) planned in ${Math.round(performance.now() - markingsStart)}ms`);
 
   // Buildings on the raster blocks + the Taipei 101 massing. The lot
   // plan is js/taipei-buildings.js's; the rendering is upstream's
