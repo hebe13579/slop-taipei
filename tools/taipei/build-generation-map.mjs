@@ -81,6 +81,15 @@
 //      (js/taipei-painted.js), no green band is born on, or crosses, a
 //      main carriageway.
 //
+// Rework v4 (issue #61):
+//  10. DECK FLAGS — a roadbed deriving from an elevated carriageway of
+//      a deck class (DECK_CLASSES below) is flagged `deck: true`.
+//      The flag changes nothing in this layer's accounting (the beds
+//      stay in every ground planner: junction caps, markings, medians
+//      and the lot exclusion all keep working on the full bed set);
+//      it only tells the boot not to draw the bed as a ground ribbon —
+//      tools/taipei/build-elevated.mjs builds its real deck instead.
+//
 // usage: node tools/taipei/build-generation-map.mjs
 import fs from 'node:fs';
 import path from 'node:path';
@@ -101,6 +110,13 @@ const load = (f) => JSON.parse(fs.readFileSync(path.join(DATA, f), 'utf8'));
 // The pairing gates (same name, opposing travel, centrelines within
 // 45 m, density tests) still decide; class only sets eligibility.
 const PAIR_CLASSES = new Set(['trunk', 'primary', 'secondary', 'tertiary']);
+// Deck classes (issue #61): the carriageway classes whose elevated
+// ways become real decks in tools/taipei/build-elevated.mjs (which
+// carries the same set). A roadbed deriving from such a way is
+// flagged `deck: true` and the boot draws it as a deck, not a ground
+// ribbon; validate.mjs cross-checks the flag against the elevated set.
+const DECK_CLASSES = new Set(['motorway', 'motorway_link', 'trunk', 'trunk_link', 'primary', 'primary_link', 'secondary', 'secondary_link', 'tertiary', 'tertiary_link']);
+const isDeckSegment = (seg) => isElevatedTags(seg) && DECK_CLASSES.has(seg.highway);
 const MAX_PAIR_DIST_M = 45;        // max centreline distance for a merge
 const MIN_PAIR_OVERLAP = 0.7;      // fraction of each segment that must pair
 const MIN_INRANGE_OVERLAP = 0.8;   // pairing density inside the overlap range
@@ -715,6 +731,7 @@ const singleEntry = (seg, pts) => {
   return {
     name: seg.name, highway: seg.highway, centreline: flatQ(simplified), width: seg.width,
     pedestrianLayout: seg.pedestrianLayout, sourceWayIds: [seg.wayId],
+    ...(isDeckSegment(seg) ? { deck: true } : {}),
   };
 };
 // Wholly unpaired segments render as single roadbeds.
@@ -753,6 +770,11 @@ for (const g of groups) {
     pedestrianLayout: mergedLayout,
     sourceWayIds: g.members.map((m) => m.seg.wayId),
     merged: true, constituentWidths: g.members.map((m) => m.seg.width),
+    // A merged bed is a deck bed when ANY member is an elevated deck
+    // carriageway (the mixed cases are genuinely elevated structures
+    // with incomplete OSM layer tagging on one carriageway — 麥帥一橋，
+    // 環河快速道路）; its deck geometry comes from the member ways.
+    ...(g.members.some((m) => isDeckSegment(m.seg)) ? { deck: true } : {}),
   });
   mergedLength += geo.length;
   mergedReport.push({
@@ -941,6 +963,7 @@ const stats = {
   simplificationShorteningM: Math.round(simplificationShorteningM * 10) / 10,
   demotedFrontageBeds: demotedReport,
   roadbedCount: roadbeds.length,
+  deckBeds: roadbeds.filter((b) => b.deck).length,
   roadbedLength: Math.round(roadbedLength * 10) / 10,
   overrides: [...overrideMatched.entries()].map(([name, matchedWays]) => ({ name, width: OVERRIDES[name], matchedWays })),
   mergedRoads: mergedReport,
