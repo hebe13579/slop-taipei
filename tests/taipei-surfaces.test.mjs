@@ -62,7 +62,10 @@ test('geodata: class populations cover every roadbed exactly once', () => {
   // into a merged group, one bed reclassed — see issue #51).
   // Re-pinned 2026-10-24 for the west-expansion data (issue #60):
   // roadbeds 4,387 -> 5,792 with the station district added.
-  assert.deepEqual(counts, { deck: 141, arterial: 612, collector: 579, lane: 4460 });
+  // Re-pinned for issue #74: the memorial-park service-drive
+  // exclusion removed 22 lane-class beds inside 中正紀念公園
+  // (5,792 -> 5,770 roadbeds), all other classes unchanged.
+  assert.deepEqual(counts, { deck: 141, arterial: 612, collector: 579, lane: 4438 });
 });
 
 test('medianKind: merged + width rule, planted only on wide secondary', () => {
