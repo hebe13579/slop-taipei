@@ -7,6 +7,7 @@ import { buildPaintedBands } from './taipei-painted.js';
 import { SURFACE_TONES, surfaceClass, buildMedianStrips, isPlazaPark, isPodiumBlock, podiumCentresOf } from './taipei-surfaces.js';
 import { buildRoadMarkings } from './taipei-markings.js';
 import { unionExclusionRects, clipRectToBoxes } from './taipei-union.js';
+import { createCurtainWallMaterial, createPreWarBuildingMaterial } from './tsl-materials.js';
 
 // js/taipei-boot.js
 // Boot builder for registry tiles. It renders what the geodata honestly
@@ -320,6 +321,12 @@ export function controllerOptions(tile, env = {}) {
     clampToShore: false,
     groundHeight: () => 0,
     speedScale: 2,
+    // Helicopter (user request 2026-10-24): ceiling above 600 m — 750
+    // clears Taipei 101 (508 m) with margin — and ascend/descend 5×
+    // faster than the current in-Taipei rate: the vertical cap becomes
+    // 16 m/s × speedScale 2 × heliVerticalScale 5 = 160 m/s.
+    heliCeiling: 750,
+    heliVerticalScale: 5,
     avatarFigureFactory: env.webglFallback ? (appearance) => new AvatarFigure(appearance) : null,
     spawnByMode: {
       person: { x: s.x - 15.2, z: s.z + 12 },
@@ -470,9 +477,13 @@ export function buildTaipeiGround(scene, tile, deps = {}) {
   const cityBlocks = deps.buildCityBlocks
     ? deps.buildCityBlocks(scene, taipeiCityBlocksOptions(geo, plan))
     : null;
-  const tower = createTaipei101(THREE, plan);
+  // Issue #57: the landmark builders take the TSL facade factories
+  // injected (taipei-buildings.js stays import-free for the node
+  // suite); ./tsl-materials.js is already on the Pages preload list.
+  const landmarkFactories = { createCurtainWallMaterial, createPreWarBuildingMaterial };
+  const tower = createTaipei101(THREE, plan, landmarkFactories);
   if (tower) group.add(tower);
-  const landmarkTowers = createTaipeiLandmarkTowers(THREE, plan);
+  const landmarkTowers = createTaipeiLandmarkTowers(THREE, plan, landmarkFactories);
   if (landmarkTowers) group.add(landmarkTowers);
   console.info(`[taipei-buildings] ${plan.lots.length} buildings via upstream building system + Taipei 101 massing (508 m) + ${plan.landmarkTowers.length} landmark structures planned in ${Math.round(performance.now() - buildingsStart)}ms`);
 
