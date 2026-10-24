@@ -99,18 +99,23 @@ async function initApp() {
   // unchanged. A registry tile runs its own ground builder and stubs every
   // NYC-only system with an inert equivalent (see js/taipei-boot.js and the
   // M1 PR for the precise stub list): no boroughs, NYC landmarks, piers,
-  // Central Park specifics or East River bridges exist in a tile, and
-  // buildings/traffic/pedestrians stay off until their data exists.
+  // Central Park specifics or East River bridges exist in a tile.
+  // Buildings are NOT stubbed: the tile's ground builder runs upstream's
+  // buildCityBlocks on the tile's planned lots (issue #11). Traffic and
+  // pedestrians stay off until their data exists.
   let cityGrid, boroughs, cityBlocks, streetDetails, trafficSystem, highwayTraffic;
   let landmarkColliders = [];
   let tileBoot = null;
   if (isTaipei) {
     const boot = await activeTile.loadBoot();
     tileBoot = boot;
-    cityGrid = boot.buildTaipeiGround(scene, activeTile);
+    cityGrid = boot.buildTaipeiGround(scene, activeTile, { buildCityBlocks });
     markInit('tileGround');
     boroughs = { colliders: [], update: null };
-    cityBlocks = { colliders: [], allBlocks: [], update() {}, updateLights: null };
+    // The tile's buildings are built by the same upstream system as
+    // NYC's (issue #11), so a tile gets the real streaming object; the
+    // inert stub remains the fallback if a boot module builds none.
+    cityBlocks = cityGrid.cityBlocks || { colliders: [], allBlocks: [], update() {}, updateLights: null };
     streetDetails = { footprints: [], signalClock: { value: 0 }, update: null };
     trafficSystem = { network: null, update() {} };
     highwayTraffic = { update() {} };
@@ -218,7 +223,7 @@ async function initApp() {
   // Island-wide static geometry: chunk & distance-cull the small props, shadow stand-ins for the big casters
   // (scene-culling.js)
   const cullingRoots = (isTaipei
-    ? ['TaipeiGround']
+    ? ['TaipeiGround', 'ManhattanCityBlocks']
     : ['ManhattanCityGrid', 'ManhattanCityBlocks', 'ManhattanStreetDetails', 'ManhattanLandmarks', 'Boroughs'])
     .map((name) => scene.getObjectByName(name))
     .filter(Boolean);
