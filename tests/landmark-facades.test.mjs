@@ -33,6 +33,8 @@ const EXPECTED_FACADES = {
   'national-concert-hall': 'prewar', // cream palace walls
   'national-theater': 'prewar', // cream palace walls
   'presidential-office-building': 'prewar', // red-brick baroque block
+  // Batch 5 (issue #86): Beimen — red-brick gatehouse walls.
+  'beimen': 'prewar',
 };
 
 // The only Latin wordmarks a landmark sign may carry — the ones the

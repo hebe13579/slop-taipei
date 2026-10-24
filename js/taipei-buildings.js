@@ -309,7 +309,10 @@ function ribbonHitsLot(r, minX, maxX, minZ, maxZ) {
 // declarative massing primitives the renderer
 // (createTaipeiLandmarkTowers) turns into plain meshes:
 //
-//   box      { w, d, h, y0?, dx?, dz?, rotY? }   axis-aligned block
+//   box      { w, d, h, y0?, dx?, dz?, rotY? }   block; rotY turns
+//              it in the tile plane (planner convention — the
+//              renderer negates it for THREE, see
+//              createTaipeiLandmarkTowers)
 //   frustum  { wB, dB, wT, dT, h, y0?, topDropX? }
 //              rectangular frustum; topDropX lowers the +x top edge
 //              by that many metres (a diagonal-cut crown)
@@ -876,6 +879,67 @@ const LANDMARK_STRUCTURES = [
       { type: 'box', w: 54, d: 22, h: 27, dz: 54 },
       { type: 'box', w: 26, d: 26, h: 30, y0: 27 },
       { type: 'frustum', wB: 26, dB: 26, wT: 13, dT: 13, h: 3, y0: 57, flat: 0x4a4440 },
+    ],
+  },
+  {
+    // Issue #86: 北門 (Cheng-en Gate, 1884) — the gate the #77
+    // junction treatment built its island for. The only Taipei
+    // city gate still in its Qing form: a closed Minnan
+    // blockhouse — an andesite platform pierced by ONE arched
+    // passage, red-brick gatehouse walls, and a single-eaved
+    // hip-and-gable roof （單簷歇山）. The platform is massed as
+    // two blocks flanking the 4.5 m passage gap; the roof is
+    // stacked rotated boxes (an eave slab over two tile steps
+    // under a heavy ridge cap — the Main Station stepped-flat
+    // roof precedent, because ridge/frustum parts cannot
+    // rotate and this structure must).
+    // Orientation: the long axis follows the old north-wall
+    // line, which is the #77 island capsule's axis (BEIMEN_SITE
+    // axis (-0.848, -0.531) in js/taipei-junctions.js; every
+    // part carries rotY = atan2(-0.531, -0.848) = -2.5821), so
+    // the gatehouse facades face NNE/SSW and the passage cuts
+    // across the axis — north toward 大稻埕， south into the
+    // walled city along 博愛路.
+    // Height: no published figure exists (Wikipedia and the
+    // national-monument record describe the form, give no
+    // metres), so the accepted ~19 m overall estimate is used
+    // and flagged estimated, decomposed 5.2 (platform) + 8.3
+    // (two-storey brick gatehouse) + 0.8 (eave) + 3.5 (roof
+    // steps) + 1.2 (ridge) = 19.
+    // Position: the published gate point (25.047717,
+    // 121.511192) converts to (-5430.5, -1630.3) — about 19 m
+    // WNW of the island the #77 treatment fitted between the
+    // GENERATED carriageways, and a platform centred there
+    // reaches past the island's west end toward the 中華路
+    // curve. The structure is therefore centred on the island
+    // (capsule centre (-5412, -1622), shifted 3.5 m across-axis
+    // away from the south lane whose ribbon grazes the
+    // island's south edge); this entry's lat/lon back-converts
+    // to exactly that spot (-5410.1, -1625.0) — the Main
+    // Station +11 m placement precedent, disclosed the same
+    // way. Audited: every part at 0.000 m² against every
+    // roadbed ribbon (nearest clearance 1.5 m — the platform's
+    // SE corner to the south lane), and the whole footprint
+    // inside the island capsule.
+    id: 'beimen', name: 'Beimen (Cheng-en Gate)', nameZh: '北門',
+    lat: 25.04767, lon: 121.511394, realHeight: 19, estimated: true, color: 0xa55f41,
+    site: { w: 34, d: 30, dx: 0, dz: 0 },
+    plaza: { w: 68, d: 56, dx: 0, dz: 0 },
+    facade: { kind: 'prewar', stoneColor: 0xa55f41, trimColor: 0xd8cdb6, windowGlassColor: 0x27313d, windowWidth: 3.2, floorHeight: 4.15, litProbability: 0.18, warmth: 0.6, seed: 57.34 },
+    parts: [
+      { type: 'box', w: 12, d: 15.5, h: 5.2, dx: 7.0, dz: 4.38, rotY: -2.5821, flat: 0x7a7263 },
+      { type: 'box', w: 12, d: 15.5, h: 5.2, dx: -7.0, dz: -4.38, rotY: -2.5821, flat: 0x7a7263 },
+      // The passage as a near-black plug recessed in the slot:
+      // an open slot reads as two detached slabs from street
+      // level (you see the city through it); the plug reads as
+      // the shadowed arch tunnel from every angle.
+      { type: 'box', w: 4.5, d: 13.5, h: 4.6, rotY: -2.5821, flat: 0x35302b },
+      { type: 'box', w: 28.5, d: 15.5, h: 0.35, y0: 4.85, rotY: -2.5821, flat: 0x8d8578 },
+      { type: 'box', w: 19, d: 12.5, h: 8.3, y0: 5.2, rotY: -2.5821 },
+      { type: 'box', w: 21.5, d: 15, h: 0.8, y0: 13.5, rotY: -2.5821, flat: 0x46484a },
+      { type: 'box', w: 19.5, d: 13, h: 1.8, y0: 14.3, rotY: -2.5821, flat: 0x50544e },
+      { type: 'box', w: 16.5, d: 10.5, h: 1.7, y0: 16.1, rotY: -2.5821, flat: 0x50544e },
+      { type: 'box', w: 13, d: 3.2, h: 1.2, y0: 17.8, rotY: -2.5821, flat: 0x5d6058 },
     ],
   },
 ];
@@ -2121,7 +2185,16 @@ export function createTaipeiLandmarkTowers(THREE, plan, factories) {
       if (part.type === 'box') {
         mesh = new THREE.Mesh(new THREE.BoxGeometry(part.w, part.h, part.d), partMaterial(part, false));
         mesh.position.set(s.x + (part.dx || 0), y0 + part.h / 2, s.z + (part.dz || 0));
-        if (part.rotY) mesh.rotation.y = part.rotY;
+        // rotY is authored in the tile-plane convention the
+        // planner (lotCorners), the registry data and the
+        // issue-#42 overlap audit all share: local +x maps to
+        // (cos, +sin) in (x, z). THREE's rotation.y turns the
+        // other way (measured against the local three build:
+        // +x maps to (cos, -sin)), so the sign flips here to
+        // make the rendered box the audited box. Until issue
+        // #86 only Tao Zhu Yin Yuan's twist used rotY; it now
+        // renders in the direction its data describes.
+        if (part.rotY) mesh.rotation.y = -part.rotY;
       } else if (part.type === 'cylinder') {
         mesh = new THREE.Mesh(new THREE.CylinderGeometry(part.r, part.r, part.h, 24), partMaterial(part, false));
         if (part.rz) mesh.scale.z = part.rz / part.r; // elliptical plan
