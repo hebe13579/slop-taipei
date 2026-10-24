@@ -1991,6 +1991,16 @@ function buildCityBlocks(scene, opts = null) {
     const { x0: minX, x1: maxX, z0: minZ, z1: maxZ } = lot;
     const cx = (minX + maxX) * 0.5;
     const cz = (minZ + maxZ) * 0.5;
+    const bucketMarks = buckets.map((items) => items.length);
+    // Issue #62: a planned lot may carry a frontage turn (lot.rotY,
+    // from the Taipei planner's per-block orientation). The lot rect
+    // is then its LOCAL frame: mass it exactly as an axis lot, in a
+    // frame turned by rotY about the lot centre — the Manhattan
+    // frontage-frame mechanism — and placeInFrame (below, after the
+    // gear clamp) turns everything it emitted into place. Unturned
+    // lots never touch xf, so their output is unchanged.
+    const framed = !!lot.rotY;
+    if (framed) xf = { th: lot.rotY, cs: Math.cos(lot.rotY), sn: Math.sin(lot.rotY), px: cx, pz: cz };
     const blockDetail = {
       id: `taipei_${Math.round(cx)}_${Math.round(cz)}`,
       cx,
@@ -2060,6 +2070,13 @@ function buildCityBlocks(scene, opts = null) {
       // additions (other clamps simply don't — undefined stays empty).
       blockDetail.rooftopAdds = gear.rooftopAdds || [];
     }
+    // Issue #62: turn a framed lot's emitted geometry into place
+    // (facade boxes, gear, signs, footprints, bounds) before the
+    // quadtree takes the block — the populateBlock order.
+    if (framed) {
+      placeInFrame(blockDetail, bucketMarks);
+      xf = null;
+    }
     delete blockDetail.facadeBoxes;
     delete blockDetail.voidLots;
     blockDetail.footprints.sort((a, b2) => a.h - b2.h);
@@ -2083,6 +2100,34 @@ function buildCityBlocks(scene, opts = null) {
       for (const o of list) {
         [o.x, o.z] = toWorld(o.x, o.z);
         o.ry = th;
+      }
+    }
+    // Issue #62: planned-lot extras the Manhattan frames never
+    // carried. Rooftop additions hold absolute frame positions —
+    // turn them like the gear above (their renderer reads blk.ry
+    // for the turn itself). Vertical signs are RELATIVE descriptors
+    // (side/along against the block's frame bounds): resolve each
+    // to the world centre the detail renderer computes from those
+    // bounds, turned into place, and store it on the sign (s.x/s.z)
+    // — the renderer prefers the stored centre when present. The
+    // block's bounds are still the frame's here (they are rewritten
+    // from the turned corners below).
+    if (Array.isArray(blk.rooftopAdds)) {
+      for (const o of blk.rooftopAdds) {
+        [o.x, o.z] = toWorld(o.x, o.z);
+      }
+    }
+    if (Array.isArray(blk.signs)) {
+      for (const s of blk.signs) {
+        let sx, sz;
+        if (s.side === 's' || s.side === 'n') {
+          sx = blk.minX + s.along * (blk.maxX - blk.minX);
+          sz = s.side === 's' ? blk.maxZ + s.out * 0.5 : blk.minZ - s.out * 0.5;
+        } else {
+          sx = s.side === 'e' ? blk.maxX + s.out * 0.5 : blk.minX - s.out * 0.5;
+          sz = blk.minZ + s.along * (blk.maxZ - blk.minZ);
+        }
+        [s.x, s.z] = toWorld(sx, sz);
       }
     }
     const corners = (x0, x1, z0, z1) => [toWorld(x0, z0), toWorld(x1, z0), toWorld(x1, z1), toWorld(x0, z1)].map(([x, z]) => ({ x, z }));
@@ -2838,15 +2883,25 @@ function buildCityBlocks(scene, opts = null) {
       for (let i = 0; i < (blk.signs || []).length && vSignCount < MAX_VSIGNS; i++) {
         const s = blk.signs[i];
         const cy = s.y0 + s.h * 0.5;
-        if (s.side === 's' || s.side === 'n') {
-          dummy.position.set(blk.minX + s.along * (blk.maxX - blk.minX), cy,
-            s.side === 's' ? blk.maxZ + s.out * 0.5 : blk.minZ - s.out * 0.5);
-          dummy.scale.set(s.thick, s.h, s.out);
+        // Issue #62: a sign on a frame-turned block carries its
+        // resolved world centre (placeInFrame stored s.x/s.z);
+        // unturned blocks compute it from the block bounds as
+        // before. Either way the panel turns with its block (the
+        // loop head set dummy.rotation from blk.ry).
+        let px, pz;
+        if (s.x !== undefined) {
+          px = s.x;
+          pz = s.z;
+        } else if (s.side === 's' || s.side === 'n') {
+          px = blk.minX + s.along * (blk.maxX - blk.minX);
+          pz = s.side === 's' ? blk.maxZ + s.out * 0.5 : blk.minZ - s.out * 0.5;
         } else {
-          dummy.position.set(s.side === 'e' ? blk.maxX + s.out * 0.5 : blk.minX - s.out * 0.5, cy,
-            blk.minZ + s.along * (blk.maxZ - blk.minZ));
-          dummy.scale.set(s.out, s.h, s.thick);
+          px = s.side === 'e' ? blk.maxX + s.out * 0.5 : blk.minX - s.out * 0.5;
+          pz = blk.minZ + s.along * (blk.maxZ - blk.minZ);
         }
+        dummy.position.set(px, cy, pz);
+        if (s.side === 's' || s.side === 'n') dummy.scale.set(s.thick, s.h, s.out);
+        else dummy.scale.set(s.out, s.h, s.thick);
         dummy.updateMatrix();
         vSignInst.setMatrixAt(vSignCount, dummy.matrix);
         vSignCount++;
