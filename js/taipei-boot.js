@@ -2,6 +2,7 @@ import * as THREE from 'three/webgpu';
 
 import { planTaipeiBuildings, taipeiCityBlocksOptions, createTaipei101 } from './taipei-buildings.js';
 import { AvatarFigure } from './avatar-figure.js';
+import { buildPaintedBands } from './taipei-painted.js';
 
 // js/taipei-boot.js
 // Boot builder for registry tiles. It renders what the geodata honestly
@@ -106,66 +107,30 @@ function ribbonsGeometry(roads, y) {
 // 標線型人行道 (painted walkways, TAIWAN_STREETSCAPE.md §c.3): a solid
 // green band on ONE side of the carriageway, bounded by white lines on
 // both of its edges — the real marking is a single-side band, not the
-// twin edge stripes this replaced (issue #16: two green bands on narrow
-// lanes read as bike lanes). The side is a stable hash of the roadbed's
-// provenance (first source way id + name + first point), so a road keeps
-// its side across boots. Winding mirrors ribbonsGeometry (first offset
-// strictly greater than second, so the computed normals point up).
-const PAINTED_BAND_W = 1.35;     // §c.3 band width 1.1–1.8 m
-const PAINTED_LINE_W = 0.10;     // §c.3 white border lines 0.10–0.15 m
-const PAINTED_EDGE_INSET = 0.05; // outer white line sits just inside the carriageway edge
-
-function paintedSide(r) {
-  const key = `${r.sourceWayIds?.[0] ?? ''}|${r.name || ''}|${r.pts[0]},${r.pts[1]}`;
-  let h = 2166136261; // FNV-1a
-  for (let i = 0; i < key.length; i++) { h ^= key.charCodeAt(i); h = Math.imul(h, 16777619); }
-  return (h >>> 0) % 2 === 0 ? 1 : -1;
-}
-
-function stripQuad(positions, o, ax, az, bx, bz, nx, nz, o1, o2, y) {
-  const p = Math.max(o1, o2), q = Math.min(o1, o2);
-  positions.set([
-    ax + nx * p, y, az + nz * p, bx + nx * p, y, bz + nz * p, bx + nx * q, y, bz + nz * q,
-    ax + nx * p, y, az + nz * p, bx + nx * q, y, bz + nz * q, ax + nx * q, y, az + nz * q,
-  ], o);
-  return o + 18;
-}
-
-// Returns { band, edges } geometries: the green band at yBand and its two
-// white border lines at yEdge (a hair above, so they never z-fight).
-function paintedGeometries(roadbeds, yBand, yEdge) {
-  let segments = 0;
-  for (const r of roadbeds) segments += Math.max(0, r.pts.length / 2 - 1);
-  const bandPos = new Float32Array(segments * 18);
-  const edgePos = new Float32Array(segments * 2 * 18);
-  let ob = 0, oe = 0;
-  for (const r of roadbeds) {
-    const half = Math.max((r.width || 3) / 2, 0.75);
-    // Band + both lines must fit on one side without crossing the centre.
-    if (half < PAINTED_EDGE_INSET + PAINTED_LINE_W * 2 + PAINTED_BAND_W + 0.1) continue;
-    const s = paintedSide(r);
-    const outer1 = s * (half - PAINTED_EDGE_INSET);
-    const outer2 = s * (half - PAINTED_EDGE_INSET - PAINTED_LINE_W);
-    const inner1 = s * (half - PAINTED_EDGE_INSET - PAINTED_LINE_W - PAINTED_BAND_W);
-    const inner2 = s * (half - PAINTED_EDGE_INSET - PAINTED_LINE_W * 2 - PAINTED_BAND_W);
-    for (let i = 0; i + 3 < r.pts.length; i += 2) {
-      const ax = r.pts[i], az = r.pts[i + 1], bx = r.pts[i + 2], bz = r.pts[i + 3];
-      const dx = bx - ax, dz = bz - az;
-      const len = Math.hypot(dx, dz);
-      if (len < 0.01) continue;
-      const nx = -dz / len, nz = dx / len;
-      ob = stripQuad(bandPos, ob, ax, az, bx, bz, nx, nz, outer2, inner1, yBand);
-      oe = stripQuad(edgePos, oe, ax, az, bx, bz, nx, nz, outer1, outer2, yEdge);
-      oe = stripQuad(edgePos, oe, ax, az, bx, bz, nx, nz, inner1, inner2, yEdge);
-    }
+// twin edge stripes this replaced (issue #16). The band geometry —
+// side hash, offsets, and the junction clipping that keeps bands off
+// crossing carriageways (issue #25) — lives in js/taipei-painted.js as
+// pure geometry so tests and audits run the exact code drawn here.
+// This converts its quads ([x,z] x4, strip order) to triangle positions.
+function quadsGeometry(quads, y) {
+  const positions = new Float32Array(quads.length * 18);
+  let o = 0;
+  for (const q of quads) {
+    positions.set([
+      q[0], y, q[1], q[2], y, q[3], q[4], y, q[5],
+      q[0], y, q[1], q[4], y, q[5], q[6], y, q[7],
+    ], o);
+    o += 18;
   }
-  const toGeo = (positions, o) => {
-    const geo = new THREE.BufferGeometry();
-    geo.setAttribute('position', new THREE.BufferAttribute(positions.subarray(0, o), 3));
-    geo.computeVertexNormals();
-    return geo;
-  };
-  return { band: toGeo(bandPos, ob), edges: toGeo(edgePos, oe) };
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+  geo.computeVertexNormals();
+  return geo;
+}
+
+function paintedGeometries(carriageways, yBand, yEdge) {
+  const { band, edges } = buildPaintedBands(carriageways);
+  return { band: quadsGeometry(band, yBand), edges: quadsGeometry(edges, yEdge) };
 }
 
 // Street-section band widths beyond the carriageway, by pedestrianLayout
@@ -256,7 +221,10 @@ export function buildTaipeiGround(scene, tile, deps = {}) {
   addLayer(ribbonsGeometry(carriageways, 0.06), mat(0x33363b, 0.9), 'TaipeiRoads');
   // Painted walkways (§c.3): a single green band per roadbed on its
   // hashed side in the spec colour, white edge lines a hair above it.
-  const painted = paintedGeometries(carriageways.filter((r) => r.pedestrianLayout === 'painted'), 0.065, 0.066);
+  // All carriageways go in (not just the painted ones): the builder
+  // clips every band at junctions so no green crosses a carriageway
+  // (issue #25).
+  const painted = paintedGeometries(carriageways, 0.065, 0.066);
   addLayer(painted.band, mat(0x1e9e57, 0.9), 'TaipeiPaintedStripes');
   addLayer(painted.edges, mat(0xf2f2f2, 0.9), 'TaipeiPaintedStripeEdges');
 
