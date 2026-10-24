@@ -6,6 +6,7 @@ import { AvatarFigure } from './avatar-figure.js';
 import { buildPaintedBands } from './taipei-painted.js';
 import { SURFACE_TONES, surfaceClass, buildMedianStrips, isPlazaPark, isPodiumBlock, podiumCentresOf } from './taipei-surfaces.js';
 import { buildRoadMarkings } from './taipei-markings.js';
+import { createCurtainWallMaterial, createPreWarBuildingMaterial } from './tsl-materials.js';
 
 // js/taipei-boot.js
 // Boot builder for registry tiles. It renders what the geodata honestly
@@ -455,9 +456,13 @@ export function buildTaipeiGround(scene, tile, deps = {}) {
   const cityBlocks = deps.buildCityBlocks
     ? deps.buildCityBlocks(scene, taipeiCityBlocksOptions(geo, plan))
     : null;
-  const tower = createTaipei101(THREE, plan);
+  // Issue #57: the landmark builders take the TSL facade factories
+  // injected (taipei-buildings.js stays import-free for the node
+  // suite); ./tsl-materials.js is already on the Pages preload list.
+  const landmarkFactories = { createCurtainWallMaterial, createPreWarBuildingMaterial };
+  const tower = createTaipei101(THREE, plan, landmarkFactories);
   if (tower) group.add(tower);
-  const landmarkTowers = createTaipeiLandmarkTowers(THREE, plan);
+  const landmarkTowers = createTaipeiLandmarkTowers(THREE, plan, landmarkFactories);
   if (landmarkTowers) group.add(landmarkTowers);
   console.info(`[taipei-buildings] ${plan.lots.length} buildings via upstream building system + Taipei 101 massing (508 m) + ${plan.landmarkTowers.length} landmark structures planned in ${Math.round(performance.now() - buildingsStart)}ms`);
 

@@ -195,6 +195,7 @@
       createTaipeiLandmarkTowers,
     } from './js/taipei-buildings.js';
     import { LightingSystem } from './js/lighting.js';
+    import { createCurtainWallMaterial, createPreWarBuildingMaterial } from './js/tsl-materials.js';
 
     // js/buildings-gallery — the read-only review surface for the
     // building set (issue #32). Everything on this page is produced by
@@ -461,9 +462,10 @@
 
       // --- Taipei 101 + landmark structures: the game's own groups ---
       setStatus('Raising Taipei 101 and the landmark structures…');
-      const tower = createTaipei101(THREE, plan);
+      const landmarkFactories = { createCurtainWallMaterial, createPreWarBuildingMaterial };
+      const tower = createTaipei101(THREE, plan, landmarkFactories);
       if (tower) scene.add(tower);
-      const landmarkGroup = createTaipeiLandmarkTowers(THREE, plan);
+      const landmarkGroup = createTaipeiLandmarkTowers(THREE, plan, landmarkFactories);
       if (landmarkGroup) scene.add(landmarkGroup);
 
       // --- Labels ---
