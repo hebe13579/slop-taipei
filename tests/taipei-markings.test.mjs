@@ -168,7 +168,11 @@ test('furniture: non-signalized junctions get nothing', () => {
 
 test('geodata: tile-wide marking counts are in the audited bands', () => {
   const r = buildRoadMarkings(TAIPEI_GEO.roadbeds);
-  assert.ok(r.stats.signalized >= 120 && r.stats.signalized <= 200, `signalized ${r.stats.signalized}`);
+  // Band re-based 2026-10-24 (issue #60 west expansion): the station
+  // district's dense old-city grid took signalized junctions 165 ->
+  // 241 (junctions 897 -> 1,158); the old 200 ceiling was an M0-tile
+  // figure, not a rule.
+  assert.ok(r.stats.signalized >= 120 && r.stats.signalized <= 280, `signalized ${r.stats.signalized}`);
   assert.ok(r.stats.dividerKm > 50, `divider km ${r.stats.dividerKm}`);
   assert.ok(r.stats.crosswalks > 400, `crosswalks ${r.stats.crosswalks}`);
   assert.ok(r.stats.signalUnits >= r.stats.stopLines && r.stats.stopLines > 600,

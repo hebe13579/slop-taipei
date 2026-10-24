@@ -146,11 +146,16 @@ test('location sign leads with the road you are on, cross street second', (t) =>
 
   // (c) Da'an Forest Park centroid: inside the park, on no road — the
   // fallback nearest-roads label applies, no crash, no invented current road.
+  // Label re-pinned 2026-10-24 (issue #60): the old tile clipped the
+  // park at lon 121.535, so the teleport (the park ring's bbox centre)
+  // sat in the park's eastern sliver near 建國南路. The full park is in
+  // the union now; its true centre's nearest roads are the western
+  // edge's 新生南路二段 & 金華街.
   const daan = TAIPEI_TILE.teleports.daanpark;
   assert.equal(currentTaipeiRoad(daan.x, daan.z), null);
   const parkLabel = getTaipeiLocationLabel(daan.x, daan.z);
   t.diagnostic(`Da'an centroid label: ${parkLabel}`);
-  assert.equal(parkLabel, '建國南路二段');
+  assert.equal(parkLabel, '新生南路二段 & 金華街');
 
   // (d) Taipei 101 spawn: the landmark centre is a block interior (off every
   // roadbed), so the familiar landmark + nearest-pair label is unchanged;
@@ -727,9 +732,15 @@ test('taiwan types: family zoning, distribution and rooftop clamp', (t) => {
   // (3 glass-eligible lots fewer in the plan); issue #65's exact
   // ribbon exclusion then removed every lot that stood on a roadbed
   // or in a divided median — 716 of them glass — re-pinning the count
-  // to 1648, as the gate re-pins absolute numbers when the plan
-  // legitimately changes (PR #35's band-km pin is the precedent).
-  assert.equal(glass, 1648, 'glass family counts untouched by the Taiwan-type assignment');
+  // to 1648 on the old data, as the gate re-pins absolute numbers when
+  // the plan legitimately changes (PR #35's band-km pin is the
+  // precedent). The west-expansion data (issue #60) re-based the plan
+  // to 23,106 lots / 2,388 glass; the PR #70 gate resolution then
+  // applied the same #65 exclusion to the expansion plan — the
+  // filter's own counters (lotsDroppedRoad 24,262 → 29,082, plus 114
+  // median drops) account for exactly the 4,934 lots removed (23,106
+  // → 18,172), 641 of them glass — re-pinning the count to 1747.
+  assert.equal(glass, 1747, 'glass family counts untouched by the Taiwan-type assignment');
   const masonry = opts.lots.filter((l) => l.mat <= 2).length;
   // Range re-based for issue #65: the exact ribbon exclusion removed
   // ~4,400 masonry lots that stood on ribbons or in medians; masonry

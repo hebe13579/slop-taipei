@@ -6,6 +6,7 @@ import { AvatarFigure } from './avatar-figure.js';
 import { buildPaintedBands } from './taipei-painted.js';
 import { SURFACE_TONES, surfaceClass, buildMedianStrips, isPlazaPark, isPodiumBlock, podiumCentresOf } from './taipei-surfaces.js';
 import { buildRoadMarkings } from './taipei-markings.js';
+import { unionExclusionRects, clipRectToBoxes } from './taipei-union.js';
 import { createCurtainWallMaterial, createPreWarBuildingMaterial } from './tsl-materials.js';
 
 // js/taipei-boot.js
@@ -313,6 +314,10 @@ export function controllerOptions(tile, env = {}) {
   const s = tile.spawn;
   return {
     bounds: { minX: bb.minX, maxX: bb.maxX, minZ: bb.minZ, maxZ: bb.maxZ },
+    // Union-of-boxes tile (issue #60): the parts of the bounding rect
+    // no box covers — the dropped bands — have no ground; the
+    // controllers push ground modes out of them (see taipei-union.js).
+    excludeRects: unionExclusionRects(tile.geodata.frame.boxes, bb),
     clampToShore: false,
     groundHeight: () => 0,
     speedScale: 2,
@@ -338,13 +343,20 @@ export function buildTaipeiGround(scene, tile, deps = {}) {
   const group = new THREE.Group();
   group.name = 'TaipeiGround';
 
-  const land = new THREE.Mesh(
-    new THREE.PlaneGeometry(bb.maxX - bb.minX, bb.maxZ - bb.minZ).rotateX(-Math.PI / 2),
-    mat(0x77796c, 1.0)
-  );
-  land.position.set((bb.minX + bb.maxX) / 2, 0, (bb.minZ + bb.maxZ) / 2);
-  land.receiveShadow = true;
-  group.add(land);
+  // Land: one plane per tile box (issue #60) — the union's shape, so
+  // the dropped bands between/around the boxes show sky/void like any
+  // other tile edge instead of fake ground. A geodata without boxes
+  // falls back to the single bounding-rect plane.
+  const landRects = Array.isArray(geo.frame.boxes) && geo.frame.boxes.length ? geo.frame.boxes : [bb];
+  for (const r of landRects) {
+    const land = new THREE.Mesh(
+      new THREE.PlaneGeometry(r.maxX - r.minX, r.maxZ - r.minZ).rotateX(-Math.PI / 2),
+      mat(0x77796c, 1.0)
+    );
+    land.position.set((r.minX + r.maxX) / 2, 0, (r.minZ + r.maxZ) / 2);
+    land.receiveShadow = true;
+    group.add(land);
+  }
 
   const addLayer = (geometry, material, name) => {
     const mesh = new THREE.Mesh(geometry, material);
@@ -360,7 +372,16 @@ export function buildTaipeiGround(scene, tile, deps = {}) {
   // block grey they read as bare etched ground).
   const centres = podiumCentresOf(geo);
   const ordinaryBlocks = [], podiumBlocks = [];
-  for (const b of geo.blocks) (isPodiumBlock(b, centres) ? podiumBlocks : ordinaryBlocks).push(b);
+  // Block bboxes are raster bounding boxes: one wrapping a union
+  // corner could poke into a dropped band, so the ground rects are
+  // clipped to the union first (issue #60). The podium test then runs
+  // per clipped piece — the piece holding a landmark centre wears the
+  // podium tone, its in-union siblings stay ordinary.
+  const groundBlocks = [];
+  for (const b of geo.blocks) {
+    for (const rect of clipRectToBoxes(b.bbox, geo.frame.boxes)) groundBlocks.push({ bbox: rect });
+  }
+  for (const b of groundBlocks) (isPodiumBlock(b, centres) ? podiumBlocks : ordinaryBlocks).push(b);
   addLayer(rectsGeometry(ordinaryBlocks, 0.02), mat(SURFACE_TONES.block), 'TaipeiBlocks');
   if (podiumBlocks.length) addLayer(rectsGeometry(podiumBlocks, 0.021), mat(SURFACE_TONES.podium), 'TaipeiPodiumBlocks');
   addLayer(flatPolygonGeometry(geo.water.map((w) => w.ring), 0.03), mat(0x2f6d96, 0.35), 'TaipeiWater');

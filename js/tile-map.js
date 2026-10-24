@@ -117,6 +117,13 @@ export function buildTileMapModel(tile) {
   const frame = geo.frame || (tile && tile.frame) || {};
   const bb = frame.bbox || { minX: -1000, maxX: 1000, minZ: -1000, maxZ: 1000 };
   const bounds = { minX: bb.minX, maxX: bb.maxX, minZ: bb.minZ, maxZ: bb.maxZ };
+  // Land shape: a union-of-boxes tile (frame.boxes, issue #60) fills
+  // one rect per box, so the dropped bands inside the bounding rect
+  // stay un-land like the area outside the tile. A tile without boxes
+  // fills its whole bounding rect, as before.
+  const landRects = Array.isArray(frame.boxes) && frame.boxes.length
+    ? frame.boxes.map((b) => ({ minX: b.minX, maxX: b.maxX, minZ: b.minZ, maxZ: b.maxZ }))
+    : [bounds];
 
   // Roads: the generation map's merged roadbeds are what the 3D world
   // renders and what the player drives on; fall back to the raw roads for a
@@ -181,6 +188,7 @@ export function buildTileMapModel(tile) {
     short: (tile && tile.short) || '',
     bearingDeg: frame.bearingDeg || 0,
     bounds,
+    landRects,
     centre: { x: (bounds.minX + bounds.maxX) / 2, z: (bounds.minZ + bounds.maxZ) / 2 },
     widthM: bounds.maxX - bounds.minX,
     heightM: bounds.maxZ - bounds.minZ,
@@ -676,9 +684,10 @@ export class TileMapSystem {
     ctx.lineCap = 'round';
     const px = (n) => n / ss; // screen pixels -> metres
 
-    // 1. Land: the whole tile rectangle
+    // 1. Land: the tile's land rects (the whole bounding rect for a
+    //    plain tile; one rect per box for a union tile, issue #60)
     ctx.fillStyle = MAP.land;
-    ctx.fillRect(bb.minX, bb.minZ, model.widthM, model.heightM);
+    for (const r of model.landRects || [bb]) ctx.fillRect(r.minX, r.minZ, r.maxX - r.minX, r.maxZ - r.minZ);
 
     // 2. Parks
     ctx.fillStyle = MAP.park;
