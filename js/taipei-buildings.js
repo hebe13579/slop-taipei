@@ -51,6 +51,26 @@
 // the tile's spawn points (at the landmark point, south of it) stay in
 // the open. Detailed facade treatment is later scope.
 //
+// Issue #40 gives the placeholder its real base and its ornaments.
+// The podium is the Taipei 101 Mall massing: two 30 m blocks (the
+// mall's L wrapped around the tower zone; outline from the geodata
+// "Taipei 101 MALL" footprint) flanking an open entrance court on
+// the tower axis — the court is the gameplay simplification that
+// keeps the spawn point in the open — plus the mall's signature
+// sweeping curved roof as a half-frustum shell over the court's west
+// side (the bright shell measures ~48 × 75 m on Esri z18 satellite).
+// The published podium main roof is 124 ft ≈ 37.8 m (CTBUH diagram
+// data); 30 m keeps the mall subordinate to the first tier's flare.
+// The eight tier joints wear the tower's ornaments as ONE merged
+// light-tone soup: a disc at each corner of every joint (the real
+// ruyi stand ≥ 8 m tall at the segment corners; the disc is the
+// simplification the souvenir models also use), a square plaque at
+// each face centre (the "money box" symbol between facade
+// sections), and — only at the first joint, where the real building
+// puts them — four large coin discs, one per face ("the four discs
+// mounted on each face of the building where the pedestal meets the
+// tower represent coins" — Wikipedia, Taipei 101, Symbolism).
+//
 // The same massing treatment covers the other notable structures
 // around 101 (LANDMARK_STRUCTURES below, issue #26): each is a small
 // set of plain parts — boxes, rectangular frustums, one ridge roof,
@@ -211,11 +231,21 @@ const LANDMARK_STRUCTURES = [
     // 微風南山 Breeze Nan Shan is NOT a separate structure: it is
     // this complex's podium department store, so the podium mass
     // below is its representation.
+    // Position/footprint corrected in issue #42 from the OSM
+    // building outlines (ways 383731054 南山廣場 + 513491894
+    // 微風南山): the published coordinate is the complex's west
+    // entrance, and the original single 150×105 podium box reached
+    // ~44 m south across 松廉路. The podium is now three boxes on
+    // the real outlines, kept west of the 松壽路20巷 ribbon that
+    // clips the outline's NE notch; the axis sits under the tower
+    // (z18 satellite: the dark slab stands centre-complex).
     id: 'taipei-nan-shan-plaza', name: 'Taipei Nan Shan Plaza', nameZh: '臺北南山廣場',
-    lat: 25.0344, lon: 121.5669, realHeight: 272, color: 0x2c3540,
-    site: { w: 170, d: 124, dx: 0, dz: 6 },
+    lat: 25.0344, lon: 121.566982, realHeight: 272, color: 0x2c3540,
+    site: { w: 242, d: 64, dx: -5, dz: -1 },
     parts: [
-      { type: 'box', w: 150, d: 105, h: 34, dz: 24 },
+      { type: 'box', w: 108, d: 54, h: 30, dx: -77, dz: 1 },
+      { type: 'box', w: 66, d: 58, h: 34, dx: 20, dz: -1 },
+      { type: 'box', w: 48, d: 38, h: 34, dx: 90, dz: 8 },
       { type: 'frustum', wB: 52, dB: 40, wT: 47, dT: 36, h: 208, y0: 34 },
       { type: 'ridge', w: 47, d: 36, h: 0, ridgeH: 30, y0: 242 },
     ],
@@ -225,14 +255,23 @@ const LANDMARK_STRUCTURES = [
     // Completed (2025); the two Hyatt hotels inside are not yet open.
     // ACPV (architect): a green "bamboo shoot" — pleated shaft that
     // narrows gently all the way up to a slanted shoot-tip cut.
+    // Footprint corrected in issue #42 from the OSM outline (way
+    // 1339580862): the real plan is a narrow 41.6 × 92.4 m slab, so
+    // the podium is that slab (not the original 96 × 72 box, which
+    // spilled across 松智路15巷) and the shoot's frustums run long
+    // in z to match; the east faces stay inside the outline, clear
+    // of the construction-road ribbon hugging its east edge.
     id: 'the-sky-taipei', name: 'The Sky Taipei', nameZh: '台北天空塔',
-    lat: 25.0365, lon: 121.566056, realHeight: 280, color: 0x5d7a6c,
-    site: { w: 106, d: 82, dx: 0, dz: 4 },
+    lat: 25.036458, lon: 121.566047, realHeight: 280, color: 0x5d7a6c,
+    site: { w: 44, d: 96, dx: 0, dz: -2 },
     parts: [
-      { type: 'box', w: 96, d: 72, h: 22, dz: 8 },
-      { type: 'frustum', wB: 47, dB: 35, wT: 42, dT: 31, h: 120, y0: 22 },
-      { type: 'frustum', wB: 42, dB: 31, wT: 37, dT: 27, h: 118, y0: 142 },
-      { type: 'frustum', wB: 37, dB: 27, wT: 35, dT: 25, h: 20, y0: 260, topDropX: 14 },
+      // Podium stops at the construction-road ribbon along the
+      // outline's north edge (issue #42 audit: the ribbon's south
+      // edge reaches z ≈ -424 in tile coords).
+      { type: 'box', w: 37, d: 78, h: 22, dz: 4 },
+      { type: 'frustum', wB: 35, dB: 47, wT: 31, dT: 42, h: 120, y0: 22 },
+      { type: 'frustum', wB: 31, dB: 42, wT: 27, dT: 37, h: 118, y0: 142 },
+      { type: 'frustum', wB: 27, dB: 37, wT: 25, dT: 35, h: 20, y0: 260, topDropX: 14 },
     ],
   },
   {
@@ -241,30 +280,46 @@ const LANDMARK_STRUCTURES = [
     // corners (the exposed perimeter bracing lives in the notch —
     // facade territory, not massing) tapering steadily to a slanted
     // top; the low Fubon Art Museum block stands east of the tower.
+    // Position corrected in issue #42: the batch-1 coordinate stood
+    // ~72 m NW of the tower, ON 松高路 — the axis is now the OSM
+    // tower footprint's centroid (way 1010525370 富邦信義A25總部,
+    // 45.8 × 44.1 m), and the east blocks are the real annex (way
+    // 1131522119) and museum (way 1131522120 富邦美術館) outlines.
     id: 'fubon-xinyi-a25', name: 'Fubon Xinyi A25', nameZh: '富邦信義A25',
-    lat: 25.03917, lon: 121.57, realHeight: 266.3, color: 0x8fa5b5,
-    site: { w: 150, d: 95, dx: 0, dz: 0 },
+    lat: 25.039629, lon: 121.570578, realHeight: 266.3, color: 0x8fa5b5,
+    site: { w: 120, d: 74, dx: 36, dz: 14 },
     parts: [
-      { type: 'box', w: 48, d: 38, h: 15, dx: 58 },
+      { type: 'box', w: 47, d: 16, h: 12, dx: 51, dz: 8 },
+      { type: 'box', w: 56, d: 21, h: 15, dx: 66, dz: 38 },
       { type: 'frustum', wB: 43, dB: 43, wT: 32, dT: 32, h: 250 },
       { type: 'frustum', wB: 32, dB: 32, wT: 30, dT: 30, h: 16.3, y0: 250, topDropX: 10 },
     ],
   },
   {
-    // 212 m, 46F, completed 2015 (Wikipedia / CTBUH). A slender
-    // vertically-striped slab on the Breeze Xinyi podium; the top
-    // arcs down toward the east in a smooth curve — massed as four
-    // descending steps.
+    // 212 m, 46F, completed 2015 (Wikipedia / CTBUH). The massing
+    // is TWO combined rectangular slabs — a taller main slab and a
+    // stepped, slightly shorter secondary slab joined along the
+    // top section — on a wide, low, curved-front mall podium (the
+    // user's reference photo, 2026-10-24; this replaces the earlier
+    // massing, a single slab under a four-step staircase crown,
+    // which the photo contradicts). 微風信義 Breeze Xinyi is NOT a
+    // separate structure: it is the department store inside this
+    // tower (忠孝東路五段68號 — the podium, B2–4F, plus the
+    // restaurants at 45–47F), so the podium mass below is its
+    // representation (the Breeze Nan Shan precedent above).
+    // Position is issue #42's re-pin to the OSM outline (way
+    // 378443967 國泰置地廣場, 122.3 × 78.8 m → tile (186.2,
+    // −829.5)); the podium takes the outline's own ellipse — the
+    // curved south front — pulled in slightly at the SW corner,
+    // clear of the service drive that notches that corner (the
+    // issue #42/#43 audits: min clearance 3.0 m, overlap 0).
     id: 'cathay-landmark', name: 'Cathay Landmark', nameZh: '國泰置地廣場',
-    lat: 25.040472, lon: 121.566972, realHeight: 212, color: 0x51606e,
-    site: { w: 128, d: 88, dx: 0, dz: 0 },
+    lat: 25.040488, lon: 121.566845, realHeight: 212, color: 0x51606e,
+    site: { w: 126, d: 82, dx: 0, dz: 0 },
     parts: [
-      { type: 'box', w: 118, d: 78, h: 26 },
-      { type: 'box', w: 58, d: 36, h: 158, y0: 26 },
-      { type: 'box', w: 14.5, d: 36, h: 28, y0: 184, dx: -21.75 },
-      { type: 'box', w: 14.5, d: 36, h: 21, y0: 184, dx: -7.25 },
-      { type: 'box', w: 14.5, d: 36, h: 14, y0: 184, dx: 7.25 },
-      { type: 'box', w: 14.5, d: 36, h: 7, y0: 184, dx: 21.75 },
+      { type: 'cylinder', r: 58.5, rz: 38.5, h: 26, dx: 4, dz: 1 },
+      { type: 'box', w: 32, d: 34, h: 186, y0: 26, dx: -11, dz: 6 },
+      { type: 'box', w: 22, d: 34, h: 168, y0: 26, dx: 16, dz: 6 },
     ],
   },
   {
@@ -272,11 +327,18 @@ const LANDMARK_STRUCTURES = [
     // slab over the Eslite Xinyi podium, signed by its open pergola
     // crown: two side fins and the beams spanning between them —
     // the "grille" silhouette over the roof.
+    // Footprint corrected in issue #42 to the OSM outline (way
+    // 228938184 統一國際大樓, 108.8 × 59.1 m): the batch-1 podium
+    // (128 × 82) overshot the real outline on every side.
     id: 'uni-president-international-tower', name: 'Uni-President International Tower', nameZh: '統一國際大樓',
-    lat: 25.0398083, lon: 121.565194, realHeight: 154, color: 0x9a958c,
-    site: { w: 138, d: 92, dx: 0, dz: 0 },
+    lat: 25.039709, lon: 121.565405, realHeight: 154, color: 0x9a958c,
+    site: { w: 112, d: 62, dx: 0, dz: 0 },
     parts: [
-      { type: 'box', w: 128, d: 82, h: 30 },
+      // Main slab + a mid-height east strip: the bus-station drives
+      // east of the tower notch the outline's NE and SE corners
+      // (issue #42 audit), so no single box fits the outline.
+      { type: 'box', w: 92, d: 57, h: 30, dx: -7 },
+      { type: 'box', w: 12, d: 30, h: 30, dx: 45, dz: -7 },
       { type: 'box', w: 60, d: 40, h: 114, y0: 30 },
       { type: 'box', w: 2.5, d: 40, h: 10, y0: 144, dx: -28.75 },
       { type: 'box', w: 2.5, d: 40, h: 10, y0: 144, dx: 28.75 },
@@ -300,11 +362,19 @@ const LANDMARK_STRUCTURES = [
     // tallest building 1988–90. A sheer brown-stone slab along
     // Keelung Road with no setbacks at all; the signature is the
     // unbroken slab itself, closed by a slightly inset top band.
+    // Position corrected in issue #42: the batch-1 axis put the
+    // slab's east edge on the 莊敬路 ribbon and its west edge into
+    // the complex's forecourt drives; the slab now stands inside
+    // the OSM outline (way 137077756 國貿大樓, 65.2 × 67 m) at the
+    // placement the overlap audit verifies clear of the forecourt
+    // drive loop and the 莊敬路 diagonal ribbon — 36 × 60 m, the
+    // depth trimmed from 64 because no full-depth placement inside
+    // the parcel clears both.
     id: 'twtc-international-trade-building', name: 'TWTC International Trade Building', nameZh: '台北世界貿易中心國際貿易大樓',
-    lat: 25.034417, lon: 121.561167, realHeight: 142.92, color: 0x7a5c50,
-    site: { w: 60, d: 96, dx: 0, dz: 0 },
+    lat: 25.034444, lon: 121.561334, realHeight: 142.92, color: 0x7a5c50,
+    site: { w: 68, d: 70, dx: -12.5, dz: 2.4 },
     parts: [
-      { type: 'box', w: 36, d: 64, h: 137.92 },
+      { type: 'box', w: 36, d: 60, h: 137.92 },
       { type: 'box', w: 33, d: 60, h: 5, y0: 137.92 },
     ],
   },
@@ -375,6 +445,105 @@ const LANDMARK_STRUCTURES = [
       { type: 'box', w: 5, d: 5, h: 3.5, y0: 21, dx: 42, dz: 42 },
     ],
   },
+  {
+    // Batch 3 (issue #43). 151 m: this is the Taipei City Hall Bus
+    // Station complex (市府轉運站, 忠孝東路五段10號) — W Taipei
+    // occupies floors 8–31 of the tower. Height 151 m per
+    // Wikipedia's tallest-buildings list and its Xinyi Planning
+    // District table (the complex's own article says 150 m; the
+    // OSM outline, way 312729918 at 160.3 × 85.6 m, is tagged
+    // 145.4 m — the published 151 m is used). The complex is
+    // built AROUND its bus loop: a service roadbed in the geodata
+    // rings the station court through the middle of the outline,
+    // and the merged Keelung Road roadbed swath clips the
+    // outline's west strip, so the podium is massed as the three
+    // blocks that stand clear of every roadbed — the south
+    // (Uni-Hankyu) block, the north strip and the east block —
+    // with the tower on the east block, where the hotel slab
+    // actually rises. Issue #43 audit: min clearance 1.4 m,
+    // overlap 0.
+    id: 'w-taipei', name: 'W Taipei', nameZh: '台北W飯店',
+    lat: 25.0405433, lon: 121.5647998, realHeight: 151, color: 0x8fa8b8,
+    site: { w: 168, d: 104, dx: 26, dz: -4 },
+    parts: [
+      { type: 'box', w: 128, d: 14, h: 17, dx: 14, dz: 36.2 },
+      { type: 'box', w: 96, d: 13, h: 17, dx: 34, dz: -34.3 },
+      { type: 'box', w: 58, d: 58, h: 17, dx: 73, dz: -8 },
+      { type: 'box', w: 52, d: 40, h: 134, y0: 17, dx: 73, dz: -6 },
+    ],
+  },
+  {
+    // Batch 3 (issue #43). The 1937 tobacco factory (製菸工廠):
+    // a 165 × 93 m two-storey Baroque-revival hall around a
+    // central courtyard (zh-Wikipedia; OSM relation 3067837
+    // measures 167.1 × 95.7 m), massed as one hall block under a
+    // ridge roof — the courtyard is not cut out (hall mass only,
+    // the park around it stays open; the SYS Hall precedent) —
+    // plus the boiler room (鍋爐房, OSM way 228920411) and its
+    // chimney SE of the hall, the park's two recognisable parts.
+    // No published chimney height exists and no height tag was
+    // found for it in OSM: the chimney's 30 m is an ESTIMATE, from
+    // the stack's proportion against the two-storey hall in
+    // photographs of the park, and it is the entry's tallest
+    // part, so realHeight follows it. Issue #43 audit: min
+    // clearance 7.9 m, overlap 0.
+    id: 'songshan-cultural-park', name: 'Songshan Cultural and Creative Park', nameZh: '松山文創園區',
+    lat: 25.0436127, lon: 121.5602251, realHeight: 30, color: 0x8a6a54,
+    site: { w: 244, d: 140, dx: 33, dz: 18 },
+    parts: [
+      { type: 'box', w: 165, d: 93, h: 10 },
+      { type: 'ridge', w: 165, d: 93, h: 0, ridgeH: 4, y0: 10 },
+      { type: 'box', w: 17, d: 25, h: 8, dx: 140.4, dz: 69.3 },
+      { type: 'cylinder', r: 3.2, h: 30, dx: 140.4, dz: 61.6 },
+    ],
+  },
+  {
+    // Batch 3 (issue #43). 誠品生活松菸 is the retail inside the
+    // Taipei New Horizon Building (臺北文創大樓, Toyo Ito) — the
+    // terraced crescent at the park's NE corner (OSM way
+    // 229059792, 164.7 × 68.4 m): the mall at B1–3F, eslite
+    // hotel and offices above, 14 storeys. NO height in metres
+    // is published anywhere (only floor counts), so 63 m is an
+    // ESTIMATE — 14 levels at a 4.5 m mixed mall/office/hotel
+    // floor-to-floor average — and the entry is flagged
+    // estimated. The OSM building parts step down across the
+    // west half (the terraces); the slab sits on the outline's
+    // southern two-thirds, clear of the park service roadbed
+    // that dips across the outline's north edge. Issue #43
+    // audit: min clearance 2.3 m, overlap 0.
+    id: 'eslite-spectrum-songyan', name: 'Eslite Spectrum Songyan', nameZh: '誠品生活松菸',
+    lat: 25.0445705, lon: 121.5613061, realHeight: 63, estimated: true, color: 0xb0aca2,
+    site: { w: 156, d: 68, dx: -8, dz: 4 },
+    parts: [
+      { type: 'box', w: 120, d: 46, h: 63, dx: 2, dz: 7 },
+      { type: 'box', w: 52, d: 40, h: 34, dx: -52, dz: -2 },
+    ],
+  },
+  {
+    // Batch 3 (issue #43). ESTIMATED HEIGHT — no published
+    // overall height exists for Taipei Arena (its zh-Wikipedia
+    // article carries no height field at all; the often-quoted
+    // 42.3 m is KAOHSIUNG Arena — never use it). Estimate
+    // method: brightness transects across the Esri z18 satellite
+    // frame put the sunlit dome plateau's rim at ≈ 22 m,
+    // cross-checked against the published programme (5 storeys
+    // above ground, 2 basement); the shallow cap adds ≈ 9 m
+    // from the roof profile in photographs → 31 m (bracket
+    // 27–35 m), flagged estimated. The footprint is the OSM
+    // outline (way 244001544, 158.8 × 160.7 m, 19,498 m²; the
+    // published site area is 5,986 坪 ≈ 19,788 m²): the silver
+    // egg — an elliptical drum under a shallow dome cap — with
+    // the ice-rink annex (冰上樂園, its 61 × 30 m rink) attached
+    // east. Issue #43 audit: min clearance 1.0 m, overlap 0.
+    id: 'taipei-arena', name: 'Taipei Arena', nameZh: '臺北小巨蛋',
+    lat: 25.0507173, lon: 121.5501273, realHeight: 31, estimated: true, color: 0xcac5b8,
+    site: { w: 172, d: 174, dx: 0, dz: 0 },
+    parts: [
+      { type: 'cylinder', r: 74, rz: 80, h: 22, dx: -5 },
+      { type: 'dome', rx: 74, rz: 80, h: 9, y0: 22, dx: -5 },
+      { type: 'box', w: 50, d: 82, h: 13, dx: 46, dz: -4 },
+    ],
+  },
 ];
 
 // Resolve a structure definition into plan data: true tile-frame
@@ -394,6 +563,7 @@ function resolveLandmark(def, originLatLon) {
     id: def.id, name: def.name, nameZh: def.nameZh,
     x, z, lat: def.lat, lon: def.lon,
     realHeight: def.realHeight, height: def.realHeight,
+    estimated: !!def.estimated,
     distFromOrigin: Math.round(Math.hypot(x, z)),
     color: def.color, site, openGround,
     sites: openGround ? [site, openGround] : [site],
@@ -410,7 +580,7 @@ export function taipeiLandmarkStructures(geodata) {
   const originLatLon = (geodata.frame && geodata.frame.originLatLon) || [25.033, 121.565];
   return LANDMARK_STRUCTURES.map((def) => {
     const r = resolveLandmark(def, originLatLon);
-    return { id: r.id, name: r.name, nameZh: r.nameZh, x: r.x, z: r.z, height: r.realHeight };
+    return { id: r.id, name: r.name, nameZh: r.nameZh, x: r.x, z: r.z, height: r.realHeight, estimated: r.estimated };
   });
 }
 
@@ -534,7 +704,30 @@ export function planTaipeiBuildings(geodata) {
   let tower = null;
   if (t101) {
     const tx = t101.x - 10, tz = t101.z - 45;
-    const podium = { w: 76, d: 64, h: 9 };
+    // The podium field is now the tower-zone base block the shaft
+    // stands on; the mall massing around it lives in podiumParts
+    // (issue #40, see header). Every part stays inside the landmark
+    // site and clear of every roadbed (audited in the tests).
+    const podium = { w: 62, d: 62, h: 9 };
+    const podiumParts = [
+      // West mall block: tile x −110..−67, z −170..−51. (The OSM
+      // outline reaches x ≈ −115, but a 5 m service lane's ribbon
+      // ends at x ≈ −111.5 along z ≈ −112 — the block stops at −110
+      // to keep the no-roadbed-overlap rule.)
+      { type: 'box', w: 43, d: 119, h: 30, dx: -24.1, dz: 32.7 },
+      // East mall block: tile x −35..7, z −170..−51 (the OSM
+      // outline's east edge). The 32 m slot between the blocks is
+      // the open entrance court on the tower axis (the
+      // landmark/spawn point stands in it).
+      { type: 'box', w: 42, d: 119, h: 30, dx: 50.4, dz: 32.7 },
+      // The curved roof: a half-frustum shell, flat side against the
+      // tower's south face, opening south over the court (52 m arc,
+      // sized to the bright shell core on satellite and kept west
+      // clear of the same service lane). Its top (30 + 8 = 38 m)
+      // lands at the published podium main-roof height
+      // (124 ft ≈ 37.8 m) the 30 m blocks stay under.
+      { type: 'shell', rB: 26, rT: 17, h: 8, y0: 30, dx: -19.6, dz: 25.2 },
+    ];
     // Vertical budget: 9 (podium) + 8 × 52 (tiers) + 41 (top section)
     // + 42 (spire) = 508.
     const tierH = 52, tiers = [];
@@ -547,7 +740,37 @@ export function planTaipeiBuildings(geodata) {
       });
     }
     const top = { y0: podium.h + tierH * 8, h: 41, hwBottom: 14.0, hwTop: 13.0 };
-    tower = { x: tx, z: tz, podium, tiers, top, spire: { y0: top.y0 + top.h, h: 508 - (top.y0 + top.h), w: 2.4 }, totalHeight: 508 };
+    // Ornaments at the eight tier joints (issue #40): corner discs at
+    // every joint (the ruyi positions), face plaques at joints 2–8,
+    // and the four big coin discs at joint 1 only — where the real
+    // pedestal meets the tower. Offsets sit a hair inside the tier
+    // surface at that height (half-width ≈ 24.8 just below the lip)
+    // so the pieces read attached, not floating.
+    const ornaments = [];
+    const r4 = (n) => Math.round(n * 10000) / 10000;
+    for (let j = 0; j < 8; j++) {
+      const jointY = podium.h + tierH * (j + 1);
+      for (const sx of [1, -1]) for (const sz of [1, -1]) {
+        ornaments.push({
+          kind: 'disc', jointY, x: tx + sx * 25.0, y: jointY - 4.2, z: tz + sz * 25.0,
+          rotY: r4(Math.atan2(sx, sz)), r: 3.4, t: 0.8,
+        });
+      }
+      for (const [nx, nz] of [[0, 1], [0, -1], [1, 0], [-1, 0]]) {
+        if (j === 0) {
+          ornaments.push({
+            kind: 'coin', jointY, x: tx + nx * 25.15, y: jointY - 5.7, z: tz + nz * 25.15,
+            rotY: r4(Math.atan2(nx, nz)), r: 5.2, t: 0.9,
+          });
+        } else {
+          ornaments.push({
+            kind: 'plaque', jointY, x: tx + nx * 25.1, y: jointY - 4.2, z: tz + nz * 25.1,
+            rotY: r4(Math.atan2(nx, nz)), w: 6.4, h: 6.4, t: 0.7,
+          });
+        }
+      }
+    }
+    tower = { x: tx, z: tz, podium, podiumParts, ornaments, tiers, top, spire: { y0: top.y0 + top.h, h: 508 - (top.y0 + top.h), w: 2.4 }, totalHeight: 508 };
   }
   return { lots, tower, landmarkTowers, stats };
 }
@@ -685,6 +908,56 @@ export function taipeiCityBlocksOptions(geodata, plan = planTaipeiBuildings(geod
 // the three import) so the planner above stays three-free and
 // unit-testable in plain node. Returns null when the geodata has no
 // Taipei 101 landmark.
+// Issue #40: the 101 ornaments as ONE merged triangle soup (pure
+// data — no THREE — so the tests can count and place every piece).
+// Each ornament is built in a local frame (face normal = +z, centre
+// at the origin) and rotated/translated into place: discs and coins
+// are polygonal prisms (14 / 18 sides), plaques are thin boxes.
+// 64 ornaments × ~38 triangles ≈ 2.4 k triangles, one draw call.
+export function taipei101OrnamentPositions(ornaments) {
+  const localFor = (o) => {
+    const list = [];
+    if (o.kind === 'plaque') {
+      const x = o.w / 2, y = o.h / 2, z = o.t / 2;
+      const c = (sx, sy, sz) => [sx * x, sy * y, sz * z];
+      pushQuad(list, c(-1, -1, 1), c(1, -1, 1), c(1, 1, 1), c(-1, 1, 1));   // front
+      pushQuad(list, c(1, -1, -1), c(-1, -1, -1), c(-1, 1, -1), c(1, 1, -1)); // back
+      pushQuad(list, c(1, -1, 1), c(1, -1, -1), c(1, 1, -1), c(1, 1, 1));   // east
+      pushQuad(list, c(-1, -1, -1), c(-1, -1, 1), c(-1, 1, 1), c(-1, 1, -1)); // west
+      pushQuad(list, c(-1, 1, 1), c(1, 1, 1), c(1, 1, -1), c(-1, 1, -1));   // top
+      pushQuad(list, c(-1, -1, -1), c(1, -1, -1), c(1, -1, 1), c(-1, -1, 1)); // bottom
+      return list;
+    }
+    const seg = o.kind === 'coin' ? 18 : 14;
+    const hz = o.t / 2;
+    const rim = [];
+    for (let k = 0; k < seg; k++) {
+      const a = (k / seg) * Math.PI * 2;
+      rim.push([o.r * Math.cos(a), o.r * Math.sin(a)]);
+    }
+    for (let k = 0; k < seg; k++) {
+      const [x0, y0] = rim[k], [x1, y1] = rim[(k + 1) % seg];
+      list.push(0, 0, hz, x0, y0, hz, x1, y1, hz);        // front cap fan
+      list.push(0, 0, -hz, x1, y1, -hz, x0, y0, -hz);     // back cap fan
+      pushQuad(list, [x0, y0, hz], [x1, y1, hz], [x1, y1, -hz], [x0, y0, -hz]); // side
+    }
+    return list;
+  };
+  const cache = new Map();
+  const positions = [];
+  for (const o of ornaments || []) {
+    const key = `${o.kind}:${o.r || 0}:${o.w || 0}:${o.t}`;
+    if (!cache.has(key)) cache.set(key, localFor(o));
+    const local = cache.get(key);
+    const c = Math.cos(o.rotY), s = Math.sin(o.rotY);
+    for (let i = 0; i < local.length; i += 3) {
+      const x = local[i], y = local[i + 1], z = local[i + 2];
+      positions.push(o.x + x * c + z * s, o.y + y, o.z - x * s + z * c);
+    }
+  }
+  return positions;
+}
+
 export function createTaipei101(THREE, plan) {
   if (!plan.tower) return null;
   const t = plan.tower;
@@ -696,6 +969,32 @@ export function createTaipei101(THREE, plan) {
   podium.castShadow = true;
   podium.receiveShadow = true;
   towerGroup.add(podium);
+  // Issue #40: the mall podium — muted green-grey stone blocks (a
+  // step lighter than the tower glass) and the pale curved-roof
+  // shell, a half-frustum whose flat side meets the tower's south
+  // face and whose arc opens south over the entrance court
+  // (cylinder theta from −90° to +90° puts the arc at z ≥ 0 = south
+  // in the tile frame; DoubleSide because the theta seam is open and
+  // the underside shows over the court).
+  const mallMat = new THREE.MeshStandardNodeMaterial({ color: 0x51655a, roughness: 0.8, metalness: 0.05 });
+  const shellMat = new THREE.MeshStandardNodeMaterial({ color: 0xb9beb2, roughness: 0.6, metalness: 0.05, side: THREE.DoubleSide });
+  for (const part of t.podiumParts || []) {
+    if (part.type === 'box') {
+      const m = new THREE.Mesh(new THREE.BoxGeometry(part.w, part.h, part.d), mallMat);
+      m.name = 'Taipei101MallBlock';
+      m.position.set(t.x + (part.dx || 0), part.h / 2, t.z + (part.dz || 0));
+      m.castShadow = true;
+      m.receiveShadow = true;
+      towerGroup.add(m);
+    } else if (part.type === 'shell') {
+      const geo = new THREE.CylinderGeometry(part.rT, part.rB, part.h, 28, 1, false, -Math.PI / 2, Math.PI);
+      const m = new THREE.Mesh(geo, shellMat);
+      m.name = 'Taipei101MallRoof';
+      m.position.set(t.x + (part.dx || 0), part.y0 + part.h / 2, t.z + (part.dz || 0));
+      m.castShadow = true;
+      towerGroup.add(m);
+    }
+  }
   for (const tier of t.tiers) {
     // A 4-sided cone frustum rotated 45° = a tapered square tier;
     // radius is the half-diagonal of the square section.
@@ -722,6 +1021,16 @@ export function createTaipei101(THREE, plan) {
   spire.position.set(t.x, t.spire.y0 + t.spire.h / 2, t.z);
   spire.castShadow = true;
   towerGroup.add(spire);
+  // Issue #40: all 64 joint ornaments as one merged soup mesh in a
+  // pale bronze tone — a single extra draw call for the whole set.
+  const ornamentPositions = taipei101OrnamentPositions(t.ornaments);
+  if (ornamentPositions.length) {
+    const ornamentMat = new THREE.MeshStandardNodeMaterial({ color: 0xd8c491, roughness: 0.38, metalness: 0.35, side: THREE.DoubleSide });
+    const ornamentMesh = new THREE.Mesh(soupGeometry(THREE, ornamentPositions), ornamentMat);
+    ornamentMesh.name = 'Taipei101Ornaments';
+    ornamentMesh.castShadow = true;
+    towerGroup.add(ornamentMesh);
+  }
   return towerGroup;
 }
 

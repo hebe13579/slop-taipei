@@ -46,6 +46,28 @@ async function initApp() {
   const activeTile = tileSelection.tile; // null for the legacy NYC city
   const isTaipei = !!activeTile;
   document.body.dataset.city = tileSelection.id;
+  // Startup branding (issue #48): a registry tile swaps the "Slop New York"
+  // strings on the startup path — browser tab title, loading screen, brand
+  // header — for its own name. This runs before the renderer builds, so the
+  // loading screen shows the tile branding for effectively the whole load.
+  // NYC runs none of this: the static HTML keeps the original branding
+  // byte-for-byte. Gameplay HUD strings are not branding and are left
+  // alone in both modes.
+  if (isTaipei) {
+    const brandName = 'Slop Taipei';
+    document.title = brandName;
+    const loaderTitle = document.querySelector('.loader-title');
+    if (loaderTitle) loaderTitle.textContent = brandName;
+    const brandHeading = document.querySelector('.brand h1');
+    if (brandHeading) brandHeading.textContent = brandName;
+    const brandShort = tileSelection.entry?.short;
+    if (brandShort) {
+      for (const bullet of document.querySelectorAll('#loading-overlay .mta-bullet, .brand .mta-bullet')) {
+        bullet.textContent = brandShort;
+      }
+    }
+    container.setAttribute('aria-label', '3D Interactive Slop Taipei Viewport');
+  }
   const labelFor = isTaipei ? activeTile.getLocationLabel : getLocationLabel;
   // Optional tile member (see js/tile-registry.js): the label in
   // structured form, saying which street is the one being driven on.

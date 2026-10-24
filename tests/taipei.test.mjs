@@ -12,7 +12,7 @@ import {
 } from '../js/taipei-adapter.js';
 import { TAIPEI_TILE } from '../js/taipei-tile.js';
 import { TILE_REGISTRY, tileIdFromSearch, loadSelectedTile } from '../js/tile-registry.js';
-import { planTaipeiBuildings, taipeiCityBlocksOptions, pointInRing, latLonToTile, clampTaipeiRooftopGear } from '../js/taipei-buildings.js';
+import { planTaipeiBuildings, taipeiCityBlocksOptions, pointInRing, latLonToTile, clampTaipeiRooftopGear, taipei101OrnamentPositions, taipeiLandmarkStructures } from '../js/taipei-buildings.js';
 
 // M1 foundation: the Taipei tile's adapter, road graph, teleports and tile
 // registry. Numbers printed via t.diagnostic are the actual generated values.
@@ -368,6 +368,110 @@ test('buildings plan: deterministic, excludes parks/water/101 site, tower presen
   assert.ok(plan.tower.x > site.minX && plan.tower.x < site.maxX && plan.tower.z > site.minZ && plan.tower.z < site.maxZ, 'tower stands on its landmark site');
 });
 
+// Issue #40: the 101 podium is the real mall massing and the tier
+// joints wear ornaments. Invariants: the shaft budget is untouched
+// (508 m, identical tiers — asserted above too), every podium part
+// stands inside the landmark site AND clear of every roadbed ribbon
+// (issue #42's rule), the mall blocks follow the geodata "Taipei 101
+// MALL" outline, the entrance court on the tower axis stays open
+// (the landmark/spawn point stands in it), and all eight joints
+// carry 4 corner discs + 4 face pieces — coins at joint 1 only,
+// where the real pedestal meets the tower.
+test('taipei 101 mall podium and joint ornaments (issue #40)', (t) => {
+  const plan = planTaipeiBuildings(TAIPEI_GEO);
+  const tower = plan.tower;
+  const t101 = TAIPEI_GEO.landmarks['Taipei 101'];
+  const mall = TAIPEI_GEO.landmarks['Taipei 101 MALL'];
+  const site = { minX: t101.x - t101.w / 2, maxX: t101.x + t101.w / 2, minZ: t101.z - t101.d / 2, maxZ: t101.z + t101.d / 2 };
+  const mallRect = { minX: mall.x - mall.w / 2, maxX: mall.x + mall.w / 2, minZ: mall.z - mall.d / 2, maxZ: mall.z + mall.d / 2 };
+
+  assert.equal(tower.totalHeight, 508, 'total height unchanged');
+  assert.deepEqual(tower.podium, { w: 62, d: 62, h: 9 }, 'tower-zone base block');
+  const boxes = tower.podiumParts.filter((p) => p.type === 'box');
+  const shell = tower.podiumParts.find((p) => p.type === 'shell');
+  assert.equal(boxes.length, 2, 'two mall blocks flank the court');
+  assert.ok(shell, 'curved roof shell present');
+  assert.equal(shell.y0 + shell.h, 38, 'shell top at the published podium main-roof height (124 ft)');
+
+  const partRect = (p) => {
+    const cx = tower.x + (p.dx || 0), cz = tower.z + (p.dz || 0);
+    if (p.type === 'box') return { minX: cx - p.w / 2, maxX: cx + p.w / 2, minZ: cz - p.d / 2, maxZ: cz + p.d / 2 };
+    return { minX: cx - p.rB, maxX: cx + p.rB, minZ: cz, maxZ: cz + p.rB }; // shell bbox (arc opens south)
+  };
+  const rects = [
+    { name: 'base', rect: { minX: tower.x - tower.podium.w / 2, maxX: tower.x + tower.podium.w / 2, minZ: tower.z - tower.podium.d / 2, maxZ: tower.z + tower.podium.d / 2 }, inMall: false },
+    ...tower.podiumParts.map((p) => ({ name: p.type, rect: partRect(p), inMall: true })),
+  ];
+  const inRect = (r, x, z) => x >= r.minX && x <= r.maxX && z >= r.minZ && z <= r.maxZ;
+  for (const { name, rect, inMall } of rects) {
+    assert.ok(rect.minX >= site.minX && rect.maxX <= site.maxX && rect.minZ >= site.minZ && rect.maxZ <= site.maxZ, `${name} inside the landmark site`);
+    if (inMall) assert.ok(rect.minX >= mallRect.minX - 0.01 && rect.maxX <= mallRect.maxX + 0.01 && rect.minZ >= mallRect.minZ - 0.01 && rect.maxZ <= mallRect.maxZ + 0.01, `${name} follows the OSM mall outline`);
+    assert.ok(!inRect(rect, t101.x, t101.z), `${name} keeps off the landmark/spawn point (entrance court stays open)`);
+  }
+
+  // Exact rect-to-segment distance (endpoint-in-rect or edge
+  // crossing = 0), minus each ribbon's half width, must stay > 0.
+  const distToSegment = (px, pz, ax, az, bx, bz) => {
+    const dx = bx - ax, dz = bz - az, len2 = dx * dx + dz * dz;
+    let tt = len2 > 0 ? ((px - ax) * dx + (pz - az) * dz) / len2 : 0;
+    tt = Math.max(0, Math.min(1, tt));
+    return Math.hypot(ax + tt * dx - px, az + tt * dz - pz);
+  };
+  const distPtRect = (px, pz, r) => Math.hypot(Math.max(r.minX - px, 0, px - r.maxX), Math.max(r.minZ - pz, 0, pz - r.maxZ));
+  const segSeg = (ax, az, bx, bz, cx, cz, dx, dz) => {
+    const o = (px, pz, qx, qz, rx, rz) => (qx - px) * (rz - pz) - (qz - pz) * (rx - px);
+    return (o(ax, az, bx, bz, cx, cz) > 0) !== (o(ax, az, bx, bz, dx, dz) > 0) && (o(cx, cz, dx, dz, ax, az) > 0) !== (o(cx, cz, dx, dz, bx, bz) > 0);
+  };
+  const distSegRect = (ax, az, bx, bz, r) => {
+    if (inRect(r, ax, az) || inRect(r, bx, bz)) return 0;
+    const corners = [[r.minX, r.minZ], [r.maxX, r.minZ], [r.maxX, r.maxZ], [r.minX, r.maxZ]];
+    for (let i = 0; i < 4; i++) if (segSeg(ax, az, bx, bz, ...corners[i], ...corners[(i + 1) % 4])) return 0;
+    let d = Math.min(distPtRect(ax, az, r), distPtRect(bx, bz, r));
+    for (const [cx, cz] of corners) d = Math.min(d, distToSegment(cx, cz, ax, az, bx, bz));
+    return d;
+  };
+  for (const { name, rect } of rects) {
+    let minClear = Infinity;
+    for (const b of TAIPEI_GEO.roadbeds) {
+      const half = Math.max((b.width || 3) / 2, 0.75);
+      for (let i = 0; i + 3 < b.pts.length; i += 2) {
+        minClear = Math.min(minClear, distSegRect(b.pts[i], b.pts[i + 1], b.pts[i + 2], b.pts[i + 3], rect) - half);
+      }
+    }
+    t.diagnostic(`101 podium ${name}: min roadbed clearance ${minClear.toFixed(1)} m`);
+    assert.ok(minClear > 0, `${name} clears every roadbed (got ${minClear.toFixed(2)} m)`);
+  }
+
+  // Ornaments: 8 per joint × 8 joints; coins only at the first.
+  const orn = tower.ornaments;
+  assert.equal(orn.length, 64, '64 ornaments total');
+  const jointTops = tower.tiers.map((tier) => tier.y0 + tier.h);
+  assert.deepEqual([...new Set(orn.map((o) => o.jointY))].sort((a, b) => a - b), jointTops, 'ornaments at all eight tier joints');
+  for (const jy of jointTops) {
+    const at = orn.filter((o) => o.jointY === jy);
+    assert.equal(at.length, 8, `joint ${jy}: eight ornaments`);
+    const discs = at.filter((o) => o.kind === 'disc');
+    const faces = at.filter((o) => o.kind !== 'disc');
+    assert.equal(discs.length, 4, `joint ${jy}: four corner discs`);
+    assert.equal(faces.length, 4, `joint ${jy}: four face pieces`);
+    for (const d of discs) {
+      assert.ok(Math.abs(Math.abs(d.x - tower.x) - 25) < 0.01 && Math.abs(Math.abs(d.z - tower.z) - 25) < 0.01, 'disc sits on a tier corner');
+      assert.equal(d.r, 3.4, 'corner disc radius');
+    }
+    for (const f of faces) {
+      const onX = Math.abs(f.x - tower.x) > 20, onZ = Math.abs(f.z - tower.z) > 20;
+      assert.ok(onX !== onZ, 'face piece centred on a face');
+      if (jy === jointTops[0]) { assert.equal(f.kind, 'coin', 'joint 1 faces wear the coin discs'); assert.equal(f.r, 5.2); }
+      else { assert.equal(f.kind, 'plaque', 'upper joints wear square plaques'); assert.equal(f.w, 6.4); assert.equal(f.h, 6.4); }
+    }
+    for (const o of at) assert.ok(o.y < jy && o.y > jy - 12, `joint ${jy}: ornament hangs just below the lip`);
+  }
+  // The merged soup: exact triangle budget, all finite.
+  const soup = taipei101OrnamentPositions(orn);
+  assert.equal(soup.length, (32 * 56 + 4 * 72 + 28 * 12) * 9, 'ornament soup triangle budget (2,416 tris)');
+  assert.ok(soup.every(Number.isFinite), 'ornament soup coordinates finite');
+});
+
 // Issue #26: the landmark structures around Taipei 101 (plus City
 // Hall) get the 101 treatment — massing at the true position (real
 // lat/lon through the geodata frame math) and the true published
@@ -379,14 +483,18 @@ test('landmark structures: true positions and heights, sites kept clear', (t) =>
   const plan = planTaipeiBuildings(TAIPEI_GEO);
   const again = planTaipeiBuildings(TAIPEI_GEO);
   assert.deepEqual(plan.landmarkTowers, again.landmarkTowers, 'landmark plan deterministic across runs');
+  // Positions for the six issue-#42-corrected structures are the
+  // OSM building-footprint centroids recorded in the registry (the
+  // batch-1 published-coordinate pins put Fubon A25 on 松高路 and
+  // oversized podiums on four more); heights are unchanged.
   const expected = {
-    'taipei-nan-shan-plaza': { h: 272, x: 191.8, z: -155.1 },
-    'the-sky-taipei': { h: 280, x: 106.6, z: -387.7 },
-    'fubon-xinyi-a25': { h: 266.3, x: 504.6, z: -683.5 },
-    'cathay-landmark': { h: 212, x: 199.0, z: -827.7 },
-    'uni-president-international-tower': { h: 154, x: 19.6, z: -754.2 },
+    'taipei-nan-shan-plaza': { h: 272, x: 200.0, z: -155.1 },
+    'the-sky-taipei': { h: 280, x: 105.7, z: -383.1 },
+    'fubon-xinyi-a25': { h: 266.3, x: 562.9, z: -734.3 },
+    'cathay-landmark': { h: 212, x: 186.2, z: -829.5 },
+    'uni-president-international-tower': { h: 154, x: 40.9, z: -743.2 },
     'tao-zhu-yin-yuan': { h: 93.2, x: 545.0, z: -620.3 },
-    'twtc-international-trade-building': { h: 142.92, x: -386.8, z: -157.0 },
+    'twtc-international-trade-building': { h: 142.92, x: -370.0, z: -160.0 },
     'taipei-city-hall': { h: 54.42, x: -56.5, z: -498.5 },
     // Batch 2 (issue #33): the Dome's 64 m is the above-ground height
     // (74.5 m published total minus the 10.5 m sunken field); the
@@ -394,6 +502,16 @@ test('landmark structures: true positions and heights, sites kept clear', (t) =>
     // article body, positioned on its OSM footprint (see registry).
     'taipei-dome': { h: 64, x: -496.2, z: -1030.9 },
     'sun-yat-sen-memorial-hall': { h: 30.4, x: -474.3, z: -776.5 },
+    // Batch 3 (issue #43): positions are the OSM footprint centres
+    // (W: way 312729918; Songshan hall: relation 3067837; Eslite:
+    // way 229059792; Arena: way 244001544). W's 151 m is published;
+    // Songshan's 30 m follows its (unpublished, estimated) chimney;
+    // Eslite's 63 m and the Arena's 31 m are ESTIMATES — see the
+    // registry comments for the methods.
+    'w-taipei': { h: 151, x: -20.2, z: -835.6 },
+    'songshan-cultural-park': { h: 30, x: -481.9, z: -1175.6 },
+    'eslite-spectrum-songyan': { h: 63, x: -372.8, z: -1281.7 },
+    'taipei-arena': { h: 31, x: -1501.0, z: -1962.6 },
   };
   assert.equal(plan.landmarkTowers.length, Object.keys(expected).length, 'all verified structures present');
   const partTop = (p) => (p.y0 || 0) + p.h + (p.type === 'ridge' ? p.ridgeH : 0);
@@ -469,6 +587,81 @@ test('landmark batch 2: dome cap and stylized memorial-hall roof', () => {
   assert.ok(Math.abs(hall.x - osm.x) <= 2 && Math.abs(hall.z - osm.z) <= 2, 'hall stands on its OSM footprint');
 });
 
+// Issue #43 batch 3: four new structures plus the Cathay Landmark
+// rebuild. Cathay's massing follows the user's reference photo —
+// two combined slabs (taller main + one stepped secondary) on the
+// curved-front podium, which is also 微風信義 Breeze Xinyi's
+// representation (the mall is inside this tower, not a separate
+// structure). Eslite Songyan and Taipei Arena carry ESTIMATED
+// heights (no published figure exists for either), flagged as
+// such in the registry and carried through the map export.
+test('landmark batch 3: two-slab Cathay rebuild, W, Songshan, Eslite, Arena', () => {
+  const plan = planTaipeiBuildings(TAIPEI_GEO);
+  const byId = (id) => plan.landmarkTowers.find((s) => s.id === id);
+  const partTop = (p) => (p.y0 || 0) + p.h + (p.type === 'ridge' ? p.ridgeH : 0);
+
+  // Cathay Landmark: elliptical podium + exactly two slabs, one
+  // step between them, sharing a face (combined, not separate).
+  const cathay = byId('cathay-landmark');
+  assert.ok(cathay, 'cathay landmark registered');
+  const podium = cathay.parts.find((p) => p.type === 'cylinder');
+  assert.ok(podium && podium.rz < podium.r, 'podium is the curved-front ellipse');
+  const slabs = cathay.parts.filter((p) => p.type === 'box');
+  assert.equal(slabs.length, 2, 'two combined slabs, no staircase crown');
+  const tops = slabs.map(partTop).sort((a, b) => b - a);
+  assert.equal(tops[0], 212, 'main slab tops out at the published 212 m');
+  assert.ok(tops[1] < tops[0] && tops[1] > 180, 'secondary slab is one clean step below');
+  const [west, east] = slabs.slice().sort((a, b) => (a.dx || 0) - (b.dx || 0));
+  assert.equal((west.dx || 0) + west.w / 2, (east.dx || 0) - east.w / 2, 'slabs share a face — combined massing');
+
+  // W Taipei: three podium blocks around the bus-loop court and
+  // the tower rising from the east block to the published 151 m.
+  const w = byId('w-taipei');
+  assert.ok(w, 'w taipei registered');
+  assert.equal(w.parts.filter((p) => p.type === 'box' && !p.y0).length, 3, 'podium massed as three blocks around the station court');
+  const tower = w.parts.find((p) => p.y0 === 17);
+  assert.ok(tower && partTop(tower) === 151, 'tower rises from the podium to 151 m');
+  const eastPodium = w.parts.find((p) => !p.y0 && p.dx === tower.dx);
+  assert.ok(eastPodium, 'tower stands on the east podium block');
+
+  // Songshan park: hall + ridge roof, boiler room, and the
+  // chimney as the tallest part.
+  const park = byId('songshan-cultural-park');
+  assert.ok(park, 'songshan park registered');
+  const chimney = park.parts.find((p) => p.type === 'cylinder');
+  assert.ok(chimney && partTop(chimney) === 30, 'chimney is the tallest part at 30 m');
+  assert.ok(park.parts.filter((p) => p.type === 'box').length >= 2, 'factory hall and boiler room both massed');
+  assert.ok(park.parts.some((p) => p.type === 'ridge'), 'hall carries its ridge roof');
+
+  // Estimated heights are flagged, and only where flagged.
+  const eslite = byId('eslite-spectrum-songyan');
+  const arena = byId('taipei-arena');
+  assert.equal(eslite.estimated, true, 'eslite height is an estimate (14 floors, no published metres)');
+  assert.equal(arena.estimated, true, 'arena height is an estimate (no published height exists)');
+  for (const s of plan.landmarkTowers) {
+    if (s.id !== 'eslite-spectrum-songyan' && s.id !== 'taipei-arena') {
+      assert.equal(s.estimated, false, `${s.id} height is published, not estimated`);
+    }
+  }
+
+  // Taipei Arena: elliptical drum + shallow dome cap + annex.
+  const drum = arena.parts.find((p) => p.type === 'cylinder');
+  const cap = arena.parts.find((p) => p.type === 'dome');
+  assert.ok(drum && cap && drum.rz > drum.r, 'arena egg = elliptical drum (long in z) + dome cap');
+  assert.equal(cap.y0 + cap.h, 31, 'dome cap peaks at the estimated 31 m');
+  assert.ok(arena.parts.some((p) => p.type === 'box' && (p.dx || 0) > 0), 'ice-rink annex attached east');
+
+  // The map layer reads the same registry: every batch-3 entry is
+  // on the tile's landmark list with its Chinese name (pin +
+  // Chinese-name search read nameZh from this list).
+  for (const id of ['cathay-landmark', 'w-taipei', 'songshan-cultural-park', 'eslite-spectrum-songyan', 'taipei-arena']) {
+    const pin = TAIPEI_TILE.landmarks.find((l) => l.id === id);
+    assert.ok(pin && pin.nameZh && pin.height > 0, `${id} has a map pin with a Chinese name`);
+  }
+  const exported = taipeiLandmarkStructures(TAIPEI_GEO);
+  assert.equal(exported.length, plan.landmarkTowers.length, 'map export covers the whole registry');
+});
+
 // Issue #11: the plan is rendered by upstream's buildCityBlocks, fed
 // through taipeiCityBlocksOptions. The adapter must be a faithful,
 // deterministic transcription of the plan: one upstream lot per planned
@@ -526,7 +719,14 @@ test('taiwan types: family zoning, distribution and rooftop clamp', (t) => {
   assert.ok(bandTaiwan / band.length > 0.55, `15-22 m band is mostly Taiwan types (${bandTaiwan}/${band.length})`);
   const glass = opts.lots.filter((l) => l.mat >= 3 && l.mat <= 5).length;
   t.diagnostic(`taiwan set 6-9: ${taiwan.length} lots; glass 3-5: ${glass} lots`);
-  assert.equal(glass, 2367, 'glass family counts untouched by the Taiwan-type assignment');
+  // The invariant is structural: facadeMatFor evaluates the glass rolls
+  // first, on the same hash and thresholds as pre-#17, and the Taiwan
+  // roll only subdivides the masonry remainder — so this count is
+  // whatever the current lot plan yields. It was 2367 on the branch's
+  // data and is 2364 on main after PR #53 regenerated the road data
+  // (3 glass-eligible lots fewer in the plan); the gate re-pinned the
+  // absolute number for the merged data, as with PR #35's band-km pin.
+  assert.equal(glass, 2364, 'glass family counts untouched by the Taiwan-type assignment');
   const masonry = opts.lots.filter((l) => l.mat <= 2).length;
   assert.ok(masonry > 12000 && masonry < 16000, `masonry 0-2 reduced but still present (${masonry})`);
   assert.equal(typeof opts.rooftopGearClamp, 'function', 'options carry the rooftop-gear clamp');
