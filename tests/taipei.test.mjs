@@ -723,12 +723,18 @@ test('taiwan types: family zoning, distribution and rooftop clamp', (t) => {
   // first, on the same hash and thresholds as pre-#17, and the Taiwan
   // roll only subdivides the masonry remainder — so this count is
   // whatever the current lot plan yields. It was 2367 on the branch's
-  // data and is 2364 on main after PR #53 regenerated the road data
-  // (3 glass-eligible lots fewer in the plan); the gate re-pinned the
-  // absolute number for the merged data, as with PR #35's band-km pin.
-  assert.equal(glass, 2364, 'glass family counts untouched by the Taiwan-type assignment');
+  // data and 2364 on main after PR #53 regenerated the road data
+  // (3 glass-eligible lots fewer in the plan); issue #65's exact
+  // ribbon exclusion then removed every lot that stood on a roadbed
+  // or in a divided median — 716 of them glass — re-pinning the count
+  // to 1648, as the gate re-pins absolute numbers when the plan
+  // legitimately changes (PR #35's band-km pin is the precedent).
+  assert.equal(glass, 1648, 'glass family counts untouched by the Taiwan-type assignment');
   const masonry = opts.lots.filter((l) => l.mat <= 2).length;
-  assert.ok(masonry > 12000 && masonry < 16000, `masonry 0-2 reduced but still present (${masonry})`);
+  // Range re-based for issue #65: the exact ribbon exclusion removed
+  // ~4,400 masonry lots that stood on ribbons or in medians; masonry
+  // is reduced but still the city's majority fabric.
+  assert.ok(masonry > 9500 && masonry < 12500, `masonry 0-2 reduced but still present (${masonry})`);
   assert.equal(typeof opts.rooftopGearClamp, 'function', 'options carry the rooftop-gear clamp');
 
   const lot = { x0: 0, x1: 9, z0: 0, z1: 14 };
