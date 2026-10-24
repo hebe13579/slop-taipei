@@ -2049,15 +2049,26 @@ function buildCityBlocks(scene, opts = null) {
       for (let i = colStart; i < b.parts.length; i++) b.parts[i].walls = WALL_KINDS.blankStone;
     }
     mass(b, [rect(minX, maxX, minZ, maxZ)], lot.arcade && floors >= 2 ? 1 : 0, floors);
+    // Issue #85: no Manhattan storefront dressing on planned lots — the
+    // avenueFront path (commit step 4) hangs a canvas awning, an
+    // English-text fascia sign and a storefront spotlight on every
+    // ground-floor avenue front. That vocabulary is Manhattan's; the
+    // Taiwan families carry their own signage (the painted glyph bands
+    // in the facade materials, issue #56's vertical sign panels in
+    // blk.signs — both untouched). awnings: false skips step 4 for
+    // registry lots only; populateBlock keeps the full treatment, so
+    // the NYC scene is unchanged. (In lot mode `rand` is re-seeded per
+    // lot and commit is its last consumer, so skipping the awning dice
+    // moves nothing else.)
     commit(blockDetail, b, mat >= 6
       // Taiwan types (issue #17): no stone cornice, no water tower (rooftop
       // gear is clamped below anyway); ground-floor shop share per type —
       // shophouses and arcades are retail-led, the walk-up and pebble-dash
       // are housing-led with some shops.
-      ? { cornice: false, roof: 'prewar', wtP: 0, shops: [0.85, 0.9, 0.45, 0.35][mat - 6] }
+      ? { cornice: false, roof: 'prewar', wtP: 0, shops: [0.85, 0.9, 0.45, 0.35][mat - 6], awnings: false }
       : mat >= 3
-        ? { cornice: false, roof: 'mech', shops: 0.3 }
-        : { roof: 'prewar', wtP: 0.35, shops: 0.3 });
+        ? { cornice: false, roof: 'mech', shops: 0.3, awnings: false }
+        : { roof: 'prewar', wtP: 0.35, shops: 0.3, awnings: false });
     // Issue #17 rooftop-gear clamp: when the caller supplies a gear policy
     // (Taipei does, via taipeiCityBlocksOptions), it rewrites the committed
     // gear — there it removes water towers entirely and shrinks HVAC units
