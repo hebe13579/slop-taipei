@@ -10,15 +10,23 @@ to {type,id,tags,rings:[[{lat,lon},...], ...]} (outer rings only, stitched).
 
 Usage: extract-from-pbf.py <taiwan.osm.pbf> <outdir>
 Requires pyosmium (pip install osmium, in a venv).
+
+The tile is the UNION of the boxes in tile-boxes.json (next to this
+script, issue #60): an element is collected when any of its vertices
+touches any box (plus margin). Collection is keyed by OSM id, so a way
+crossing a box seam is collected exactly once, with its full geometry —
+the builders downstream clip against the union of the boxes, which is
+where seam handling lives.
 """
-import json, sys
+import json, os, sys
 import osmium
 
-S, W, N, E = 25.020, 121.535, 25.060, 121.580
+_CFG = json.load(open(os.path.join(os.path.dirname(os.path.abspath(__file__)), 'tile-boxes.json')))
+BOXES = [(b['s'], b['w'], b['n'], b['e']) for b in _CFG['boxes']]  # (S, W, N, E) per box
 M = 0.004  # margin degrees, so boundary-crossing ways/relations resolve fully
 
 def in_bbox(lat, lon, m=0.0):
-    return S - m <= lat <= N + m and W - m <= lon <= E + m
+    return any(s - m <= lat <= n + m and w - m <= lon <= e + m for (s, w, n, e) in BOXES)
 
 class Collector(osmium.SimpleHandler):
     def __init__(self):

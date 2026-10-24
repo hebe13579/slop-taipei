@@ -72,7 +72,16 @@ test('real tile: exactly one cap per multi-arm junction, centres and arm ends co
   const eligible = junctions.filter((j) => j.arms.length >= 2);
   const caps = planJunctionCaps(beds, junctions);
   assert.equal(caps.length, eligible.length);
-  assert.ok(caps.length > 800, `caps ${caps.length}`);
+  // Census re-pinned 2026-10-24 for the PR #73 rebase onto the
+  // expanded map (PR #70): the station district + Ximending took
+  // detected junctions 894 -> 1,158, and every detected junction
+  // carries >= 2 arms on this data, so caps = 1,158 (425,386 m² of
+  // junction box). The structural pins (one cap per eligible
+  // junction, centres/ends covered) are the binding invariant;
+  // these counts are the census record and move only with a data
+  // regen, with the reason written here.
+  assert.equal(junctions.length, 1158, `junctions ${junctions.length}`);
+  assert.equal(caps.length, 1158, `caps ${caps.length}`);
   junctions.forEach((j, ji) => {
     if (j.arms.length < 2) return;
     const cap = caps[junctions.filter((k, ki) => ki <= ji && k.arms.length >= 2).length - 1];
@@ -146,10 +155,23 @@ test('real tile: no painted band, median strip or dash quad centre inside a cap'
   const markings = buildRoadMarkings(beds, medians, caps, junctions);
   assert.ok(markings.dashes.length > 0);
   assert.equal(markings.dashes.filter(inCap).length, 0, 'dash quads inside caps');
-  // The occluder must actually bite (it is not a no-op on this data):
+  // The occluder must actually bite (it is not a no-op on this data).
+  // Bite census re-pinned 2026-10-24 for the PR #73 rebase onto the
+  // expanded map (PR #70), re-derived on the merged tree: without the
+  // cap filter, 893 painted-band, 1,776 painted-edge and 1,598 median
+  // quad centres would fall inside caps; the shipped (clipped)
+  // builders put 0 there (asserted above). Dashes measure 0 both
+  // ways: the markings builder's own junction suppression already
+  // keeps dash centres out of junction boxes, so for dashes the cap
+  // filter is a second guarantee, not the mechanism.
   const unclipped = buildPaintedBands(beds);
-  assert.ok(unclipped.band.filter(inCap).length > 100,
+  assert.equal(unclipped.band.filter(inCap).length, 893,
     `unclipped bands inside caps: ${unclipped.band.filter(inCap).length}`);
+  assert.equal(unclipped.edges.filter(inCap).length, 1776,
+    `unclipped edges inside caps: ${unclipped.edges.filter(inCap).length}`);
+  const unclippedMedians = buildMedianStrips(beds);
+  assert.equal([...unclippedMedians.plain, ...unclippedMedians.planted].filter(inCap).length, 1598,
+    'unclipped medians inside caps');
 });
 
 test('acceptance junction 信義路×松仁路： the formerly bare core is capped', () => {

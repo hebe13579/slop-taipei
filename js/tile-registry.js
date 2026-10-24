@@ -31,13 +31,14 @@ export const TILE_REGISTRY = {
   },
   taipei: {
     id: 'taipei',
-    label: "Taipei — Xinyi / Da'an / Songshan tile",
+    label: "Taipei — Xinyi / Da'an / Songshan / Zhongzheng tile",
     short: 'TP',
     kind: 'tile',
     load: () => import('./taipei-tile.js').then((m) => m.TAIPEI_TILE),
   },
-  // beitou: { id: 'beitou', label: 'Beitou — Beitou / Xinbeitou tile', short: 'BT', kind: 'tile',
-  //           load: () => import('./beitou-tile.js').then((m) => m.BEITOU_TILE) },
+  // Beitou is NOT a separate tile: the approved shape (2026-10-24,
+  // issue #60) grows it as Box 4 of the taipei tile's box union
+  // (tools/taipei/tile-boxes.json futureBoxes) in a later phase.
 };
 
 /** The ?city= id from a query string, normalised; unknown ids fall back to the default (nyc). */

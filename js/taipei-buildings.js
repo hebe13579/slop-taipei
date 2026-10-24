@@ -26,15 +26,24 @@
 //     1.2–3 m gap between neighbouring footprints. Very large blocks
 //     (> 40,000 m² — campuses, depots, riverside tracts) use a coarser
 //     pitch and a higher vacancy rate so they don't read as carpet.
+//   - The tile is a union of boxes (issue #60): a block whose centroid
+//     is outside every box is skipped, and a lot whose centre or any
+//     footprint corner leaves the union is dropped — nothing is
+//     planned over a dropped band.
 //   - A lot is dropped when its centre falls inside a park/water
 //     polygon (exact point-in-polygon, so a park that merely overlaps a
 //     block's bbox still stays empty — Da'an Forest Park above all),
 //     when its footprint intersects the Taipei 101 landmark site, or
-//     when its centre comes within 1.6 m of a roadbed/path ribbon edge,
-//     or when any footprint corner lands inside a ribbon (block bboxes
-//     are rectangles around non-rectangular raster components; these
-//     tests keep footprints out of the road corridors that cut through
-//     a bbox's concave notches, and off the narrow lanes they flank).
+//     when it fails the exact ribbon tests of issue #65 (below):
+//     the footprint grown by ROAD_MARGIN_M must not intersect any
+//     roadbed/path ribbon segment rectangle, and a lot flanked on
+//     opposite sides by ribbons of the same named carriageway sits
+//     inside that road's divided span (a median/separator strip) and
+//     is dropped too. (The pre-#65 centre/corner sampling could not
+//     see a ribbon slicing a lot through two edges — 2,606 of the
+//     2,621 lot∩ribbon intersections citywide were that case — nor
+//     the planted strips between a boulevard's separate carriageway
+//     beds, where whole lot columns stood on the Dunhua medians.)
 //   - Heights are contextual, from distance to the tile origin (Taipei
 //     101) and the best road class adjacent to the lot:
 //       < 650 m from origin (Xinyi core)      → 25–60 m
@@ -172,7 +181,121 @@ function buildSegmentGrid(entries) {
   return { grid, key };
 }
 
-// ---- Landmark structures around Taipei 101 (issue #26) ----
+// ---- Exact ribbon exclusion (issue #65) ----
+//
+// Ribbons are the per-segment butt-cap rectangles the ground renderer
+// draws (half = max(width/2, 0.75)) — the same construction the
+// landmark overlap test audits against, so "no intersection" here
+// means no intersection with what is actually rendered as road.
+const ROAD_MARGIN_M = 0.5;       // footprint clearance kept off every ribbon edge
+const CORRIDOR_GAP_MAX_M = 20;   // same-name flank reach for the median test
+const RIBBON_GRID_CELL = 48;
+const RIBBON_REACH_M = ROAD_MARGIN_M + CORRIDOR_GAP_MAX_M + 6; // grid filing slack
+
+function buildRibbonRects(entries, flank) {
+  const rects = [];
+  for (const e of entries) {
+    const half = Math.max((e.width || 3) / 2, 0.75);
+    const pts = e.pts || [];
+    for (let i = 0; i + 3 < pts.length; i += 2) {
+      const ax = pts[i], az = pts[i + 1], bx = pts[i + 2], bz = pts[i + 3];
+      const dx = bx - ax, dz = bz - az, len = Math.hypot(dx, dz);
+      if (len < 0.01) continue;
+      const ux = dx / len, uz = dz / len;
+      const nx = (-dz / len) * half, nz = (dx / len) * half;
+      const xs = [ax + nx, bx + nx, bx - nx, ax - nx];
+      const zs = [az + nz, bz + nz, bz - nz, az - nz];
+      rects.push({
+        name: e.name || '', flank, ux, uz,
+        minX: Math.min(...xs), maxX: Math.max(...xs),
+        minZ: Math.min(...zs), maxZ: Math.max(...zs),
+        corners: [xs[0], zs[0], xs[1], zs[1], xs[2], zs[2], xs[3], zs[3]],
+      });
+    }
+  }
+  return rects;
+}
+
+// Rects are filed under every cell their bbox (expanded by
+// RIBBON_REACH_M) touches, so a query over the cells a lot's bbox
+// touches finds every rect that could intersect the lot or flank it
+// within CORRIDOR_GAP_MAX_M.
+function buildRibbonGrid(rects) {
+  const grid = new Map();
+  const key = (gx, gz) => gx * 100003 + gz;
+  rects.forEach((r, idx) => {
+    const gx0 = Math.floor((r.minX - RIBBON_REACH_M) / RIBBON_GRID_CELL);
+    const gx1 = Math.floor((r.maxX + RIBBON_REACH_M) / RIBBON_GRID_CELL);
+    const gz0 = Math.floor((r.minZ - RIBBON_REACH_M) / RIBBON_GRID_CELL);
+    const gz1 = Math.floor((r.maxZ + RIBBON_REACH_M) / RIBBON_GRID_CELL);
+    for (let gx = gx0; gx <= gx1; gx++) for (let gz = gz0; gz <= gz1; gz++) {
+      const k = key(gx, gz);
+      let bucket = grid.get(k);
+      if (!bucket) grid.set(k, bucket = []);
+      bucket.push(idx);
+    }
+  });
+  return { grid, key };
+}
+
+// The interval where a ribbon rect crosses the horizontal line z
+// (resp. the vertical line x), or null when the line misses the rect.
+// The flank tests must use these true crossings, never the rect's
+// bbox: a slanted segment's bbox overhangs the rect at any given z,
+// and a bbox-based flank test misses the very bed that borders the
+// lot (the Dunhua median columns survived a bbox flank test on
+// 0.1–0.8 m of bbox overhang).
+function ribbonSpanAtZ(r, z) {
+  const c = r.corners;
+  let lo = Infinity, hi = -Infinity;
+  for (let i = 0; i < 8; i += 2) {
+    const x1 = c[i], z1 = c[i + 1], x2 = c[(i + 2) % 8], z2 = c[(i + 3) % 8];
+    if (z1 === z) { if (x1 < lo) lo = x1; if (x1 > hi) hi = x1; }
+    if ((z1 < z && z2 > z) || (z2 < z && z1 > z)) {
+      const x = x1 + ((z - z1) * (x2 - x1)) / (z2 - z1);
+      if (x < lo) lo = x;
+      if (x > hi) hi = x;
+    }
+  }
+  return lo <= hi ? [lo, hi] : null;
+}
+function ribbonSpanAtX(r, x) {
+  const c = r.corners;
+  let lo = Infinity, hi = -Infinity;
+  for (let i = 0; i < 8; i += 2) {
+    const x1 = c[i], z1 = c[i + 1], x2 = c[(i + 2) % 8], z2 = c[(i + 3) % 8];
+    if (x1 === x) { if (z1 < lo) lo = z1; if (z1 > hi) hi = z1; }
+    if ((x1 < x && x2 > x) || (x2 < x && x1 > x)) {
+      const z = z1 + ((x - x1) * (z2 - z1)) / (x2 - x1);
+      if (z < lo) lo = z;
+      if (z > hi) hi = z;
+    }
+  }
+  return lo <= hi ? [lo, hi] : null;
+}
+
+// Separating-axis test of one ribbon rect against an axis-aligned lot
+// rect. The caller has already established bbox overlap, which covers
+// the lot's own two axes; only the ribbon's axes are projected here.
+function ribbonHitsLot(r, minX, maxX, minZ, maxZ) {
+  const c = r.corners;
+  for (const [axx, azz] of [[r.ux, r.uz], [-r.uz, r.ux]]) {
+    let rMin = Infinity, rMax = -Infinity;
+    for (let i = 0; i < 8; i += 2) {
+      const p = c[i] * axx + c[i + 1] * azz;
+      if (p < rMin) rMin = p;
+      if (p > rMax) rMax = p;
+    }
+    let lMin = Infinity, lMax = -Infinity;
+    for (const [px, pz] of [[minX, minZ], [maxX, minZ], [maxX, maxZ], [minX, maxZ]]) {
+      const p = px * axx + pz * azz;
+      if (p < lMin) lMin = p;
+      if (p > lMax) lMax = p;
+    }
+    if (rMax < lMin || lMax < rMin) return false;
+  }
+  return true;
+}
 //
 // Every entry was verified against published sources (Wikipedia /
 // CTBUH Skyscraper Center; heights are the published architectural /
@@ -651,7 +774,17 @@ export function taipeiLandmarkStructures(geodata) {
 }
 
 export function planTaipeiBuildings(geodata) {
-  const stats = { blocksSeen: 0, blocksSkippedSmall: 0, blocksSkippedParkWater: 0, lotsDroppedVacancy: 0, lotsDroppedParkWater: 0, lotsDroppedTowerSite: 0, lotsDroppedRoad: 0 };
+  const stats = { blocksSeen: 0, blocksSkippedSmall: 0, blocksSkippedParkWater: 0, blocksSkippedOutsideUnion: 0, lotsDroppedVacancy: 0, lotsDroppedParkWater: 0, lotsDroppedTowerSite: 0, lotsDroppedRoad: 0, lotsDroppedMedian: 0, lotsDroppedOutsideUnion: 0 };
+  // Union-of-boxes tile (issue #60): the geodata frame carries the
+  // tile's boxes; ground exists only inside them. Raster blocks are
+  // masked to the union by the builder, but a block's bbox can still
+  // wrap a union corner, so the planner re-checks: a block whose
+  // centroid is outside every box is skipped, and a lot whose centre
+  // or any footprint corner leaves the union is dropped — no building
+  // may hang over a dropped band. A geodata without boxes (older
+  // extracts) plans exactly as before.
+  const unionBoxes = Array.isArray(geodata.frame?.boxes) && geodata.frame.boxes.length ? geodata.frame.boxes : null;
+  const inUnion = (x, z) => !unionBoxes || unionBoxes.some((b) => x >= b.minX && x <= b.maxX && z >= b.minZ && z <= b.maxZ);
   const polys = [];
   for (const p of geodata.parks || []) polys.push({ ring: p.ring, bb: ringBbox(p.ring) });
   for (const w of geodata.water || []) polys.push({ ring: w.ring, bb: ringBbox(w.ring) });
@@ -683,6 +816,66 @@ export function planTaipeiBuildings(geodata) {
     return { clearance, rank };
   };
 
+  // Exact ribbon verdicts (issue #65), over the same carriageway +
+  // path set as the segment grid: 'road' when the margin-grown
+  // footprint intersects a ribbon, 'median' when the lot is flanked
+  // on opposite sides by same-name carriageway ribbons (the divided
+  // span of one road — its median/separator strips are raster land
+  // between separate beds, so no ribbon covers them), else null.
+  const ribbonRects = [...buildRibbonRects(carriageways, true), ...buildRibbonRects(paths, false)];
+  const ribbonGrid = buildRibbonGrid(ribbonRects);
+  const ribbonVerdict = (cx, cz, w, d) => {
+    const minX = cx - w / 2, maxX = cx + w / 2, minZ = cz - d / 2, maxZ = cz + d / 2;
+    const gMinX = minX - ROAD_MARGIN_M, gMaxX = maxX + ROAD_MARGIN_M;
+    const gMinZ = minZ - ROAD_MARGIN_M, gMaxZ = maxZ + ROAD_MARGIN_M;
+    const west = new Map(), east = new Map(), north = new Map(), south = new Map();
+    const seen = new Set();
+    const gx0 = Math.floor(minX / RIBBON_GRID_CELL), gx1 = Math.floor(maxX / RIBBON_GRID_CELL);
+    const gz0 = Math.floor(minZ / RIBBON_GRID_CELL), gz1 = Math.floor(maxZ / RIBBON_GRID_CELL);
+    for (let gx = gx0; gx <= gx1; gx++) for (let gz = gz0; gz <= gz1; gz++) {
+      const bucket = ribbonGrid.grid.get(ribbonGrid.key(gx, gz));
+      if (!bucket) continue;
+      for (const idx of bucket) {
+        if (seen.has(idx)) continue;
+        seen.add(idx);
+        const r = ribbonRects[idx];
+        if (r.maxX >= gMinX && r.minX <= gMaxX && r.maxZ >= gMinZ && r.minZ <= gMaxZ
+          && ribbonHitsLot(r, gMinX, gMaxX, gMinZ, gMaxZ)) return 'road';
+        if (r.flank && r.name) {
+          const spanZ = ribbonSpanAtZ(r, cz);
+          if (spanZ) {
+            if (spanZ[1] <= minX + 0.5) {
+              const dd = minX - spanZ[1];
+              if (dd < (west.get(r.name) ?? Infinity)) west.set(r.name, dd);
+            }
+            if (spanZ[0] >= maxX - 0.5) {
+              const dd = spanZ[0] - maxX;
+              if (dd < (east.get(r.name) ?? Infinity)) east.set(r.name, dd);
+            }
+          }
+          const spanX = ribbonSpanAtX(r, cx);
+          if (spanX) {
+            if (spanX[1] <= minZ + 0.5) {
+              const dd = minZ - spanX[1];
+              if (dd < (north.get(r.name) ?? Infinity)) north.set(r.name, dd);
+            }
+            if (spanX[0] >= maxZ - 0.5) {
+              const dd = spanX[0] - maxZ;
+              if (dd < (south.get(r.name) ?? Infinity)) south.set(r.name, dd);
+            }
+          }
+        }
+      }
+    }
+    for (const [name, dd] of west) {
+      if (dd <= CORRIDOR_GAP_MAX_M && (east.get(name) ?? Infinity) <= CORRIDOR_GAP_MAX_M) return 'median';
+    }
+    for (const [name, dd] of north) {
+      if (dd <= CORRIDOR_GAP_MAX_M && (south.get(name) ?? Infinity) <= CORRIDOR_GAP_MAX_M) return 'median';
+    }
+    return null;
+  };
+
   const t101 = (geodata.landmarks || {})['Taipei 101'];
   const towerSite = t101
     ? { minX: t101.x - t101.w / 2, maxX: t101.x + t101.w / 2, minZ: t101.z - t101.d / 2, maxZ: t101.z + t101.d / 2 }
@@ -704,6 +897,7 @@ export function planTaipeiBuildings(geodata) {
     stats.blocksSeen++;
     if (!(block.area >= 150)) { stats.blocksSkippedSmall++; continue; }
     if (inPoly(block.cx, block.cz)) { stats.blocksSkippedParkWater++; continue; }
+    if (!inUnion(block.cx, block.cz)) { stats.blocksSkippedOutsideUnion++; continue; }
     const inset = 3.0; // street-section band margin (see header)
     const minX = block.bbox.minX + inset, maxX = block.bbox.maxX - inset;
     const minZ = block.bbox.minZ + inset, maxZ = block.bbox.maxZ - inset;
@@ -721,12 +915,20 @@ export function planTaipeiBuildings(geodata) {
       for (let row = 0; row < rows; row++) {
         const seed = Math.imul(bi + 1, 73856093) ^ Math.imul(col + 1, 19349663) ^ Math.imul(row + 1, 83492791);
         if (hash01(seed ^ 0x51ab) < vacancy) { stats.lotsDroppedVacancy++; continue; }
-        const cx = minX + (col + 0.5) * cellW;
-        const cz = minZ + (row + 0.5) * cellD;
+        // The emitted lot centre is rounded to 0.1 m (see the push
+        // below); run every exclusion test at THAT point, not the raw
+        // grid centre. The two can straddle a polygon edge — the west
+        // expansion regen (issue #60) produced a lot whose raw centre
+        // sat 5 mm outside a park sliver while its rounded, emitted
+        // centre sat inside it, passing the planner and failing the
+        // audit. One point, tested once, no disagreement.
+        const cx = Math.round((minX + (col + 0.5) * cellW) * 10) / 10;
+        const cz = Math.round((minZ + (row + 0.5) * cellD) * 10) / 10;
         const gap = 1.2 + hash01(seed ^ 0x77c3) * 1.8;
         const w = cellW - gap, d = cellD - gap;
         if (w < 7 || d < 7) continue;
         if (inPoly(cx, cz)) { stats.lotsDroppedParkWater++; continue; }
+        if (!inUnion(cx, cz)) { stats.lotsDroppedOutsideUnion++; continue; }
         let onLandmarkSite = false;
         for (const s of exclusionSites) {
           if (cx + w / 2 > s.minX && cx - w / 2 < s.maxX && cz + d / 2 > s.minZ && cz - d / 2 < s.maxZ) { onLandmarkSite = true; break; }
@@ -735,16 +937,18 @@ export function planTaipeiBuildings(geodata) {
           stats.lotsDroppedTowerSite++;
           continue;
         }
-        const { clearance, rank } = roadInfoAt(cx, cz);
-        if (clearance < 1.6) { stats.lotsDroppedRoad++; continue; }
-        // The centre test alone lets a wide lot beside a narrow lane
-        // overhang the lane itself; require every footprint corner to
-        // stay out of the ribbons too (corner clearance < 0 = inside).
-        let cornerInRoad = false;
+        const verdict = ribbonVerdict(cx, cz, w, d);
+        if (verdict === 'road') { stats.lotsDroppedRoad++; continue; }
+        if (verdict === 'median') { stats.lotsDroppedMedian++; continue; }
+        // The ribbon verdicts say nothing about the tile union
+        // (issue #60): no footprint corner may hang over a dropped
+        // band, where there is no ground at all.
+        let cornerOutsideUnion = false;
         for (const [ox, oz] of [[-1, -1], [-1, 1], [1, -1], [1, 1]]) {
-          if (roadInfoAt(cx + (ox * w) / 2, cz + (oz * d) / 2).clearance < 0) { cornerInRoad = true; break; }
+          if (!inUnion(cx + (ox * w) / 2, cz + (oz * d) / 2)) { cornerOutsideUnion = true; break; }
         }
-        if (cornerInRoad) { stats.lotsDroppedRoad++; continue; }
+        if (cornerOutsideUnion) { stats.lotsDroppedOutsideUnion++; continue; }
+        const { rank } = roadInfoAt(cx, cz);
         const dOrigin = Math.hypot(cx, cz);
         let lo, hi;
         if (dOrigin < 650) { lo = 25; hi = 60; }        // Xinyi commercial core

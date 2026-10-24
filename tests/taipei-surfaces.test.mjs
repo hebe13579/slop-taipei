@@ -60,7 +60,9 @@ test('geodata: class populations cover every roadbed exactly once', () => {
   // Pinned from the regenerated evidence list (post-#51 data: five
   // duplicate 基隆路車行地下道 beds suppressed, one lane bed folded
   // into a merged group, one bed reclassed — see issue #51).
-  assert.deepEqual(counts, { deck: 101, arterial: 441, collector: 374, lane: 3466 });
+  // Re-pinned 2026-10-24 for the west-expansion data (issue #60):
+  // roadbeds 4,387 -> 5,792 with the station district added.
+  assert.deepEqual(counts, { deck: 141, arterial: 612, collector: 579, lane: 4460 });
 });
 
 test('medianKind: merged + width rule, planted only on wide secondary', () => {
@@ -95,15 +97,13 @@ test('geodata: no median on any underpass-named bed in the real tile', () => {
   const named = TAIPEI_GEO.roadbeds.filter((b) => isUnderpassName(b.name));
   assert.ok(named.length > 0, 'the tile does contain underpass/tunnel beds');
   for (const b of named) assert.equal(medianKind(b), null, `${b.name} must not get a median`);
-  // Issue #51: the 辛亥路車行地下道 underpass pair no longer renders as
-  // its own bed — family pairing folds it into the parent road's merged
-  // bed (the flat-world rule: the underpass is ignored, 辛亥路三段 is
-  // drawn whole). The no-median exclusion above now guards the
-  // remaining underpass/tunnel-named beds （基隆路車行地下道 singles,
-  // 象山/文山 tunnels).
-  const xinhai = TAIPEI_GEO.roadbeds.find((b) => b.sourceWayIds.includes(327119603));
-  assert.ok(xinhai, 'the former 辛亥路車行地下道 ways still render');
-  assert.equal(xinhai.name, '辛亥路三段', 'underpass ways folded into the parent road bed');
+  // Issue #51 history: the 辛亥路車行地下道 pair folded into the parent
+  // road's merged bed by family pairing. Since the west expansion
+  // (issue #60) the whole 辛亥路 corridor sits in the dropped south
+  // band (lat < 25.0285) and is no longer in the tile, so the #51
+  // way-level assertion went with it; the exclusion above now guards
+  // the remaining underpass/tunnel-named beds （基隆路車行地下道
+  // singles, 林森南路車行地下道, 忠孝西路地下道, 象山隧道).
 });
 
 test('geodata: median bed counts match the regenerated evidence list', () => {
@@ -113,14 +113,19 @@ test('geodata: median bed counts match the regenerated evidence list', () => {
     if (k === 'planted') planted++;
     if (k === 'plain') plain++;
   }
-  assert.equal(planted, 72);
-  assert.equal(plain, 164); // +1 vs #29 list: a 基隆路一段 family-merged bed (issue #51)
+  // Re-pinned 2026-10-24 for the west-expansion data (issue #60):
+  // the station district's boulevards (忠孝西路, 中山北路, 館前路…)
+  // take planted 72 -> 96 and plain 164 -> 251; excludedUnderpass
+  // counts only beds wide/merged enough to otherwise earn a median:
+  // 象山隧道 x3 now (文山隧道 left with the dropped south band).
+  assert.equal(planted, 96);
+  assert.equal(plain, 251);
   const { stats } = buildMedianStrips(TAIPEI_GEO.roadbeds);
-  assert.equal(stats.plantedBeds, 72);
-  assert.equal(stats.plainBeds, 164);
-  assert.equal(stats.excludedUnderpass, 5); // 象山隧道 x4 + 文山隧道 (辛亥路車行地下道 folded into 辛亥路三段, issue #51)
-  assert.ok(stats.plantedKm > 8 && stats.plantedKm < 11.3, `planted rendered ${stats.plantedKm} km`);
-  assert.ok(stats.plainKm > 30 && stats.plainKm < 40.9, `plain rendered ${stats.plainKm} km`);
+  assert.equal(stats.plantedBeds, 96);
+  assert.equal(stats.plainBeds, 251);
+  assert.equal(stats.excludedUnderpass, 3); // 象山隧道 x3
+  assert.ok(stats.plantedKm > 8 && stats.plantedKm < 13, `planted rendered ${stats.plantedKm} km`);
+  assert.ok(stats.plainKm > 30 && stats.plainKm < 48, `plain rendered ${stats.plainKm} km`);
 });
 
 test('medianStripWidth clamps to 1.2–3.5 m at 8% of bed width', () => {
@@ -173,7 +178,7 @@ test('plaza classification: 廣場 polygons are paving, real parks stay green', 
   const plazas = TAIPEI_GEO.parks.filter(isPlazaPark);
   const greens = TAIPEI_GEO.parks.filter((p) => !isPlazaPark(p));
   assert.equal(plazas.length + greens.length, TAIPEI_GEO.parks.length);
-  assert.equal(plazas.length, 11); // pinned on post-#30 data
+  assert.equal(plazas.length, 17); // pinned on post-#30 data; re-pinned 2026-10-24 (issue #60: +中山堂/行旅/西本願寺/北門 and other west-side 廣場)
   for (const name of ['台北市民廣場', '松壽廣場', '台北世貿廣場', '信義21號廣場', '忠信廣場']) {
     assert.ok(plazas.some((p) => p.name === name), `${name} classified as plaza paving`);
   }
@@ -194,7 +199,10 @@ test('podium blocks: exactly the 101 and City Hall blocks, by landmark-centre co
   assert.ok(podium.some((b) => isPodiumBlock(b, [t101])), 'the 101 block is podium');
   assert.ok(podium.some((b) => isPodiumBlock(b, [gov])), 'the City Hall block is podium');
   assert.ok(podium[0] !== podium[1]);
-  const far = TAIPEI_GEO.blocks.find((b) => b.bbox.maxX < -2000 && b.bbox.minZ > 1000);
+  // Far-corner finder re-based for the union footprint (issue #60):
+  // the old tile reached z > 1000 in the south band; the union's far
+  // corner from both centres is the north-west (station district).
+  const far = TAIPEI_GEO.blocks.find((b) => b.bbox.maxX < -4000 && b.bbox.minZ < -2000);
   assert.ok(far && !isPodiumBlock(far, centres), 'a far corner block is not podium');
   assert.ok(!isPodiumBlock(TAIPEI_GEO.blocks[0], []), 'no centres -> no podium');
 });
