@@ -379,10 +379,28 @@ export function planStreetTrees(geodata, plan, opts = {}) {
     return false;
   };
 
-  const rejected = { junction: 0, carriageway: 0, lot: 0, site: 0 };
+  // Issue #81: caller-supplied exclusion polygons (the boot passes
+  // the junction cap rings + roundabout disc/apron rings): a tree
+  // must never stand on junction asphalt. The planners' own
+  // carriageway checks test centreline distance, and a cap corner
+  // can sit 20+ m from every centreline — measured 147 planned
+  // trees inside cap polygons tile-wide before this exclusion.
+  const exclPolys = (opts.exclusions || []).map((ring) => {
+    let minX = Infinity, maxX = -Infinity, minZ = Infinity, maxZ = -Infinity;
+    for (let i = 0; i < ring.length; i += 2) {
+      minX = Math.min(minX, ring[i]); maxX = Math.max(maxX, ring[i]);
+      minZ = Math.min(minZ, ring[i + 1]); maxZ = Math.max(maxZ, ring[i + 1]);
+    }
+    return { ring, minX, maxX, minZ, maxZ };
+  });
+  const inExclusion = (x, z) => exclPolys.some((p) =>
+    x >= p.minX && x <= p.maxX && z >= p.minZ && z <= p.maxZ && pointInRing(x, z, p.ring));
+
+  const rejected = { junction: 0, carriageway: 0, lot: 0, site: 0, cap: 0 };
 
   // One candidate through every exclusion. Returns null when planted.
   const tryPlant = (x, z, ownBedIdx) => {
+    if (inExclusion(x, z)) { rejected.cap++; return false; }
     for (const s of bedGrid.near(x, z)) {
       if (s.idx === ownBedIdx) continue;
       if (distToSegment(x, z, s.ax, s.az, s.bx, s.bz) < s.half + 1.1) { rejected.junction++; return false; }
@@ -545,6 +563,21 @@ export function planParkTrees(geodata, plan, opts = {}) {
   });
   const inWater = (x, z) => water.some((w) => x >= w.minX && x <= w.maxX && z >= w.minZ && z <= w.maxZ && pointInRing(x, z, w.ring));
 
+  // Issue #81: caller-supplied exclusion polygons (junction caps +
+  // roundabout discs/aprons from the boot), same treatment as
+  // water: a park tree must never stand on junction asphalt either
+  // (riverside-park ramp-merge caps carried 6 each).
+  const exclPolys = (opts.exclusions || []).map((ring) => {
+    let minX = Infinity, maxX = -Infinity, minZ = Infinity, maxZ = -Infinity;
+    for (let i = 0; i < ring.length; i += 2) {
+      minX = Math.min(minX, ring[i]); maxX = Math.max(maxX, ring[i]);
+      minZ = Math.min(minZ, ring[i + 1]); maxZ = Math.max(maxZ, ring[i + 1]);
+    }
+    return { ring, minX, maxX, minZ, maxZ };
+  });
+  const inExclusion = (x, z) => exclPolys.some((p) =>
+    x >= p.minX && x <= p.maxX && z >= p.minZ && z <= p.maxZ && pointInRing(x, z, p.ring));
+
   // Building lots + the 101 site + landmark structure sites (SYS
   // Memorial Hall stands inside 中山公園, the Dome borders a park
   // strip): the same exclusion shapes the street planner uses (32 m
@@ -588,7 +621,7 @@ export function planParkTrees(geodata, plan, opts = {}) {
   for (const lt of plan?.landmarkTowers || []) for (const s of lt.sites || []) siteRects.push(s);
   const inSite = (x, z) => siteRects.some((r) => x >= r.minX - 0.5 && x <= r.maxX + 0.5 && z >= r.minZ - 0.5 && z <= r.maxZ + 0.5);
 
-  const rejected = { water: 0, carriageway: 0, path: 0, lot: 0, site: 0, probability: 0 };
+  const rejected = { water: 0, carriageway: 0, path: 0, lot: 0, site: 0, cap: 0, probability: 0 };
   const byClass = {};
   for (const c of PARK_CLASSES) byClass[c.id] = { parks: 0, area: 0, candidates: 0, trees: 0 };
   const perPark = []; // { name, cls, area, trees[] } — cap thinning is per park
@@ -660,6 +693,7 @@ export function planParkTrees(geodata, plan, opts = {}) {
         if (bad) continue;
         if (inLot(x, z)) { rejected.lot++; continue; }
         if (inSite(x, z)) { rejected.site++; continue; }
+        if (inExclusion(x, z)) { rejected.cap++; continue; }
         // Acceptance field: base × edge bias × path bias ÷ clearings.
         let p = cls.accept;
         let dEdge = Infinity;

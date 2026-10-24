@@ -3,6 +3,9 @@ import test from 'node:test';
 
 import { TAIPEI_GEO } from '../js/taipei-geodata.js';
 import { planTaipeiBuildings } from '../js/taipei-buildings.js';
+import { detectJunctions } from '../js/taipei-markings.js';
+import { planJunctionCaps, planRoundabouts, ringPoints } from '../js/taipei-junctions.js';
+import { buildPolyGrid, pointInAnyPoly } from '../js/taipei-painted.js';
 import {
   buildSidewalkBands,
   planStreetTrees,
@@ -292,4 +295,35 @@ test('real tile: park tree exclusion audit (brute force)', () => {
       assert.ok(d >= s.half + 0.9 - 0.01, `sampled tree inside a carriageway (d=${d.toFixed(2)}, half=${s.half})`);
     }
   }
+});
+
+test('issue #81: with boot-style exclusions, no tree stands on junction asphalt', () => {
+  // The boot (taipei-boot.js) plans trees AFTER the junction caps
+  // and roundabout sites and passes their rings as exclusion
+  // polygons: the planners' own carriageway checks test
+  // centreline distance, and a cap corner can sit 20+ m from
+  // every centreline. Measured before the exclusion: 147 planned
+  // trees inside cap polygons tile-wide (a tree standing in the
+  // reported junction's field among them).
+  const geo = TAIPEI_GEO;
+  const plan = planTaipeiBuildings(geo);
+  const beds = geo.roadbeds;
+  const junctions = detectJunctions(beds);
+  const sites = planRoundabouts(beds, junctions);
+  const caps = planJunctionCaps(beds, junctions, sites);
+  const exclusions = [
+    ...caps.map((c) => c.ring),
+    ...sites.flatMap((s) => [s.disc.ring, ...s.aprons.map((a) => a.ring)]),
+  ];
+  const polys = exclusions.map((r) => ringPoints(r));
+  const grid = buildPolyGrid(polys);
+  const street = planStreetTrees(geo, plan, { exclusions });
+  const park = planParkTrees(geo, plan, { exclusions });
+  // The exclusion actually bites (it is not a no-op on this data).
+  assert.ok(street.stats.rejected.cap > 0, `street candidates rejected by caps: ${street.stats.rejected.cap}`);
+  assert.ok(park.stats.rejected.cap > 0, `park candidates rejected by caps: ${park.stats.rejected.cap}`);
+  assert.ok(street.stats.rejected.cap + park.stats.rejected.cap >= 100,
+    `cap rejections ${street.stats.rejected.cap} + ${park.stats.rejected.cap} (147 trees stood inside caps before)`);
+  for (const t of [...street.trees, ...park.trees])
+    assert.ok(!pointInAnyPoly(grid, polys, [t.x, t.z]), `tree at ${t.x},${t.z} inside a junction cap/disc`);
 });
