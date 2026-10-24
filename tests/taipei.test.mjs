@@ -12,7 +12,7 @@ import {
 } from '../js/taipei-adapter.js';
 import { TAIPEI_TILE } from '../js/taipei-tile.js';
 import { TILE_REGISTRY, tileIdFromSearch, loadSelectedTile } from '../js/tile-registry.js';
-import { planTaipeiBuildings, taipeiCityBlocksOptions, pointInRing, latLonToTile } from '../js/taipei-buildings.js';
+import { planTaipeiBuildings, taipeiCityBlocksOptions, pointInRing, latLonToTile, clampTaipeiRooftopGear } from '../js/taipei-buildings.js';
 
 // M1 foundation: the Taipei tile's adapter, road graph, teleports and tile
 // registry. Numbers printed via t.diagnostic are the actual generated values.
@@ -490,7 +490,7 @@ test('buildings options: plan faithfully adapted for the upstream building syste
     assert.ok(Math.abs((l.x0 + l.x1) / 2 - p.x) < 0.051 && Math.abs((l.z0 + l.z1) / 2 - p.z) < 0.051, 'lot centre matches the plan');
     assert.ok(Math.abs((l.x1 - l.x0) - p.w) < 0.051 && Math.abs((l.z1 - l.z0) - p.d) < 0.051, 'lot footprint matches the plan');
     assert.equal(l.h, p.h, 'lot height matches the plan');
-    assert.ok(Number.isInteger(l.mat) && l.mat >= 0 && l.mat <= 5, `facade material index ${l.mat} within upstream's six families`);
+    assert.ok(Number.isInteger(l.mat) && l.mat >= 0 && l.mat <= 9, `facade material index ${l.mat} within upstream's ten families`);
   });
   // Material zoning: the tall Xinyi core goes curtain glass (3-5), the
   // low residential interiors stay masonry (0-2).
@@ -498,4 +498,57 @@ test('buildings options: plan faithfully adapted for the upstream building syste
   assert.ok(core.length > 0 && core.every((l) => l.mat >= 3), 'tall core lots are glass');
   const low = opts.lots.filter((l) => l.h < 12);
   assert.ok(low.length > 0 && low.every((l) => l.mat <= 2), 'low residential lots are masonry');
+});
+
+// Issue #17: the four Taiwan types (families 6-9) are assigned only inside
+// their height bands, together take a large share of the masonry lots
+// there, and the glass families' counts are exactly what the pre-#17
+// rules produced (the glass rolls are evaluated first, unchanged). The
+// rooftop-gear clamp keeps every unit inside its roof, near-square, and
+// removes water towers.
+test('taiwan types: family zoning, distribution and rooftop clamp', (t) => {
+  const plan = planTaipeiBuildings(TAIPEI_GEO);
+  const opts = taipeiCityBlocksOptions(TAIPEI_GEO, plan);
+  const taiwan = opts.lots.filter((l) => l.mat >= 6);
+  assert.ok(taiwan.length > 3000, `the Taiwan set is a major presence (${taiwan.length} lots)`);
+  assert.ok(taiwan.every((l) => l.h >= 15 && l.h < 40), 'Taiwan types only on 15-40 m lots');
+  // Per-type bands: 6 tile shophouse 15-40, 7 arcade < 28, 8 walk-up < 30,
+  // 9 pebble-dash 15-40 — and every type is planted in real numbers.
+  const typeBand = { 6: [15, 40], 7: [15, 28], 8: [15, 30], 9: [15, 40] };
+  for (const [mat, [lo, hi]] of Object.entries(typeBand)) {
+    const lots = opts.lots.filter((l) => l.mat === Number(mat));
+    assert.ok(lots.length > 400, `family ${mat} planted in real numbers (${lots.length} lots)`);
+    assert.ok(lots.every((l) => l.h >= lo && l.h < hi), `family ${mat} only on ${lo}-${hi} m lots`);
+    t.diagnostic(`family ${mat}: ${lots.length} lots`);
+  }
+  const band = opts.lots.filter((l) => l.h >= 15 && l.h < 22);
+  const bandTaiwan = band.filter((l) => l.mat >= 6).length;
+  assert.ok(bandTaiwan / band.length > 0.55, `15-22 m band is mostly Taiwan types (${bandTaiwan}/${band.length})`);
+  const glass = opts.lots.filter((l) => l.mat >= 3 && l.mat <= 5).length;
+  t.diagnostic(`taiwan set 6-9: ${taiwan.length} lots; glass 3-5: ${glass} lots`);
+  assert.equal(glass, 2367, 'glass family counts untouched by the Taiwan-type assignment');
+  const masonry = opts.lots.filter((l) => l.mat <= 2).length;
+  assert.ok(masonry > 12000 && masonry < 16000, `masonry 0-2 reduced but still present (${masonry})`);
+  assert.equal(typeof opts.rooftopGearClamp, 'function', 'options carry the rooftop-gear clamp');
+
+  const lot = { x0: 0, x1: 9, z0: 0, z1: 14 };
+  const gear = clampTaipeiRooftopGear({
+    waterTowers: [{ x: 4, y: 20, z: 7 }],
+    hvacUnits: [
+      { x: 4.5, y: 20, z: 7, w: 8.6, h: 5.2, d: 3.0 },   // oversized + too tall
+      { x: -30, y: 20, z: 40, w: 2.4, h: 2.6, d: 2.4 },  // centre off the roof
+    ],
+  }, lot);
+  assert.deepEqual(gear.waterTowers, [], 'water towers removed for Taipei');
+  assert.equal(gear.hvacUnits.length, 2, 'both units survive on a 9x14 m roof');
+  for (const u of gear.hvacUnits) {
+    assert.ok(u.w <= 4.2 && u.d <= 4.2 && u.h <= 3.0, 'unit size caps hold');
+    assert.ok(Math.max(u.w, u.d) / Math.min(u.w, u.d) <= 1.3 + 1e-9, 'unit stays near-square (fans stay circular)');
+    assert.ok(u.x - u.w / 2 >= lot.x0 && u.x + u.w / 2 <= lot.x1, 'unit inside the roof in x');
+    assert.ok(u.z - u.d / 2 >= lot.z0 && u.z + u.d / 2 <= lot.z1, 'unit inside the roof in z');
+  }
+  const tiny = clampTaipeiRooftopGear(
+    { waterTowers: [], hvacUnits: [{ x: 1, y: 9, z: 1, w: 2.4, h: 2.4, d: 2.4 }] },
+    { x0: 0, x1: 3.2, z0: 0, z1: 12 });
+  assert.equal(tiny.hvacUnits.length, 0, 'units dropped when the roof is too narrow');
 });
