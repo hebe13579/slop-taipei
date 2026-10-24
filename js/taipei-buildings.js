@@ -1085,16 +1085,24 @@ function facadeMatFor(lot) {
 // a second hash of the same seed picks within the weights, and a type's
 // weight is zero outside its band, which is what caps each type:
 //   6 tile shophouse  15–40 m, weight 3 throughout
-//   7 arcade shophouse 15–28 m, weight 3 (騎樓 blocks stay low)
-//   8 walk-up slab     15–30 m, weight 3 (70s–80s walk-ups)
+//   7 arcade shophouse 15–36 m, weight 3 (issue #55 raised the cap from
+//     28: the 騎樓 colonnade is a ground-floor treatment, and arcade-
+//     fronted blocks of 9–10 storeys stand all over Taipei — the type
+//     thins out above that, it does not stop at 8 storeys)
+//   8 walk-up slab     15–36 m, weight 3 (raised from 30, issue #55: the
+//     family's dense beige-tile vocabulary runs on the taller 80s slabs
+//     too; the pure stairs-only walk-ups are its low end)
 //   9 pebble-dash      15–40 m, weight 2.2 (洗石子 runs from 5-storey
 //     walk-ups to mid-rises, but is the least common of the four)
+// All caps stay under 40 m on purpose: facadeMatFor sends every lot of
+// 40 m or more to glass, and that rule is not touched, so the glass
+// families' counts are exactly what they were (see the taiwan test).
 function taiwanTypeFor(lot, seed) {
   const h = lot.h;
   const weights = [
     [6, h >= 15 && h < 40 ? 3 : 0],
-    [7, h >= 15 && h < 28 ? 3 : 0],
-    [8, h >= 15 && h < 30 ? 3 : 0],
+    [7, h >= 15 && h < 36 ? 3 : 0],
+    [8, h >= 15 && h < 36 ? 3 : 0],
     [9, h >= 15 && h < 40 ? 2.2 : 0],
   ];
   const total = weights.reduce((s, [, w]) => s + w, 0);
@@ -1113,8 +1121,10 @@ function taiwanTypeFor(lot, seed) {
 // than the building and HVAC fan wells stretched into ellipses (the unit
 // boxes are scaled non-uniformly per roof, so an over-wide unit means an
 // elliptical fan). Taipei policy, applied by js/buildings.js's lot mode
-// right after each commit: no water towers at all (wrong vocabulary for
-// Taipei), and every unit must fit INSIDE the lot rect with margin —
+// right after each commit: no cedar water towers (wrong vocabulary for
+// Taipei — issue #56: a sparse share of roofs gets a stainless tank
+// and/or a 鐵皮屋 addition instead, see taipeiRooftopAdditions), and
+// every unit must fit INSIDE the lot rect with margin —
 // shrunk toward square (aspect ≤ 1.3, so fan wells stay near-circular),
 // capped at 4.2 m across and 3.0 m tall, and dropped when the roof is too
 // small to hold a unit honestly (smaller dimension < 3.6 m, or the shrunk
@@ -1143,7 +1153,201 @@ export function clampTaipeiRooftopGear(gear, lot) {
       });
     }
   }
-  return { waterTowers: [], hvacUnits: units };
+  const adds = taipeiRooftopAdditions(gear, lot, units);
+  return { waterTowers: adds.tanks, hvacUnits: units, rooftopAdds: adds.huts };
+}
+
+// --- Issue #56 rooftop furniture: stainless tanks & 鐵皮屋 additions ---
+// Taipei's roofs (see the user's rooftop photo): most carry a squat
+// stainless-steel water tank (不鏽鋼水塔, a ~2 m cylinder), and a
+// minority of the low/mid walk-ups carry a 鐵皮屋 — an informal sheet-
+// metal room with a single-pitch sheet roof, weathered red or green
+// (occasionally grey-blue or rust-brown). Both are SPARSE on purpose
+// ("not all of them otherwise it look weird"): a 14% tank roll and a
+// 12% hut roll over the eligible lots, deterministic by lot hash, off
+// for glass towers (families 3–5) and off for lots whose plan carries
+// no mat/h (defensive — the synthetic lots in the unit tests).
+// Placement: a 3×3 grid of candidate spots (corners included — a hut
+// must be able to dodge a centrally-placed HVAC unit), hash-rotated,
+// first spot that fits inside the roof clear of the clamped HVAC units
+// wins; the hut claims its spot before the tank rolls. Sizes are
+// capped so the additions always fit the roof or are skipped entirely.
+export const TAIPEI_TANK_RATE = 0.14;
+export const TAIPEI_HUT_RATE = 0.12;
+export const TAIPEI_HUT_COLORS = [0x9e3d34, 0x4a6b52, 0x7d8894, 0x8a4a3a]; // weathered red, green, grey-blue, rust
+const TANK_RADIUS = 1.0;
+
+function lotPolicySeed(lot, salt) {
+  return (Math.imul(Math.round(lot.x0 * 10), 73856093)
+    ^ Math.imul(Math.round(lot.z0 * 10), 19349663)
+    ^ Math.imul(Math.round(lot.x1 * 10), 83492791)
+    ^ salt) >>> 0;
+}
+
+function roofSpotOrder(lot, seed) {
+  const w = lot.x1 - lot.x0, d = lot.z1 - lot.z0;
+  const spots = [];
+  for (const fx of [0.22, 0.5, 0.78]) for (const fz of [0.22, 0.5, 0.78]) {
+    spots.push({ x: lot.x0 + fx * w, z: lot.z0 + fz * d });
+  }
+  const rot = Math.floor(hash01(seed ^ 0x5eed) * spots.length) % spots.length;
+  return spots.slice(rot).concat(spots.slice(0, rot));
+}
+
+function gearRectsOverlap(a, b, pad) {
+  return a.x0 - pad < b.x1 && a.x1 + pad > b.x0 && a.z0 - pad < b.z1 && a.z1 + pad > b.z0;
+}
+
+export function taipeiRooftopAdditions(gear, lot, units) {
+  const none = { tanks: [], huts: [] };
+  if (!lot || typeof lot.mat !== 'number' || typeof lot.h !== 'number') return none;
+  if (lot.mat >= 3 && lot.mat <= 5) return none; // glass towers: no furniture
+  const roofY = typeof gear.maxH === 'number' ? gear.maxH : lot.h;
+  const w = lot.x1 - lot.x0, d = lot.z1 - lot.z0;
+  const seed = lotPolicySeed(lot, 0x7a11);
+  const occupied = (units || []).map((u) => ({
+    x0: u.x - u.w / 2, x1: u.x + u.w / 2, z0: u.z - u.d / 2, z1: u.z + u.d / 2,
+  }));
+  const spots = roofSpotOrder(lot, seed);
+  const fits = (r, pad) => r.x0 >= lot.x0 + 0.4 && r.x1 <= lot.x1 - 0.4
+    && r.z0 >= lot.z0 + 0.4 && r.z1 <= lot.z1 - 0.4
+    && !occupied.some((o) => gearRectsOverlap(r, o, pad));
+  const huts = [];
+  // 鐵皮屋： low/mid lots only (9–27 m — the walk-up and small-slab roofs
+  // in the photo), roofs at least 8 m in both dimensions.
+  if (lot.h >= 9 && lot.h <= 27 && Math.min(w, d) >= 8 && hash01(seed ^ 0x1117) < TAIPEI_HUT_RATE) {
+    const hw = Math.min(w * 0.45, 5.8), hd = Math.min(d * 0.45, 5.0);
+    for (const s of spots) {
+      const r = { x0: s.x - hw / 2, x1: s.x + hw / 2, z0: s.z - hd / 2, z1: s.z + hd / 2 };
+      if (!fits(r, 0.3)) continue;
+      huts.push({
+        x: s.x, y: roofY, z: s.z, w: hw, d: hd,
+        h: 2.5 + hash01(seed ^ 0x2227) * 0.6,
+        pitch: 0.16 + hash01(seed ^ 0x3337) * 0.08,
+        axis: hash01(seed ^ 0x4447) < 0.5 ? 'z' : 'x',
+        dir: hash01(seed ^ 0x5557) < 0.5 ? -1 : 1,
+        colorIdx: Math.floor(hash01(seed ^ 0x6667) * TAIPEI_HUT_COLORS.length) % TAIPEI_HUT_COLORS.length,
+      });
+      occupied.push(r);
+      break;
+    }
+  }
+  const tanks = [];
+  // Stainless tanks: nearly any non-glass roof of 8–34 m with 5.5 m of
+  // room — in the photo they sit on walk-ups and mid slabs alike.
+  if (lot.h >= 8 && lot.h <= 34 && Math.min(w, d) >= 5.5 && hash01(seed ^ 0x7777) < TAIPEI_TANK_RATE) {
+    for (const s of spots) {
+      const r = { x0: s.x - TANK_RADIUS, x1: s.x + TANK_RADIUS, z0: s.z - TANK_RADIUS, z1: s.z + TANK_RADIUS };
+      if (!fits(r, 0.35)) continue;
+      tanks.push({ x: s.x, y: roofY, z: s.z });
+      occupied.push(r);
+      break;
+    }
+  }
+  return { tanks, huts };
+}
+
+// --- Issue #55: the F7 騎樓 (arcade) as real geometry -------------------
+// Until now F7's "arcade" was a gradient painted on flat shopfront
+// glass. taipeiArcadeParts computes the actual massing for an arcade
+// lot — pure data, consumed by js/buildings.js's populatePlannedLot:
+//   - core:    the ground storey, inset ARCADE_DEPTH on every side, so
+//              the ground floor is genuinely recessed （內縮） and the
+//              walkway passes under the upper floors, exactly the
+//              cross-section in the 營建署 manual the user supplied;
+//   - columns: 0.55 m square columns standing at the lot's front edge,
+//              holding the upper block — one at each corner plus one at
+//              every bay boundary of the F7 facade's own bay grid
+//              (cornerPier 0.85 m, bayWidth 2.7 m — the same numbers the
+//              F7 material paints with), so the painted piers above and
+//              the real columns below land on the same rhythm.
+// Orientation: the planner's lots do NOT know a street side — a lot is
+// a free-standing cell in a block interior, every side faces a street
+// or lane across the 1.2–3 m gap to its neighbours, and every Taiwan
+// family already paints its full front treatment (shopfronts, signage
+// band, address plate) on all four sides for the same reason. The
+// arcade therefore runs the full perimeter: the full length of every
+// frontage, which is also how the real corner shophouses read.
+// Lots under 11 m in either dimension get no arcade (the inset core
+// would drop under ~3.8 m); they keep the flat F7 facade.
+export const TAIPEI_ARCADE_DEPTH = 3.6; // = ARCADE_BAND_W in taipei-streetscape.js
+const ARCADE_COLUMN = 0.55;
+const ARCADE_BAY_W = 2.7;    // mirrors facades[7].windowWidth in js/buildings.js
+const ARCADE_PIER = 0.85;    // mirrors facades[7].cornerPier in js/buildings.js
+
+export function taipeiArcadeParts(lot) {
+  const w = lot.x1 - lot.x0, d = lot.z1 - lot.z0;
+  if (!(w >= 11 && d >= 11)) return null;
+  const D = TAIPEI_ARCADE_DEPTH, C = ARCADE_COLUMN;
+  const core = { x0: lot.x0 + D, x1: lot.x1 - D, z0: lot.z0 + D, z1: lot.z1 - D };
+  // Bay-boundary offsets along a side of the given length, measured
+  // from the side's start corner (the facade bay grid is symmetric, so
+  // the same offsets serve both directions of a side).
+  const bayOffsets = (len) => {
+    const pier = Math.min(ARCADE_PIER, len * 0.2);
+    const inner = len - pier * 2;
+    const bays = Math.max(1, Math.floor(inner / ARCADE_BAY_W + 0.5));
+    const bayW = inner / bays;
+    const out = [];
+    for (let k = 1; k < bays; k++) out.push(pier + k * bayW);
+    return out;
+  };
+  const columns = [];
+  const push = (x0, z0) => columns.push({ x0, x1: x0 + C, z0, z1: z0 + C });
+  // Corner columns, centred inside the corner so both outer faces are
+  // flush with the lot edges.
+  push(lot.x0, lot.z0); push(lot.x1 - C, lot.z0); push(lot.x0, lot.z1 - C); push(lot.x1 - C, lot.z1 - C);
+  // Bay-boundary columns along each side, flush with that side's edge.
+  for (const off of bayOffsets(w)) {
+    push(lot.x0 + off - C / 2, lot.z0);
+    push(lot.x0 + off - C / 2, lot.z1 - C);
+  }
+  for (const off of bayOffsets(d)) {
+    push(lot.x0, lot.z0 + off - C / 2);
+    push(lot.x1 - C, lot.z0 + off - C / 2);
+  }
+  return { depth: D, core, columns };
+}
+
+// --- Issue #56: vertical signs （直式招牌） ------------------------------
+// The street photo's defining layer: thin sign panels mounted
+// PERPENDICULAR to the facade, stacked with glyph characters, in reds,
+// yellows, greens, blues and white. Policy here returns the panels for
+// one lot (pure data); js/buildings.js instances them as real boxes
+// with the abstract-glyph sign material, whose panel colours are
+// hashed in-shader from the same photo palette (coloured panel +
+// glyph marks, no rendered text — the same stylization as the facade
+// signage bands). Taiwan types only (families 6–9): ~55% of them
+// carry signs, one panel usually, two on a hash share, each on its
+// own side; a panel starts above the ground floor (y0 ≈ 4.1–4.6 m)
+// and never crosses the roof.
+const SIGN_RATE = 0.55;
+
+export function taipeiVerticalSigns(lot) {
+  if (!lot || lot.mat < 6 || lot.mat > 9 || lot.h < 10) return [];
+  const seed = lotPolicySeed(lot, 0x5167);
+  if (hash01(seed) >= SIGN_RATE) return [];
+  const two = hash01(seed ^ 0x11) >= 0.62;
+  const sides = ['n', 's', 'e', 'w'];
+  const signs = [];
+  const used = new Set();
+  for (let i = 0; i < (two ? 2 : 1); i++) {
+    let sideIdx = Math.floor(hash01(seed ^ (0x21 + i * 7)) * 4) % 4;
+    if (used.has(sides[sideIdx])) sideIdx = (sideIdx + 1) % 4;
+    used.add(sides[sideIdx]);
+    const signH = Math.min(3.6 + hash01(seed ^ (0x41 + i * 17)) * 3.6, lot.h - 5.2);
+    if (signH < 3.2) continue;
+    signs.push({
+      side: sides[sideIdx],
+      along: 0.22 + hash01(seed ^ (0x31 + i * 13)) * 0.56,
+      y0: 4.1 + hash01(seed ^ (0x51 + i * 19)) * 0.5,
+      h: signH,
+      out: 0.95 + hash01(seed ^ (0x61 + i * 23)) * 0.45,
+      thick: 0.18,
+      seed: (seed ^ Math.imul(i + 1, 7919)) >>> 0,
+    });
+  }
+  return signs;
 }
 
 // Adapt a plan into the options upstream's buildCityBlocks (js/
@@ -1154,14 +1358,23 @@ export function clampTaipeiRooftopGear(gear, lot) {
 // tile at y=0). Pure data, like the planner.
 export function taipeiCityBlocksOptions(geodata, plan = planTaipeiBuildings(geodata)) {
   return {
-    lots: plan.lots.map((lot) => ({
-      x0: lot.x - lot.w / 2,
-      x1: lot.x + lot.w / 2,
-      z0: lot.z - lot.d / 2,
-      z1: lot.z + lot.d / 2,
-      h: lot.h,
-      mat: facadeMatFor(lot),
-    })),
+    lots: plan.lots.map((lot) => {
+      const r = {
+        x0: lot.x - lot.w / 2,
+        x1: lot.x + lot.w / 2,
+        z0: lot.z - lot.d / 2,
+        z1: lot.z + lot.d / 2,
+        h: lot.h,
+        mat: facadeMatFor(lot),
+      };
+      // Issue #55: F7 arcade lots carry their recessed-ground-floor
+      // massing (null on lots too small for the inset core).
+      if (r.mat === 7) r.arcade = taipeiArcadeParts(r);
+      // Issue #56: vertical signs on a hashed subset of Taiwan-type lots.
+      const signs = taipeiVerticalSigns(r);
+      if (signs.length) r.signs = signs;
+      return r;
+    }),
     bounds: { ...geodata.frame.bbox },
     initial: [0, 0],
     colliders: false,
@@ -1169,6 +1382,9 @@ export function taipeiCityBlocksOptions(geodata, plan = planTaipeiBuildings(geod
     // clamped to the roof) — buildCityBlocks' lot mode applies it to the
     // committed gear of every lot when present.
     rooftopGearClamp: clampTaipeiRooftopGear,
+    // Issue #56: the gear pool's water-tower slots render as stainless
+    // tanks (the clamp's sparse tanks) instead of cedar towers.
+    silverTanks: true,
   };
 }
 

@@ -12,7 +12,7 @@ import {
 } from '../js/taipei-adapter.js';
 import { TAIPEI_TILE } from '../js/taipei-tile.js';
 import { TILE_REGISTRY, tileIdFromSearch, loadSelectedTile } from '../js/tile-registry.js';
-import { planTaipeiBuildings, taipeiCityBlocksOptions, pointInRing, latLonToTile, clampTaipeiRooftopGear, taipei101OrnamentPositions, taipeiLandmarkStructures } from '../js/taipei-buildings.js';
+import { planTaipeiBuildings, taipeiCityBlocksOptions, pointInRing, latLonToTile, clampTaipeiRooftopGear, taipeiArcadeParts, taipeiVerticalSigns, taipeiRooftopAdditions, TAIPEI_ARCADE_DEPTH, taipei101OrnamentPositions, taipeiLandmarkStructures } from '../js/taipei-buildings.js';
 
 // M1 foundation: the Taipei tile's adapter, road graph, teleports and tile
 // registry. Numbers printed via t.diagnostic are the actual generated values.
@@ -710,9 +710,13 @@ test('taiwan types: family zoning, distribution and rooftop clamp', (t) => {
   const taiwan = opts.lots.filter((l) => l.mat >= 6);
   assert.ok(taiwan.length > 3000, `the Taiwan set is a major presence (${taiwan.length} lots)`);
   assert.ok(taiwan.every((l) => l.h >= 15 && l.h < 40), 'Taiwan types only on 15-40 m lots');
-  // Per-type bands: 6 tile shophouse 15-40, 7 arcade < 28, 8 walk-up < 30,
-  // 9 pebble-dash 15-40 — and every type is planted in real numbers.
-  const typeBand = { 6: [15, 40], 7: [15, 28], 8: [15, 30], 9: [15, 40] };
+  // Per-type bands: 6 tile shophouse 15-40, 7 arcade < 36, 8 walk-up
+  // < 36, 9 pebble-dash 15-40 — and every type is planted in real
+  // numbers. Issue #55 raised the F7 cap 28 → 36 and the F8 cap 30 → 36
+  // (the taller fourth gallery sample needs a planted band behind it;
+  // both stay under 40 m, where facadeMatFor's untouched glass rule
+  // takes over, which is what keeps the glass pin below exact).
+  const typeBand = { 6: [15, 40], 7: [15, 36], 8: [15, 36], 9: [15, 40] };
   for (const [mat, [lo, hi]] of Object.entries(typeBand)) {
     const lots = opts.lots.filter((l) => l.mat === Number(mat));
     assert.ok(lots.length > 400, `family ${mat} planted in real numbers (${lots.length} lots)`);
@@ -756,7 +760,9 @@ test('taiwan types: family zoning, distribution and rooftop clamp', (t) => {
       { x: -30, y: 20, z: 40, w: 2.4, h: 2.6, d: 2.4 },  // centre off the roof
     ],
   }, lot);
-  assert.deepEqual(gear.waterTowers, [], 'water towers removed for Taipei');
+  // The incoming cedar tower is gone; this synthetic lot carries no
+  // mat/h, so the issue #56 stainless-tank policy adds nothing either.
+  assert.deepEqual(gear.waterTowers, [], 'cedar water towers removed for Taipei');
   assert.equal(gear.hvacUnits.length, 2, 'both units survive on a 9x14 m roof');
   for (const u of gear.hvacUnits) {
     assert.ok(u.w <= 4.2 && u.d <= 4.2 && u.h <= 3.0, 'unit size caps hold');
@@ -768,4 +774,149 @@ test('taiwan types: family zoning, distribution and rooftop clamp', (t) => {
     { waterTowers: [], hvacUnits: [{ x: 1, y: 9, z: 1, w: 2.4, h: 2.4, d: 2.4 }] },
     { x0: 0, x1: 3.2, z0: 0, z1: 12 });
   assert.equal(tiny.hvacUnits.length, 0, 'units dropped when the roof is too narrow');
+});
+
+// Issue #55: the F7 arcade massing is real geometry data — the ground
+// storey core is inset the full arcade depth on every side, and columns
+// stand at the lot's front edge on the facade's own bay grid, covering
+// every side's full frontage (lots know no street side, so the arcade
+// runs the full perimeter — see taipeiArcadeParts' note).
+test('arcade parts: recessed core and full-perimeter colonnade', (t) => {
+  const lot = { x0: 0, x1: 20, z0: 0, z1: 16, h: 22, mat: 7 };
+  const parts = taipeiArcadeParts(lot);
+  assert.ok(parts, 'a 20x16 m lot gets an arcade');
+  assert.equal(parts.depth, TAIPEI_ARCADE_DEPTH);
+  assert.deepEqual(parts.core, { x0: 3.6, x1: 16.4, z0: 3.6, z1: 12.4 }, 'core inset 3.6 m on every side');
+  const C = 0.55;
+  const inLot = (c) => c.x0 >= lot.x0 - 1e-9 && c.x1 <= lot.x1 + 1e-9 && c.z0 >= lot.z0 - 1e-9 && c.z1 <= lot.z1 + 1e-9;
+  const overlaps = (a, b) => a.x0 < b.x1 - 1e-9 && a.x1 > b.x0 + 1e-9 && a.z0 < b.z1 - 1e-9 && a.z1 > b.z0 + 1e-9;
+  for (const c of parts.columns) {
+    assert.ok(inLot(c), 'every column stands inside the lot');
+    assert.ok(!overlaps(c, parts.core), 'no column intersects the recessed core');
+    // Every column touches at least one lot edge with its outer face.
+    const flush = Math.abs(c.x0 - lot.x0) < 1e-9 || Math.abs(c.x1 - lot.x1) < 1e-9
+      || Math.abs(c.z0 - lot.z0) < 1e-9 || Math.abs(c.z1 - lot.z1) < 1e-9;
+    assert.ok(flush, 'every column is flush with a front edge');
+    assert.ok(Math.abs((c.x1 - c.x0) - C) < 1e-9, 'columns are 0.55 m square');
+    assert.ok(Math.abs((c.z1 - c.z0) - C) < 1e-9, 'columns are 0.55 m square');
+  }
+  for (let i = 0; i < parts.columns.length; i++) {
+    for (let j = i + 1; j < parts.columns.length; j++) {
+      assert.ok(!overlaps(parts.columns[i], parts.columns[j]), 'columns never overlap each other');
+    }
+  }
+  // Full frontage: along each side the columns run corner to corner on
+  // the facade bay grid — consecutive column CENTRES sit one grid step
+  // apart: a bay step (bayW = inner/bays, bays rounded to the 2.7 m
+  // target, so ≤ ~3.2 m) or, from a corner column, the 0.85 m corner
+  // pier plus a bay step (≤ ~3.7 m).
+  const sides = [
+    parts.columns.filter((c) => Math.abs(c.z0 - lot.z0) < 1e-9).map((c) => [c.x0, c.x1]).sort((a, b) => a[0] - b[0]),
+    parts.columns.filter((c) => Math.abs(c.z1 - lot.z1) < 1e-9).map((c) => [c.x0, c.x1]).sort((a, b) => a[0] - b[0]),
+    parts.columns.filter((c) => Math.abs(c.x0 - lot.x0) < 1e-9).map((c) => [c.z0, c.z1]).sort((a, b) => a[0] - b[0]),
+    parts.columns.filter((c) => Math.abs(c.x1 - lot.x1) < 1e-9).map((c) => [c.z0, c.z1]).sort((a, b) => a[0] - b[0]),
+  ];
+  const lens = [20, 20, 16, 16];
+  sides.forEach((spans, si) => {
+    assert.ok(spans.length >= 4, `side ${si} has a real colonnade (${spans.length} columns)`);
+    assert.ok(spans[0][0] <= 0.001, `side ${si} starts at the corner`);
+    assert.ok(spans[spans.length - 1][1] >= lens[si] - 0.001, `side ${si} ends at the corner`);
+    const centres = spans.map(([a, b]) => (a + b) / 2);
+    for (let k = 1; k < centres.length; k++) {
+      assert.ok(centres[k] - centres[k - 1] <= 3.7, `side ${si} column spacing ${k} on the bay grid`);
+    }
+  });
+  t.diagnostic(`20x16 m lot: ${parts.columns.length} columns`);
+  // Too-small lots keep the flat facade.
+  assert.equal(taipeiArcadeParts({ x0: 0, x1: 9, z0: 0, z1: 14, h: 18, mat: 7 }), null, 'narrow lot: no arcade');
+  assert.equal(taipeiArcadeParts({ x0: 0, x1: 12, z0: 0, z1: 10.5, h: 18, mat: 7 }), null, 'shallow lot: no arcade');
+  // Determinism: the same lot always yields the same massing.
+  assert.deepEqual(taipeiArcadeParts(lot), parts, 'arcade parts are deterministic');
+
+  // On the real plan: most F7 lots carry the arcade, and the colonnade
+  // total stays in the stated budget (~24 facade-box instances per lot).
+  const opts = taipeiCityBlocksOptions(TAIPEI_GEO, planTaipeiBuildings(TAIPEI_GEO));
+  const f7 = opts.lots.filter((l) => l.mat === 7);
+  const withArcade = f7.filter((l) => l.arcade);
+  assert.ok(withArcade.length / f7.length > 0.8, `most F7 lots carry the arcade (${withArcade.length}/${f7.length})`);
+  const totalCols = withArcade.reduce((s, l) => s + l.arcade.columns.length, 0);
+  assert.ok(totalCols / withArcade.length < 30, `columns per arcade lot sane (${(totalCols / withArcade.length).toFixed(1)})`);
+  t.diagnostic(`F7 lots ${f7.length}, with arcade ${withArcade.length}, total columns ${totalCols}`);
+});
+
+// Issue #56: vertical signs are planner policy on Taiwan-type lots —
+// a deterministic ~55% subset, 1–2 panels each, always above the
+// ground floor and below the roofline (panel colours are hashed
+// in-shader from the photo palette; the policy pins placement only).
+test('vertical signs: sparse deterministic panels on Taiwan types', (t) => {
+  const opts = taipeiCityBlocksOptions(TAIPEI_GEO, planTaipeiBuildings(TAIPEI_GEO));
+  const taiwan = opts.lots.filter((l) => l.mat >= 6 && l.h >= 10);
+  const signed = taiwan.filter((l) => l.signs && l.signs.length);
+  const share = signed.length / taiwan.length;
+  assert.ok(share > 0.35 && share < 0.75, `signed share of Taiwan lots plausible (${signed.length}/${taiwan.length})`);
+  assert.ok(opts.lots.every((l) => l.mat >= 6 || !l.signs), 'no signs on glass or masonry lots');
+  let total = 0;
+  for (const l of signed) {
+    assert.ok(l.signs.length >= 1 && l.signs.length <= 2, 'one or two panels per building');
+    const sides = new Set(l.signs.map((s) => s.side));
+    assert.equal(sides.size, l.signs.length, 'two-panel buildings use two different sides');
+    for (const s of l.signs) {
+      total++;
+      assert.ok(['n', 's', 'e', 'w'].includes(s.side), 'sign side is a facade side');
+      assert.ok(s.y0 >= 3.9, 'sign base clears the ground floor');
+      assert.ok(s.y0 + s.h <= l.h - 0.2, 'sign stays below the roofline');
+      assert.ok(s.out >= 0.9 && s.out <= 1.45, 'protrusion in the photo range');
+    }
+  }
+  t.diagnostic(`signed Taiwan lots ${signed.length}/${taiwan.length}, total panels ${total}`);
+  const sample = signed[0];
+  assert.deepEqual(taipeiVerticalSigns(sample), sample.signs, 'sign policy is deterministic per lot');
+  assert.deepEqual(taipeiVerticalSigns({ x0: 0, x1: 20, z0: 0, z1: 16, h: 22, mat: 4 }), [], 'glass lots never sign');
+});
+
+// Issue #56: rooftop furniture — stainless tanks and 鐵皮屋 additions
+// are sparse, deterministic, fitted to the roof, and never land on
+// glass towers. Rates are measured over thousands of synthetic lots so
+// the bands pin the POLICY (14% / 12% rolls plus fitting losses), not
+// one plan's luck.
+test('rooftop additions: sparse fitted tanks and sheet-metal huts', (t) => {
+  let lots = 0, tanks = 0, huts = 0;
+  const overlaps = (a, b) => a.x0 < b.x1 && a.x1 > b.x0 && a.z0 < b.z1 && a.z1 > b.z0;
+  for (let i = 0; i < 4000; i++) {
+    const lot = { x0: i * 37.3, x1: i * 37.3 + 18, z0: (i % 61) * 29.7, z1: (i % 61) * 29.7 + 15, h: 20, mat: 6 };
+    const gear = { maxH: 20.7, waterTowers: [], hvacUnits: [{ x: lot.x0 + 9, y: 20.7, z: lot.z0 + 7.5, w: 3, h: 2, d: 3 }] };
+    const adds = taipeiRooftopAdditions(gear, lot, gear.hvacUnits);
+    lots++;
+    const hvacRect = { x0: lot.x0 + 7.5, x1: lot.x0 + 10.5, z0: lot.z0 + 6, z1: lot.z0 + 9 };
+    for (const tk of adds.tanks) {
+      tanks++;
+      assert.ok(tk.x - 1 >= lot.x0 && tk.x + 1 <= lot.x1 && tk.z - 1 >= lot.z0 && tk.z + 1 <= lot.z1, 'tank footprint inside the roof');
+      assert.ok(!overlaps({ x0: tk.x - 1, x1: tk.x + 1, z0: tk.z - 1, z1: tk.z + 1 }, hvacRect), 'tank clears the HVAC unit');
+      assert.equal(tk.y, 20.7, 'tank stands on the roof (gear maxH)');
+    }
+    for (const hu of adds.huts) {
+      huts++;
+      const r = { x0: hu.x - hu.w / 2, x1: hu.x + hu.w / 2, z0: hu.z - hu.d / 2, z1: hu.z + hu.d / 2 };
+      assert.ok(r.x0 >= lot.x0 && r.x1 <= lot.x1 && r.z0 >= lot.z0 && r.z1 <= lot.z1, 'hut fits inside the roof');
+      assert.ok(!overlaps(r, hvacRect), 'hut clears the HVAC unit');
+      assert.ok(hu.h >= 2.4 && hu.h <= 3.2 && hu.pitch >= 0.15 && hu.pitch <= 0.25, 'hut proportions in range');
+      for (const tk of adds.tanks) {
+        assert.ok(!overlaps(r, { x0: tk.x - 1, x1: tk.x + 1, z0: tk.z - 1, z1: tk.z + 1 }), 'hut and tank never share a spot');
+      }
+    }
+    if (i === 0) {
+      assert.deepEqual(taipeiRooftopAdditions(gear, lot, gear.hvacUnits), adds, 'additions are deterministic per lot');
+    }
+  }
+  const tankRate = tanks / lots, hutRate = huts / lots;
+  t.diagnostic(`synthetic rates: tanks ${(tankRate * 100).toFixed(1)}%, huts ${(hutRate * 100).toFixed(1)}%`);
+  assert.ok(tankRate > 0.06 && tankRate < 0.24, `tank rate sparse (${tankRate.toFixed(3)})`);
+  assert.ok(hutRate > 0.05 && hutRate < 0.2, `hut rate sparse (${hutRate.toFixed(3)})`);
+  // Glass towers and out-of-band lots never get furniture.
+  for (let i = 0; i < 200; i++) {
+    const base = { x0: i * 41.1, x1: i * 41.1 + 18, z0: i * 13.7, z1: i * 13.7 + 15 };
+    assert.deepEqual(taipeiRooftopAdditions({ maxH: 20 }, { ...base, h: 20, mat: 4 }, []).tanks, [], 'no tanks on glass');
+    assert.deepEqual(taipeiRooftopAdditions({ maxH: 20 }, { ...base, h: 20, mat: 5 }, []).huts, [], 'no huts on glass');
+    assert.deepEqual(taipeiRooftopAdditions({ maxH: 45 }, { ...base, h: 45, mat: 6 }, []).huts, [], 'no huts on tall lots');
+  }
 });
