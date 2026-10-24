@@ -257,10 +257,19 @@ function carve(r, holes, axis = 'x') {
   return out.map(([u0, u1, v0, v1]) => (flip ? rect(v0, v1, u0, u1) : rect(u0, u1, v0, v1)));
 }
 
-function buildCityBlocks(scene) {
+function buildCityBlocks(scene, opts = null) {
   const group = new THREE.Group();
   group.name = 'ManhattanCityBlocks';
   const colliders = [];
+
+  // Optional alternate city (registry tiles, e.g. Taipei): opts.lots —
+  // pre-planned lots { x0, x1, z0, z1, h, mat } — replace the Manhattan
+  // BLOCKS population below; opts.bounds frames the quadtree, opts.initial
+  // centres the first detail stream, and opts.colliders === false keeps
+  // the lots visual-only. The Manhattan-only dressing (Times Square, the
+  // East River bridge corridors) applies only with no opts, so the NYC
+  // call path — buildCityBlocks(scene) — is byte-for-byte the old one.
+  const collectColliders = !opts || opts.colliders !== false;
 
   // Frame of the lots being populated. Irregular blocks come with frontage frames (city-config.js BLOCKS: lots laid
   // out along the streets they front, in a frame turned by θ about p); the generator works in the frame as on a grid
@@ -272,6 +281,7 @@ function buildCityBlocks(scene) {
     : [x, z]);
   // Player collider over the rect [x0, x1] x [z0, z1] (of the current frame): an oriented box inside its world AABB
   function pushCollider(x0, x1, z0, z1, maxY) {
+    if (!collectColliders) return;
     if (!xf) {
       colliders.push({ minX: x0, maxX: x1, minZ: z0, maxZ: z1, maxY });
       return;
@@ -303,11 +313,12 @@ function buildCityBlocks(scene) {
   }
 
   // Full-island Spatial Quadtree covering Harlem (~129th St) down to the Battery
+  const qb = opts?.bounds ?? ISLAND_BOUNDS;
   const quadtree = new ManhattanQuadtree({
-    minX: ISLAND_BOUNDS.minX - 50,
-    maxX: ISLAND_BOUNDS.maxX + 50,
-    minZ: ISLAND_BOUNDS.minZ - 50,
-    maxZ: ISLAND_BOUNDS.maxZ + 50
+    minX: qb.minX - 50,
+    maxX: qb.maxX + 50,
+    minZ: qb.minZ - 50,
+    maxZ: qb.maxZ + 50
   }, 6, 9);
   const allBlocks = [];
 
@@ -388,7 +399,7 @@ function buildCityBlocks(scene) {
 
   // Times Square's bowtie: the Broadway plaza strip (city-config.js GEO.plazas) and 7th Avenue's roadway between 47th
   // and 42nd St. Lots fronting it rise as sheer walls (flushTower) and every podium wall facing it carries billboards
-  const TS = (() => {
+  const TS = opts ? null : (() => {
     const def = (GEO.plazas || []).find((d) => d.name === 'Times Square');
     const ave7 = ALL_AVENUES.find((a) => a.id === '7');
     if (!def || !ave7) return null;
@@ -418,7 +429,7 @@ function buildCityBlocks(scene) {
   // East River bridge approaches on Manhattan: no building may stand under a deck (from its street-level landing out to
   // the first tower) or on a masonry anchorage. Oriented boxes { cx, cz, ux, uz, hl, hw } (u = along the bridge).
   const bridgeCorridors = [];
-  for (const s of EAST_RIVER_BRIDGES || []) {
+  if (!opts) for (const s of EAST_RIVER_BRIDGES || []) {
     const dx = s.b.x - s.a.x;
     const dz = s.b.z - s.a.z;
     const L = Math.hypot(dx, dz);
@@ -434,7 +445,7 @@ function buildCityBlocks(scene) {
     }
   }
   // ... nor under the South Street Viaduct and its Battery Park Underpass portal (laid out by city-grid.js)
-  for (const o of (fdrViaduct && fdrViaduct.boxes) || []) bridgeCorridors.push(o);
+  if (!opts) for (const o of (fdrViaduct && fdrViaduct.boxes) || []) bridgeCorridors.push(o);
   // Separating-axis test of the rect [x0, x1] x [z0, z1] (of the current frame) against every corridor box
   function hitsBridgeCorridor(x0, x1, z0, z1) {
     const hx = (x1 - x0) * 0.5;
@@ -1885,6 +1896,53 @@ function buildCityBlocks(scene) {
     allBlocks.push(blockDetail);
   }
 
+  // Registry-tile population (opts.lots): each pre-planned lot — a rect, a
+  // height, a facade material index (see taipei-buildings.js) — becomes a
+  // one-building block, massed in whole storeys and committed through the
+  // same path as a Manhattan lot, so its facade boxes, cornices, rooftop
+  // gear and quadtree detail streaming are the city's own. The lot IS its
+  // block: every side is a street side, so every wall is a front.
+  function populatePlannedLot(lot) {
+    const { x0: minX, x1: maxX, z0: minZ, z1: maxZ } = lot;
+    const cx = (minX + maxX) * 0.5;
+    const cz = (minZ + maxZ) * 0.5;
+    const blockDetail = {
+      id: `taipei_${Math.round(cx)}_${Math.round(cz)}`,
+      cx,
+      cz,
+      minX,
+      maxX,
+      minZ,
+      maxZ,
+      district: 'taipei',
+      cornices: [],
+      waterTowers: [],
+      hvacUnits: [],
+      fireEscapes: [],
+      awnings: [],
+      scaffoldSheds: [],
+      footprints: [],
+      yards: [],
+      maxH: 0,
+      avenueFronts: { w: [], e: [] },
+      facadeBoxes: [],
+      voidLots: []
+    };
+    rand = mulberry32((Math.imul(Math.round(minX * 4), 73856093) ^ Math.imul(Math.round(minZ * 4), 19349663) ^ 10019) >>> 0);
+    const mat = lot.mat;
+    const b = building(blockDetail, mat, rect(minX, maxX, minZ, maxZ));
+    const floors = Math.max(1, Math.round(lot.h / storeys[mat]));
+    mass(b, [rect(minX, maxX, minZ, maxZ)], 0, floors);
+    commit(blockDetail, b, mat >= 3
+      ? { cornice: false, roof: 'mech', shops: 0.3 }
+      : { roof: 'prewar', wtP: 0.35, shops: 0.3 });
+    delete blockDetail.facadeBoxes;
+    delete blockDetail.voidLots;
+    blockDetail.footprints.sort((a, b2) => a.h - b2.h);
+    quadtree.insert(blockDetail);
+    allBlocks.push(blockDetail);
+  }
+
   // Turns everything a lot of the current frame emitted into place: facade boxes, roof gear, cornices, fire escapes,
   // awnings & sheds get the frame's turn (ry) about their own centre, map footprints their world corners, the block
   // its world centre (streaming) & bounds
@@ -1995,7 +2053,7 @@ function buildCityBlocks(scene) {
     for (let k = 0; k < n; k++) out.push([x0, x1, z0 + k * (s + gap), z0 + k * (s + gap) + s]);
     return out;
   }
-  for (const b of BLOCKS) {
+  if (!opts || !opts.lots) for (const b of BLOCKS) {
     if (b.park > 0.6 || b.median) continue;
     minLot = b.frames ? 12 : 15;
     for (const [th, px, pz, rects] of b.frames || [[0, 0, 0, b.rects]]) {
@@ -2015,7 +2073,7 @@ function buildCityBlocks(scene) {
 
   // B6. Narrow leftover slabs no building fits on (8-26 m wide: clipped short by the shore highways or cut by Broadway)
   //     become sitting areas: a row or two of honey locusts & planes in tree pits (planted by street-details.js)
-  {
+  if (!opts || !opts.lots) {
     const plazas = pavedPlazaRects || [];
     const sites = parkTreeSites;
     const hit = (r, x0, x1, z0, z1) => r.minX < x1 && r.maxX > x0 && r.minZ < z1 && r.maxZ > z0;
@@ -2044,6 +2102,12 @@ function buildCityBlocks(scene) {
         }
       }
     }
+  }
+
+  // A'. REGISTRY-TILE LOTS (opts.lots): the pre-planned lots of an alternate
+  //     city, one building per lot (see populatePlannedLot)
+  if (opts && opts.lots) {
+    for (const lot of opts.lots) populatePlannedLot(lot);
   }
 
   // B7. Times Square: tiers of billboards up every street wall that looks onto the bowtie (podiums and the tower
@@ -2616,8 +2680,9 @@ function buildCityBlocks(scene) {
     }
   }
 
-  // Initial Quadtree stream centered at Midtown 5th Ave & 42nd St
-  update(0, 62, true);
+  // Initial Quadtree stream centered at Midtown 5th Ave & 42nd St (a tile
+  // centres on its own origin instead)
+  update(opts?.initial?.[0] ?? 0, opts?.initial?.[1] ?? 62, true);
 
   scene.add(group);
   return {
