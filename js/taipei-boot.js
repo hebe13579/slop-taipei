@@ -5,7 +5,8 @@ import { buildSidewalkBands, planStreetTrees, planParkTrees } from './taipei-str
 import { AvatarFigure } from './avatar-figure.js';
 import { buildPaintedBands } from './taipei-painted.js';
 import { SURFACE_TONES, surfaceClass, buildMedianStrips, isPlazaPark, isPodiumBlock, podiumCentresOf } from './taipei-surfaces.js';
-import { buildRoadMarkings } from './taipei-markings.js';
+import { buildRoadMarkings, detectJunctions } from './taipei-markings.js';
+import { planJunctionCaps, ringPoints, CAP_Y } from './taipei-junctions.js';
 import { unionExclusionRects, clipRectToBoxes } from './taipei-union.js';
 import { createCurtainWallMaterial, createPreWarBuildingMaterial } from './tsl-materials.js';
 
@@ -33,8 +34,9 @@ import { createCurtainWallMaterial, createPreWarBuildingMaterial } from './tsl-m
 // Layer heights are a flat-ground visual stack only (land 0, block rects
 // 0.02, podium blocks 0.021, water 0.03, parks 0.04, plaza paving 0.041,
 // street-section bands 0.045, non-carriageway paths 0.05, carriageways
-// 0.06, boulevard median strips 0.062, painted-walkway green band
-// 0.065 and its white edge lines 0.066, road markings 0.068), not terrain elevation:
+// 0.06, junction caps 0.061, boulevard median strips 0.062,
+// painted-walkway green band 0.065 and its white edge lines 0.066,
+// road markings 0.068), not terrain elevation:
 // the tile is the flat basin floor. Carriageways render in per-class
 // surface tones and merged boulevards get a median strip (issue #29,
 // js/taipei-surfaces.js); paved civic squares (廣場) render as paving,
@@ -150,8 +152,8 @@ function quadsGeometry(quads, y) {
   return geo;
 }
 
-function paintedGeometries(carriageways, yBand, yEdge) {
-  const { band, edges } = buildPaintedBands(carriageways);
+function paintedGeometries(carriageways, yBand, yEdge, capPolys = null) {
+  const { band, edges } = buildPaintedBands(carriageways, capPolys);
   return { band: quadsGeometry(band, yBand), edges: quadsGeometry(edges, yEdge) };
 }
 
@@ -467,13 +469,33 @@ export function buildTaipeiGround(scene, tile, deps = {}) {
   addLayer(ribbonsGeometry(byClass.arterial, 0.06), mat(SURFACE_TONES.arterial, 0.9), 'TaipeiRoads');
   addLayer(ribbonsGeometry(byClass.collector, 0.06), mat(SURFACE_TONES.collector, 0.9), 'TaipeiRoadsCollector');
   addLayer(ribbonsGeometry(byClass.lane, 0.06), mat(SURFACE_TONES.lane, 0.9), 'TaipeiRoadsLane');
+  // Junction caps (issue #66, js/taipei-junctions.js): one paved
+  // polygon per detected junction — the hull of its arms' cross-
+  // sections — filling the junction box the butt-ended arm ribbons
+  // leave bare or fan-overlapped, in the widest arm's surface tone
+  // at 0.061. The caps double as the painted layers' occluder:
+  // medians, painted bands and lane dashes clip against them
+  // below, so no paint crosses a junction core. (Crosswalks and
+  // stop lines are junction furniture and stay — at short-arm
+  // junctions they now land on cap asphalt instead of bare ground;
+  // see js/taipei-junctions.js.)
+  // Junctions are detected ONCE here and shared with the markings
+  // builder (which used to detect its own copy).
+  const junctions = detectJunctions(carriageways);
+  const caps = planJunctionCaps(carriageways, junctions);
+  const capPolys = caps.map((c) => ringPoints(c.ring));
+  const capsByClass = { deck: [], arterial: [], collector: [], lane: [] };
+  for (const c of caps) capsByClass[c.cls].push(c.ring);
+  for (const cls of Object.keys(capsByClass))
+    if (capsByClass[cls].length) addLayer(flatPolygonGeometry(capsByClass[cls], CAP_Y), mat(SURFACE_TONES[cls], 0.9), `TaipeiJunctionCaps-${cls}`);
+  console.info(`[taipei-junctions] ${caps.length} junction caps over ${junctions.length} detected junctions (${caps.reduce((s, c) => s + c.area, 0).toLocaleString('en-US')} m² of junction box paved)`);
   // Boulevard medians (issue #29): a strip along the centreline of
   // each merged bed wide enough to hold one — planted on the grand
   // ground boulevards, plain concrete elsewhere; underpass/tunnel
   // beds are excluded entirely by user directive. Clipped at
   // junctions like the painted bands, so no divider crosses a
   // junction box. Built by js/taipei-surfaces.js.
-  const medians = buildMedianStrips(carriageways);
+  const medians = buildMedianStrips(carriageways, capPolys);
   addLayer(quadsGeometry(medians.plain, 0.062), mat(SURFACE_TONES.medianPlain, 0.95), 'TaipeiMediansPlain');
   addLayer(quadsGeometry(medians.planted, 0.062), mat(SURFACE_TONES.medianPlanted, 0.95), 'TaipeiMediansPlanted');
   console.info(`[taipei-surfaces] medians: ${medians.stats.plantedBeds} planted beds / ${medians.stats.plantedKm.toFixed(1)} km, ${medians.stats.plainBeds} plain beds / ${medians.stats.plainKm.toFixed(1)} km (${medians.stats.excludedUnderpass} underpass/tunnel beds excluded); roads by class: deck ${byClass.deck.length}, arterial ${byClass.arterial.length}, collector ${byClass.collector.length}, lane ${byClass.lane.length}`);
@@ -482,7 +504,7 @@ export function buildTaipeiGround(scene, tile, deps = {}) {
   // All carriageways go in (not just the painted ones): the builder
   // clips every band at junctions so no green crosses a carriageway
   // (issue #25).
-  const painted = paintedGeometries(carriageways, 0.065, 0.066);
+  const painted = paintedGeometries(carriageways, 0.065, 0.066, capPolys);
   addLayer(painted.band, mat(0x1e9e57, 0.9), 'TaipeiPaintedStripes');
   addLayer(painted.edges, mat(0xf2f2f2, 0.9), 'TaipeiPaintedStripeEdges');
   // Road detail (issue #45, js/taipei-markings.js): dashed white lane
@@ -493,7 +515,7 @@ export function buildTaipeiGround(scene, tile, deps = {}) {
   // red pedestrian panel. No phase cycle yet, and traffic does not
   // obey them; scooter waiting boxes are out of scope (user cut).
   const markingsStart = performance.now();
-  const markings = buildRoadMarkings(carriageways, medians); // reuses the strips built above as dash occluders
+  const markings = buildRoadMarkings(carriageways, medians, caps, junctions); // reuses the strips built above as dash occluders
   addLayer(
     quadsGeometry([...markings.dashes, ...markings.stripes, ...markings.stopLines], 0.068),
     mat(0xf2f2f2, 0.9),

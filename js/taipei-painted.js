@@ -64,6 +64,31 @@ export function pointInPoly(p, poly) {
   return inside;
 }
 
+// Generic polygon grid + membership test (the junction-cap occluder
+// of issue #66 reuses this shape): buildPolyGrid indexes polygons by
+// the grid cells their bounding boxes touch; pointInAnyPoly answers
+// "is p inside any of the indexed polygons".
+export function buildPolyGrid(polys, cellM = GRID_M) {
+  const grid = new Map();
+  (polys || []).forEach((poly, i) => {
+    const xs = poly.map((p) => p[0]), zs = poly.map((p) => p[1]);
+    for (let gx = Math.floor(Math.min(...xs) / cellM); gx <= Math.floor(Math.max(...xs) / cellM); gx++)
+      for (let gz = Math.floor(Math.min(...zs) / cellM); gz <= Math.floor(Math.max(...zs) / cellM); gz++) {
+        const k = `${gx},${gz}`;
+        if (!grid.has(k)) grid.set(k, []);
+        grid.get(k).push(i);
+      }
+  });
+  return grid;
+}
+
+export function pointInAnyPoly(grid, polys, p, cellM = GRID_M) {
+  if (!grid || !polys || !polys.length) return false;
+  const cand = grid.get(`${Math.floor(p[0] / cellM)},${Math.floor(p[1] / cellM)}`) || [];
+  for (const ci of cand) if (pointInPoly(p, polys[ci])) return true;
+  return false;
+}
+
 // Densify a centreline to points at most SAMPLE_STEP_M apart (vertices kept).
 function densify(pts) {
   const out = [pts[0]];
@@ -76,14 +101,18 @@ function densify(pts) {
   return out;
 }
 
-// buildPaintedBands(roadbeds) -> { band, edges }
+// buildPaintedBands(roadbeds, capPolys = null) -> { band, edges }
 // roadbeds: ALL carriageway roadbeds (geodata shape: pts/width/name/
 // highway/pedestrianLayout/sourceWayIds). band/edges are arrays of quads;
 // a quad is [x1,z1, x2,z2, x3,z3, x4,z4] in strip order (a+p, b+p, b+q,
 // a+q for offsets p = max, q = min) so the renderer emits two triangles
 // (1,2,3), (1,3,4) per quad with upward normals, exactly as the pre-fix
-// stripQuad did.
-export function buildPaintedBands(roadbeds) {
+// stripQuad did. capPolys (issue #66): junction-cap polygons as point
+// arrays — a band sample inside any cap is blocked, so no band leaks
+// into a junction corner the bed ribbons themselves don't cover.
+export function buildPaintedBands(roadbeds, capPolys = null) {
+  const capGrid = capPolys ? buildPolyGrid(capPolys) : null;
+  const capBlocked = (p) => pointInAnyPoly(capGrid, capPolys, p);
   const polys = roadbeds.map(ribbonPoly);
   const grid = new Map();
   polys.forEach((poly, i) => {
@@ -128,7 +157,10 @@ export function buildPaintedBands(roadbeds) {
       const blocked =
         foreignBlocked([p[0] + nx * midOff, p[1] + nz * midOff], selfIdx, selfWays) ||
         foreignBlocked([p[0] + nx * outer2, p[1] + nz * outer2], selfIdx, selfWays) ||
-        foreignBlocked([p[0] + nx * inner1, p[1] + nz * inner1], selfIdx, selfWays);
+        foreignBlocked([p[0] + nx * inner1, p[1] + nz * inner1], selfIdx, selfWays) ||
+        capBlocked([p[0] + nx * midOff, p[1] + nz * midOff]) ||
+        capBlocked([p[0] + nx * outer2, p[1] + nz * outer2]) ||
+        capBlocked([p[0] + nx * inner1, p[1] + nz * inner1]);
       return { p, nx, nz, blocked };
     });
     const quad = (f0, f1, o1, o2, sink) => {
@@ -145,9 +177,11 @@ export function buildPaintedBands(roadbeds) {
       if (f0.blocked || f1.blocked) continue;
       // Midpoint of the band-centre run must also stay off foreign beds,
       // so no emitted quad's centre can dip into a crossing carriageway.
-      const mid = [(f0.p[0] + f1.p[0]) / 2 + ((f0.nx + f1.nx) / 2) * midOff,
-                   (f0.p[1] + f1.p[1]) / 2 + ((f0.nz + f1.nz) / 2) * midOff];
-      if (foreignBlocked(mid, selfIdx, selfWays)) continue;
+      const midAt = (off) => [(f0.p[0] + f1.p[0]) / 2 + ((f0.nx + f1.nx) / 2) * off,
+                              (f0.p[1] + f1.p[1]) / 2 + ((f0.nz + f1.nz) / 2) * off];
+      const mid = midAt(midOff);
+      if (foreignBlocked(mid, selfIdx, selfWays) || capBlocked(mid) ||
+          capBlocked(midAt((outer1 + outer2) / 2)) || capBlocked(midAt((inner1 + inner2) / 2))) continue;
       quad(f0, f1, outer2, inner1, band);
       quad(f0, f1, outer1, outer2, edges);
       quad(f0, f1, inner1, inner2, edges);

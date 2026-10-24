@@ -53,8 +53,9 @@
 // count). Crosswalks go across every arm ≥ 7 m wide; stop lines and
 // signal units serve the tertiary-or-above arms only.
 
-import { ribbonPoly, pointInPoly } from './taipei-painted.js';
+import { ribbonPoly, pointInPoly, buildPolyGrid, pointInAnyPoly } from './taipei-painted.js';
 import { medianKind, medianStripWidth, buildMedianStrips } from './taipei-surfaces.js';
+import { planJunctionCaps, ringPoints } from './taipei-junctions.js';
 
 export const LANE_W = 3.2;               // generator's width-per-lane conversion
 export const DASH_LEN = 3;               // m of paint per dash
@@ -186,15 +187,20 @@ export const bedLength = (bed) => {
 // ---------------------------------------------------------------------
 // Lane dividers.
 
-// buildLaneDividers(roadbeds, suppress, medianStrips?) -> { dashes, stats }
+// buildLaneDividers(roadbeds, suppress, medianStrips?, capPolys?)
+// -> { dashes, stats }
 // suppress: Map `${bedIndex}:${end}` -> arc metres from that bed end
 // where dashes stay off (the stop-line zone at signalized junctions,
 // passed in by buildRoadMarkings). medianStrips: an optional
 // buildMedianStrips() result to clip dashes against (the boot passes
 // the strips it already built for its own layers; standalone callers
-// get them built here). dashes are quads [x1,z1,…] in the strip
-// order taipei-painted's quadsGeometry consumes.
-export function buildLaneDividers(roadbeds, suppress = new Map(), medianStrips = null) {
+// get them built here). capPolys (issue #66): junction-cap polygons
+// as point arrays — a dash sample inside any cap is blocked, so no
+// lane line crosses a junction core. dashes are quads [x1,z1,…] in
+// the strip order taipei-painted's quadsGeometry consumes.
+export function buildLaneDividers(roadbeds, suppress = new Map(), medianStrips = null, capPolys = null) {
+  const capGrid = capPolys ? buildPolyGrid(capPolys) : null;
+  const capBlocked = (p) => pointInAnyPoly(capGrid, capPolys, p);
   const polys = roadbeds.map(ribbonPoly);
   const grid = new Map();
   polys.forEach((poly, i) => {
@@ -270,6 +276,7 @@ export function buildLaneDividers(roadbeds, suppress = new Map(), medianStrips =
         const pl = [f.p[0] + f.nx * lo, f.p[1] + f.nz * lo];
         const ph = [f.p[0] + f.nx * hi, f.p[1] + f.nz * hi];
         if (inMedianStrip(pc) || inMedianStrip(pl) || inMedianStrip(ph)) { stats.medianBlockedSamples++; return true; }
+        if (capBlocked(pc)) return true;
         return f.suppressed || foreignBlocked(pc, selfIdx, selfWays) || foreignBlocked(pl, selfIdx, selfWays) || foreignBlocked(ph, selfIdx, selfWays);
       };
       const flags = frames.map(blockedAt);
@@ -280,7 +287,7 @@ export function buildLaneDividers(roadbeds, suppress = new Map(), medianStrips =
         if (midArc % (DASH_LEN + DASH_GAP) >= DASH_LEN) continue; // in the gap
         const mid = [(f0.p[0] + f1.p[0]) / 2 + ((f0.nx + f1.nx) / 2) * off,
                      (f0.p[1] + f1.p[1]) / 2 + ((f0.nz + f1.nz) / 2) * off];
-        if (foreignBlocked(mid, selfIdx, selfWays) || inMedianStrip(mid)) continue;
+        if (foreignBlocked(mid, selfIdx, selfWays) || inMedianStrip(mid) || capBlocked(mid)) continue;
         dashes.push([
           f0.p[0] + f0.nx * hi, f0.p[1] + f0.nz * hi,
           f1.p[0] + f1.nx * hi, f1.p[1] + f1.nz * hi,
@@ -627,16 +634,28 @@ export function buildJunctionFurniture(roadbeds, junctions) {
   return { stripes, stopLines, signals, suppress, stats };
 }
 
-// buildRoadMarkings(roadbeds, medianStrips?) -> everything the
-// renderer needs, with the divider suppression wired from the
-// junction furniture. medianStrips is forwarded to the divider
-// builder (see buildLaneDividers).
-export function buildRoadMarkings(roadbeds, medianStrips = null) {
-  const junctions = detectJunctions(roadbeds);
+// buildRoadMarkings(roadbeds, medianStrips?, caps?, junctions?)
+// -> everything the renderer needs, with the divider suppression
+// wired from the junction furniture. medianStrips is forwarded to
+// the divider builder (see buildLaneDividers). caps / junctions
+// (issue #66): the boot detects junctions once and shares them —
+// caps default to planJunctionCaps over the detected junctions and
+// are forwarded to the divider builder as occluders. The junction
+// FURNITURE (crosswalks, stop lines) is deliberately NOT cap-
+// filtered: crosswalks are placed by the same crossHalf arithmetic
+// the caps are built from, so a stripe at a short-arm junction
+// lands on its own junction's cap surface at the mouth — measured
+// on current data, 3,953 stripe centres sit inside their OWN cap
+// and exactly 0 inside a foreign one (junction-evidence/AUDIT.md).
+export function buildRoadMarkings(roadbeds, medianStrips = null, caps = null, junctionsIn = null) {
+  const junctions = junctionsIn || detectJunctions(roadbeds);
+  if (!caps) caps = planJunctionCaps(roadbeds, junctions);
+  const capPolys = caps.map((c) => ringPoints(c.ring));
   const furniture = buildJunctionFurniture(roadbeds, junctions);
-  const dividers = buildLaneDividers(roadbeds, furniture.suppress, medianStrips);
+  const dividers = buildLaneDividers(roadbeds, furniture.suppress, medianStrips, capPolys);
   return {
     junctions,
+    caps,
     dashes: dividers.dashes,
     stripes: furniture.stripes,
     stopLines: furniture.stopLines,
