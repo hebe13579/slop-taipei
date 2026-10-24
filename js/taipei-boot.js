@@ -266,9 +266,13 @@ function buildSignalMesh(signals) {
   if (!signals.length) return null;
   const base = signalUnitGeometry();
   const vcount = base.getAttribute('position').count;
-  const positions = new Float32Array(vcount * signals.length);
-  const normals = new Float32Array(vcount * signals.length);
-  const colors = new Float32Array(vcount * signals.length);
+  // Buffers hold FLOATS: vcount vertices x 3 components per signal unit.
+  // (Allocating vcount * signals.length here under-allocated 3x and
+  // Float32Array.set threw RangeError mid-boot — the P1 hang at the
+  // "Constructing Taipei" stage.)
+  const positions = new Float32Array(vcount * 3 * signals.length);
+  const normals = new Float32Array(vcount * 3 * signals.length);
+  const colors = new Float32Array(vcount * 3 * signals.length);
   const dummy = new THREE.Object3D();
   signals.forEach((s, i) => {
     dummy.position.set(s.x, 0, s.z);
