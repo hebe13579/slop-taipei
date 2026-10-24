@@ -169,7 +169,10 @@ function buildSegmentGrid(entries) {
 //              by that many metres (a diagonal-cut crown)
 //   ridge    { w, d, h, ridgeH, y0? }   hip roof: side walls to h,
 //              then slopes up to a ridge along x at h + ridgeH
-//   cylinder { r, h, y0?, dx?, dz? }
+//   cylinder { r, h, y0?, dx?, dz?, rz? }   rz gives an elliptical
+//              plan: radius r along x, rz along z (a scaled cylinder)
+//   dome     { rx, rz, h, y0?, dx?, dz? }   half-ellipsoid: radii rx
+//              (x) and rz (z), rising h above y0
 //
 // `site` is the lot-exclusion rectangle (centred on the structure,
 // dx/dz offset allowed); `plaza` is an extra exclusion rectangle that
@@ -326,6 +329,52 @@ const LANDMARK_STRUCTURES = [
       { type: 'box', w: 140, d: 36, h: 54.42, dz: 52 },
     ],
   },
+  {
+    // 64 m above ground, built 2023 (Wikipedia / Farglory). The
+    // great shallow dome over an elliptical drum — the signature is
+    // the dome itself. The published structural height, 74.5 m,
+    // measures from the sunken field 10.5 m below grade; the massing
+    // height is the 64 m that stands above the street. Interior
+    // span 230 × 170 m (zh-Wikipedia); the drum takes that span as
+    // its exterior ellipse, which also keeps its south rim clear of
+    // Zhongxiao Road's roadbed (~99 m from the centre to its edge).
+    id: 'taipei-dome', name: 'Taipei Dome', nameZh: '臺北大巨蛋',
+    lat: 25.042306, lon: 121.560083, realHeight: 64, color: 0xcfc9bb,
+    site: { w: 270, d: 200, dx: 0, dz: 0 },
+    parts: [
+      { type: 'cylinder', r: 125, rz: 95, h: 22 },
+      { type: 'dome', rx: 125, rz: 95, h: 42, y0: 22 },
+    ],
+  },
+  {
+    // 30.4 m, completed 1972 — the official building data carried in
+    // the zh-Wikipedia article body (the infobox's 29.6 m is the
+    // rounded figure); a 100 m-square hall on a raised terrace in
+    // Zhongshan Park, kept as hall mass only — the park around it
+    // stays open ground. The upswept palace roof is STYLIZED at
+    // massing level (the simplicity-over-fidelity rule): two stepped
+    // frustum tiers read as the rising eaves, a ridge closes the
+    // peak, and four corner pylon blocks mark the upturned corners;
+    // the roof's true curvature is not modelled. The published
+    // coordinate (25.0400, 121.5600) is rounded to the arc second and
+    // lands ~30 m west of the building; lat/lon below is refined so
+    // the mass stands on the OSM footprint the geodata itself
+    // carries (−475.1, −776.5; 112.1 × 114.6 m).
+    id: 'sun-yat-sen-memorial-hall', name: 'Sun Yat-sen Memorial Hall', nameZh: '國父紀念館',
+    lat: 25.04001, lon: 121.5603, realHeight: 30.4, color: 0x9c8a66,
+    site: { w: 124, d: 124, dx: 0, dz: 0 },
+    parts: [
+      { type: 'box', w: 108, d: 108, h: 1.5 },
+      { type: 'box', w: 96, d: 96, h: 15.5, y0: 1.5 },
+      { type: 'frustum', wB: 104, dB: 104, wT: 90, dT: 90, h: 4, y0: 17 },
+      { type: 'frustum', wB: 90, dB: 90, wT: 74, dT: 74, h: 3.5, y0: 21 },
+      { type: 'ridge', w: 74, d: 74, h: 0, ridgeH: 5.9, y0: 24.5 },
+      { type: 'box', w: 5, d: 5, h: 3.5, y0: 21, dx: -42, dz: -42 },
+      { type: 'box', w: 5, d: 5, h: 3.5, y0: 21, dx: 42, dz: -42 },
+      { type: 'box', w: 5, d: 5, h: 3.5, y0: 21, dx: -42, dz: 42 },
+      { type: 'box', w: 5, d: 5, h: 3.5, y0: 21, dx: 42, dz: 42 },
+    ],
+  },
 ];
 
 // Resolve a structure definition into plan data: true tile-frame
@@ -350,6 +399,19 @@ function resolveLandmark(def, originLatLon) {
     sites: openGround ? [site, openGround] : [site],
     parts: def.parts,
   };
+}
+
+// The registry resolved to plain marker data — the single source the
+// in-game map's landmark layer reads (js/taipei-tile.js assembles the
+// tile's landmark list from this plus Taipei 101 itself), so a
+// structure is added in exactly one place and the map can never drift
+// from the buildings that actually render.
+export function taipeiLandmarkStructures(geodata) {
+  const originLatLon = (geodata.frame && geodata.frame.originLatLon) || [25.033, 121.565];
+  return LANDMARK_STRUCTURES.map((def) => {
+    const r = resolveLandmark(def, originLatLon);
+    return { id: r.id, name: r.name, nameZh: r.nameZh, x: r.x, z: r.z, height: r.realHeight };
+  });
 }
 
 export function planTaipeiBuildings(geodata) {
@@ -648,7 +710,13 @@ export function createTaipeiLandmarkTowers(THREE, plan) {
         if (part.rotY) mesh.rotation.y = part.rotY;
       } else if (part.type === 'cylinder') {
         mesh = new THREE.Mesh(new THREE.CylinderGeometry(part.r, part.r, part.h, 24), mat);
+        if (part.rz) mesh.scale.z = part.rz / part.r; // elliptical plan
         mesh.position.set(s.x + (part.dx || 0), y0 + part.h / 2, s.z + (part.dz || 0));
+      } else if (part.type === 'dome') {
+        // Half-ellipsoid: a unit hemisphere scaled to the part's radii.
+        mesh = new THREE.Mesh(new THREE.SphereGeometry(1, 28, 14, 0, Math.PI * 2, 0, Math.PI / 2), mat);
+        mesh.scale.set(part.rx, part.h, part.rz);
+        mesh.position.set(s.x + (part.dx || 0), y0, s.z + (part.dz || 0));
       } else if (part.type === 'frustum') {
         mesh = new THREE.Mesh(frustumGeometry(THREE, part), flatMat);
         mesh.position.set(s.x, y0, s.z);
