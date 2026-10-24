@@ -11,7 +11,7 @@
 // visibly paler. Material tones stay in the value family of the old
 // single 0x33363b slab and move hue/lightness the way the aerials do.
 
-import { ribbonPoly, pointInPoly } from './taipei-painted.js';
+import { ribbonPoly, pointInPoly, buildPolyGrid, pointInAnyPoly } from './taipei-painted.js';
 
 export const SURFACE_TONES = {
   deck: 0x2e3238,          // trunk / trunk_link — cooler + darker, weathered deck
@@ -116,12 +116,17 @@ const ptsOf = (b) => {
   return p;
 };
 
-// buildMedianStrips(roadbeds) -> { planted, plain, stats }
+// buildMedianStrips(roadbeds, capPolys = null) -> { planted, plain, stats }
 // roadbeds: ALL carriageway roadbeds (every bed is a potential junction
 // occluder, as in buildPaintedBands). planted/plain are arrays of quads
 // [x1,z1, x2,z2, x3,z3, x4,z4] in the same strip order the renderer's
-// quadsGeometry consumes (a+hi, b+hi, b+lo, a+lo).
-export function buildMedianStrips(roadbeds) {
+// quadsGeometry consumes (a+hi, b+hi, b+lo, a+lo). capPolys (issue
+// #66): junction-cap polygons as point arrays — a strip sample inside
+// any cap is blocked, so no median strip crosses a junction core the
+// bed-ribbon clip alone left open at the corners.
+export function buildMedianStrips(roadbeds, capPolys = null) {
+  const capGrid = capPolys ? buildPolyGrid(capPolys) : null;
+  const capBlocked = (p) => pointInAnyPoly(capGrid, capPolys, p);
   const polys = roadbeds.map(ribbonPoly);
   const grid = new Map();
   polys.forEach((poly, i) => {
@@ -165,7 +170,8 @@ export function buildMedianStrips(roadbeds) {
       const blocked =
         foreignBlocked(p, selfIdx, selfWays) ||
         foreignBlocked([p[0] + nx * half, p[1] + nz * half], selfIdx, selfWays) ||
-        foreignBlocked([p[0] - nx * half, p[1] - nz * half], selfIdx, selfWays);
+        foreignBlocked([p[0] - nx * half, p[1] - nz * half], selfIdx, selfWays) ||
+        capBlocked(p);
       return { p, nx, nz, blocked };
     });
     const sink = out[kind];
@@ -173,7 +179,7 @@ export function buildMedianStrips(roadbeds) {
       const f0 = frames[i], f1 = frames[i + 1];
       if (f0.blocked || f1.blocked) continue;
       const mid = [(f0.p[0] + f1.p[0]) / 2, (f0.p[1] + f1.p[1]) / 2];
-      if (foreignBlocked(mid, selfIdx, selfWays)) continue;
+      if (foreignBlocked(mid, selfIdx, selfWays) || capBlocked(mid)) continue;
       sink.push([
         f0.p[0] + f0.nx * half, f0.p[1] + f0.nz * half,
         f1.p[0] + f1.nx * half, f1.p[1] + f1.nz * half,
