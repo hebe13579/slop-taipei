@@ -146,7 +146,9 @@ async function initApp() {
   // A registry tile hands the controllers its own world (tile bounds, flat
   // ground, tile spawns); NYC passes nothing and keeps the legacy defaults.
   const controllerManager = new ThirdPersonControllerManager(
-    scene, allColliders, tileBoot ? tileBoot.controllerOptions(activeTile) : undefined
+    scene, allColliders, tileBoot
+      ? tileBoot.controllerOptions(activeTile, { webglFallback: renderer.backend?.isWebGLBackend === true })
+      : undefined
   );
   // Player state is saved per city: a tile must never restore coordinates
   // saved in another city's frame. (NYC keeps its historical key.)
