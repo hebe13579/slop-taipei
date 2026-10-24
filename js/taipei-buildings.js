@@ -51,6 +51,26 @@
 // the tile's spawn points (at the landmark point, south of it) stay in
 // the open. Detailed facade treatment is later scope.
 //
+// Issue #40 gives the placeholder its real base and its ornaments.
+// The podium is the Taipei 101 Mall massing: two 30 m blocks (the
+// mall's L wrapped around the tower zone; outline from the geodata
+// "Taipei 101 MALL" footprint) flanking an open entrance court on
+// the tower axis — the court is the gameplay simplification that
+// keeps the spawn point in the open — plus the mall's signature
+// sweeping curved roof as a half-frustum shell over the court's west
+// side (the bright shell measures ~48 × 75 m on Esri z18 satellite).
+// The published podium main roof is 124 ft ≈ 37.8 m (CTBUH diagram
+// data); 30 m keeps the mall subordinate to the first tier's flare.
+// The eight tier joints wear the tower's ornaments as ONE merged
+// light-tone soup: a disc at each corner of every joint (the real
+// ruyi stand ≥ 8 m tall at the segment corners; the disc is the
+// simplification the souvenir models also use), a square plaque at
+// each face centre (the "money box" symbol between facade
+// sections), and — only at the first joint, where the real building
+// puts them — four large coin discs, one per face ("the four discs
+// mounted on each face of the building where the pedestal meets the
+// tower represent coins" — Wikipedia, Taipei 101, Symbolism).
+//
 // The same massing treatment covers the other notable structures
 // around 101 (LANDMARK_STRUCTURES below, issue #26): each is a small
 // set of plain parts — boxes, rectangular frustums, one ridge roof,
@@ -581,7 +601,30 @@ export function planTaipeiBuildings(geodata) {
   let tower = null;
   if (t101) {
     const tx = t101.x - 10, tz = t101.z - 45;
-    const podium = { w: 76, d: 64, h: 9 };
+    // The podium field is now the tower-zone base block the shaft
+    // stands on; the mall massing around it lives in podiumParts
+    // (issue #40, see header). Every part stays inside the landmark
+    // site and clear of every roadbed (audited in the tests).
+    const podium = { w: 62, d: 62, h: 9 };
+    const podiumParts = [
+      // West mall block: tile x −110..−67, z −170..−51. (The OSM
+      // outline reaches x ≈ −115, but a 5 m service lane's ribbon
+      // ends at x ≈ −111.5 along z ≈ −112 — the block stops at −110
+      // to keep the no-roadbed-overlap rule.)
+      { type: 'box', w: 43, d: 119, h: 30, dx: -24.1, dz: 32.7 },
+      // East mall block: tile x −35..7, z −170..−51 (the OSM
+      // outline's east edge). The 32 m slot between the blocks is
+      // the open entrance court on the tower axis (the
+      // landmark/spawn point stands in it).
+      { type: 'box', w: 42, d: 119, h: 30, dx: 50.4, dz: 32.7 },
+      // The curved roof: a half-frustum shell, flat side against the
+      // tower's south face, opening south over the court (52 m arc,
+      // sized to the bright shell core on satellite and kept west
+      // clear of the same service lane). Its top (30 + 8 = 38 m)
+      // lands at the published podium main-roof height
+      // (124 ft ≈ 37.8 m) the 30 m blocks stay under.
+      { type: 'shell', rB: 26, rT: 17, h: 8, y0: 30, dx: -19.6, dz: 25.2 },
+    ];
     // Vertical budget: 9 (podium) + 8 × 52 (tiers) + 41 (top section)
     // + 42 (spire) = 508.
     const tierH = 52, tiers = [];
@@ -594,7 +637,37 @@ export function planTaipeiBuildings(geodata) {
       });
     }
     const top = { y0: podium.h + tierH * 8, h: 41, hwBottom: 14.0, hwTop: 13.0 };
-    tower = { x: tx, z: tz, podium, tiers, top, spire: { y0: top.y0 + top.h, h: 508 - (top.y0 + top.h), w: 2.4 }, totalHeight: 508 };
+    // Ornaments at the eight tier joints (issue #40): corner discs at
+    // every joint (the ruyi positions), face plaques at joints 2–8,
+    // and the four big coin discs at joint 1 only — where the real
+    // pedestal meets the tower. Offsets sit a hair inside the tier
+    // surface at that height (half-width ≈ 24.8 just below the lip)
+    // so the pieces read attached, not floating.
+    const ornaments = [];
+    const r4 = (n) => Math.round(n * 10000) / 10000;
+    for (let j = 0; j < 8; j++) {
+      const jointY = podium.h + tierH * (j + 1);
+      for (const sx of [1, -1]) for (const sz of [1, -1]) {
+        ornaments.push({
+          kind: 'disc', jointY, x: tx + sx * 25.0, y: jointY - 4.2, z: tz + sz * 25.0,
+          rotY: r4(Math.atan2(sx, sz)), r: 3.4, t: 0.8,
+        });
+      }
+      for (const [nx, nz] of [[0, 1], [0, -1], [1, 0], [-1, 0]]) {
+        if (j === 0) {
+          ornaments.push({
+            kind: 'coin', jointY, x: tx + nx * 25.15, y: jointY - 5.7, z: tz + nz * 25.15,
+            rotY: r4(Math.atan2(nx, nz)), r: 5.2, t: 0.9,
+          });
+        } else {
+          ornaments.push({
+            kind: 'plaque', jointY, x: tx + nx * 25.1, y: jointY - 4.2, z: tz + nz * 25.1,
+            rotY: r4(Math.atan2(nx, nz)), w: 6.4, h: 6.4, t: 0.7,
+          });
+        }
+      }
+    }
+    tower = { x: tx, z: tz, podium, podiumParts, ornaments, tiers, top, spire: { y0: top.y0 + top.h, h: 508 - (top.y0 + top.h), w: 2.4 }, totalHeight: 508 };
   }
   return { lots, tower, landmarkTowers, stats };
 }
@@ -642,6 +715,56 @@ export function taipeiCityBlocksOptions(geodata, plan = planTaipeiBuildings(geod
 // the three import) so the planner above stays three-free and
 // unit-testable in plain node. Returns null when the geodata has no
 // Taipei 101 landmark.
+// Issue #40: the 101 ornaments as ONE merged triangle soup (pure
+// data — no THREE — so the tests can count and place every piece).
+// Each ornament is built in a local frame (face normal = +z, centre
+// at the origin) and rotated/translated into place: discs and coins
+// are polygonal prisms (14 / 18 sides), plaques are thin boxes.
+// 64 ornaments × ~38 triangles ≈ 2.4 k triangles, one draw call.
+export function taipei101OrnamentPositions(ornaments) {
+  const localFor = (o) => {
+    const list = [];
+    if (o.kind === 'plaque') {
+      const x = o.w / 2, y = o.h / 2, z = o.t / 2;
+      const c = (sx, sy, sz) => [sx * x, sy * y, sz * z];
+      pushQuad(list, c(-1, -1, 1), c(1, -1, 1), c(1, 1, 1), c(-1, 1, 1));   // front
+      pushQuad(list, c(1, -1, -1), c(-1, -1, -1), c(-1, 1, -1), c(1, 1, -1)); // back
+      pushQuad(list, c(1, -1, 1), c(1, -1, -1), c(1, 1, -1), c(1, 1, 1));   // east
+      pushQuad(list, c(-1, -1, -1), c(-1, -1, 1), c(-1, 1, 1), c(-1, 1, -1)); // west
+      pushQuad(list, c(-1, 1, 1), c(1, 1, 1), c(1, 1, -1), c(-1, 1, -1));   // top
+      pushQuad(list, c(-1, -1, -1), c(1, -1, -1), c(1, -1, 1), c(-1, -1, 1)); // bottom
+      return list;
+    }
+    const seg = o.kind === 'coin' ? 18 : 14;
+    const hz = o.t / 2;
+    const rim = [];
+    for (let k = 0; k < seg; k++) {
+      const a = (k / seg) * Math.PI * 2;
+      rim.push([o.r * Math.cos(a), o.r * Math.sin(a)]);
+    }
+    for (let k = 0; k < seg; k++) {
+      const [x0, y0] = rim[k], [x1, y1] = rim[(k + 1) % seg];
+      list.push(0, 0, hz, x0, y0, hz, x1, y1, hz);        // front cap fan
+      list.push(0, 0, -hz, x1, y1, -hz, x0, y0, -hz);     // back cap fan
+      pushQuad(list, [x0, y0, hz], [x1, y1, hz], [x1, y1, -hz], [x0, y0, -hz]); // side
+    }
+    return list;
+  };
+  const cache = new Map();
+  const positions = [];
+  for (const o of ornaments || []) {
+    const key = `${o.kind}:${o.r || 0}:${o.w || 0}:${o.t}`;
+    if (!cache.has(key)) cache.set(key, localFor(o));
+    const local = cache.get(key);
+    const c = Math.cos(o.rotY), s = Math.sin(o.rotY);
+    for (let i = 0; i < local.length; i += 3) {
+      const x = local[i], y = local[i + 1], z = local[i + 2];
+      positions.push(o.x + x * c + z * s, o.y + y, o.z - x * s + z * c);
+    }
+  }
+  return positions;
+}
+
 export function createTaipei101(THREE, plan) {
   if (!plan.tower) return null;
   const t = plan.tower;
@@ -653,6 +776,32 @@ export function createTaipei101(THREE, plan) {
   podium.castShadow = true;
   podium.receiveShadow = true;
   towerGroup.add(podium);
+  // Issue #40: the mall podium — muted green-grey stone blocks (a
+  // step lighter than the tower glass) and the pale curved-roof
+  // shell, a half-frustum whose flat side meets the tower's south
+  // face and whose arc opens south over the entrance court
+  // (cylinder theta from −90° to +90° puts the arc at z ≥ 0 = south
+  // in the tile frame; DoubleSide because the theta seam is open and
+  // the underside shows over the court).
+  const mallMat = new THREE.MeshStandardNodeMaterial({ color: 0x51655a, roughness: 0.8, metalness: 0.05 });
+  const shellMat = new THREE.MeshStandardNodeMaterial({ color: 0xb9beb2, roughness: 0.6, metalness: 0.05, side: THREE.DoubleSide });
+  for (const part of t.podiumParts || []) {
+    if (part.type === 'box') {
+      const m = new THREE.Mesh(new THREE.BoxGeometry(part.w, part.h, part.d), mallMat);
+      m.name = 'Taipei101MallBlock';
+      m.position.set(t.x + (part.dx || 0), part.h / 2, t.z + (part.dz || 0));
+      m.castShadow = true;
+      m.receiveShadow = true;
+      towerGroup.add(m);
+    } else if (part.type === 'shell') {
+      const geo = new THREE.CylinderGeometry(part.rT, part.rB, part.h, 28, 1, false, -Math.PI / 2, Math.PI);
+      const m = new THREE.Mesh(geo, shellMat);
+      m.name = 'Taipei101MallRoof';
+      m.position.set(t.x + (part.dx || 0), part.y0 + part.h / 2, t.z + (part.dz || 0));
+      m.castShadow = true;
+      towerGroup.add(m);
+    }
+  }
   for (const tier of t.tiers) {
     // A 4-sided cone frustum rotated 45° = a tapered square tier;
     // radius is the half-diagonal of the square section.
@@ -679,6 +828,16 @@ export function createTaipei101(THREE, plan) {
   spire.position.set(t.x, t.spire.y0 + t.spire.h / 2, t.z);
   spire.castShadow = true;
   towerGroup.add(spire);
+  // Issue #40: all 64 joint ornaments as one merged soup mesh in a
+  // pale bronze tone — a single extra draw call for the whole set.
+  const ornamentPositions = taipei101OrnamentPositions(t.ornaments);
+  if (ornamentPositions.length) {
+    const ornamentMat = new THREE.MeshStandardNodeMaterial({ color: 0xd8c491, roughness: 0.38, metalness: 0.35, side: THREE.DoubleSide });
+    const ornamentMesh = new THREE.Mesh(soupGeometry(THREE, ornamentPositions), ornamentMat);
+    ornamentMesh.name = 'Taipei101Ornaments';
+    ornamentMesh.castShadow = true;
+    towerGroup.add(ornamentMesh);
+  }
   return towerGroup;
 }
 
