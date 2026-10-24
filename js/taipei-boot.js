@@ -1,7 +1,7 @@
 import * as THREE from 'three/webgpu';
 
 import { planTaipeiBuildings, taipeiCityBlocksOptions, createTaipei101, createTaipeiLandmarkTowers } from './taipei-buildings.js';
-import { buildSidewalkBands, planStreetTrees } from './taipei-streetscape.js';
+import { buildSidewalkBands, planStreetTrees, planParkTrees } from './taipei-streetscape.js';
 import { AvatarFigure } from './avatar-figure.js';
 import { buildPaintedBands } from './taipei-painted.js';
 import { SURFACE_TONES, surfaceClass, buildMedianStrips, isPlazaPark, isPodiumBlock, podiumCentresOf } from './taipei-surfaces.js';
@@ -165,11 +165,12 @@ const BAND_EXTRA = { arcade: 3.6 };
 const mat = (color, roughness = 0.95, extra = {}) => new THREE.MeshStandardNodeMaterial({ color, roughness, metalness: 0.0, ...extra });
 
 // ---------------------------------------------------------------------
-// Street trees (issue #28): one low-poly tree — a 5-sided trunk and two
-// icosahedron canopies — merged into a single vertex-coloured geometry
-// and drawn as ONE InstancedMesh, so every street tree on the tile is
-// a single draw call. Placement is planStreetTrees' (taipei-streetscape
-// .js); this section only turns positions into instances.
+// Trees (issues #28, #41): one low-poly tree — a 5-sided trunk and two
+// icosahedron canopies (60 triangles) — merged into a single
+// vertex-coloured geometry and drawn as ONE InstancedMesh, so every
+// street and park tree on the tile is a single draw call. Placement is
+// planStreetTrees' / planParkTrees' (taipei-streetscape.js); this
+// section only turns positions into instances.
 function streetTreeGeometry() {
   const parts = [];
   const addPart = (geo, color, x, y, z) => {
@@ -363,15 +364,17 @@ export function buildTaipeiGround(scene, tile, deps = {}) {
   if (landmarkTowers) group.add(landmarkTowers);
   console.info(`[taipei-buildings] ${plan.lots.length} buildings via upstream building system + Taipei 101 massing (508 m) + ${plan.landmarkTowers.length} landmark structures planned in ${Math.round(performance.now() - buildingsStart)}ms`);
 
-  // Street trees (issue #28): one InstancedMesh for the whole tile,
-  // planted by taipei-streetscape.js after the building plan exists so
-  // trees keep out of the lots. Static — no per-frame update, matching
-  // the other tile systems' build-once cost model.
+  // Street trees (issue #28) + park trees (issue #41): ONE InstancedMesh
+  // for the whole tile, planted by taipei-streetscape.js after the
+  // building plan exists so trees keep out of the lots and landmark
+  // sites. Static — no per-frame update, matching the other tile
+  // systems' build-once cost model.
   const treesStart = performance.now();
   const treePlan = planStreetTrees(geo, plan);
-  const treeMesh = buildStreetTreeMesh(treePlan.trees);
+  const parkTreePlan = planParkTrees(geo, plan);
+  const treeMesh = buildStreetTreeMesh([...treePlan.trees, ...parkTreePlan.trees]);
   if (treeMesh) group.add(treeMesh);
-  console.info(`[taipei-trees] ${treePlan.trees.length} street trees (${treePlan.stats.sidewalk} sidewalk, ${treePlan.stats.median} median${treePlan.stats.capped ? `, capped at ${treePlan.stats.cap}` : ''}) planned in ${Math.round(performance.now() - treesStart)}ms`);
+  console.info(`[taipei-trees] ${treePlan.trees.length} street trees (${treePlan.stats.sidewalk} sidewalk, ${treePlan.stats.median} median${treePlan.stats.capped ? `, capped at ${treePlan.stats.cap}` : ''}) + ${parkTreePlan.trees.length} park trees${parkTreePlan.stats.capped ? ` (capped at ${parkTreePlan.stats.cap})` : ''} planned in ${Math.round(performance.now() - treesStart)}ms`);
 
   scene.add(group);
   return {
