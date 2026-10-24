@@ -42,6 +42,7 @@ const MAP = {
   roadMajor: '#454f5e',
   route: '#ffc21a',
   search: '#5fd0ff',
+  landmark: '#ffb02e',
   halo: 'rgba(8, 11, 15, 0.9)'
 };
 
@@ -168,7 +169,10 @@ export function buildTileMapModel(tile) {
     .map(([key, t]) => ({ key, x: t.x, z: t.z, name: t.name || key, sub: t.sub || '' }))
     .filter((t) => Number.isFinite(t.x) && Number.isFinite(t.z));
   const landmarks = ((tile && tile.landmarks) || [])
-    .map((l) => ({ id: l.id, name: l.name, short: l.short || l.name, x: l.x, z: l.z }))
+    .map((l) => ({
+      id: l.id, name: l.name, nameZh: l.nameZh || '', short: l.short || l.name,
+      x: l.x, z: l.z, height: l.height || 0
+    }))
     .filter((l) => Number.isFinite(l.x) && Number.isFinite(l.z));
 
   return {
@@ -541,7 +545,7 @@ export class TileMapSystem {
     this.searchHighlight = q;
     this.searchRoads = null;
     if (q.length > 0) {
-      const place = this.model.landmarks.find((l) => l.name.toLowerCase().includes(q) || (l.short || '').toLowerCase().includes(q))
+      const place = this.model.landmarks.find((l) => l.name.toLowerCase().includes(q) || (l.short || '').toLowerCase().includes(q) || (l.nameZh || '').includes(q))
         || this.model.teleports.find((t) => t.name.toLowerCase().includes(q) || t.sub.toLowerCase().includes(q));
       const labels = this.model.roadLabels.filter((l) => l.lower.includes(q));
       if (labels.length) {
@@ -919,8 +923,8 @@ export class TileMapSystem {
       drawWaypoint(ctx, wx, wy, 4.5);
     }
 
-    // Teleport & landmark blips
-    for (const p of [...this.model.teleports, ...this.model.landmarks]) {
+    // Teleport blips: white circles.
+    for (const p of this.model.teleports) {
       const lx = toX(p.x);
       const ly = toY(p.z);
       if (Math.abs(lx) < w * 0.48 && Math.abs(ly) < h * 0.48) {
@@ -931,6 +935,32 @@ export class TileMapSystem {
         ctx.fillStyle = '#ffffff';
         ctx.beginPath();
         ctx.arc(lx, ly, 2.8, 0, Math.PI * 2);
+        ctx.fill();
+      }
+    }
+
+    // Landmark blips: amber diamonds — shape AND colour differ from
+    // the teleport circles, so the two layers stay legible apart even
+    // at radar scale (issue #33).
+    for (const p of this.model.landmarks) {
+      const lx = toX(p.x);
+      const ly = toY(p.z);
+      if (Math.abs(lx) < w * 0.48 && Math.abs(ly) < h * 0.48) {
+        ctx.fillStyle = MAP.halo;
+        ctx.beginPath();
+        ctx.moveTo(lx, ly - 5.5);
+        ctx.lineTo(lx + 5.5, ly);
+        ctx.lineTo(lx, ly + 5.5);
+        ctx.lineTo(lx - 5.5, ly);
+        ctx.closePath();
+        ctx.fill();
+        ctx.fillStyle = MAP.landmark;
+        ctx.beginPath();
+        ctx.moveTo(lx, ly - 3.8);
+        ctx.lineTo(lx + 3.8, ly);
+        ctx.lineTo(lx, ly + 3.8);
+        ctx.lineTo(lx - 3.8, ly);
+        ctx.closePath();
         ctx.fill();
       }
     }
@@ -1084,8 +1114,11 @@ export class TileMapSystem {
     const placed = [];
     const pins = [];
     const places = [
-      ...this.model.landmarks.map((l) => ({ x: l.x, z: l.z, label: l.short })),
-      ...this.model.teleports.map((t) => ({ x: t.x, z: t.z, label: t.name }))
+      ...this.model.landmarks.map((l) => ({
+        x: l.x, z: l.z, kind: 'landmark',
+        label: (l.nameZh || l.short) + (l.height ? ` · ${l.height} m` : '')
+      })),
+      ...this.model.teleports.map((t) => ({ x: t.x, z: t.z, kind: 'teleport', label: t.name }))
     ];
     for (const p of places) {
       const lx = toX(p.x);
@@ -1105,15 +1138,35 @@ export class TileMapSystem {
 
     ctx.font = `700 11px ${FONT}`;
     ctx.textAlign = 'left';
-    for (const { label, lx, ly, showLabel } of pins) {
-      ctx.fillStyle = MAP.halo;
-      ctx.beginPath();
-      ctx.arc(lx, ly, 6.5, 0, Math.PI * 2);
-      ctx.fill();
-      ctx.fillStyle = '#ffffff';
-      ctx.beginPath();
-      ctx.arc(lx, ly, 4.2, 0, Math.PI * 2);
-      ctx.fill();
+    for (const { label, lx, ly, showLabel, kind } of pins) {
+      if (kind === 'landmark') {
+        // Amber diamond pin (matches the radar blip), haloed.
+        ctx.fillStyle = MAP.halo;
+        ctx.beginPath();
+        ctx.moveTo(lx, ly - 8.5);
+        ctx.lineTo(lx + 8.5, ly);
+        ctx.lineTo(lx, ly + 8.5);
+        ctx.lineTo(lx - 8.5, ly);
+        ctx.closePath();
+        ctx.fill();
+        ctx.fillStyle = MAP.landmark;
+        ctx.beginPath();
+        ctx.moveTo(lx, ly - 6);
+        ctx.lineTo(lx + 6, ly);
+        ctx.lineTo(lx, ly + 6);
+        ctx.lineTo(lx - 6, ly);
+        ctx.closePath();
+        ctx.fill();
+      } else {
+        ctx.fillStyle = MAP.halo;
+        ctx.beginPath();
+        ctx.arc(lx, ly, 6.5, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.fillStyle = '#ffffff';
+        ctx.beginPath();
+        ctx.arc(lx, ly, 4.2, 0, Math.PI * 2);
+        ctx.fill();
+      }
       if (showLabel) {
         ctx.lineWidth = 3;
         ctx.strokeStyle = MAP.halo;
