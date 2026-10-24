@@ -48,6 +48,26 @@ const BICYCLE_DRIVE = {
   rolling: 0.05, drag: 0.002, brake: 7.5 // Backward input is scaled to 0.6, giving 4.5 m/s² braking.
 };
 
+// Person on foot (updatePerson) and helicopter (updateHelicopter) top
+// speeds, m/s. The car/bicycle caps live in the DRIVE tables above.
+const PERSON_SPEED = { walk: 4.4, run: 8.2 };
+const HELI_SPEED = { cruise: 32.0, boost: 52.0, vertical: 16.0 };
+
+// A tile may scale every mode's top-speed caps via the speedScale world
+// option (Taipei passes 2, per the user's 2026-10-23 request). Only the
+// caps scale — acceleration, braking, drag and handling are the driving
+// feel and stay put. At scale 1 the shared constant itself is returned,
+// so NYC's physics tables are literally the same objects as upstream.
+function scaledDrive(drive, scale) {
+  if (scale === 1) return drive;
+  return {
+    ...drive,
+    speed: drive.speed * scale,
+    boostSpeed: drive.boostSpeed * scale,
+    reverseSpeed: drive.reverseSpeed * scale
+  };
+}
+
 function driveSpeed(speed, throttle, boost, dt, drive) {
   const braking = speed * throttle < 0;
   const magnitude = Math.abs(speed);
@@ -141,6 +161,11 @@ class ThirdPersonControllerManager {
   //     appearance options and returns an object with {group, poseFromRig}.
   //     Tile boots pass one only when the renderer fell back to WebGL;
   //     NYC never passes one.
+  //   speedScale: number > 0 — multiplier for every mode's top-speed caps
+  //     (person walk/run, car & bicycle cruise/boost/reverse, helicopter
+  //     horizontal & vertical). Caps only: acceleration, braking, drag and
+  //     handling are unchanged. Taipei passes 2; NYC never passes it and
+  //     keeps the upstream caps exactly.
   constructor(scene, colliders = [], opts = {}) {
     this.scene = scene;
     this.worldOpts = {
@@ -149,10 +174,14 @@ class ThirdPersonControllerManager {
       groundHeight: typeof opts.groundHeight === 'function' ? opts.groundHeight : null,
       avatarFigureFactory: typeof opts.avatarFigureFactory === 'function' ? opts.avatarFigureFactory : null,
       spawnByMode: opts.spawnByMode || null,
+      speedScale: (typeof opts.speedScale === 'number' && Number.isFinite(opts.speedScale) && opts.speedScale > 0)
+        ? opts.speedScale
+        : 1,
       idleWalkZ: opts.idleWalkZ || (opts.bounds
         ? { min: opts.bounds.minZ + 30, max: opts.bounds.maxZ - 30 }
         : null),
     };
+    this._deriveSpeedTables();
     this.colliders = colliders;
     this._colliderCells = null; // built on first use, see nearColliders()
     this.activeMode = 'car'; // 'person' | 'car' | 'cyclist' | 'helicopter'
@@ -221,6 +250,21 @@ class ThirdPersonControllerManager {
       z: Number.isFinite(s.z) ? s.z : fallback.z,
       heading: Number.isFinite(s.heading) ? s.heading : fallback.heading,
     };
+  }
+
+  // Per-mode top-speed tables derived from worldOpts.speedScale (see
+  // scaledDrive). The update loops read these tables, never the raw
+  // constants, so a tile's scale applies to every mode uniformly; with no
+  // speedScale option they ARE the upstream constants (same objects).
+  _deriveSpeedTables() {
+    const raw = this.worldOpts?.speedScale;
+    const scale = (typeof raw === 'number' && Number.isFinite(raw) && raw > 0) ? raw : 1;
+    this.carDrive = scaledDrive(CAR_DRIVE, scale);
+    this.bicycleDrive = scaledDrive(BICYCLE_DRIVE, scale);
+    this.personSpeed = scale === 1 ? PERSON_SPEED
+      : { walk: PERSON_SPEED.walk * scale, run: PERSON_SPEED.run * scale };
+    this.heliSpeed = scale === 1 ? HELI_SPEED
+      : { cruise: HELI_SPEED.cruise * scale, boost: HELI_SPEED.boost * scale, vertical: HELI_SPEED.vertical * scale };
   }
 
   setCollisionListener(listener) {
@@ -1159,7 +1203,8 @@ class ThirdPersonControllerManager {
 
   updatePerson(dt) {
     const p = this.entities.person;
-    const maxWalk = this.keys.boost ? 8.2 : 4.4;
+    const personSpeed = this.personSpeed ?? PERSON_SPEED;
+    const maxWalk = this.keys.boost ? personSpeed.run : personSpeed.walk;
     const turnRate = 2.6;
 
     let targetSpeed = 0;
@@ -1189,7 +1234,8 @@ class ThirdPersonControllerManager {
 
   updateCar(dt) {
     const c = this.entities.car;
-    const maxSpeed = this.keys.boost ? CAR_DRIVE.boostSpeed : CAR_DRIVE.speed;
+    const drive = this.carDrive ?? CAR_DRIVE;
+    const maxSpeed = this.keys.boost ? drive.boostSpeed : drive.speed;
 
     let throttle = 0;
     if (this.keys.forward) throttle = this.keys.forward;
@@ -1197,7 +1243,7 @@ class ThirdPersonControllerManager {
 
     const braking = c.speed * throttle < 0;
     const previousSpeed = c.speed;
-    c.speed = driveSpeed(c.speed, throttle, this.keys.boost, dt, CAR_DRIVE);
+    c.speed = driveSpeed(c.speed, throttle, this.keys.boost, dt, drive);
     const acceleration = dt > 0 ? (c.speed - previousSpeed) / dt : 0;
 
     let steerInput = 0;
@@ -1228,7 +1274,7 @@ class ThirdPersonControllerManager {
     c.position.y = this.getGroundHeight(c.position.x, c.position.z, 'car');
 
     // 3-DOF Spring-Damper Chassis Suspension (Pitch, Roll & Vertical Heave)
-    const targetPitch = -Math.max(-1, Math.min(1, acceleration / CAR_DRIVE.acceleration)) * 0.026;
+    const targetPitch = -Math.max(-1, Math.min(1, acceleration / drive.acceleration)) * 0.026;
     const targetRoll = -c.steerAngle * (c.speed / maxSpeed) * 0.092;
     const springK = 68.0;
     const dampC = 11.2;
@@ -1264,7 +1310,7 @@ class ThirdPersonControllerManager {
     if (this.keys.forward) throttle = this.keys.forward;
     else if (this.keys.backward) throttle = -0.6 * this.keys.backward;
 
-    b.speed = driveSpeed(b.speed, throttle, this.keys.boost, dt, BICYCLE_DRIVE);
+    b.speed = driveSpeed(b.speed, throttle, this.keys.boost, dt, this.bicycleDrive ?? BICYCLE_DRIVE);
 
     let turnInput = 0;
     if (this.keys.left) turnInput = this.keys.left;
@@ -1297,8 +1343,9 @@ class ThirdPersonControllerManager {
 
   updateHelicopter(dt, elapsed) {
     const h = this.entities.helicopter;
-    const maxHorizSpeed = this.keys.boost ? 52.0 : 32.0;
-    const maxVertSpeed = 16.0;
+    const heliSpeed = this.heliSpeed ?? HELI_SPEED;
+    const maxHorizSpeed = this.keys.boost ? heliSpeed.boost : heliSpeed.cruise;
+    const maxVertSpeed = heliSpeed.vertical;
 
     let fwdInput = 0;
     if (this.keys.forward) fwdInput = this.keys.forward;
