@@ -76,6 +76,19 @@ export const CROSSWALK_MIN_ARM_W = 7;    // narrower mouths get no zebra
 export const JUNCTION_CLUSTER_M = 22;    // endpoint clustering radius
 export const JUNCTION_MERGE_M = 40;      // candidate-centroid merge radius
 
+// Signal placement (issue #64, user rule 2026-10-24): a unit stands
+// at the SIDE of the road — the far right-hand corner of its
+// approach, clear of every carriageway — never mid-junction. A
+// mast-arm (T) unit is used ONLY where the approach is divided
+// (approachDivided below); everywhere else a plain corner pole.
+export const SIGNAL_SIDE_MARGIN = 0.9;   // corner clearance past the approach's right edge
+export const SIGNAL_BOX_MARGIN = 1.2;    // corner clearance past the junction box (crossing road's far edge)
+export const SIGNAL_ESCAPE_STEP = 0.5;   // clearance-solver step, m
+export const SIGNAL_ESCAPE_MAX = 80;     // solver budget: 40 m of diagonal escape (interchange-scale junctions)
+export const SIGNAL_SEARCH_MAX = 30;     // quadrant lattice search radius, m (Manhattan)
+export const MAST_ARM_MIN = 4;           // mast-arm reach clamps, m
+export const MAST_ARM_MAX = 13;
+
 // Class rank shared with the signalized/divider rules: 3 trunk /
 // primary, 2 secondary, 1 tertiary, 0 everything else (links take
 // their parent class, as in taipei-surfaces' surfaceClass).
@@ -412,17 +425,62 @@ export function detectJunctions(roadbeds) {
 // ---------------------------------------------------------------------
 // Junction furniture: crosswalks, stop lines, signal placements.
 
+// junctionArmDivided(junction, arm, roadbeds): the approach runs
+// on a divided roadbed — a merged bed whose median strip
+// taipei-surfaces draws (the same median laneLayout splits at), or
+// a paired-carriageway approach whose twin bed survived arm dedupe
+// alongside it (same name, near-parallel, same side of the
+// junction). Divided approaches get the mast-arm unit; all others
+// the plain corner pole.
+export function junctionArmDivided(junction, arm, roadbeds) {
+  if (laneLayout(roadbeds[arm.bed]).medianHalf > 0) return true;
+  // Paired-carriageway twin: same name, near-parallel heading, a
+  // different bed ending at the same junction on the same side.
+  for (const b of junction.arms) {
+    if (b === arm || b.bed === arm.bed || b.name !== arm.name) continue;
+    if (b.dirX * arm.dirX + b.dirZ * arm.dirZ > Math.cos((25 * Math.PI) / 180)) return true;
+  }
+  return false;
+}
+
 // buildJunctionFurniture(roadbeds, junctions) ->
 // { stripes, stopLines, signals, suppress, stats }
 // stripes / stopLines are quads for the renderer's quadsGeometry.
-// signals: { x, z, faceX, faceZ } — a static unit per tertiary-or-
-// above approach, on the far right corner from its driver's seat,
-// head facing back down the approach (face = the arm direction).
+// signals: { x, z, faceX, faceZ, kind, armLen, bed } — a static unit
+// per tertiary-or-above approach, standing on the far right-hand
+// CORNER of the approach (issue #64): anchored on the approach's
+// own centreline at the junction box's far edge, offset past the
+// approach's right carriageway edge, then verified against every
+// roadbed ribbon and escaped diagonally off the corner until clear
+// — a unit never stands on a carriageway. kind is 'mast' (T-shape
+// mast arm over the approach) on divided approaches only, 'pole'
+// (plain corner pole) elsewhere; armLen is the mast arm's reach.
 // suppress feeds buildLaneDividers' stop-line zones.
 export function buildJunctionFurniture(roadbeds, junctions) {
   const stripes = [], stopLines = [], signals = [];
   const suppress = new Map();
-  const stats = { junctions: 0, crosswalks: 0, stopLines: 0, signals: 0, skippedArms: 0 };
+  const stats = {
+    junctions: 0, crosswalks: 0, stopLines: 0, signals: 0, skippedArms: 0,
+    mastSignals: 0, poleSignals: 0, clearanceMoved: 0, clearanceUnresolved: 0, clearanceFallback: 0,
+  };
+  // Ribbon index for the signal clearance solver (built once; the
+  // divider builder rebuilds its own for dashes).
+  const ribbonPolys = roadbeds.map(ribbonPoly);
+  const ribbonGrid = new Map();
+  ribbonPolys.forEach((poly, i) => {
+    const xs = poly.map((p) => p[0]), zs = poly.map((p) => p[1]);
+    for (let gx = Math.floor(Math.min(...xs) / GRID_M); gx <= Math.floor(Math.max(...xs) / GRID_M); gx++)
+      for (let gz = Math.floor(Math.min(...zs) / GRID_M); gz <= Math.floor(Math.max(...zs) / GRID_M); gz++) {
+        const k = `${gx},${gz}`;
+        if (!ribbonGrid.has(k)) ribbonGrid.set(k, []);
+        ribbonGrid.get(k).push(i);
+      }
+  });
+  const insideRibbon = (x, z) => {
+    const cand = ribbonGrid.get(`${Math.floor(x / GRID_M)},${Math.floor(z / GRID_M)}`) || [];
+    for (const ci of cand) if (pointInPoly([x, z], ribbonPolys[ci])) return true;
+    return false;
+  };
   for (const j of junctions) {
     if (!j.signalized) continue;
     stats.junctions++;
@@ -477,15 +535,99 @@ export function buildJunctionFurniture(roadbeds, junctions) {
         // Keep dashes out of the stop-line zone on this approach.
         const key = `${arm.bed}:${arm.end}`;
         suppress.set(key, Math.max(suppress.get(key) || 0, sStop + STOP_LINE_W / 2 + 0.6));
-        // Signal unit: far corner, driver's right. Driver travels
-        // −dir; their right normal is (dirZ, −dirX) of the arm dir.
+        // Signal unit at the far right-hand CORNER of the approach
+        // (issue #64). Driver travels −dir; their right normal is
+        // (dirZ, −dirX) of the arm dir. The corner is anchored on
+        // the approach's OWN centreline — walked from the arm's bed
+        // end, not measured from the junction centroid: bed ends
+        // scatter metres off the centroid, and the old
+        // centroid-relative formula put 59% of units inside a
+        // carriageway (audit, issue #64). The box extent along
+        // this arm is angle-corrected: a crossing ribbon of half
+        // width w met at angle θ ends (w / sinθ) from the centre
+        // along this axis, not w.
         const rx = arm.dirZ, rz = -arm.dirX;
+        let tBox = arm.crossHalf;
+        for (const b of j.arms) {
+          if (b === arm) continue;
+          const dot = Math.max(-1, Math.min(1, arm.dirX * b.dirX + arm.dirZ * b.dirZ));
+          const ang = (Math.acos(dot) * 180) / Math.PI;
+          if (ang >= 35 && ang <= 145) tBox = Math.max(tBox, b.width / 2 / Math.sin((ang * Math.PI) / 180));
+        }
+        const sdEnd = (arm.endX - j.x) * arm.dirX + (arm.endZ - j.z) * arm.dirZ;
+        let px = arm.endX - arm.dirX * (sdEnd + tBox + SIGNAL_BOX_MARGIN) + rx * (half + SIGNAL_SIDE_MARGIN);
+        let pz = arm.endZ - arm.dirZ * (sdEnd + tBox + SIGNAL_BOX_MARGIN) + rz * (half + SIGNAL_SIDE_MARGIN);
+        // Clearance solver: the formula owns the simple crossings;
+        // the corner is then verified against EVERY roadbed ribbon
+        // and moved until it stands on no carriageway. Real corners
+        // are covered by more than the two arm ribbons — through
+        // beds that cross the junction without ending there,
+        // junction-fan aprons, frontage traces alongside the
+        // boulevards, deck ribbons — none of which the arm-based
+        // formula can see. Phases, in preference order:
+        //   1. escape along the far-right corner diagonal;
+        //   2. lattice search of the far-right quadrant (a further
+        //      past the box along −dir, b further past the approach
+        //      edge along +r), growing Manhattan distance;
+        //   3. lattice search of the NEAR-right quadrant (the
+        //      driver's own side, before the junction — a real
+        //      near-side pole position);
+        //   4. lattice search of the far-LEFT quadrant (last
+        //      resort: a corner at the side of the road still
+        //      beats the middle of it — measured 1 unit tile-wide).
+        if (insideRibbon(px, pz)) {
+          const fx = px, fz = pz;
+          let ex = -arm.dirX + rx, ez = -arm.dirZ + rz;
+          const en = Math.hypot(ex, ez) || 1; ex /= en; ez /= en;
+          let steps = 0;
+          while (steps < SIGNAL_ESCAPE_MAX && insideRibbon(px, pz)) {
+            px += ex * SIGNAL_ESCAPE_STEP; pz += ez * SIGNAL_ESCAPE_STEP; steps++;
+          }
+          const lattice = (ux, uz, vx, vz) => {
+            for (let d = 1; d <= SIGNAL_SEARCH_MAX; d++) {
+              for (let a = 0; a <= d; a++) {
+                const b = d - a;
+                if (!insideRibbon(fx + ux * a + vx * b, fz + uz * a + vz * b)) return [fx + ux * a + vx * b, fz + uz * a + vz * b];
+                if (a !== b && !insideRibbon(fx + ux * b + vx * a, fz + uz * b + vz * a)) return [fx + ux * b + vx * a, fz + uz * b + vz * a];
+              }
+            }
+            return null;
+          };
+          let solvedAt = 0;
+          if (!insideRibbon(px, pz)) solvedAt = 1;
+          if (!solvedAt) {
+            const hit = lattice(-arm.dirX, -arm.dirZ, rx, rz);
+            if (hit) { [px, pz] = hit; solvedAt = 2; }
+          }
+          if (!solvedAt) {
+            const hit = lattice(arm.dirX, arm.dirZ, rx, rz);
+            if (hit) { [px, pz] = hit; solvedAt = 3; }
+          }
+          if (!solvedAt) {
+            const hit = lattice(-arm.dirX, -arm.dirZ, -rx, -rz);
+            if (hit) { [px, pz] = hit; solvedAt = 4; }
+          }
+          if (!solvedAt) stats.clearanceUnresolved++;
+          else {
+            stats.clearanceMoved++;
+            if (solvedAt >= 3) stats.clearanceFallback++;
+          }
+        }
+        // Mast-arm (T) ONLY on a divided approach (user rule);
+        // its arm reaches from the corner pole across the approach
+        // carriageway to the median edge.
+        const divided = junctionArmDivided(j, arm, roadbeds);
+        const { medianHalf } = laneLayout(bed);
+        const armLen = divided
+          ? Math.max(MAST_ARM_MIN, Math.min(MAST_ARM_MAX, half + SIGNAL_SIDE_MARGIN - medianHalf))
+          : 0;
         signals.push({
-          x: j.x - arm.dirX * (arm.crossHalf + 1.3) + rx * (half + 0.8),
-          z: j.z - arm.dirZ * (arm.crossHalf + 1.3) + rz * (half + 0.8),
+          x: px, z: pz,
           faceX: arm.dirX, faceZ: arm.dirZ,
+          kind: divided ? 'mast' : 'pole', armLen, bed: arm.bed,
         });
         stats.signals++;
+        if (divided) stats.mastSignals++; else stats.poleSignals++;
       }
     }
   }
@@ -528,6 +670,11 @@ export function buildRoadMarkings(roadbeds, medianStrips = null, caps = null, ju
       crosswalks: furniture.stats.crosswalks,
       stopLines: furniture.stats.stopLines,
       signalUnits: furniture.stats.signals,
+      signalMast: furniture.stats.mastSignals,
+      signalPole: furniture.stats.poleSignals,
+      clearanceMoved: furniture.stats.clearanceMoved,
+      clearanceUnresolved: furniture.stats.clearanceUnresolved,
+      clearanceFallback: furniture.stats.clearanceFallback,
       skippedArms: furniture.stats.skippedArms,
     },
   };
