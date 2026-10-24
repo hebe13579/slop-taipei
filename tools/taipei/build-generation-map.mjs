@@ -133,6 +133,29 @@ const ORPHAN_SHORT_M = 150;
 // trace on top of that carriageway — it keeps its bed (it may extend
 // beyond the wide bed) but loses its walkway band.
 const FRONTAGE_INSIDE = 0.5;
+// Underpass corridors (issue #51): a …車行地下道 way set is not a road
+// of its own — its carriageways are the through lanes of the parent
+// road, diving under cross streets while the parent's surface lanes
+// run alongside (基隆路一段 + 基隆路車行地下道 is ONE boulevard in
+// Esri World Imagery, ~29-40 m of continuous pavement). The standing
+// flat-world rule is that underpasses are ignored and the surface road
+// is drawn whole, so:
+//   (a) FAMILY PAIRING — an underpass name's pairing candidates join
+//       the parent road's pairing group (parent resolved by name
+//       prefix + bbox containment, recorded in stats), so merged beds
+//       span the full boulevard instead of stacking a second, narrower
+//       ribbon set on top of the surface one; a mixed group's bed
+//       takes the surface road's name.
+//   (b) DEDUP — any underpass-named bed (merged or single) whose
+//       centreline is >= 85% covered by differently-named beds adds no
+//       pavement of its own and is suppressed (booked into
+//       suppressedLength like orphan suppression, so the length
+//       identity still closes). Portal/ramp beds that extend the paved
+//       footprint stay. Twin-bore tunnels (…隧道) have no surface twin
+//       and are NOT touched: the rule is scoped to the 車行地下道
+//       suffix only.
+const UNDERPASS_SUFFIX = '車行地下道';
+const UNDERPASS_DEDUP_COVER = 0.85;
 //
 // WIDTH OVERRIDES — by exact road name, applied instead of the inferred
 // width (explicit OSM width tag > lanes x 3.2 m > name/class default).
@@ -480,8 +503,37 @@ function pairEval(A, B) {
 }
 
 const candidates = segments.filter((s) => !isExcludedLink(s) && s.name && s.oneway && PAIR_CLASSES.has(s.highway) && s.length >= MIN_PAIR_SEGMENT_M);
+// Underpass family resolution (issue #51, see UNDERPASS_SUFFIX above):
+// parent candidates are road names the underpass name extends (minus
+// the suffix, sections included), excluding elevated （高架） and other
+// underground names; the winner is the one whose segment bbox contains
+// the underpass segments' bbox centre (nearest centre breaks ties).
+const segBBoxByName = new Map();
+for (const s of segments) {
+  if (!s.name) continue;
+  let bb = segBBoxByName.get(s.name);
+  if (!bb) { bb = [Infinity, -Infinity, Infinity, -Infinity]; segBBoxByName.set(s.name, bb); }
+  for (const p of s.pts) { bb[0] = Math.min(bb[0], p[0]); bb[1] = Math.max(bb[1], p[0]); bb[2] = Math.min(bb[2], p[1]); bb[3] = Math.max(bb[3], p[1]); }
+}
+const familyParent = new Map(); // underpass name -> parent road name
+for (const name of new Set(candidates.map((s) => s.name))) {
+  if (!name.endsWith(UNDERPASS_SUFFIX)) continue;
+  const base = name.slice(0, -UNDERPASS_SUFFIX.length);
+  const ub = segBBoxByName.get(name);
+  const ucx = (ub[0] + ub[1]) / 2, ucz = (ub[2] + ub[3]) / 2;
+  let best = null;
+  for (const [other, bb] of segBBoxByName) {
+    if (other === name || other.endsWith('地下道') || other.includes('高架')) continue;
+    if (!(name.startsWith(other) || other.startsWith(base))) continue;
+    const inside = ucx >= bb[0] && ucx <= bb[1] && ucz >= bb[2] && ucz <= bb[3];
+    const score = (inside ? 0 : 1e12) + Math.hypot((bb[0] + bb[1]) / 2 - ucx, (bb[2] + bb[3]) / 2 - ucz);
+    if (!best || score < best.score) best = { parent: other, score };
+  }
+  if (best) familyParent.set(name, best.parent);
+}
+const familyKey = (name) => familyParent.get(name) || name;
 const byName = new Map();
-for (const s of candidates) { if (!byName.has(s.name)) byName.set(s.name, []); byName.get(s.name).push(s); }
+for (const s of candidates) { const k = familyKey(s.name); if (!byName.has(k)) byName.set(k, []); byName.get(k).push(s); }
 const pairEvals = [];
 for (const group of byName.values()) {
   for (let i = 0; i < group.length; i++) for (let j = i + 1; j < group.length; j++) {
@@ -557,7 +609,13 @@ function groupGeometry(g) {
     for (const m of g.members) {
       if (m.seg === P) { ptsHere.push({ x: p.x, z: p.z, w: P.width }); continue; }
       const cp = closestOn(m.seg.pts, m.seg.cum, p.x, p.z);
-      if (cp.d <= MAX_PAIR_DIST_M) ptsHere.push({ x: cp.x, z: cp.z, w: m.seg.width });
+      // A member shapes the centreline only where it actually runs:
+      // without the arc-length gate, a short member's ENDPOINT is the
+      // closest point for samples far past its end and drags the group
+      // centroid sideways (issue #51 — a portal stub pulled the
+      // 基隆路 family bed off the underpass pair's alignment, opening
+      // a bare seam beside it).
+      if (cp.d <= MAX_PAIR_DIST_M && cp.s >= m.geoRange[0] - 2 && cp.s <= m.geoRange[1] + 2) ptsHere.push({ x: cp.x, z: cp.z, w: m.seg.width });
     }
     if (ptsHere.length < 2) continue;
     const mx = ptsHere.reduce((a, c) => a + c.x, 0) / ptsHere.length;
@@ -592,7 +650,7 @@ function groupGeometry(g) {
       if (claims.has(C)) continue; // extension is for wholly unpaired candidates only
       let best = null;
       for (const g of groups) {
-        if (g.members[0].seg.name !== C.name || g.members.length >= MAX_GROUP_MEMBERS) continue;
+        if (familyKey(g.members[0].seg.name) !== familyKey(C.name) || g.members.length >= MAX_GROUP_MEMBERS) continue;
         const geo = groupGeometry(g);
         if (!geo || geo.centreline.length < 2) continue;
         const cum = cumLen(geo.centreline);
@@ -657,15 +715,21 @@ for (const g of groups) {
   const mergedLayout = widest.seg.pedestrianLayout === 'painted' && geo.width > 12
     ? 'sidewalk'
     : widest.seg.pedestrianLayout;
+  // A mixed underpass/surface group is the surface road's bed (issue
+  // #51 family pairing): it takes the widest surface member's name.
+  // An underpass-only group keeps the underpass name.
+  const surfWidest = g.members.filter((m) => !m.seg.name.endsWith(UNDERPASS_SUFFIX))
+    .reduce((a, m) => (a === null || m.seg.width > a.seg.width ? m : a), null);
+  const bedName = g.primary.name.endsWith(UNDERPASS_SUFFIX) && surfWidest ? surfWidest.seg.name : g.primary.name;
   pushRoadbed({
-    name: g.primary.name, highway, centreline: flatQ(geo.centreline), width: geo.width,
+    name: bedName, highway, centreline: flatQ(geo.centreline), width: geo.width,
     pedestrianLayout: mergedLayout,
     sourceWayIds: g.members.map((m) => m.seg.wayId),
     merged: true, constituentWidths: g.members.map((m) => m.seg.width),
   });
   mergedLength += geo.length;
   mergedReport.push({
-    name: g.primary.name, highway, width: geo.width,
+    name: bedName, highway, width: geo.width,
     members: g.members.map((m) => m.seg.wayId), memberWidths: g.members.map((m) => m.seg.width),
     layers: g.members.map((m) => m.seg.layer || '0'), length: Math.round(geo.length),
   });
@@ -716,6 +780,58 @@ function pip(p, poly) {
   }
   return inside;
 }
+// Underpass dedup (issue #51): an underpass-named bed whose centreline
+// is >= UNDERPASS_DEDUP_COVER covered by differently-named beds is a
+// duplicate underlay of the surface road — suppress it (its length is
+// booked into suppressedLength below, keeping the length identity
+// closed). Runs before the orphan pass so duplicate underpass beds
+// cannot act as coverers there. Self-contained geometry: the shared
+// bedGeoms grid below is built from the post-dedup array.
+const dedupedReport = [];
+let dedupedLength = 0;
+{
+  const geoms = roadbeds.map((b) => {
+    const pts = pairsOf(b.centreline);
+    return { pts, cum: cumLen(pts), poly: bedRibbon(pts, b.width) };
+  });
+  const grid = new Map();
+  geoms.forEach((g, i) => {
+    if (roadbeds[i].name.endsWith(UNDERPASS_SUFFIX)) return; // coverers are surface beds only
+    const xs = g.poly.map((p) => p[0]), zs = g.poly.map((p) => p[1]);
+    for (let gx = Math.floor(Math.min(...xs) / 100); gx <= Math.floor(Math.max(...xs) / 100); gx++)
+      for (let gz = Math.floor(Math.min(...zs) / 100); gz <= Math.floor(Math.max(...zs) / 100); gz++) {
+        const k = `${gx},${gz}`;
+        if (!grid.has(k)) grid.set(k, []);
+        grid.get(k).push(i);
+      }
+  });
+  const keep = new Array(roadbeds.length).fill(true);
+  roadbeds.forEach((b, bi) => {
+    if (!b.name.endsWith(UNDERPASS_SUFFIX)) return;
+    const { pts, cum } = geoms[bi];
+    const total = cum[cum.length - 1];
+    const n = Math.max(2, Math.round(total / 2));
+    let cov = 0;
+    for (let i = 0; i <= n; i++) {
+      const p = pointAt(pts, cum, (total * i) / n);
+      const cand = grid.get(`${Math.floor(p.x / 100)},${Math.floor(p.z / 100)}`) || [];
+      for (const oj of cand) { if (pip([p.x, p.z], geoms[oj].poly)) { cov++; break; } }
+    }
+    if (cov / (n + 1) >= UNDERPASS_DEDUP_COVER) {
+      keep[bi] = false;
+      const len = flatLength(b.centreline);
+      dedupedLength += len;
+      dedupedReport.push({ name: b.name, highway: b.highway, sourceWayIds: b.sourceWayIds, lengthM: Math.round(len), coveredPct: Math.round((cov / (n + 1)) * 100), reason: 'underpass-duplicate' });
+    }
+  });
+  if (dedupedReport.length) {
+    const kept = roadbeds.filter((_, i) => keep[i]);
+    roadbeds.length = 0;
+    roadbeds.push(...kept);
+    roadbedLength -= dedupedLength;
+  }
+}
+
 const bedGeoms = roadbeds.map((b) => {
   const pts = pairsOf(b.centreline);
   return { pts, cum: cumLen(pts), poly: bedRibbon(pts, b.width) };
@@ -745,9 +861,9 @@ const sampleCover = (bi, covererOk) => {
   }
   return cov / (n + 1);
 };
-const suppressedReport = [];
+const suppressedReport = [...dedupedReport];
 const demotedReport = [];
-let suppressedLength = 0;
+let suppressedLength = dedupedLength;
 {
   const keep = new Array(roadbeds.length).fill(true);
   roadbeds.forEach((b, bi) => {
@@ -793,6 +909,8 @@ const stats = {
   droppedScrapLength: Math.round(droppedScrapLength * 10) / 10,
   suppressedLength: Math.round(suppressedLength * 10) / 10,
   suppressedBeds: suppressedReport,
+  underpassFamilies: [...familyParent.entries()].map(([underpass, parent]) => ({ underpass, parent })),
+  underpassDedupBeds: dedupedReport,
   simplificationShorteningM: Math.round(simplificationShorteningM * 10) / 10,
   demotedFrontageBeds: demotedReport,
   roadbedCount: roadbeds.length,
