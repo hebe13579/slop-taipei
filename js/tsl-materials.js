@@ -182,6 +182,7 @@ const canyonSkyAONode = Fn(() => {
 // Material caches to prevent duplicate WebGPU WGSL shader compilation across blocks & landmarks
 const _curtainWallCache = new Map();
 const _preWarCache = new Map();
+const _tileShophouseCache = new Map();
 
 // Camera-independent facade frame: the view/world normal round trip can change the dominant axis on 45-degree
 // walls. Resolve near-ties in the vertex shader and keep that choice flat across each face.
@@ -1061,6 +1062,462 @@ function createPreWarBuildingMaterial(opts = {}) {
   })();
 
   _preWarCache.set(cacheKey, mat);
+  return mat;
+}
+
+/**
+ * Taiwan shophouse material set (issue #17, family indices 6–9 in
+ * js/buildings.js — selected only by the Taipei planner; Manhattan never
+ * assigns them). ONE parameterized factory renders the four iconic Taiwan
+ * types the user picked, differing by opts (palette, tile module, window
+ * density, balcony motif, ground-floor treatment):
+ *   6 tile shophouse — the user's Street View reference: small square
+ *     ceramic tiles (off-white / cream / beige / pale grey by per-building
+ *     tone), beige accent bay columns, aluminium window grid with a dense
+ *     speckle of external AC boxes, PAINTED semi-circular balcony parapets
+ *     stacked in hash-chosen bay columns.
+ *   7 arcade shophouse （騎樓） — red-brown brick-tone tiles, wider piers
+ *     and a deeper ground-floor recess so the frontage reads as an arcade.
+ *   8 walk-up slab — beige/brown 70s–80s tile, denser window grid, window
+ *     security-grille speckle, straight rail balconies.
+ *   9 pebble-dash mid-rise （洗石子） — speckled washed-stone concrete,
+ *     plain ribbon windows, no balconies, muted signage.
+ * Balconies are PAINTED in every type (the facade-box system has no 3D
+ * relief): arc/rail shading, rim highlight, underside shadow. Ground
+ * floors are shops: glazed storefronts under a signage band of coloured
+ * panels carrying abstract glyph bars — procedural blocks, never rendered
+ * text (the same stylization as the prewar ghost signs). Rear / lot-line
+ * walls fall back to plain plaster, as on the real blocks.
+ */
+function createTileShophouseMaterial(opts = {}) {
+  const {
+    windowGlassColor = 0x1b2833,
+    windowWidth = 2.55,
+    floorHeight = 3.35,
+    windowRatioX = 0.54,
+    windowRatioY = 0.56,
+    litProbability = 0.52,
+    warmth = 0.84,
+    seed = 137.7,
+    boxLocal = true,
+    cornerPier = 0.55,
+    // Style parameters (defaults = family 6, the tile shophouse):
+    tilePalette = [0xe9e2d0, 0xe3d6ba, 0xdbc7a6, 0xd2ccc0],
+    accentColor = 0xc9a582,
+    accentEvery = 3, // accent band every Nth bay column; 0 disables
+    trimColor = 0xb0a184,
+    tileModule = 0.3, // ceramic tile size in metres
+    pebble = 0, // 0..1 washed-stone speckle replacing the tile grid
+    acThreshold = 0.70, // AC box when the per-window hash exceeds this
+    grilleProb = 0.06, // share of upper windows with a security grille
+    balconyStyle = 0, // 0 semi-circular parapet, 1 straight rail, 2 none
+    balconyThreshold = 0.52, // balcony column when the column hash exceeds this
+    balconyPalette = [0xd8cfba, 0xcabfa8],
+    signRate = 1.0, // share of shop bays carrying a coloured sign panel
+    recess = 0.38, // ground-floor recess shadow depth (arcade depth)
+    wallRoughness = 0.60
+  } = opts;
+
+  const cacheKey = JSON.stringify(opts);
+  if (_tileShophouseCache.has(cacheKey)) {
+    return _tileShophouseCache.get(cacheKey);
+  }
+
+  const uWindowWidth = uniform(windowWidth);
+  const uFloorHeight = uniform(floorHeight);
+  const uRatioX = uniform(windowRatioX);
+  const uRatioY = uniform(windowRatioY);
+  const uLitProb = uniform(litProbability);
+  const uWarmth = uniform(warmth);
+  const uBoxSeed = uniform(seed);
+
+  const mat = new THREE.MeshStandardNodeMaterial({
+    vertexColors: false
+  });
+  mat.metalnessNode = float(0.0);
+
+  // Sign palette shared by the colour and emissive nodes: one panel colour
+  // per shop bay, picked by hashing the bay column + building seed.
+  const signColorsFor = (cellId, boxSeed) => {
+    const h = hash2D(vec2(cellId.x.mul(1.37), boxSeed.mul(3.71)));
+    let bg = color(0xa8232a); // crimson
+    bg = mix(bg, color(0x14605a), step(0.18, h)); // deep teal
+    bg = mix(bg, color(0x22406e), step(0.36, h)); // navy
+    bg = mix(bg, color(0xc25e1e), step(0.52, h)); // orange
+    bg = mix(bg, color(0xe9e1cd), step(0.66, h)); // warm white
+    bg = mix(bg, color(0x1e7a46), step(0.80, h)); // pharmacy green
+    bg = mix(bg, color(0x2b2b30), step(0.90, h)); // charcoal
+    // Ink is cream everywhere except on the warm-white panel, where it flips
+    // to a dark red-brown so the glyph bars stay readable.
+    const ink = mix(color(0xf4ead2), color(0x8c2b23), step(0.66, h).mul(step(h, 0.80)));
+    return { bg, ink, h };
+  };
+  // Abstract glyph bars for one sign panel: 4 glyph slots across the panel,
+  // each a hash-chosen combination of vertical / horizontal bars. Purely
+  // procedural blocks — no character shapes are ever drawn.
+  const signGlyphMask = (cellUV, cellId, boxSeed, fw) => {
+    const gx = cellUV.x.sub(0.07).div(0.86);
+    const slot = floor(gx.mul(4.0));
+    const gl = vec2(fract(gx.mul(4.0)), cellUV.y.sub(0.815).div(0.155));
+    const base = slot.add(cellId.x.mul(7.0)).add(boxSeed.mul(11.3));
+    const h1 = hash2D(vec2(base, 1.0));
+    const h2 = hash2D(vec2(base, 2.0));
+    const h3 = hash2D(vec2(base, 3.0));
+    const h4 = hash2D(vec2(base, 4.0));
+    const h5 = hash2D(vec2(base, 5.0));
+    const h6 = hash2D(vec2(base, 6.0));
+    const w = float(0.05);
+    const vBars = max(
+      filteredPulse(gl.x, 0.08, 0.26, w).mul(step(0.35, h1)),
+      max(
+        filteredPulse(gl.x, 0.40, 0.60, w).mul(step(0.50, h2)),
+        filteredPulse(gl.x, 0.74, 0.92, w).mul(step(0.40, h3))
+      )
+    );
+    const hBars = max(
+      filteredPulse(gl.y, 0.10, 0.26, w).mul(step(0.45, h4)),
+      max(
+        filteredPulse(gl.y, 0.44, 0.60, w).mul(step(0.50, h5)),
+        filteredPulse(gl.y, 0.76, 0.92, w).mul(step(0.40, h6))
+      )
+    );
+    const inZone = step(0.07, cellUV.x).mul(step(cellUV.x, 0.93))
+      .mul(step(0.815, cellUV.y)).mul(step(cellUV.y, 0.97));
+    return max(vBars, hBars).mul(inZone);
+  };
+
+  mat.colorNode = Fn(() => {
+    const cell = facadeCell(uWindowWidth, uFloorHeight, boxLocal, cornerPier);
+    const uCoord = cell.uCoord;
+    const vCoord = cell.vCoord;
+    const cellUV = cell.cellUV;
+    const cellId = cell.cellId;
+    const fw = cell.fw;
+    const tone = cell.tone;
+    const boxSeed = cell.boxSeed;
+    const isGroundFloor = cell.isGroundFloor;
+    const back = cell.back;
+
+    const cTileA = color(tilePalette[0]);
+    const cTileB = color(tilePalette[1]);
+    const cTileC = color(tilePalette[2]);
+    const cTileD = color(tilePalette[3]);
+    const cAccent = color(accentColor);
+    const cPlasterA = color(0xcfc9bc);
+    const cPlasterB = color(0xbdb5a6);
+    const cTrim = color(trimColor);
+    const cRoof = color(0xa9a294);
+    const cGlass = color(windowGlassColor);
+    const cWarmWindow = color(0xffca7a);
+    const cSoot = color(0x17140f);
+
+    // --- Tile cladding (fronts): square-tile module, per-tile tint
+    // variation and grout lines, both faded out with pixel footprint so
+    // distant blocks read as calm cladding instead of shimmer. The
+    // pebble-dash type cross-fades the grid into fine washed-stone
+    // speckle (two-tone aggregate grain at ~8 cm).
+    const tileFade = float(1.0).sub(smoothstep(0.05, 0.55, fwidth(uCoord).add(fwidth(vCoord))));
+    const tileCellId = vec2(floor(uCoord.div(tileModule)), floor(vCoord.div(tileModule)));
+    const tileVar = hash2D(tileCellId.add(boxSeed.mul(13.7))).sub(0.5).mul(0.10).mul(tileFade);
+    const grout = max(gridLine(uCoord, tileModule, 0.012), gridLine(vCoord, tileModule, 0.012)).mul(tileFade).mul(float(1.0 - pebble));
+    let tileCol = mix(cTileA, cTileB, step(0.30, tone));
+    tileCol = mix(tileCol, cTileC, step(0.58, tone));
+    tileCol = mix(tileCol, cTileD, step(0.82, tone));
+    tileCol = tileCol.mul(tileVar.add(1.0));
+    const pebbleCell = vec2(floor(uCoord.mul(12.0)), floor(vCoord.mul(12.0)));
+    const pebbleGrain = hash2D(pebbleCell.add(boxSeed.mul(3.1)));
+    const pebbleCol = mix(cTileA, cTileD, pebbleGrain).mul(float(0.94).add(pebbleGrain.mul(0.10)));
+    tileCol = mix(tileCol, pebbleCol, float(pebble));
+    // Accent band: every Nth bay column on street fronts (style opt).
+    const accentCol = accentEvery > 0
+      ? step(mod(cellId.x, float(accentEvery)), 0.5).mul(back.oneMinus())
+      : float(0.0);
+    tileCol = mix(tileCol, cAccent, accentCol.mul(0.38));
+    tileCol = mix(tileCol, tileCol.mul(0.80), grout.mul(0.85));
+
+    // --- Plain plaster (rear / lot-line walls): large weather blotches.
+    const blotch = smoothstep(0.52, 0.88, noise2D(vec2(uCoord.mul(0.21), vCoord.mul(0.21)).add(tone.mul(9.0))));
+    let plaster = mix(cPlasterA, cPlasterB, step(0.5, tone));
+    plaster = mix(plaster, color(0x8f887a), blotch.mul(0.20));
+
+    let col = mix(tileCol, plaster, back);
+
+    // Weathering: rain streaks under the tile + a splash zone at street level.
+    const streakNoise = noise2D(vec2(uCoord.mul(0.55), vCoord.mul(0.05)));
+    const streakMask = smoothstep(0.62, 0.92, streakNoise).mul(0.16);
+    col = mix(col, cSoot, streakMask.mul(back.oneMinus()));
+    col = col.mul(float(1.0).sub(float(1.0).sub(smoothstep(0.0, 1.4, vCoord)).mul(0.10)));
+
+    // Parapet coping: a slightly darker trim band.
+    col = mix(col, cTrim, cell.coping);
+
+    // --- Windows: aluminium grid. Ground-floor shopfronts span nearly the
+    // whole bay, exactly like the prewar family's wide shop glass.
+    const effHalfX = mix(float(0.5).sub(uRatioX.mul(0.5)), float(0.11), isGroundFloor);
+    const effHalfY = mix(float(0.5).sub(uRatioY.mul(0.5)), float(0.10), isGroundFloor);
+    const inX = filteredPulse(cellUV.x, effHalfX, float(1.0).sub(effHalfX), fw.x);
+    const inY = filteredPulse(cellUV.y, float(0.5).sub(effHalfY), float(0.5).add(effHalfY), fw.y);
+    const inWindow = inX.mul(inY).mul(cell.solid.oneMinus());
+
+    const sillH = float(0.5).sub(effHalfY);
+    const winTop = float(0.5).add(effHalfY);
+    const winUV = vec2(
+      cellUV.x.sub(effHalfX).div(float(1.0).sub(effHalfX.mul(2.0))),
+      cellUV.y.sub(sillH).div(winTop.sub(sillH))
+    );
+
+    const aptRoom = evaluateApartmentInterior(uCoord, vCoord, winUV, cellId, cell.bayWidth, uFloorHeight, uBoxSeed, uWarmth, uLitProb, fw);
+    const winShade = hash2D(cellId.add(vec2(9.7, 4.1)).add(boxSeed));
+    const glassRand = hash2D(cellId.add(vec2(3.1, 8.7)).add(boxSeed.mul(3.0)));
+    // Grime climbs from the sill, as on the prewar family.
+    const winLocalY = clamp(cellUV.y.sub(sillH).div(max(winTop.sub(sillH), float(0.001))), 0.0, 1.0);
+    const grimeProfile = mix(float(0.88), float(0.16), pow(winLocalY, float(0.62)));
+    const grimeSpeckle = noise2D(cellUV.mul(vec2(13.0, 19.0)).add(cellId.mul(7.0)));
+    const grime = clamp(grimeProfile.mul(float(0.42).add(grimeSpeckle.mul(0.58))).mul(float(0.45).add(winShade.mul(0.75))), 0.0, 1.0);
+    const glassTint = mix(vec3(0.62, 0.74, 0.84), vec3(0.88, 0.92, 0.96), glassRand);
+    let glassCol = mix(aptRoom.rgb.mul(glassTint), cGlass, grime.mul(0.72).add(0.10));
+
+    // Aluminium frame + sliding-sash meeting rails (centre vertical, mid
+    // horizontal), a much lighter assembly than the prewar masonry frame.
+    const cAlu = mix(color(0xb9bdc0), color(0x878d90), step(0.5, fract(tone.mul(5.13))));
+    const sashInX = filteredPulse(cellUV.x, effHalfX.add(0.035), float(1.0).sub(effHalfX).sub(0.035), fw.x);
+    const sashInY = filteredPulse(cellUV.y, sillH.add(0.035), winTop.sub(0.035), fw.y);
+    const sashMask = sashInX.mul(sashInY).mul(cell.solid.oneMinus());
+    glassCol = mix(cAlu, glassCol, sashMask);
+    const railH = lineAA(abs(cellUV.y.sub(0.5)), 0.011);
+    const railV = lineAA(abs(cellUV.x.sub(0.5)), 0.009);
+    glassCol = mix(glassCol, cAlu, max(railH, railV).mul(inWindow).mul(isGroundFloor.oneMinus()));
+
+    // Window security grilles （鐵窗）: dark metal bars across the glass —
+    // a speckle on the tile shophouse, a signature texture on the walk-up
+    // slab (grilleProb per style). Painted inside the sash, under the AC.
+    const grilleRand = hash2D(cellId.add(vec2(47.9, 3.3)).add(boxSeed));
+    const hasGrille = step(grilleRand, float(grilleProb)).mul(isGroundFloor.oneMinus());
+    const grilleBars = max(
+      step(0.80, fract(winUV.x.mul(6.0))),
+      step(0.86, fract(winUV.y.mul(3.0)))
+    );
+    glassCol = mix(glassCol, color(0x43484a), grilleBars.mul(0.55).mul(hasGrille).mul(sashMask));
+
+    // External AC boxes on upper windows (rate per style — the tile
+    // shophouse runs ~30%, Taipei density; the prewar family uses ~12%):
+    // box + fan grille + shadow on the glass.
+    const acRand = hash2D(cellId.add(vec2(31.7, 17.3)).add(boxSeed));
+    const hasAC = step(acThreshold, acRand).mul(isGroundFloor.oneMinus());
+    const inACBox = filteredPulse(cellUV.x, 0.31, 0.69, fw.x)
+      .mul(filteredPulse(cellUV.y, float(0.5).sub(effHalfY), float(0.5).sub(effHalfY).add(0.22), fw.y))
+      .mul(hasAC).mul(cell.solid.oneMinus());
+    const acShadow = filteredPulse(cellUV.x, 0.29, 0.71, fw.x)
+      .mul(filteredPulse(cellUV.y, float(0.5).sub(effHalfY).sub(0.035), float(0.5).sub(effHalfY), fw.y))
+      .mul(hasAC).mul(cell.solid.oneMinus());
+    glassCol = mix(glassCol, glassCol.mul(0.55), acShadow);
+    glassCol = mix(glassCol, color(0xced2cc), inACBox);
+
+    // Shop interior behind the ground-floor glass (same read as prewar:
+    // warm bulb gradient + shelf silhouettes), with a recess shadow line
+    // under the signage band so the storefront sits back like an arcade.
+    const shopInteriorRaw = float(0.55).add(cellUV.y.mul(0.45))
+      .mul(float(0.8).add(noise2D(cellUV.mul(vec2(6.0, 3.0)).add(cellId.mul(11.0))).mul(0.4)));
+    const bulbCol = mix(color(0xff9a3c), color(0xffe8b0), hash2D(cellId.add(boxSeed.mul(5.0))));
+    const shopInterior = bulbCol.mul(shopInteriorRaw)
+      .mul(float(1.0).sub(smoothstep(0.66, 0.775, cellUV.y).mul(float(recess))));
+    glassCol = mix(glassCol, shopInterior, isGroundFloor);
+
+    col = mix(col, glassCol, inWindow);
+
+    // --- Painted balconies, stacked in hash-chosen bay columns in front of
+    // the window's lower half (style opt): 0 = semi-circular parapet (an
+    // ellipse clipped by its top rail; shading darkens toward the arc
+    // bottom), 1 = straight rail balcony (slab edge, baluster striping,
+    // solid top rail), 2 = none. Both motifs get a rim highlight and a
+    // soft shadow on the wall underneath.
+    const balcHash = hash2D(vec2(floor(cellId.x), boxSeed.mul(7.31)));
+    const hasBalc = step(balconyThreshold, balcHash).mul(back.oneMinus()).mul(isGroundFloor.oneMinus());
+    const cBalc = mix(color(balconyPalette[0]), color(balconyPalette[1]), step(0.5, fract(tone.mul(3.7))));
+    if (balconyStyle === 0) {
+      const bEx = cellUV.x.sub(0.5).div(0.38);
+      const bEy = cellUV.y.sub(0.30).div(0.135);
+      const bDist = length(vec2(bEx, bEy));
+      const balcBody = smoothstep(1.0, 0.93, bDist).mul(step(cellUV.y, 0.435)).mul(hasBalc).mul(cell.solid.oneMinus());
+      const balcShadow = filteredPulse(cellUV.x, 0.13, 0.87, fw.x)
+        .mul(filteredPulse(cellUV.y, 0.115, 0.175, fw.y)).mul(hasBalc).mul(cell.solid.oneMinus());
+      col = mix(col, col.mul(0.60), balcShadow.mul(0.55));
+      let balcCol = cBalc.mul(mix(0.76, 1.0, smoothstep(0.17, 0.43, cellUV.y)));
+      balcCol = balcCol.mul(float(1.0).sub(step(0.86, fract(cellUV.x.mul(14.0))).mul(0.13))); // baluster grooves
+      const rim = filteredPulse(cellUV.y, 0.408, 0.435, fw.y);
+      balcCol = mix(balcCol, cBalc.mul(1.14), rim);
+      col = mix(col, balcCol, balcBody.mul(clamp(inWindow.mul(1.6), 0.0, 1.0)));
+    } else if (balconyStyle === 1) {
+      const railBody = filteredPulse(cellUV.x, 0.10, 0.90, fw.x)
+        .mul(filteredPulse(cellUV.y, 0.13, 0.44, fw.y)).mul(hasBalc).mul(cell.solid.oneMinus());
+      const railShadow = filteredPulse(cellUV.x, 0.10, 0.90, fw.x)
+        .mul(filteredPulse(cellUV.y, 0.075, 0.125, fw.y)).mul(hasBalc).mul(cell.solid.oneMinus());
+      col = mix(col, col.mul(0.60), railShadow.mul(0.55));
+      let railCol = cBalc.mul(0.94);
+      railCol = railCol.mul(float(1.0).sub(step(0.72, fract(cellUV.x.mul(18.0))).mul(0.30))); // balusters
+      const slab = filteredPulse(cellUV.y, 0.13, 0.185, fw.y);
+      railCol = mix(railCol, cBalc.mul(0.78), slab);
+      const topRail = filteredPulse(cellUV.y, 0.405, 0.44, fw.y);
+      railCol = mix(railCol, cBalc.mul(1.13), topRail);
+      col = mix(col, railCol, railBody.mul(clamp(inWindow.mul(1.6), 0.0, 1.0)));
+    }
+
+    // --- Ground floor signage band: one coloured panel per shop bay with
+    // abstract glyph bars, painted over the top of the storefront. Bays
+    // past the style's signRate keep a plain fascia board instead (the
+    // plainer types sign only some of their shops).
+    const sign = signColorsFor(cellId, boxSeed);
+    const signBayHash = hash2D(vec2(cellId.x.mul(3.1), boxSeed.mul(7.7)));
+    const panelOn = step(signBayHash, float(signRate));
+    const bandMask = filteredPulse(cellUV.x, 0.035, 0.965, fw.x)
+      .mul(filteredPulse(cellUV.y, 0.775, 0.995, fw.y))
+      .mul(isGroundFloor).mul(back.oneMinus());
+    const panelMask = bandMask.mul(panelOn);
+    col = mix(col, cTrim.mul(0.92), bandMask.mul(panelOn.oneMinus()));
+    const glyph = signGlyphMask(cellUV, cellId, boxSeed, fw);
+    const signCol = mix(sign.bg, sign.ink, glyph.mul(panelMask));
+    col = mix(col, signCol, panelMask);
+    // Thin darker outline under the panel so it reads as a mounted board.
+    const signUnder = filteredPulse(cellUV.x, 0.035, 0.965, fw.x)
+      .mul(filteredPulse(cellUV.y, 0.755, 0.775, fw.y))
+      .mul(isGroundFloor).mul(back.oneMinus());
+    col = mix(col, col.mul(0.55), signUnder.mul(0.6));
+
+    // --- Entrance doors (entry walls): dark painted metal + stone step.
+    const doorFrame = cell.door.mul(filteredPulse(cellUV.x, 0.335, 0.665, fw.x)).mul(filteredPulse(cellUV.y, 0.0, 0.83, fw.y));
+    const doorMask = cell.door.mul(filteredPulse(cellUV.x, 0.36, 0.64, fw.x)).mul(filteredPulse(cellUV.y, 0.02, 0.80, fw.y));
+    const cDoor = mix(
+      mix(color(0x24382f), color(0x333a40), step(0.4, fract(boxSeed.mul(1.71)))),
+      color(0x4c2018),
+      step(0.75, fract(boxSeed.mul(2.93)))
+    );
+    col = mix(col, cTrim.mul(0.72), doorFrame);
+    col = mix(col, cDoor, doorMask);
+    const doorGlass = doorMask.mul(filteredPulse(cellUV.y, 0.52, 0.76, fw.y)).mul(filteredPulse(cellUV.x, 0.40, 0.60, fw.x));
+    col = mix(col, cGlass.mul(1.25).add(cWarmWindow.mul(0.05)), doorGlass);
+
+    // --- Flat roof: pale waterproofing concrete with patch stains.
+    const roofNoise = noise2D(vec2(uCoord.mul(0.4), vCoord.mul(0.4)));
+    const roofCol = cRoof.mul(float(0.92).add(roofNoise.mul(0.14)));
+    col = mix(col, roofCol, cell.isRoof);
+
+    return col.mul(canyonSkyAONode());
+  })();
+
+  mat.roughnessNode = Fn(() => {
+    const cell = facadeCell(uWindowWidth, uFloorHeight, boxLocal, cornerPier);
+    const cellUV = cell.cellUV;
+    const effHalfX = mix(float(0.5).sub(uRatioX.mul(0.5)), float(0.11), cell.isGroundFloor);
+    const effHalfY = mix(float(0.5).sub(uRatioY.mul(0.5)), float(0.10), cell.isGroundFloor);
+    const inWindow = filteredPulse(cellUV.x, effHalfX, float(1.0).sub(effHalfX), cell.fw.x)
+      .mul(filteredPulse(cellUV.y, float(0.5).sub(effHalfY), float(0.5).add(effHalfY), cell.fw.y))
+      .mul(cell.solid.oneMinus());
+    const signBayHashR = hash2D(vec2(cell.cellId.x.mul(3.1), cell.boxSeed.mul(7.7)));
+    const panelMask = filteredPulse(cellUV.x, 0.035, 0.965, cell.fw.x)
+      .mul(filteredPulse(cellUV.y, 0.775, 0.995, cell.fw.y))
+      .mul(cell.isGroundFloor).mul(cell.back.oneMinus())
+      .mul(step(signBayHashR, float(signRate)));
+    let rough = mix(float(wallRoughness), float(0.82), cell.back); // cladding vs plaster
+    rough = mix(rough, float(0.92), cell.isRoof);
+    rough = mix(rough, float(0.16), inWindow);
+    rough = mix(rough, float(0.45), panelMask);
+    return rough;
+  })();
+
+  mat.normalNode = Fn(() => {
+    const cell = facadeCell(uWindowWidth, uFloorHeight, boxLocal, cornerPier);
+    const uCoord = cell.uCoord;
+    const vCoord = cell.vCoord;
+    const cellUV = cell.cellUV;
+    const cellId = cell.cellId;
+    const fw = cell.fw;
+    const fwSum = fw.x.add(fw.y);
+    const detailFade = float(1.0).sub(smoothstep(1.2, 3.6, fwSum));
+
+    const tileFade = float(1.0).sub(smoothstep(0.05, 0.55, fwidth(uCoord).add(fwidth(vCoord))));
+    const groutH = max(gridLine(uCoord, tileModule, 0.012), gridLine(vCoord, tileModule, 0.012)).mul(tileFade).mul(cell.back.oneMinus()).mul(float(1.0 - pebble));
+
+    const effHalfX = mix(float(0.5).sub(uRatioX.mul(0.5)), float(0.11), cell.isGroundFloor);
+    const effHalfY = mix(float(0.5).sub(uRatioY.mul(0.5)), float(0.10), cell.isGroundFloor);
+    const winBottom = float(0.5).sub(effHalfY);
+    const winTop = float(0.5).add(effHalfY);
+    const sashInX = filteredPulse(cellUV.x, effHalfX.add(0.035), float(1.0).sub(effHalfX).sub(0.035), fw.x);
+    const sashInY = filteredPulse(cellUV.y, winBottom.add(0.035), winTop.sub(0.035), fw.y);
+    const sashMask = sashInX.mul(sashInY).mul(cell.solid.oneMinus());
+    const sillLine = lineAA(abs(cellUV.y.sub(winBottom)), 0.012).mul(cell.solid.oneMinus());
+
+    const acRand = hash2D(cellId.add(vec2(31.7, 17.3)).add(cell.boxSeed));
+    const hasAC = step(acThreshold, acRand).mul(cell.isGroundFloor.oneMinus());
+    const inACBox = filteredPulse(cellUV.x, 0.31, 0.69, fw.x)
+      .mul(filteredPulse(cellUV.y, winBottom, winBottom.add(0.22), fw.y))
+      .mul(hasAC).mul(cell.solid.oneMinus());
+    const louverStripe = sin(cellUV.y.mul(220.0)).mul(0.5).add(0.5);
+
+    // Balcony rim catches a small relief step so the painted balcony reads
+    // in raking light (arc edge for style 0, rail + slab lines for style 1).
+    const balcHash = hash2D(vec2(floor(cellId.x), cell.boxSeed.mul(7.31)));
+    const hasBalc = step(balconyThreshold, balcHash).mul(cell.back.oneMinus()).mul(cell.isGroundFloor.oneMinus());
+    let balcRim = float(0.0);
+    if (balconyStyle === 0) {
+      const bDist = length(vec2(cellUV.x.sub(0.5).div(0.38), cellUV.y.sub(0.30).div(0.135)));
+      balcRim = lineAA(abs(bDist.sub(1.0)), 0.10).mul(step(cellUV.y, 0.435)).mul(hasBalc).mul(cell.solid.oneMinus());
+    } else if (balconyStyle === 1) {
+      const railLines = max(lineAA(abs(cellUV.y.sub(0.44)), 0.012), lineAA(abs(cellUV.y.sub(0.13)), 0.012));
+      balcRim = railLines.mul(filteredPulse(cellUV.x, 0.10, 0.90, fw.x)).mul(hasBalc).mul(cell.solid.oneMinus());
+    }
+
+    let hgt = groutH.mul(-0.0022);
+    hgt = hgt.add(sillLine.mul(0.006));
+    hgt = hgt.add(louverStripe.mul(0.004).mul(inACBox));
+    hgt = hgt.add(balcRim.mul(0.008));
+    hgt = hgt.add(cell.coping.mul(-0.004));
+    hgt = hgt.mul(sashMask.add(inACBox).add(balcRim).add(groutH).add(cell.coping).clamp(0.0, 1.0).max(detailFade.mul(0.35)));
+    return bumpNormal(hgt);
+  })();
+
+  mat.emissiveNode = Fn(() => {
+    const cell = facadeCell(uWindowWidth, uFloorHeight, boxLocal, cornerPier);
+    const uCoord = cell.uCoord;
+    const vCoord = cell.vCoord;
+    const cellUV = cell.cellUV;
+    const cellId = cell.cellId;
+    const fw = cell.fw;
+    const boxSeed = cell.boxSeed;
+    const isGroundFloor = cell.isGroundFloor;
+
+    const effHalfX = mix(float(0.5).sub(uRatioX.mul(0.5)), float(0.11), isGroundFloor);
+    const effHalfY = mix(float(0.5).sub(uRatioY.mul(0.5)), float(0.10), isGroundFloor);
+    const inX = filteredPulse(cellUV.x, effHalfX, float(1.0).sub(effHalfX), fw.x);
+    const inY = filteredPulse(cellUV.y, float(0.5).sub(effHalfY), float(0.5).add(effHalfY), fw.y);
+    const inWindow = inX.mul(inY).mul(cell.solid.oneMinus());
+    const sillH = float(0.5).sub(effHalfY);
+    const winTop = float(0.5).add(effHalfY);
+    const winUV = vec2(
+      cellUV.x.sub(effHalfX).div(float(1.0).sub(effHalfX.mul(2.0))),
+      cellUV.y.sub(sillH).div(winTop.sub(sillH))
+    );
+    const aptRoom = evaluateApartmentInterior(uCoord, vCoord, winUV, cellId, cell.bayWidth, uFloorHeight, uBoxSeed, uWarmth, uLitProb, fw);
+    const winEmit = aptRoom.rgb.mul(aptRoom.a).mul(inWindow).mul(cityUniforms.uInteriorGlow).mul(isGroundFloor.oneMinus());
+
+    const bulbCol = mix(color(0xff9a3c), color(0xffe8b0), hash2D(cellId.add(boxSeed.mul(5.0))));
+    const shopGlow = bulbCol.mul(inWindow).mul(isGroundFloor).mul(cityUniforms.uInteriorGlow).mul(0.55);
+
+    // Sign panels glow softly at night; glyph bars stay darker than the
+    // panel, like unlit lettering on a lit board.
+    const sign = signColorsFor(cellId, boxSeed);
+    const signBayHashE = hash2D(vec2(cellId.x.mul(3.1), boxSeed.mul(7.7)));
+    const panelMask = filteredPulse(cellUV.x, 0.035, 0.965, fw.x)
+      .mul(filteredPulse(cellUV.y, 0.775, 0.995, fw.y))
+      .mul(isGroundFloor).mul(cell.back.oneMinus())
+      .mul(step(signBayHashE, float(signRate)));
+    const glyph = signGlyphMask(cellUV, cellId, boxSeed, fw);
+    const signEmit = sign.bg.mul(panelMask).mul(cityUniforms.uInteriorGlow)
+      .mul(float(0.42).sub(glyph.mul(0.22)));
+
+    return winEmit.add(shopGlow).add(signEmit);
+  })();
+
+  _tileShophouseCache.set(cacheKey, mat);
   return mat;
 }
 
@@ -3013,6 +3470,7 @@ export {
   WALL_KINDS,
   createCurtainWallMaterial,
   createPreWarBuildingMaterial,
+  createTileShophouseMaterial,
   createFacadeBoxes,
   createChryslerCrownMaterial,
   createCarPaintMaterial,
