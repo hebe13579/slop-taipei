@@ -225,6 +225,43 @@ export function nearestGraphNode(x, z) {
 const LANDMARK_LIST = Object.entries(TAIPEI_GEO.landmarks).map(([key, lm]) => ({ key, ...lm }));
 const NON_CARRIAGEWAY = new Set(['footway', 'path', 'steps', 'pedestrian', 'cycleway', 'corridor', 'elevator', 'crossing', 'platform', 'traffic_island']);
 
+/** Nearest landmark within 100 m of (x, z), or null. */
+function nearestTaipeiLandmark(x, z) {
+  let nearestLm = null;
+  for (const lm of LANDMARK_LIST) {
+    const d = Math.hypot(x - lm.x, z - lm.z);
+    if (d < 100 && (!nearestLm || d < nearestLm.d)) nearestLm = { ...lm, d };
+  }
+  return nearestLm;
+}
+
+// The roads half of the location label, computed once for both the string
+// label (getTaipeiLocationLabel) and the parts API (getTaipeiLocationParts)
+// so the two can never diverge: `current` is the road the point is ON —
+// its merged roadbed footprint contains the point (see currentTaipeiRoad) —
+// and `cross` is the nearest differently-named cross street. Both are null
+// at off-road points (park, block interior, landmark site), where `label`
+// falls back to the nearest-roads pair. The old nearest-pair ordering
+// flipped to the cross street whenever its raw centreline passed closer —
+// e.g. crossing a junction on a wide merged boulevard, whose own
+// centrelines run metres to either side.
+function taipeiRoadsAt(x, z) {
+  const near = nearestTaipeiRoads(x, z, 160).filter((r) => !NON_CARRIAGEWAY.has(r.highway));
+  const cur = currentTaipeiRoad(x, z);
+  if (cur) {
+    const cross = near.find((r) => r.name !== cur.name && r.horizontal !== cur.horizontal)
+      || near.find((r) => r.name !== cur.name);
+    return {
+      current: cur.name,
+      cross: cross ? cross.name : null,
+      label: cross ? `${cur.name} & ${cross.name}` : cur.name,
+    };
+  }
+  const a = near[0];
+  const b = a && near.find((r) => r.name !== a.name && r.horizontal !== a.horizontal);
+  return { current: null, cross: null, label: a && b ? `${a.name} & ${b.name}` : a ? a.name : '' };
+}
+
 /**
  * Location label — Taipei analogue of city-config's getLocationLabel.
  * String shape is the one main.js's renderLocation renders: an optional
@@ -234,35 +271,27 @@ const NON_CARRIAGEWAY = new Set(['footway', 'path', 'steps', 'pedestrian', 'cycl
  * cross street. Off-road points keep the nearest-roads pair.
  */
 export function getTaipeiLocationLabel(x, z) {
-  const roadsLabel = () => {
-    const near = nearestTaipeiRoads(x, z, 160).filter((r) => !NON_CARRIAGEWAY.has(r.highway));
-    // Lead with the road the player is actually ON (its roadbed footprint
-    // contains the point), then the nearest differently-named cross street.
-    // The old nearest-pair ordering flipped to the cross street whenever its
-    // raw centreline passed closer — e.g. crossing a junction on a wide
-    // merged boulevard, whose own centrelines run metres to either side.
-    const cur = currentTaipeiRoad(x, z);
-    if (cur) {
-      const cross = near.find((r) => r.name !== cur.name && r.horizontal !== cur.horizontal)
-        || near.find((r) => r.name !== cur.name);
-      return cross ? `${cur.name} & ${cross.name}` : cur.name;
-    }
-    // Off-road (park, block interior, landmark site): nearest pair, as before.
-    const a = near[0];
-    const b = a && near.find((r) => r.name !== a.name && r.horizontal !== a.horizontal);
-    if (a && b) return `${a.name} & ${b.name}`;
-    return a ? a.name : '';
-  };
-  let nearestLm = null;
-  for (const lm of LANDMARK_LIST) {
-    const d = Math.hypot(x - lm.x, z - lm.z);
-    if (d < 100 && (!nearestLm || d < nearestLm.d)) nearestLm = { ...lm, d };
-  }
+  const roads = taipeiRoadsAt(x, z);
+  const nearestLm = nearestTaipeiLandmark(x, z);
   if (nearestLm) {
-    const roads = roadsLabel();
-    return `${nearestLm.key}${roads ? ` · ${roads}` : ''}`;
+    return `${nearestLm.key}${roads.label ? ` · ${roads.label}` : ''}`;
   }
-  return roadsLabel() || taipeiDistrictAt(x, z);
+  return roads.label || taipeiDistrictAt(x, z);
+}
+
+/**
+ * Structured form of getTaipeiLocationLabel, for HUD rendering that needs
+ * to know WHICH named road is the one being driven on: { place, current,
+ * cross }. `place` is the landmark key when within 100 m of one, else
+ * null. `current` is non-null ONLY when a roadbed footprint contains the
+ * point; off-road points report current/cross null even though the string
+ * label still names the nearest roads — neither of those is the road you
+ * are on, so the HUD must not tag them as such.
+ */
+export function getTaipeiLocationParts(x, z) {
+  const roads = taipeiRoadsAt(x, z);
+  const nearestLm = nearestTaipeiLandmark(x, z);
+  return { place: nearestLm ? nearestLm.key : null, current: roads.current, cross: roads.cross };
 }
 
 /**

@@ -7,6 +7,12 @@
 // getLocationLabel, districtAt, nearestRoads, nearestGraphNode,
 // streetProfile, loadBoot() }.
 //
+// Optional member: getLocationParts(x, z) → { place, current, cross },
+// the location label in structured form. `current` is the road the
+// player is ON (null at off-road points); main.js uses it to tag the
+// current road's HUD sign （正行駛）. Tiles without it get the plain
+// string-label sign, exactly as before.
+//
 // Adding a tile is: (1) generate its geodata + adapter, (2) write one
 // <tile>-tile.js definition, (3) add ONE entry below. main.js and
 // city-config.js do not change. (Beitou is the planned second Taipei tile —

@@ -2,6 +2,7 @@ import { TAIPEI_GEO } from './taipei-geodata.js';
 import {
   TAIPEI_GEO_ADAPTED,
   getTaipeiLocationLabel,
+  getTaipeiLocationParts,
   taipeiDistrictAt,
   nearestTaipeiRoads,
   nearestGraphNode,
@@ -64,6 +65,7 @@ export const TAIPEI_TILE = {
   })),
   roadNames: [...new Set(TAIPEI_GEO.roads.map((r) => r.name || r.nameEn).filter(Boolean))],
   getLocationLabel: getTaipeiLocationLabel,
+  getLocationParts: getTaipeiLocationParts,
   districtAt: taipeiDistrictAt,
   nearestRoads: nearestTaipeiRoads,
   nearestGraphNode,
