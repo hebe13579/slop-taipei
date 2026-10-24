@@ -6,7 +6,15 @@
 // tools/taipei/GEO_CONTRACT.md). This module subdivides those bboxes
 // into plausible lots and plans one building box per lot. The planner
 // (planTaipeiBuildings) is pure data — no three.js — so tests can pin
-// its invariants; createTaipeiBuildings turns a plan into meshes.
+// its invariants. RENDERING is not done here: taipeiCityBlocksOptions
+// adapts a plan into the lot list upstream's own building system
+// (js/buildings.js buildCityBlocks) consumes, so Taipei's buildings are
+// built by the exact machinery Manhattan renders with — facade boxes,
+// TSL facade materials, cornices, rooftop gear, quadtree detail
+// streaming. (The first Taipei increment rendered the plan itself with
+// a custom InstancedMesh + setColorAt material; those buildings never
+// appeared on mobile WebGPU — issue #11. Only the Taipei 101 massing,
+// a plain Mesh group, is still built here.)
 //
 // Placement rules (all deterministic — a hash of block/lot index, never
 // Math.random, so plans are byte-stable across runs and machines):
@@ -42,10 +50,12 @@
 // the tile's spawn points (at the landmark point, south of it) stay in
 // the open. Detailed facade treatment is later scope.
 //
-// Buildings are visual only in this increment: no colliders, no
-// interiors, no facade/window texture, no shop signs (the localization
+// Buildings are visual only: no colliders (the options pass
+// colliders: false), no interiors, no shop signs (the localization
 // increment owns signage). Lots are axis-aligned to the tile frame, not
-// rotated to each street's angle.
+// rotated to each street's angle. The plan's per-lot colours are no
+// longer used for rendering — upstream's facade materials carry their
+// own palettes — but stay in the plan as data.
 
 const PALETTE = [
   [0.62, 0.59, 0.55], // concrete grey
@@ -248,71 +258,73 @@ export function planTaipeiBuildings(geodata) {
   return { lots, tower, stats };
 }
 
-// Build the render meshes for a plan. `THREE` is passed in (the boot
-// module owns the three import) so the planner above stays three-free
-// and unit-testable in plain node.
-export function createTaipeiBuildings(THREE, geodata) {
-  const plan = planTaipeiBuildings(geodata);
-  const group = new THREE.Group();
-  group.name = 'TaipeiBuildings';
+// Facade material for a planned lot, as an index into upstream
+// buildings.js's six facade families (0-2 masonry pre-war/brick/
+// brownstone, 3-5 curtain-wall glass). Deterministic from the lot's
+// position, like everything else in the plan: the Xinyi-core towers go
+// glass, boulevard mid-rises mix glass and masonry, residential
+// interiors stay masonry.
+function facadeMatFor(lot) {
+  const seed = (Math.imul(Math.round(lot.x * 10), 73856093) ^ Math.imul(Math.round(lot.z * 10), 19349663) ^ 0x101) | 0;
+  const r = hash01(seed);
+  if (lot.h >= 40) return [3, 4, 5][Math.floor(r * 3) % 3];
+  if (lot.h >= 22) return r < 0.5 ? [3, 4, 5][Math.floor(r * 6) % 3] : [0, 1][Math.floor((r - 0.5) * 4) % 2];
+  if (lot.h >= 12) return r < 0.1 ? 3 : [0, 1, 2][Math.floor(r * 3) % 3];
+  return [0, 1, 2][Math.floor(r * 3) % 3];
+}
 
-  const boxGeo = new THREE.BoxGeometry(1, 1, 1);
-  boxGeo.translate(0, 0.5, 0); // origin at the lot floor: scale y = height
-  const boxMat = new THREE.MeshStandardNodeMaterial({ color: 0xffffff, roughness: 0.92, metalness: 0.0 });
-  const mesh = new THREE.InstancedMesh(boxGeo, boxMat, plan.lots.length);
-  mesh.name = 'TaipeiBuildingInstances';
-  const m4 = new THREE.Matrix4();
-  const pos = new THREE.Vector3();
-  const quat = new THREE.Quaternion();
-  const scale = new THREE.Vector3();
-  const col = new THREE.Color();
-  plan.lots.forEach((lot, i) => {
-    pos.set(lot.x, 0, lot.z);
-    scale.set(lot.w, lot.h, lot.d);
-    m4.compose(pos, quat, scale);
-    mesh.setMatrixAt(i, m4);
-    col.setRGB(lot.color[0] / 255, lot.color[1] / 255, lot.color[2] / 255);
-    mesh.setColorAt(i, col);
-  });
-  mesh.instanceMatrix.needsUpdate = true;
-  if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
-  mesh.castShadow = true;
-  mesh.receiveShadow = true;
-  // One tile-wide instanced mesh: frustum culling works on the unit box
-  // bounds, not the instances, so leave it always drawn (a single draw
-  // call) rather than risk the whole city vanishing at some angles; the
-  // scene-culling chunker also keys off frustumCulled, and chunking a
-  // single-material city into distance-culled prop cells would pop
-  // whole districts in and out.
-  mesh.frustumCulled = false;
-  group.add(mesh);
+// Adapt a plan into the options upstream's buildCityBlocks (js/
+// buildings.js) understands: one pre-planned lot per building, the
+// tile frame as the streaming bounds, the tile origin as the first
+// stream centre, and no colliders (Taipei buildings stay visual-only,
+// as in the first buildings increment — the controllers pass the flat
+// tile at y=0). Pure data, like the planner.
+export function taipeiCityBlocksOptions(geodata, plan = planTaipeiBuildings(geodata)) {
+  return {
+    lots: plan.lots.map((lot) => ({
+      x0: lot.x - lot.w / 2,
+      x1: lot.x + lot.w / 2,
+      z0: lot.z - lot.d / 2,
+      z1: lot.z + lot.d / 2,
+      h: lot.h,
+      mat: facadeMatFor(lot),
+    })),
+    bounds: { ...geodata.frame.bbox },
+    initial: [0, 0],
+    colliders: false,
+  };
+}
 
-  if (plan.tower) {
-    const t = plan.tower;
-    const towerGroup = new THREE.Group();
-    towerGroup.name = 'Taipei101';
-    const glassMat = new THREE.MeshStandardNodeMaterial({ color: 0x2e4f45, roughness: 0.35, metalness: 0.15 });
-    const podium = new THREE.Mesh(new THREE.BoxGeometry(t.podium.w, t.podium.h, t.podium.d), glassMat);
-    podium.position.set(t.x, t.podium.h / 2, t.z);
-    podium.castShadow = true;
-    podium.receiveShadow = true;
-    towerGroup.add(podium);
-    for (const tier of t.tiers) {
-      // A 4-sided cone frustum rotated 45° = a tapered square tier;
-      // radius is the half-diagonal of the square section.
-      const geo = new THREE.CylinderGeometry(tier.hwTop * Math.SQRT2, tier.hwBottom * Math.SQRT2, tier.h, 4, 1);
-      const m = new THREE.Mesh(geo, glassMat);
-      m.rotation.y = Math.PI / 4;
-      m.position.set(t.x, tier.y0 + tier.h / 2, t.z);
-      m.castShadow = true;
-      m.receiveShadow = true;
-      towerGroup.add(m);
-    }
-    const spire = new THREE.Mesh(new THREE.CylinderGeometry(0.5, 1.4, t.spire.h, 6), glassMat);
-    spire.position.set(t.x, t.spire.y0 + t.spire.h / 2, t.z);
-    spire.castShadow = true;
-    towerGroup.add(spire);
-    group.add(towerGroup);
+// The Taipei 101 massing as plain meshes (podium + eight flared tiers +
+// spire, dark glass-green). `THREE` is passed in (the boot module owns
+// the three import) so the planner above stays three-free and
+// unit-testable in plain node. Returns null when the geodata has no
+// Taipei 101 landmark.
+export function createTaipei101(THREE, plan) {
+  if (!plan.tower) return null;
+  const t = plan.tower;
+  const towerGroup = new THREE.Group();
+  towerGroup.name = 'Taipei101';
+  const glassMat = new THREE.MeshStandardNodeMaterial({ color: 0x2e4f45, roughness: 0.35, metalness: 0.15 });
+  const podium = new THREE.Mesh(new THREE.BoxGeometry(t.podium.w, t.podium.h, t.podium.d), glassMat);
+  podium.position.set(t.x, t.podium.h / 2, t.z);
+  podium.castShadow = true;
+  podium.receiveShadow = true;
+  towerGroup.add(podium);
+  for (const tier of t.tiers) {
+    // A 4-sided cone frustum rotated 45° = a tapered square tier;
+    // radius is the half-diagonal of the square section.
+    const geo = new THREE.CylinderGeometry(tier.hwTop * Math.SQRT2, tier.hwBottom * Math.SQRT2, tier.h, 4, 1);
+    const m = new THREE.Mesh(geo, glassMat);
+    m.rotation.y = Math.PI / 4;
+    m.position.set(t.x, tier.y0 + tier.h / 2, t.z);
+    m.castShadow = true;
+    m.receiveShadow = true;
+    towerGroup.add(m);
   }
-  return { group, plan };
+  const spire = new THREE.Mesh(new THREE.CylinderGeometry(0.5, 1.4, t.spire.h, 6), glassMat);
+  spire.position.set(t.x, t.spire.y0 + t.spire.h / 2, t.z);
+  spire.castShadow = true;
+  towerGroup.add(spire);
+  return towerGroup;
 }
