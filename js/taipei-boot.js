@@ -159,6 +159,8 @@ const mat = (color, roughness = 0.95, extra = {}) => new THREE.MeshStandardNodeM
 // so the controllers get a factory for CPU-posed avatar figures instead.
 // On a real WebGPU renderer the factory stays null and the skinned
 // crowds render exactly as upstream intends.
+// speedScale 2: the user asked for double top speed in Taipei
+// (2026-10-23) — every mode's caps ×2, acceleration/handling unchanged.
 export function controllerOptions(tile, env = {}) {
   const bb = tile.geodata.frame.bbox;
   const s = tile.spawn;
@@ -166,6 +168,7 @@ export function controllerOptions(tile, env = {}) {
     bounds: { minX: bb.minX, maxX: bb.maxX, minZ: bb.minZ, maxZ: bb.maxZ },
     clampToShore: false,
     groundHeight: () => 0,
+    speedScale: 2,
     avatarFigureFactory: env.webglFallback ? (appearance) => new AvatarFigure(appearance) : null,
     spawnByMode: {
       person: { x: s.x - 15.2, z: s.z + 12 },
