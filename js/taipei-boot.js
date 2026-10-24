@@ -6,7 +6,7 @@ import { AvatarFigure } from './avatar-figure.js';
 import { buildPaintedBands } from './taipei-painted.js';
 import { SURFACE_TONES, surfaceClass, buildMedianStrips, isPlazaPark, isPodiumBlock, podiumCentresOf } from './taipei-surfaces.js';
 import { buildRoadMarkings, detectJunctions } from './taipei-markings.js';
-import { planJunctionCaps, ringPoints, CAP_Y } from './taipei-junctions.js';
+import { planJunctionCaps, planRoundabouts, ringPoints, CAP_Y, ISLAND_Y } from './taipei-junctions.js';
 import { unionExclusionRects, clipRectToBoxes } from './taipei-union.js';
 import { createCurtainWallMaterial, createPreWarBuildingMaterial } from './tsl-materials.js';
 
@@ -35,7 +35,8 @@ import { createCurtainWallMaterial, createPreWarBuildingMaterial } from './tsl-m
 // 0.02, podium blocks 0.021, water 0.03, parks 0.04, plaza paving 0.041,
 // street-section bands 0.045, non-carriageway paths 0.05, carriageways
 // 0.06, junction caps 0.061, boulevard median strips 0.062,
-// painted-walkway green band 0.065 and its white edge lines 0.066,
+// roundabout islands 0.0635, painted-walkway green band 0.065
+// and its white edge lines 0.066,
 // road markings 0.068), not terrain elevation:
 // the tile is the flat basin floor. Carriageways render in per-class
 // surface tones and merged boulevards get a median strip (issue #29,
@@ -469,26 +470,40 @@ export function buildTaipeiGround(scene, tile, deps = {}) {
   addLayer(ribbonsGeometry(byClass.arterial, 0.06), mat(SURFACE_TONES.arterial, 0.9), 'TaipeiRoads');
   addLayer(ribbonsGeometry(byClass.collector, 0.06), mat(SURFACE_TONES.collector, 0.9), 'TaipeiRoadsCollector');
   addLayer(ribbonsGeometry(byClass.lane, 0.06), mat(SURFACE_TONES.lane, 0.9), 'TaipeiRoadsLane');
-  // Junction caps (issue #66, js/taipei-junctions.js): one paved
-  // polygon per detected junction — the hull of its arms' cross-
-  // sections — filling the junction box the butt-ended arm ribbons
-  // leave bare or fan-overlapped, in the widest arm's surface tone
-  // at 0.061. The caps double as the painted layers' occluder:
-  // medians, painted bands and lane dashes clip against them
-  // below, so no paint crosses a junction core. (Crosswalks and
-  // stop lines are junction furniture and stay — at short-arm
-  // junctions they now land on cap asphalt instead of bare ground;
-  // see js/taipei-junctions.js.)
+  // Junction caps (issues #66/#75, js/taipei-junctions.js): one
+  // paved polygon per detected junction, in the widest arm's
+  // surface tone at 0.061 — a plain junction-BOX cap at major
+  // junctions (arterial/deck arms), the #66 fitted hull at minor
+  // ones — filling the junction box the butt-ended arm ribbons
+  // leave bare or fan-overlapped. Roundabouts are handcrafted
+  // instead (issue #75): a plain asphalt disc + a defined island
+  // at 0.0635 (planted, or plaza paving at 北門）; junctions a
+  // site claims get no cap. The caps + discs double as the
+  // painted layers' occluder for medians and painted bands (lane
+  // dashes clip against caps only, so the rings keep their lane
+  // lines), so no paint crosses a junction core. (Crosswalks and
+  // stop lines are junction furniture and stay — at major
+  // junctions the box reach puts them ON the cap's asphalt; see
+  // js/taipei-junctions.js.)
   // Junctions are detected ONCE here and shared with the markings
   // builder (which used to detect its own copy).
   const junctions = detectJunctions(carriageways);
-  const caps = planJunctionCaps(carriageways, junctions);
-  const capPolys = caps.map((c) => ringPoints(c.ring));
+  const roundabouts = planRoundabouts(carriageways, junctions);
+  const caps = planJunctionCaps(carriageways, junctions, roundabouts);
+  const capPolys = [...caps, ...roundabouts.flatMap((s) => [s.disc, ...s.aprons])].map((c) => ringPoints(c.ring));
   const capsByClass = { deck: [], arterial: [], collector: [], lane: [] };
   for (const c of caps) capsByClass[c.cls].push(c.ring);
+  for (const s of roundabouts) {
+    capsByClass[s.disc.cls].push(s.disc.ring);
+    for (const ap of s.aprons) capsByClass[s.disc.cls].push(ap.ring);
+  }
   for (const cls of Object.keys(capsByClass))
     if (capsByClass[cls].length) addLayer(flatPolygonGeometry(capsByClass[cls], CAP_Y), mat(SURFACE_TONES[cls], 0.9), `TaipeiJunctionCaps-${cls}`);
-  console.info(`[taipei-junctions] ${caps.length} junction caps over ${junctions.length} detected junctions (${caps.reduce((s, c) => s + c.area, 0).toLocaleString('en-US')} m² of junction box paved)`);
+  const islandsByKind = { planted: [], plaza: [] };
+  for (const s of roundabouts) islandsByKind[s.island.kind].push(s.island.ring);
+  if (islandsByKind.planted.length) addLayer(flatPolygonGeometry(islandsByKind.planted, ISLAND_Y), mat(SURFACE_TONES.park, 0.9), 'TaipeiRoundaboutIslands-planted');
+  if (islandsByKind.plaza.length) addLayer(flatPolygonGeometry(islandsByKind.plaza, ISLAND_Y), mat(SURFACE_TONES.plaza, 0.9), 'TaipeiRoundaboutIslands-plaza');
+  console.info(`[taipei-junctions] ${caps.length} junction caps over ${junctions.length} detected junctions (${caps.reduce((s, c) => s + c.area, 0).toLocaleString('en-US')} m² of junction box paved); ${caps.filter((c) => c.kind === 'box').length} box / ${caps.filter((c) => c.kind === 'fitted').length} fitted; roundabouts handcrafted: ${roundabouts.map((s) => `${s.id} disc r=${s.discR}${s.islandR ? ` island r=${s.islandR}` : ' capsule island'} (${s.claimedJunctions.length} junctions claimed${s.aprons.length ? `, ${s.aprons.length} entry aprons` : ''})`).join(', ')}`);
   // Boulevard medians (issue #29): a strip along the centreline of
   // each merged bed wide enough to hold one — planted on the grand
   // ground boulevards, plain concrete elsewhere; underpass/tunnel
