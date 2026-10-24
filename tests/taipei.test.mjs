@@ -11,7 +11,7 @@ import {
 } from '../js/taipei-adapter.js';
 import { TAIPEI_TILE } from '../js/taipei-tile.js';
 import { TILE_REGISTRY, tileIdFromSearch, loadSelectedTile } from '../js/tile-registry.js';
-import { planTaipeiBuildings, pointInRing } from '../js/taipei-buildings.js';
+import { planTaipeiBuildings, taipeiCityBlocksOptions, pointInRing } from '../js/taipei-buildings.js';
 
 // M1 foundation: the Taipei tile's adapter, road graph, teleports and tile
 // registry. Numbers printed via t.diagnostic are the actual generated values.
@@ -309,4 +309,35 @@ test('buildings plan: deterministic, excludes parks/water/101 site, tower presen
   assert.equal(plan.tower.tiers.length, 8, 'eight bamboo-joint tiers');
   assert.equal(plan.tower.totalHeight, 508, 'true overall height');
   assert.ok(plan.tower.x > site.minX && plan.tower.x < site.maxX && plan.tower.z > site.minZ && plan.tower.z < site.maxZ, 'tower stands on its landmark site');
+});
+
+// Issue #11: the plan is rendered by upstream's buildCityBlocks, fed
+// through taipeiCityBlocksOptions. The adapter must be a faithful,
+// deterministic transcription of the plan: one upstream lot per planned
+// lot, same footprint and height, a valid facade material index, the
+// tile frame as bounds, and colliders off (visual-only parity).
+test('buildings options: plan faithfully adapted for the upstream building system', (t) => {
+  const plan = planTaipeiBuildings(TAIPEI_GEO);
+  const opts = taipeiCityBlocksOptions(TAIPEI_GEO, plan);
+  const again = taipeiCityBlocksOptions(TAIPEI_GEO, plan);
+  assert.deepEqual(opts, again, 'options deterministic across calls');
+  assert.equal(opts.lots.length, plan.lots.length, 'one upstream lot per planned lot');
+  assert.equal(opts.colliders, false, 'tile buildings stay visual-only');
+  assert.deepEqual(opts.bounds, TAIPEI_GEO.frame.bbox, 'streaming bounds are the tile frame');
+  assert.deepEqual(opts.initial, [0, 0], 'first detail stream centres on the tile origin');
+  t.diagnostic(`upstream lots: ${opts.lots.length}, mats ${JSON.stringify(opts.lots.reduce((m, l) => { m[l.mat] = (m[l.mat] || 0) + 1; return m; }, {}))}`);
+  opts.lots.forEach((l, i) => {
+    const p = plan.lots[i];
+    assert.ok(l.x0 < l.x1 && l.z0 < l.z1, 'lot rect well-formed');
+    assert.ok(Math.abs((l.x0 + l.x1) / 2 - p.x) < 0.051 && Math.abs((l.z0 + l.z1) / 2 - p.z) < 0.051, 'lot centre matches the plan');
+    assert.ok(Math.abs((l.x1 - l.x0) - p.w) < 0.051 && Math.abs((l.z1 - l.z0) - p.d) < 0.051, 'lot footprint matches the plan');
+    assert.equal(l.h, p.h, 'lot height matches the plan');
+    assert.ok(Number.isInteger(l.mat) && l.mat >= 0 && l.mat <= 5, `facade material index ${l.mat} within upstream's six families`);
+  });
+  // Material zoning: the tall Xinyi core goes curtain glass (3-5), the
+  // low residential interiors stay masonry (0-2).
+  const core = opts.lots.filter((l) => l.h >= 40);
+  assert.ok(core.length > 0 && core.every((l) => l.mat >= 3), 'tall core lots are glass');
+  const low = opts.lots.filter((l) => l.h < 12);
+  assert.ok(low.length > 0 && low.every((l) => l.mat <= 2), 'low residential lots are masonry');
 });
