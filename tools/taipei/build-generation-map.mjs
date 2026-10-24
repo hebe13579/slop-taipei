@@ -58,6 +58,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { pedestrianLayout } from './pedestrian-layout.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const DATA = process.env.TAIPEI_DATA || path.join(HERE, 'data');
@@ -120,8 +121,9 @@ const BBOX = (() => {
   return { minX: q(x0), maxX: q(x1), minZ: q(z0), maxZ: q(z1) };
 })();
 
-// ---- width / layout inference (copied from build-taipei-geodata.mjs so the
-//      two builders can never disagree about a way's width or layout) ----
+// ---- width / layout inference (width table copied from
+//      build-taipei-geodata.mjs; the layout classifier is imported from
+//      ./pedestrian-layout.mjs so the two builders can never disagree) ----
 const WIDTH_BY_CLASS = { motorway: 22, motorway_link: 10, trunk: 22, trunk_link: 10, primary: 18, primary_link: 9, secondary: 14, secondary_link: 8, tertiary: 11, tertiary_link: 7, unclassified: 8, residential: 8, living_street: 6, service: 5, pedestrian: 3, footway: 3, path: 3, cycleway: 3, steps: 2, track: 4, road: 8, construction: 6, busway: 7, corridor: 2, elevator: 2, platform: 3, crossing: 3, traffic_island: 2 };
 function roadWidth(tags) {
   const w = parseFloat(tags.width || '');
@@ -133,20 +135,11 @@ function roadWidth(tags) {
   if (name.includes('巷')) return 6;
   return WIDTH_BY_CLASS[tags.highway] ?? 6;
 }
-// A deck (layer >= 1, or any bridge tag) is not a street: it carries no
-// pedestrian layout at all — no painted walkway stripes, no sidewalk
-// band. 'shared' is the enum's no-geometry value (issue #22).
+// A deck (layer >= 1, or any bridge tag) is not a street: its
+// pedestrianLayout is 'shared' via the guard in ./pedestrian-layout.mjs
+// (issue #22). isElevatedTags is used directly below for the
+// elevated-link rendering policy.
 const isElevatedTags = (tags) => parseInt(tags.layer || '0', 10) >= 1 || (!!tags.bridge && tags.bridge !== 'no');
-function pedestrianLayout(tags, width) {
-  if (isElevatedTags(tags)) return 'shared';
-  if (tags.arcade || tags.covered === 'colonnade') return 'arcade';
-  const sw = [tags.sidewalk, tags['sidewalk:both'], tags['sidewalk:left'], tags['sidewalk:right']];
-  if (sw.some((v) => v && !['no', 'none'].includes(v))) return 'sidewalk';
-  const name = tags.name || '';
-  if (tags.service === 'alley' || name.includes('弄') || width <= 4.5) return 'shared';
-  if (name.includes('巷') || width < 8) return 'painted';
-  return 'sidewalk';
-}
 const NON_CARRIAGEWAY = new Set(['footway', 'path', 'steps', 'pedestrian', 'cycleway', 'corridor', 'elevator', 'crossing', 'platform', 'traffic_island']);
 
 // ---- polyline helpers ----
@@ -539,9 +532,17 @@ for (const g of groups) {
   }
   const widest = g.members.reduce((a, m) => (m.seg.width > a.seg.width ? m : a), g.members[0]);
   const highway = g.members.map((m) => m.seg.highway).sort((a, b) => (CLASS_RANK[a] ?? 99) - (CLASS_RANK[b] ?? 99))[0];
+  // A merged bed inherits the widest constituent carriageway's layout —
+  // except painted: §c.3's band is a per-carriageway-scale treatment for
+  // 8–12 m streets, and the merged span (boulevards, elevated expressways,
+  // bridges) is not a carriageway. A >12 m span whose widest constituent
+  // happens to be 8–12 m takes the boulevard layout instead (issue #16).
+  const mergedLayout = widest.seg.pedestrianLayout === 'painted' && geo.width > 12
+    ? 'sidewalk'
+    : widest.seg.pedestrianLayout;
   pushRoadbed({
     name: g.primary.name, highway, centreline: flatQ(geo.centreline), width: geo.width,
-    pedestrianLayout: widest.seg.pedestrianLayout,
+    pedestrianLayout: mergedLayout,
     sourceWayIds: g.members.map((m) => m.seg.wayId),
     merged: true, constituentWidths: g.members.map((m) => m.seg.width),
   });
