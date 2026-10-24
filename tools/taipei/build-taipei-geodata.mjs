@@ -13,6 +13,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { pedestrianLayout } from './pedestrian-layout.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const DATA = process.env.TAIPEI_DATA || path.join(HERE, 'data');
@@ -87,25 +88,9 @@ function roadWidth(tags) {
   if (name.includes('巷')) return 6;
   return WIDTH_BY_CLASS[tags.highway] ?? 6;
 }
-// Per-road pedestrian layout for Taiwan streets (NOT the upstream uniform
-// 4.6 m sidewalk assumption): big roads get formal sidewalks, 巷 lanes get a
-// green painted walkway (標線型人行道) or shared edge, 弄 alleys are fully
-// shared, and a colonnade-covered way is a 騎樓 arcade. An explicit OSM
-// sidewalk tag beats the class/width inference; sidewalk=no falls through.
-// A deck (layer >= 1, or any bridge tag) is not a street: it carries no
-// pedestrian layout at all — no painted walkway stripes, no sidewalk
-// band. 'shared' is the enum's no-geometry value (issue #22). This copy
-// must stay in sync with build-generation-map.mjs.
-function pedestrianLayout(tags, width) {
-  if (parseInt(tags.layer || '0', 10) >= 1 || (!!tags.bridge && tags.bridge !== 'no')) return 'shared';
-  if (tags.arcade || tags.covered === 'colonnade') return 'arcade';
-  const sw = [tags.sidewalk, tags['sidewalk:both'], tags['sidewalk:left'], tags['sidewalk:right']];
-  if (sw.some((v) => v && !['no', 'none'].includes(v))) return 'sidewalk';
-  const name = tags.name || '';
-  if (tags.service === 'alley' || name.includes('弄') || width <= 4.5) return 'shared';
-  if (name.includes('巷') || width < 8) return 'painted';
-  return 'sidewalk';
-}
+// pedestrianLayout lives in ./pedestrian-layout.mjs, shared with
+// build-generation-map.mjs so the two builders can never disagree.
+
 // Clip a polyline to the tile rect, returning runs (an OSM way can enter/leave
 // the tile several times). Liang-Barsky per segment. Points are records
 // {x, z, nodeId}: nodeId is the OSM node id when the point is an original way
