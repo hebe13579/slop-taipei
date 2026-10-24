@@ -47,6 +47,11 @@ async function initApp() {
   const isTaipei = !!activeTile;
   document.body.dataset.city = tileSelection.id;
   const labelFor = isTaipei ? activeTile.getLocationLabel : getLocationLabel;
+  // Optional tile member (see js/tile-registry.js): the label in
+  // structured form, saying which street is the one being driven on.
+  // Null for NYC and for tiles that do not provide it — the HUD sign
+  // then renders from the string label exactly as before.
+  const labelPartsFor = isTaipei && typeof activeTile.getLocationParts === 'function' ? activeTile.getLocationParts : null;
   // The map is a hand-built NYC atlas (boroughs, Central Park, NYC road
   // classes); in a tile it is stubbed until a tile map is drawn from the
   // tile's own geodata. (Declared here, consumed far below — see the
@@ -494,9 +499,13 @@ async function initApp() {
   const roadNames = new Set(isTaipei ? activeTile.roadNames : ROADS.map((r) => r.name));
   const placeNames = new Set(isTaipei ? activeTile.landmarks.map((l) => l.name) : NYC_LANDMARKS.map((l) => l.name));
   let locationText = '';
-  function renderLocation(label) {
-    if (!elLocation || label === locationText) return;
-    locationText = label;
+  function renderLocation(label, parts = null) {
+    // The memo key includes the driving-on road when the tile reports
+    // one, so the 正行駛 tag appears/disappears with the on-road state
+    // even at spots where the street names themselves do not change.
+    const memoKey = parts && parts.current ? `${label}\u0001${parts.current}` : label;
+    if (!elLocation || memoKey === locationText) return;
+    locationText = memoKey;
     let place = '';
     let streets = label;
     const split = label.indexOf(' · ');
@@ -524,11 +533,24 @@ async function initApp() {
         near.textContent = 'near';
         row.appendChild(near);
       }
+      let signIndex = 0;
       for (const name of streets.split(' & ')) {
         const sign = document.createElement('span');
         sign.className = 'street-sign';
-        sign.textContent = name;
+        // Driving-on tag: when the tile's label parts name the road the
+        // player is ON and it is this first plate, mark the plate so it
+        // cannot be confused with the cross street's.
+        if (signIndex === 0 && parts && parts.current && name === parts.current) {
+          const tag = document.createElement('span');
+          tag.className = 'sign-tag';
+          tag.textContent = '正行駛';
+          sign.appendChild(tag);
+          sign.appendChild(document.createTextNode(name));
+        } else {
+          sign.textContent = name;
+        }
         row.appendChild(sign);
+        signIndex++;
       }
       nodes.push(row);
     }
@@ -846,7 +868,7 @@ async function initApp() {
       if (elAltitude) elAltitude.textContent = altFt.toLocaleString('en-US');
       // The street corner of the player on the follow cameras, of the camera itself on the scenic ones
       const where = cameraSystem.getActivePreset().category === 'follow' ? activeEnt.position : cameraSystem.currentPos;
-      renderLocation(labelFor(where.x, where.z));
+      renderLocation(labelFor(where.x, where.z), labelPartsFor ? labelPartsFor(where.x, where.z) : null);
     }
   });
 }
