@@ -1,0 +1,579 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+  <title>Slop Taipei — Building Gallery (read-only review)</title>
+  <link rel="icon" href="data:," />
+  <meta name="description" content="Read-only gallery of the Slop Taipei building set: the six procedural facade families and the landmark structures around Taipei 101, rendered by the game's own building system." />
+  <link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin />
+  <!-- Same three.js loading path as index.html (dev branch via jsDelivr). -->
+  <script type="importmap">
+    {
+      "imports": {
+        "three": "https://cdn.jsdelivr.net/gh/mrdoob/three.js@dev/build/three.webgpu.js",
+        "three/webgpu": "https://cdn.jsdelivr.net/gh/mrdoob/three.js@dev/build/three.webgpu.js",
+        "three/tsl": "https://cdn.jsdelivr.net/gh/mrdoob/three.js@dev/build/three.tsl.js",
+        "three/addons/": "https://cdn.jsdelivr.net/gh/mrdoob/three.js@dev/examples/jsm/"
+      }
+    }
+  </script>
+  <style>
+    :root {
+      --ink: #eef2f5;
+      --ink-dim: #aeb9c2;
+      --panel: rgba(13, 18, 23, 0.86);
+      --panel-line: rgba(255, 255, 255, 0.14);
+      --accent: #ffd23e;
+      --bad: #ff7a6b;
+    }
+    * { box-sizing: border-box; }
+    html, body { margin: 0; height: 100%; overflow: hidden; background: #0b0f13; }
+    body {
+      font-family: "Inter", system-ui, -apple-system, "Segoe UI", sans-serif;
+      color: var(--ink);
+      -webkit-font-smoothing: antialiased;
+    }
+    #view { position: fixed; inset: 0; }
+    #view canvas { display: block; }
+
+    .panel {
+      background: var(--panel);
+      border: 1px solid var(--panel-line);
+      border-radius: 14px;
+      backdrop-filter: blur(10px);
+      box-shadow: 0 10px 32px rgba(0, 0, 0, 0.42);
+    }
+
+    header.brand {
+      position: fixed; top: 14px; left: 14px; z-index: 5;
+      padding: 12px 16px 11px; max-width: min(430px, calc(100vw - 28px));
+    }
+    header.brand h1 { margin: 0; font-size: 19px; font-weight: 800; letter-spacing: 0.01em; }
+    header.brand h1 .zh { color: var(--accent); }
+    header.brand p { margin: 5px 0 0; font-size: 12.5px; line-height: 1.45; color: var(--ink-dim); }
+    header.brand p b { color: var(--ink); font-weight: 600; }
+
+    nav.views {
+      position: fixed; top: 14px; right: 14px; z-index: 5;
+      display: flex; gap: 6px; padding: 6px;
+    }
+    nav.views button {
+      appearance: none; border: 1px solid transparent; border-radius: 9px;
+      background: transparent; color: var(--ink-dim);
+      font: 600 13px/1 "Inter", system-ui, sans-serif;
+      padding: 9px 12px; cursor: pointer; white-space: nowrap;
+    }
+    nav.views button:hover { color: var(--ink); }
+    nav.views button.active { background: rgba(255, 210, 62, 0.16); color: var(--accent); border-color: rgba(255, 210, 62, 0.35); }
+
+    aside#inspector {
+      position: fixed; z-index: 4;
+      top: 76px; right: 14px; width: 348px; max-width: calc(100vw - 28px);
+      max-height: calc(100dvh - 150px);
+      overflow-y: auto; padding: 6px 14px 12px;
+      scrollbar-width: thin;
+    }
+    aside#inspector h2 {
+      font-size: 11px; letter-spacing: 0.14em; text-transform: uppercase;
+      color: var(--ink-dim); margin: 14px 0 7px; font-weight: 700;
+    }
+    aside#inspector h2:first-child { margin-top: 8px; }
+    .fam, .lm {
+      padding: 8px 9px; border-radius: 10px; cursor: pointer;
+      border: 1px solid transparent;
+    }
+    .fam:hover, .lm:hover { background: rgba(255, 255, 255, 0.05); }
+    .fam.focused, .lm.focused { border-color: rgba(255, 210, 62, 0.45); background: rgba(255, 210, 62, 0.07); }
+    .fam-head { display: flex; align-items: baseline; gap: 8px; }
+    .fam-id {
+      font: 800 11px/1 ui-monospace, monospace; color: #0b0f13; background: var(--accent);
+      border-radius: 5px; padding: 3px 5px 2px; flex: none;
+    }
+    .fam-name { font-size: 13.5px; font-weight: 700; line-height: 1.25; }
+    .fam-count { margin-left: auto; text-align: right; font-size: 12px; color: var(--ink); white-space: nowrap; }
+    .fam-count small { display: block; color: var(--ink-dim); font-size: 10.5px; }
+    .fam-meta { font-size: 11.5px; color: var(--ink-dim); line-height: 1.5; margin-top: 4px; }
+    .swatches { display: flex; gap: 5px; margin-top: 6px; flex-wrap: wrap; }
+    .swatch { display: inline-flex; align-items: center; gap: 5px; font-size: 10.5px; color: var(--ink-dim); }
+    .swatch i { width: 15px; height: 15px; border-radius: 4px; border: 1px solid rgba(255,255,255,0.35); display: inline-block; }
+    .lm { display: flex; align-items: baseline; gap: 8px; }
+    .lm-name { font-size: 13px; font-weight: 600; line-height: 1.3; }
+    .lm-name small { display: block; font-weight: 500; color: var(--ink-dim); font-size: 11px; }
+    .lm-h { margin-left: auto; font-size: 12.5px; white-space: nowrap; }
+    .lm-h small { color: var(--ink-dim); font-size: 10.5px; }
+    .note { font-size: 11.5px; color: var(--ink-dim); line-height: 1.55; margin: 8px 2px 2px; }
+    .note b { color: var(--ink); }
+
+    footer#statusbar {
+      position: fixed; left: 14px; bottom: 12px; z-index: 5;
+      padding: 8px 13px; font-size: 12px; color: var(--ink-dim);
+      max-width: calc(100vw - 28px); white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    }
+    footer#statusbar b { color: var(--ink); font-weight: 600; }
+
+    #loading {
+      position: fixed; inset: 0; z-index: 20; display: flex;
+      align-items: center; justify-content: center; flex-direction: column; gap: 12px;
+      background: #0b0f13; transition: opacity 0.5s ease; text-align: center; padding: 20px;
+    }
+    #loading.done { opacity: 0; pointer-events: none; }
+    #loading .t { font-size: 20px; font-weight: 800; }
+    #loading .s { font-size: 13px; color: var(--ink-dim); max-width: 520px; line-height: 1.5; }
+    #loading .err { display: none; color: var(--bad); font: 12px/1.5 ui-monospace, monospace; max-width: 640px; white-space: pre-wrap; text-align: left; }
+    #loading.failed .err { display: block; }
+
+    @media (max-width: 760px) {
+      header.brand { padding: 10px 13px 9px; }
+      header.brand h1 { font-size: 16.5px; }
+      header.brand p { font-size: 11.5px; }
+      nav.views { top: auto; bottom: 52px; right: 50%; transform: translateX(50%); }
+      nav.views button { padding: 10px 13px; font-size: 13.5px; }
+      aside#inspector {
+        top: auto; bottom: 108px; left: 10px; right: 10px; width: auto; max-width: none;
+        max-height: 34dvh;
+      }
+      footer#statusbar { bottom: 10px; left: 10px; font-size: 11px; }
+    }
+  </style>
+  <script>
+    // Error capture starts before the module graph loads, so a failed
+    // import is reported on the page (and to the evidence probe), not
+    // swallowed. The gallery is read-only: this object is diagnostics.
+    window.__gallery = { ready: false, errors: [], plan: null, scene: null };
+    window.addEventListener('error', (e) => {
+      window.__gallery.errors.push(String((e && e.message) || e));
+      const el = document.getElementById('load-errors');
+      const box = document.getElementById('loading');
+      if (el) { el.textContent = window.__gallery.errors.join('\n'); }
+      if (box) box.classList.add('failed');
+    });
+    window.addEventListener('unhandledrejection', (e) => {
+      window.__gallery.errors.push('unhandledrejection: ' + String((e && e.reason && e.reason.message) || (e && e.reason) || e));
+      const el = document.getElementById('load-errors');
+      const box = document.getElementById('loading');
+      if (el) { el.textContent = window.__gallery.errors.join('\n'); }
+      if (box) box.classList.add('failed');
+    });
+  </script>
+</head>
+<body>
+  <main id="view" aria-label="Building gallery 3D view"></main>
+
+  <header class="brand panel">
+    <h1>Slop Taipei <span class="zh">建築圖鑑</span> · Building Gallery</h1>
+    <p><b>Read-only review page</b> (issue #32) — the game's own building system, live:
+      every procedural facade family, plus Taipei 101 and the landmark structures at true scale.
+      Nothing to approve here — <b>discuss changes in chat</b>.</p>
+  </header>
+
+  <nav class="views panel" aria-label="Gallery views">
+    <button type="button" data-view="families" class="active">Facade families</button>
+    <button type="button" data-view="landmarks">Landmarks &amp; 101</button>
+    <button type="button" data-view="overview">Overview</button>
+  </nav>
+
+  <aside id="inspector" class="panel" aria-label="Building set details"></aside>
+
+  <footer id="statusbar" class="panel">Loading the building set…</footer>
+
+  <div id="loading">
+    <div class="t">Building Gallery</div>
+    <div class="s" id="load-status">Loading three.js and the game's building modules…</div>
+    <div class="err" id="load-errors"></div>
+  </div>
+
+  <script type="module">
+    import * as THREE from 'three/webgpu';
+    import { ClusteredLighting } from 'three/addons/lighting/ClusteredLighting.js';
+    import { buildCityBlocks } from './js/buildings.js';
+    import { TAIPEI_GEO } from './js/taipei-geodata.js';
+    import {
+      planTaipeiBuildings,
+      taipeiCityBlocksOptions,
+      createTaipei101,
+      createTaipeiLandmarkTowers,
+    } from './js/taipei-buildings.js';
+    import { LightingSystem } from './js/lighting.js';
+
+    // js/buildings-gallery — the read-only review surface for the
+    // building set (issue #32). Everything on this page is produced by
+    // the game's own modules with the game's own data: the family
+    // samples are planned lots fed to upstream buildCityBlocks exactly
+    // like taipei-boot.js feeds the tile's lots; the counts come from
+    // running planTaipeiBuildings on the shipped geodata; the 101 and
+    // landmark structures are the same create* groups the game adds.
+    // Facade metadata below (names, material parameters, floor
+    // heights) is the presentation copy of the table inside
+    // js/buildings.js's buildCityBlocks; the zone-rule text summarises
+    // facadeMatFor in js/taipei-buildings.js. Counts are never copied
+    // — they are counted live from the plan on every load.
+
+    const FAMILIES = [
+      {
+        id: 0, name: 'Pre-War Limestone & Buff Brick', kind: 'Masonry · pre-war material',
+        floor: 3.7, swatches: [['Stone', '#d8cdb8'], ['Trim', '#9e937f'], ['Glass', '#1a2836']],
+        zone: 'Masonry pool: every height band under 40 m, plus half of the 22–40 m band.',
+      },
+      {
+        id: 1, name: 'Historic Warm Red / Terracotta Brick', kind: 'Masonry · pre-war material',
+        floor: 3.5, swatches: [['Stone', '#a45a45'], ['Trim', '#cab9a0'], ['Glass', '#16222e']],
+        zone: 'Masonry pool: every height band under 40 m, plus half of the 22–40 m band.',
+      },
+      {
+        id: 2, name: 'Classic Brownstone & Dark Masonry', kind: 'Masonry · pre-war material',
+        floor: 3.4, swatches: [['Stone', '#765443'], ['Trim', '#503a2e'], ['Glass', '#151e26']],
+        zone: 'Low and mid masonry only: buildings under 22 m — residential lanes and boulevard frontage.',
+      },
+      {
+        id: 3, name: 'Blue-Teal Curtain-Wall Glass', kind: 'Curtain-wall glass · reflectivity 0.92',
+        floor: 3.9, swatches: [['Glass', '#1a3a52'], ['Frame', '#3b4c5b']],
+        zone: 'Glass pool: towers ≥ 40 m (Xinyi core), half of the 22–40 m band, 10% of the 12–22 m band.',
+      },
+      {
+        id: 4, name: 'Dark Bronze / Charcoal Miesian Glass', kind: 'Curtain-wall glass · reflectivity 0.88',
+        floor: 3.8, swatches: [['Glass', '#242220'], ['Frame', '#3c3631']],
+        zone: 'Glass pool: towers ≥ 40 m (Xinyi core) and half of the 22–40 m band.',
+      },
+      {
+        id: 5, name: 'Silver / Ice-Blue Supertall Glass', kind: 'Curtain-wall glass · reflectivity 0.95',
+        floor: 4.1, swatches: [['Glass', '#264664'], ['Frame', '#b0bcc8']],
+        zone: 'Glass pool: towers ≥ 40 m (Xinyi core) and half of the 22–40 m band.',
+      },
+    ];
+
+    // Sample stage: one column per family (x), one row per size (z).
+    const SAMPLE_ROWS = [
+      { label: 'Low · ≈10 m', h: 10, w: 17, d: 15, z: 248 },
+      { label: 'Mid · ≈24 m', h: 24, w: 21, d: 18, z: 313 },
+      { label: 'High · ≈48 m', h: 48, w: 25, d: 21, z: 378 },
+    ];
+    const sampleX = (familyId) => (familyId - 2.5) * 54;
+    const STAGE = { minX: -180, maxX: 180, minZ: 195, maxZ: 435 };
+    const STAGE_CENTRE = { x: 0, z: 313 };
+
+    const statusEl = document.getElementById('load-status');
+    const setStatus = (t) => { if (statusEl) statusEl.textContent = t; };
+
+    // Minimal orbit control (drag rotate, wheel/pinch zoom, right-drag
+    // or two-finger pan, gentle auto-rotate when idle). Hand-rolled so
+    // the gallery's module graph stays exactly the game's proven one —
+    // no addons beyond what the game itself loads.
+    class SimpleOrbit {
+      constructor(camera, dom) {
+        this.camera = camera;
+        this.dom = dom;
+        this.target = new THREE.Vector3(0, 16, 313);
+        this.goalTarget = this.target.clone();
+        this.sph = new THREE.Spherical(340, 1.05, 0.6);
+        this.goalSph = this.sph.clone();
+        this.autoRotateSpeed = 0.05; // rad/s
+        this.idle = 99;
+        this.pointers = new Map();
+        this.pinchDist = 0;
+        dom.style.touchAction = 'none';
+        dom.addEventListener('pointerdown', (e) => {
+          dom.setPointerCapture(e.pointerId);
+          this.pointers.set(e.pointerId, { x: e.clientX, y: e.clientY, button: e.button });
+          if (this.pointers.size === 2) {
+            const [a, b] = [...this.pointers.values()];
+            this.pinchDist = Math.hypot(a.x - b.x, a.y - b.y);
+          }
+          this.idle = 0;
+        });
+        dom.addEventListener('pointermove', (e) => {
+          const p = this.pointers.get(e.pointerId);
+          if (!p) return;
+          const dx = e.clientX - p.x, dy = e.clientY - p.y;
+          p.x = e.clientX; p.y = e.clientY;
+          this.idle = 0;
+          if (this.pointers.size === 2) {
+            const [a, b] = [...this.pointers.values()];
+            const d = Math.hypot(a.x - b.x, a.y - b.y);
+            if (this.pinchDist > 0 && d > 0) this.goalSph.radius = THREE.MathUtils.clamp(this.goalSph.radius * (this.pinchDist / d), 8, 4200);
+            this.pinchDist = d;
+            this.pan(dx * 0.5, dy * 0.5);
+          } else if (p.button === 2 || e.buttons === 4) {
+            this.pan(dx, dy);
+          } else {
+            this.goalSph.theta -= dx * 0.0052;
+            this.goalSph.phi = THREE.MathUtils.clamp(this.goalSph.phi - dy * 0.0052, 0.05, Math.PI * 0.495);
+          }
+          this.goalSph.makeSafe();
+        });
+        const release = (e) => { this.pointers.delete(e.pointerId); this.idle = 0; };
+        dom.addEventListener('pointerup', release);
+        dom.addEventListener('pointercancel', release);
+        dom.addEventListener('wheel', (e) => {
+          e.preventDefault();
+          this.goalSph.radius = THREE.MathUtils.clamp(this.goalSph.radius * Math.exp(e.deltaY * 0.0011), 8, 4200);
+          this.idle = 0;
+        }, { passive: false });
+        dom.addEventListener('contextmenu', (e) => e.preventDefault());
+      }
+      pan(dx, dy) {
+        const off = new THREE.Vector3().setFromSpherical(this.sph);
+        const fwd = off.clone().normalize().negate();
+        const right = new THREE.Vector3().crossVectors(fwd, new THREE.Vector3(0, 1, 0)).normalize();
+        const up = new THREE.Vector3().crossVectors(right, fwd).normalize();
+        const s = this.sph.radius * 0.0016;
+        this.goalTarget.addScaledVector(right, -dx * s).addScaledVector(up, dy * s);
+        this.goalTarget.y = THREE.MathUtils.clamp(this.goalTarget.y, 0, 700);
+      }
+      flyTo(pos, tgt) {
+        this.goalTarget.set(tgt[0], tgt[1], tgt[2]);
+        const off = new THREE.Vector3(pos[0] - tgt[0], pos[1] - tgt[1], pos[2] - tgt[2]);
+        this.goalSph.setFromVector3(off);
+        this.goalSph.phi = THREE.MathUtils.clamp(this.goalSph.phi, 0.05, Math.PI * 0.495);
+        this.goalSph.radius = THREE.MathUtils.clamp(this.goalSph.radius, 8, 4200);
+        this.goalSph.makeSafe();
+        this.idle = 0;
+      }
+      syncFromCamera() {
+        const off = this.camera.position.clone().sub(this.target);
+        this.sph.setFromVector3(off);
+        this.goalSph.copy(this.sph);
+        this.goalTarget.copy(this.target);
+      }
+      update(dt) {
+        this.idle += dt;
+        if (this.idle > 2.5 && this.pointers.size === 0) this.goalSph.theta -= this.autoRotateSpeed * dt;
+        const k = 1 - Math.exp(-dt * 5.5);
+        this.sph.radius += (this.goalSph.radius - this.sph.radius) * k;
+        this.sph.phi += (this.goalSph.phi - this.sph.phi) * k;
+        this.sph.theta += (this.goalSph.theta - this.sph.theta) * k;
+        this.target.lerp(this.goalTarget, k);
+        const off = new THREE.Vector3().setFromSpherical(this.sph);
+        this.camera.position.copy(this.target).add(off);
+        this.camera.lookAt(this.target);
+      }
+    }
+
+    function makeLabel(lines, worldWidth, accentFirst = false) {
+      const pad = 26, lineH = 54, titleH = 62;
+      const cv = document.createElement('canvas');
+      const ctx = cv.getContext('2d');
+      const fontFor = (i) => (i === 0 ? `800 ${titleH - 14}px Inter, system-ui, sans-serif` : `600 ${lineH - 16}px Inter, system-ui, sans-serif`);
+      let w = 0;
+      lines.forEach((ln, i) => { ctx.font = fontFor(i); w = Math.max(w, ctx.measureText(ln).width); });
+      cv.width = Math.ceil(w + pad * 2);
+      cv.height = pad * 2 + titleH + (lines.length - 1) * lineH;
+      ctx.fillStyle = 'rgba(10, 14, 18, 0.74)';
+      ctx.beginPath();
+      ctx.roundRect(0, 0, cv.width, cv.height, 22);
+      ctx.fill();
+      ctx.textBaseline = 'top';
+      lines.forEach((ln, i) => {
+        ctx.font = fontFor(i);
+        ctx.fillStyle = i === 0 && accentFirst ? '#ffd23e' : '#f2f5f7';
+        ctx.fillText(ln, pad, pad + (i === 0 ? 0 : titleH + (i - 1) * lineH) - (i === 0 ? 4 : 0));
+      });
+      const tex = new THREE.CanvasTexture(cv);
+      tex.colorSpace = THREE.SRGBColorSpace;
+      tex.anisotropy = 4;
+      const sp = new THREE.Sprite(new THREE.SpriteMaterial({ map: tex, transparent: true, depthWrite: false }));
+      sp.scale.set(worldWidth, (worldWidth * cv.height) / cv.width, 1);
+      return sp;
+    }
+
+    async function init() {
+      setStatus('Planning the city from the shipped geodata…');
+      const plan = planTaipeiBuildings(TAIPEI_GEO);
+      const cityOpts = taipeiCityBlocksOptions(TAIPEI_GEO, plan);
+      const familyCounts = FAMILIES.map(() => 0);
+      for (const lot of cityOpts.lots) familyCounts[lot.mat]++;
+      const planTotal = cityOpts.lots.length;
+
+      setStatus('Starting the renderer (same WebGPU/WebGL path as the game)…');
+      const renderer = new THREE.WebGPURenderer({ antialias: true, powerPreference: 'high-performance', reversedDepthBuffer: true });
+      renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+      renderer.setSize(window.innerWidth, window.innerHeight);
+      renderer.shadowMap.enabled = true;
+      renderer.toneMapping = THREE.ACESFilmicToneMapping;
+      renderer.toneMappingExposure = 1.0;
+      renderer.lighting = new ClusteredLighting(256, 32, 28, 48);
+      document.getElementById('view').appendChild(renderer.domElement);
+      await renderer.init();
+      const backend = renderer.backend && renderer.backend.isWebGPUBackend ? 'WebGPU' : 'WebGL fallback';
+
+      const scene = new THREE.Scene();
+      const lighting = new LightingSystem(scene, renderer);
+      lighting.applyPreset('midday');
+      if (!scene.background) scene.background = new THREE.Color(0x87a6c0);
+
+      const camera = new THREE.PerspectiveCamera(46, window.innerWidth / window.innerHeight, 0.5, 9000);
+      camera.position.set(105, 58, 478);
+      const orbit = new SimpleOrbit(camera, renderer.domElement);
+      orbit.target.set(0, 16, STAGE_CENTRE.z);
+      orbit.syncFromCamera();
+
+      // Ground: one land plane under both stages + the stage pad,
+      // in the tile ground builder's own colours.
+      const groundMat = (c) => new THREE.MeshStandardNodeMaterial({ color: c, roughness: 1, metalness: 0 });
+      const land = new THREE.Mesh(new THREE.PlaneGeometry(2800, 2800).rotateX(-Math.PI / 2), groundMat(0x77796c));
+      land.position.set(60, 0, -180);
+      land.receiveShadow = true;
+      scene.add(land);
+      const pad = new THREE.Mesh(new THREE.PlaneGeometry(352, 262).rotateX(-Math.PI / 2), groundMat(0x8f8b80));
+      pad.position.set(STAGE_CENTRE.x, 0.02, STAGE_CENTRE.z);
+      pad.receiveShadow = true;
+      scene.add(pad);
+
+      // --- Facade family samples: real planned lots through upstream ---
+      setStatus('Building the facade family samples with buildCityBlocks…');
+      const sampleLots = [];
+      for (const fam of FAMILIES) {
+        for (const row of SAMPLE_ROWS) {
+          const cx = sampleX(fam.id);
+          sampleLots.push({ x0: cx - row.w / 2, x1: cx + row.w / 2, z0: row.z - row.d / 2, z1: row.z + row.d / 2, h: row.h, mat: fam.id });
+        }
+      }
+      const cityBlocks = buildCityBlocks(scene, { lots: sampleLots, bounds: { ...STAGE }, initial: [STAGE_CENTRE.x, STAGE_CENTRE.z], colliders: false });
+      cityBlocks.update(STAGE_CENTRE.x, STAGE_CENTRE.z, true);
+
+      // --- Taipei 101 + landmark structures: the game's own groups ---
+      setStatus('Raising Taipei 101 and the landmark structures…');
+      const tower = createTaipei101(THREE, plan);
+      if (tower) scene.add(tower);
+      const landmarkGroup = createTaipeiLandmarkTowers(THREE, plan);
+      if (landmarkGroup) scene.add(landmarkGroup);
+
+      // --- Labels ---
+      const labels = new THREE.Group();
+      labels.name = 'GalleryLabels';
+      for (const fam of FAMILIES) {
+        const sp = makeLabel([`F${fam.id}`, fam.name], 62, true);
+        sp.position.set(sampleX(fam.id), 48 + 17, SAMPLE_ROWS[2].z);
+        labels.add(sp);
+      }
+      for (const row of SAMPLE_ROWS) {
+        const sp = makeLabel([row.label], 30);
+        sp.position.set(STAGE.minX + 6, row.h + 8, row.z);
+        labels.add(sp);
+      }
+      if (plan.tower) {
+        const sp = makeLabel(['台北101 · Taipei 101', '508 m · 8 identical tiers + spire'], 120, true);
+        sp.position.set(plan.tower.x, plan.tower.totalHeight + 34, plan.tower.z);
+        labels.add(sp);
+      }
+      for (const s of plan.landmarkTowers) {
+        const sp = makeLabel([`${s.nameZh} · ${s.name}`, `${s.realHeight} m`], 74, true);
+        sp.position.set(s.x, s.realHeight + 24, s.z);
+        labels.add(sp);
+      }
+      scene.add(labels);
+
+      // --- Inspector panel (live counts from the plan) ---
+      const hex = (c) => c;
+      const inspector = document.getElementById('inspector');
+      const famHtml = FAMILIES.map((fam) => {
+        const n = familyCounts[fam.id];
+        const pct = planTotal ? Math.round((n / planTotal) * 1000) / 10 : 0;
+        return `<div class="fam" data-focus="family" data-id="${fam.id}" tabindex="0" role="button" aria-label="Focus family ${fam.id}">
+          <div class="fam-head"><span class="fam-id">F${fam.id}</span><span class="fam-name">${fam.name}</span>
+          <span class="fam-count">${n.toLocaleString('en-US')} lots<small>${pct}% of the plan</small></span></div>
+          <div class="fam-meta">${fam.kind} · floor height ${fam.floor} m<br>${fam.zone}</div>
+          <div class="swatches">${fam.swatches.map(([k, v]) => `<span class="swatch"><i style="background:${hex(v)}"></i>${k} ${v}</span>`).join('')}</div>
+        </div>`;
+      }).join('');
+      const lmHtml = [
+        ...(plan.tower ? [{ id: 'taipei-101', nameZh: '台北101', name: 'Taipei 101', realHeight: 508, x: plan.tower.x, z: plan.tower.z, distFromOrigin: Math.round(Math.hypot(plan.tower.x, plan.tower.z)) }] : []),
+        ...plan.landmarkTowers,
+      ].map((s) => `<div class="lm" data-focus="landmark" data-id="${s.id}" tabindex="0" role="button" aria-label="Focus ${s.name}">
+          <span class="lm-name">${s.nameZh}<small>${s.name}</small></span>
+          <span class="lm-h">${s.realHeight} m<small> · ${s.distFromOrigin} m from 101</small></span>
+        </div>`).join('');
+      inspector.innerHTML = `
+        <h2>Facade families — ${planTotal.toLocaleString('en-US')} planned lots</h2>
+        ${famHtml}
+        <p class="note">Samples force every family at three sizes for review; in the city the
+        planner's zone rules (above) decide which families actually reach each height.
+        Heights snap to whole storeys, as in the game.</p>
+        <h2>Landmarks — true scale, true positions</h2>
+        ${lmHtml}
+        <p class="note"><b>Palette note:</b> the per-lot colour palette in taipei-buildings.js
+        (concrete greys, tile beige, brick) is plan data only since the NYC-system switch —
+        what renders is the facade materials above. The Taiwan-look palette pass is issue #17;
+        this page is its review surface.</p>`;
+
+      // --- Camera views + focus ---
+      const towerFocus = plan.tower ? { x: plan.tower.x, z: plan.tower.z } : { x: 0, z: 0 };
+      const VIEWS = {
+        families: { pos: [105, 58, 478], tgt: [0, 16, STAGE_CENTRE.z] },
+        landmarks: { pos: [towerFocus.x + 660, 330, towerFocus.z + 600], tgt: [towerFocus.x - 10, 105, towerFocus.z - 130] },
+        overview: { pos: [980, 700, 1150], tgt: [30, 40, -40] },
+      };
+      const flyTo = (pos, tgt) => orbit.flyTo(pos, tgt);
+      const viewBtns = [...document.querySelectorAll('nav.views button')];
+      viewBtns.forEach((b) => b.addEventListener('click', () => {
+        viewBtns.forEach((x) => x.classList.toggle('active', x === b));
+        const v = VIEWS[b.dataset.view];
+        if (v) flyTo(v.pos, v.tgt);
+      }));
+      const structuresById = new Map();
+      if (plan.tower) structuresById.set('taipei-101', { x: plan.tower.x, z: plan.tower.z, h: 508 });
+      for (const s of plan.landmarkTowers) structuresById.set(s.id, { x: s.x, z: s.z, h: s.realHeight });
+      inspector.addEventListener('click', (e) => {
+        const el = e.target.closest('[data-focus]');
+        if (!el) return;
+        inspector.querySelectorAll('.focused').forEach((x) => x.classList.remove('focused'));
+        el.classList.add('focused');
+        if (el.dataset.focus === 'family') {
+          const x = sampleX(Number(el.dataset.id));
+          flyTo([x + 62, 40, 452], [x, 15, STAGE_CENTRE.z]);
+        } else {
+          const s = structuresById.get(el.dataset.id);
+          if (s) {
+            const d = Math.max(150, s.h * 1.55);
+            flyTo([s.x + d * 0.72, s.h * 0.62 + 26, s.z + d * 0.72], [s.x, s.h * 0.44, s.z]);
+          }
+        }
+      });
+
+      // --- Status + diagnostics ---
+      const statusbar = document.getElementById('statusbar');
+      let frames = 0;
+      setInterval(() => {
+        const info = renderer.info;
+        statusbar.innerHTML = `<b>${backend}</b> · plan <b>${planTotal.toLocaleString('en-US')}</b> lots · samples <b>${sampleLots.length}</b> buildings · landmarks <b>${1 + plan.landmarkTowers.length}</b> · <b>${info.render.calls}</b> draw calls · <b>${(info.render.triangles / 1000).toFixed(0)}k</b> tris`;
+      }, 1000);
+
+      window.__gallery.plan = { totalLots: planTotal, familyCounts, landmarks: plan.landmarkTowers.map((s) => s.id) };
+      window.__gallery.scene = scene;
+      window.__gallery.cityBlocks = cityBlocks;
+      window.__gallery.sampleLots = sampleLots.length;
+
+      window.addEventListener('resize', () => {
+        camera.aspect = window.innerWidth / window.innerHeight;
+        camera.updateProjectionMatrix();
+        renderer.setSize(window.innerWidth, window.innerHeight);
+      });
+
+      let lastT = performance.now();
+      renderer.setAnimationLoop(() => {
+        const now = performance.now();
+        const dt = Math.min(0.1, (now - lastT) / 1000);
+        lastT = now;
+        orbit.update(dt);
+        lighting.update(orbit.target);
+        renderer.render(scene, camera);
+        frames++;
+        if (frames === 12 && !window.__gallery.ready) {
+          window.__gallery.ready = true;
+          window.__gallery.backend = backend;
+          document.getElementById('loading').classList.add('done');
+        }
+      });
+    }
+
+    init().catch((err) => {
+      setStatus('The gallery failed to start — the error is below.');
+      window.__gallery.errors.push('init: ' + (err && err.message ? err.message : String(err)));
+      const el = document.getElementById('load-errors');
+      if (el) el.textContent = window.__gallery.errors.join('\n');
+      document.getElementById('loading').classList.add('failed');
+      console.error('[buildings-gallery] init failed', err);
+    });
+  </script>
+</body>
+</html>

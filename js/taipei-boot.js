@@ -1,6 +1,7 @@
 import * as THREE from 'three/webgpu';
 
-import { planTaipeiBuildings, taipeiCityBlocksOptions, createTaipei101 } from './taipei-buildings.js';
+import { planTaipeiBuildings, taipeiCityBlocksOptions, createTaipei101, createTaipeiLandmarkTowers } from './taipei-buildings.js';
+import { buildSidewalkBands, planStreetTrees } from './taipei-streetscape.js';
 import { AvatarFigure } from './avatar-figure.js';
 import { buildPaintedBands } from './taipei-painted.js';
 
@@ -12,7 +13,11 @@ import { buildPaintedBands } from './taipei-painted.js';
 // calls for (see TAIWAN_STREETSCAPE.md), and the buildings planned by
 // js/taipei-buildings.js (lots subdivided from the raster blocks),
 // rendered by upstream's own building system (js/buildings.js); the
-// Taipei 101 landmark gets a massing placeholder. Still absent:
+// Taipei 101 landmark gets a massing placeholder, as do the notable
+// structures around it (issue #26: Nan Shan Plaza, The Sky Taipei,
+// Fubon A25, Cathay Landmark, Uni-President, Tao Zhu Yin Yuan, the
+// TWTC trade tower and City Hall — true heights, plain massing).
+// Still absent:
 //
 //   - NO traffic / pedestrians (the road graph exists in the geodata, but
 //     road-network.js derives lanes from the NYC avenue/street grid; a
@@ -79,6 +84,15 @@ function rectsGeometry(blocks, y) {
   return geo;
 }
 
+// Wraps a flat xyz position array (6 vertices per quad, as produced by
+// taipei-streetscape.js) into a geometry with computed normals.
+function positionsGeometry(positions) {
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+  geo.computeVertexNormals();
+  return geo;
+}
+
 function ribbonsGeometry(roads, y) {
   let segments = 0;
   for (const r of roads) segments += Math.max(0, r.pts.length / 2 - 1);
@@ -134,13 +148,69 @@ function paintedGeometries(carriageways, yBand, yEdge) {
 }
 
 // Street-section band widths beyond the carriageway, by pedestrianLayout
-// (TAIWAN_STREETSCAPE.md §c): a formal sidewalk adds ~2 m a side; an
-// arcade (騎樓) band is the 3.6 m colonnade floor the buildings front
-// onto. Painted walkways get a green band on the carriageway instead
-// (paintedGeometries); shared streets get no band at all.
-const BAND_EXTRA = { sidewalk: 2.0, arcade: 3.6 };
+// (TAIWAN_STREETSCAPE.md §c): an arcade (騎樓) band is the 3.6 m
+// colonnade floor the buildings front onto, drawn here as a widened
+// ribbon. Sidewalk bands used to be drawn the same way (a fixed 2 m
+// widening); they are now real per-edge geometry with class widths and
+// junction trimming — see buildSidewalkBands in taipei-streetscape.js
+// (issue #27). Painted walkways get a green band on the carriageway
+// instead (paintedGeometries); shared streets get no band at all.
+const BAND_EXTRA = { arcade: 3.6 };
 
 const mat = (color, roughness = 0.95, extra = {}) => new THREE.MeshStandardNodeMaterial({ color, roughness, metalness: 0.0, ...extra });
+
+// ---------------------------------------------------------------------
+// Street trees (issue #28): one low-poly tree — a 5-sided trunk and two
+// icosahedron canopies — merged into a single vertex-coloured geometry
+// and drawn as ONE InstancedMesh, so every street tree on the tile is
+// a single draw call. Placement is planStreetTrees' (taipei-streetscape
+// .js); this section only turns positions into instances.
+function streetTreeGeometry() {
+  const parts = [];
+  const addPart = (geo, color, x, y, z) => {
+    const g = geo.index ? geo.toNonIndexed() : geo;
+    g.translate(x, y, z);
+    const pos = g.getAttribute('position');
+    const colors = new Float32Array(pos.count * 3);
+    const c = new THREE.Color(color);
+    for (let i = 0; i < pos.count; i++) { colors[i * 3] = c.r; colors[i * 3 + 1] = c.g; colors[i * 3 + 2] = c.b; }
+    parts.push({ pos: pos.array, nor: g.getAttribute('normal').array, colors });
+  };
+  addPart(new THREE.CylinderGeometry(0.14, 0.2, 2.6, 5), 0x6b4a2f, 0, 1.3, 0);
+  addPart(new THREE.IcosahedronGeometry(1.6, 0), 0x477a37, 0, 3.9, 0);
+  addPart(new THREE.IcosahedronGeometry(1.05, 0), 0x548741, 0.55, 4.9, 0.2);
+  const total = parts.reduce((s, p) => s + p.pos.length, 0);
+  const positions = new Float32Array(total);
+  const normals = new Float32Array(total);
+  const colors = new Float32Array(total);
+  let o = 0;
+  for (const p of parts) { positions.set(p.pos, o); normals.set(p.nor, o); colors.set(p.colors, o); o += p.pos.length; }
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+  geo.setAttribute('normal', new THREE.BufferAttribute(normals, 3));
+  geo.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+  return geo;
+}
+
+function buildStreetTreeMesh(trees) {
+  if (!trees.length) return null;
+  const mesh = new THREE.InstancedMesh(
+    streetTreeGeometry(),
+    new THREE.MeshStandardNodeMaterial({ vertexColors: true, roughness: 0.9, metalness: 0.0 }),
+    trees.length,
+  );
+  mesh.name = 'TaipeiStreetTrees';
+  const dummy = new THREE.Object3D();
+  trees.forEach((t, i) => {
+    dummy.position.set(t.x, 0, t.z);
+    dummy.rotation.set(0, t.rot, 0);
+    dummy.scale.setScalar(t.scale);
+    dummy.updateMatrix();
+    mesh.setMatrixAt(i, dummy.matrix);
+  });
+  mesh.instanceMatrix.needsUpdate = true;
+  return mesh;
+}
 
 // Controller world options for a registry tile (see the opts contract in
 // js/controllers.js): the playable world is the tile's own frame — NOT
@@ -210,13 +280,18 @@ export function buildTaipeiGround(scene, tile, deps = {}) {
   // Street-section bands at 0.045: below the paths layer (0.05) so park
   // and campus paths still read over a band, above parks (0.04) so a
   // riverside boulevard's sidewalk isn't swallowed by the park fill.
-  // Bands are flat colour in this increment — the arcade band is the
-  // colonnade's floor plate, not yet a covered arcade.
+  // The arcade band is the colonnade's floor plate, not yet a covered
+  // arcade, in a darker covered-walkway tone than the open sidewalks
+  // (no arcade-layout beds exist in the current data, so this is the
+  // tone a future colonnaded street will wear). Sidewalk bands are the
+  // clipped per-edge geometry from taipei-streetscape.js (issue #27).
   const widened = (layout) => carriageways
     .filter((r) => r.pedestrianLayout === layout)
     .map((r) => ({ pts: r.pts, width: (r.width || 3) + BAND_EXTRA[layout] * 2 }));
-  addLayer(ribbonsGeometry(widened('sidewalk'), 0.045), mat(0xb5b0a4), 'TaipeiSidewalkBands');
-  addLayer(ribbonsGeometry(widened('arcade'), 0.045), mat(0xc2b59d), 'TaipeiArcadeBands');
+  addLayer(ribbonsGeometry(widened('arcade'), 0.045), mat(0x8e8672), 'TaipeiArcadeBands');
+  const sidewalkBands = buildSidewalkBands(carriageways, 0.045);
+  addLayer(positionsGeometry(sidewalkBands.positions), mat(0xb5b0a4), 'TaipeiSidewalkBands');
+  console.info(`[taipei-sidewalks] ${sidewalkBands.quadCount} band quads, ${(sidewalkBands.totalBandLength / 1000).toFixed(1)} km of sidewalk band (both edges, junction-trimmed)`);
   addLayer(ribbonsGeometry(geo.roads.filter((r) => NON_CARRIAGEWAY.has(r.highway)), 0.05), mat(0xa9a294, 0.95), 'TaipeiPaths');
   addLayer(ribbonsGeometry(carriageways, 0.06), mat(0x33363b, 0.9), 'TaipeiRoads');
   // Painted walkways (§c.3): a single green band per roadbed on its
@@ -245,7 +320,19 @@ export function buildTaipeiGround(scene, tile, deps = {}) {
     : null;
   const tower = createTaipei101(THREE, plan);
   if (tower) group.add(tower);
-  console.info(`[taipei-buildings] ${plan.lots.length} buildings via upstream building system + Taipei 101 massing (508 m) planned in ${Math.round(performance.now() - buildingsStart)}ms`);
+  const landmarkTowers = createTaipeiLandmarkTowers(THREE, plan);
+  if (landmarkTowers) group.add(landmarkTowers);
+  console.info(`[taipei-buildings] ${plan.lots.length} buildings via upstream building system + Taipei 101 massing (508 m) + ${plan.landmarkTowers.length} landmark structures planned in ${Math.round(performance.now() - buildingsStart)}ms`);
+
+  // Street trees (issue #28): one InstancedMesh for the whole tile,
+  // planted by taipei-streetscape.js after the building plan exists so
+  // trees keep out of the lots. Static — no per-frame update, matching
+  // the other tile systems' build-once cost model.
+  const treesStart = performance.now();
+  const treePlan = planStreetTrees(geo, plan);
+  const treeMesh = buildStreetTreeMesh(treePlan.trees);
+  if (treeMesh) group.add(treeMesh);
+  console.info(`[taipei-trees] ${treePlan.trees.length} street trees (${treePlan.stats.sidewalk} sidewalk, ${treePlan.stats.median} median${treePlan.stats.capped ? `, capped at ${treePlan.stats.cap}` : ''}) planned in ${Math.round(performance.now() - treesStart)}ms`);
 
   scene.add(group);
   return {

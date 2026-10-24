@@ -51,6 +51,17 @@
 // the tile's spawn points (at the landmark point, south of it) stay in
 // the open. Detailed facade treatment is later scope.
 //
+// The same massing treatment covers the other notable structures
+// around 101 (LANDMARK_STRUCTURES below, issue #26): each is a small
+// set of plain parts — boxes, rectangular frustums, one ridge roof,
+// one slanted cap, one twisted stack — at its true position (real
+// lat/lon run through the geodata builder's exact frame math) and
+// true total height, with ONE signature silhouette feature modelled
+// and the rest left plain. Their sites (and Taipei City Hall's open
+// Civic Plaza) are registered alongside the 101 site so the generic
+// lot planner keeps off them. Facade detail stays out of scope
+// (issue #17 owns surfaces).
+//
 // Buildings are visual only: no colliders (the options pass
 // colliders: false), no interiors, no shop signs (the localization
 // increment owns signage). Lots are axis-aligned to the tile frame, not
@@ -141,6 +152,268 @@ function buildSegmentGrid(entries) {
   return { grid, key };
 }
 
+// ---- Landmark structures around Taipei 101 (issue #26) ----
+//
+// Every entry was verified against published sources (Wikipedia /
+// CTBUH Skyscraper Center; heights are the published architectural /
+// roof heights) and a reference photo (URLs in the PR). Positions are
+// real lat/lon converted with the geodata builder's own frame math
+// (tools/taipei/build-taipei-geodata.mjs: WGS84 radii at the origin),
+// so a structure stands where it stands in the world. `parts` are
+// declarative massing primitives the renderer
+// (createTaipeiLandmarkTowers) turns into plain meshes:
+//
+//   box      { w, d, h, y0?, dx?, dz?, rotY? }   axis-aligned block
+//   frustum  { wB, dB, wT, dT, h, y0?, topDropX? }
+//              rectangular frustum; topDropX lowers the +x top edge
+//              by that many metres (a diagonal-cut crown)
+//   ridge    { w, d, h, ridgeH, y0? }   hip roof: side walls to h,
+//              then slopes up to a ridge along x at h + ridgeH
+//   cylinder { r, h, y0?, dx?, dz?, rz? }   rz gives an elliptical
+//              plan: radius r along x, rz along z (a scaled cylinder)
+//   dome     { rx, rz, h, y0?, dx?, dz? }   half-ellipsoid: radii rx
+//              (x) and rz (z), rising h above y0
+//
+// `site` is the lot-exclusion rectangle (centred on the structure,
+// dx/dz offset allowed); `plaza` is an extra exclusion rectangle that
+// carries NO mass — open ground that must stay open.
+
+const FRAME_A = 6378137.0, FRAME_E2 = 6.69437999014e-3;
+export function latLonToTile(lat, lon, originLatLon) {
+  const [lat0, lon0] = originLatLon;
+  const phi0 = (lat0 * Math.PI) / 180, sin0 = Math.sin(phi0);
+  const nRad = FRAME_A / Math.sqrt(1 - FRAME_E2 * sin0 * sin0);
+  const mRad = (FRAME_A * (1 - FRAME_E2)) / Math.pow(1 - FRAME_E2 * sin0 * sin0, 1.5);
+  const kx = (Math.PI / 180) * nRad * Math.cos(phi0); // metres per degree lon
+  const ky = (Math.PI / 180) * mRad;                  // metres per degree lat
+  return [Math.round((lon - lon0) * kx * 10) / 10, Math.round(-(lat - lat0) * ky * 10) / 10];
+}
+
+// Tao Zhu Yin Yuan's twist as stacked segments: a plain base, then
+// 21 floor slabs each rotated 4.5° past the one below (the real
+// tower's DNA twist totals 90° from bottom to top), and the rooftop
+// helipad as a thin disc whose top is the true 93.2 m.
+function taoZhuParts() {
+  const parts = [{ type: 'box', w: 58, d: 42, h: 5 }];
+  const segH = (92.7 - 5) / 21;
+  for (let i = 0; i < 21; i++) {
+    parts.push({ type: 'box', w: 50, d: 32, h: segH, y0: 5 + i * segH, rotY: (i * 4.5 * Math.PI) / 180 });
+  }
+  parts.push({ type: 'cylinder', r: 10, h: 0.5, y0: 92.7 });
+  return parts;
+}
+
+const LANDMARK_STRUCTURES = [
+  {
+    // 272 m, 48F, completed 2018 (Wikipedia / CTBUH). Dark tapered
+    // shaft over the 7-storey Breeze Nan Shan mall podium, topped by
+    // the sloped diamond crown — modelled as a ridge roof.
+    // 微風南山 Breeze Nan Shan is NOT a separate structure: it is
+    // this complex's podium department store, so the podium mass
+    // below is its representation.
+    id: 'taipei-nan-shan-plaza', name: 'Taipei Nan Shan Plaza', nameZh: '臺北南山廣場',
+    lat: 25.0344, lon: 121.5669, realHeight: 272, color: 0x2c3540,
+    site: { w: 170, d: 124, dx: 0, dz: 6 },
+    parts: [
+      { type: 'box', w: 150, d: 105, h: 34, dz: 24 },
+      { type: 'frustum', wB: 52, dB: 40, wT: 47, dT: 36, h: 208, y0: 34 },
+      { type: 'ridge', w: 47, d: 36, h: 0, ridgeH: 30, y0: 242 },
+    ],
+  },
+  {
+    // 280 m, 56F (CTBUH). Topped out and fully clad — CTBUH lists it
+    // Completed (2025); the two Hyatt hotels inside are not yet open.
+    // ACPV (architect): a green "bamboo shoot" — pleated shaft that
+    // narrows gently all the way up to a slanted shoot-tip cut.
+    id: 'the-sky-taipei', name: 'The Sky Taipei', nameZh: '台北天空塔',
+    lat: 25.0365, lon: 121.566056, realHeight: 280, color: 0x5d7a6c,
+    site: { w: 106, d: 82, dx: 0, dz: 4 },
+    parts: [
+      { type: 'box', w: 96, d: 72, h: 22, dz: 8 },
+      { type: 'frustum', wB: 47, dB: 35, wT: 42, dT: 31, h: 120, y0: 22 },
+      { type: 'frustum', wB: 42, dB: 31, wT: 37, dT: 27, h: 118, y0: 142 },
+      { type: 'frustum', wB: 37, dB: 27, wT: 35, dT: 25, h: 20, y0: 260, topDropX: 14 },
+    ],
+  },
+  {
+    // 266.3 m, 56F, completed 2022 (Wikipedia / Fubon). Renzo
+    // Piano's crystalline shard: a square shaft with cut-back notch
+    // corners (the exposed perimeter bracing lives in the notch —
+    // facade territory, not massing) tapering steadily to a slanted
+    // top; the low Fubon Art Museum block stands east of the tower.
+    id: 'fubon-xinyi-a25', name: 'Fubon Xinyi A25', nameZh: '富邦信義A25',
+    lat: 25.03917, lon: 121.57, realHeight: 266.3, color: 0x8fa5b5,
+    site: { w: 150, d: 95, dx: 0, dz: 0 },
+    parts: [
+      { type: 'box', w: 48, d: 38, h: 15, dx: 58 },
+      { type: 'frustum', wB: 43, dB: 43, wT: 32, dT: 32, h: 250 },
+      { type: 'frustum', wB: 32, dB: 32, wT: 30, dT: 30, h: 16.3, y0: 250, topDropX: 10 },
+    ],
+  },
+  {
+    // 212 m, 46F, completed 2015 (Wikipedia / CTBUH). A slender
+    // vertically-striped slab on the Breeze Xinyi podium; the top
+    // arcs down toward the east in a smooth curve — massed as four
+    // descending steps.
+    id: 'cathay-landmark', name: 'Cathay Landmark', nameZh: '國泰置地廣場',
+    lat: 25.040472, lon: 121.566972, realHeight: 212, color: 0x51606e,
+    site: { w: 128, d: 88, dx: 0, dz: 0 },
+    parts: [
+      { type: 'box', w: 118, d: 78, h: 26 },
+      { type: 'box', w: 58, d: 36, h: 158, y0: 26 },
+      { type: 'box', w: 14.5, d: 36, h: 28, y0: 184, dx: -21.75 },
+      { type: 'box', w: 14.5, d: 36, h: 21, y0: 184, dx: -7.25 },
+      { type: 'box', w: 14.5, d: 36, h: 14, y0: 184, dx: 7.25 },
+      { type: 'box', w: 14.5, d: 36, h: 7, y0: 184, dx: 21.75 },
+    ],
+  },
+  {
+    // 154 m, 30F, completed 2004 (Wikipedia / CTBUH). Stone-clad
+    // slab over the Eslite Xinyi podium, signed by its open pergola
+    // crown: two side fins and the beams spanning between them —
+    // the "grille" silhouette over the roof.
+    id: 'uni-president-international-tower', name: 'Uni-President International Tower', nameZh: '統一國際大樓',
+    lat: 25.0398083, lon: 121.565194, realHeight: 154, color: 0x9a958c,
+    site: { w: 138, d: 92, dx: 0, dz: 0 },
+    parts: [
+      { type: 'box', w: 128, d: 82, h: 30 },
+      { type: 'box', w: 60, d: 40, h: 114, y0: 30 },
+      { type: 'box', w: 2.5, d: 40, h: 10, y0: 144, dx: -28.75 },
+      { type: 'box', w: 2.5, d: 40, h: 10, y0: 144, dx: 28.75 },
+      { type: 'box', w: 60, d: 3, h: 2, y0: 152, dz: -14 },
+      { type: 'box', w: 60, d: 3, h: 2, y0: 152, dz: 0 },
+      { type: 'box', w: 60, d: 3, h: 2, y0: 152, dz: 14 },
+    ],
+  },
+  {
+    // 93.2 m, 21F, completed 2018 (Wikipedia). Vincent Callebaut's
+    // DNA tower: every floor rotates 4.5°, 90° in total (see
+    // taoZhuParts). The greenery that wraps the real balconies is
+    // facade/surface work (issue #17), not massing.
+    id: 'tao-zhu-yin-yuan', name: 'Tao Zhu Yin Yuan', nameZh: '陶朱隱園',
+    lat: 25.0386, lon: 121.5704, realHeight: 93.2, color: 0x8b978c,
+    site: { w: 72, d: 56, dx: 0, dz: 0 },
+    parts: taoZhuParts(),
+  },
+  {
+    // 142.92 m, 34F, completed 1988 (Wikipedia / CTBUH) — Taiwan's
+    // tallest building 1988–90. A sheer brown-stone slab along
+    // Keelung Road with no setbacks at all; the signature is the
+    // unbroken slab itself, closed by a slightly inset top band.
+    id: 'twtc-international-trade-building', name: 'TWTC International Trade Building', nameZh: '台北世界貿易中心國際貿易大樓',
+    lat: 25.034417, lon: 121.561167, realHeight: 142.92, color: 0x7a5c50,
+    site: { w: 60, d: 96, dx: 0, dz: 0 },
+    parts: [
+      { type: 'box', w: 36, d: 64, h: 137.92 },
+      { type: 'box', w: 33, d: 60, h: 5, y0: 137.92 },
+    ],
+  },
+  {
+    // 54.42 m, 12F, completed 1994 (Wikipedia), 市府路1號. The seat
+    // of the city government is not a tower but a long municipal
+    // slab whose PLAN is the famous 雙十 (double-ten): two
+    // cross-shaped wings sharing a spine — massed as that spine
+    // plus its two crossbars, so the 十十 reads from the air (the
+    // satellite view confirms the envelope, ~140 × 216 m).
+    // 市民廣場 Civic Plaza, the open ceremonial ground in front of
+    // its west facade across 市府路, is registered as open ground:
+    // exclusion with no mass. (It is also a geodata park polygon;
+    // the explicit rect keeps the intent testable.)
+    id: 'taipei-city-hall', name: 'Taipei City Hall', nameZh: '臺北市市政大樓',
+    lat: 25.0375, lon: 121.56444, realHeight: 54.42, color: 0x8a7f72,
+    site: { w: 152, d: 228, dx: 0, dz: 0 },
+    plaza: { w: 96, d: 34, dx: -193.5, dz: -22.5 },
+    parts: [
+      { type: 'box', w: 36, d: 216, h: 54.42 },
+      { type: 'box', w: 140, d: 36, h: 54.42, dz: -52 },
+      { type: 'box', w: 140, d: 36, h: 54.42, dz: 52 },
+    ],
+  },
+  {
+    // 64 m above ground, built 2023 (Wikipedia / Farglory). The
+    // great shallow dome over an elliptical drum — the signature is
+    // the dome itself. The published structural height, 74.5 m,
+    // measures from the sunken field 10.5 m below grade; the massing
+    // height is the 64 m that stands above the street. Interior
+    // span 230 × 170 m (zh-Wikipedia); the drum takes that span as
+    // its exterior ellipse, which also keeps its south rim clear of
+    // Zhongxiao Road's roadbed (~99 m from the centre to its edge).
+    id: 'taipei-dome', name: 'Taipei Dome', nameZh: '臺北大巨蛋',
+    lat: 25.042306, lon: 121.560083, realHeight: 64, color: 0xcfc9bb,
+    site: { w: 270, d: 200, dx: 0, dz: 0 },
+    parts: [
+      { type: 'cylinder', r: 125, rz: 95, h: 22 },
+      { type: 'dome', rx: 125, rz: 95, h: 42, y0: 22 },
+    ],
+  },
+  {
+    // 30.4 m, completed 1972 — the official building data carried in
+    // the zh-Wikipedia article body (the infobox's 29.6 m is the
+    // rounded figure); a 100 m-square hall on a raised terrace in
+    // Zhongshan Park, kept as hall mass only — the park around it
+    // stays open ground. The upswept palace roof is STYLIZED at
+    // massing level (the simplicity-over-fidelity rule): two stepped
+    // frustum tiers read as the rising eaves, a ridge closes the
+    // peak, and four corner pylon blocks mark the upturned corners;
+    // the roof's true curvature is not modelled. The published
+    // coordinate (25.0400, 121.5600) is rounded to the arc second and
+    // lands ~30 m west of the building; lat/lon below is refined so
+    // the mass stands on the OSM footprint the geodata itself
+    // carries (−475.1, −776.5; 112.1 × 114.6 m).
+    id: 'sun-yat-sen-memorial-hall', name: 'Sun Yat-sen Memorial Hall', nameZh: '國父紀念館',
+    lat: 25.04001, lon: 121.5603, realHeight: 30.4, color: 0x9c8a66,
+    site: { w: 124, d: 124, dx: 0, dz: 0 },
+    parts: [
+      { type: 'box', w: 108, d: 108, h: 1.5 },
+      { type: 'box', w: 96, d: 96, h: 15.5, y0: 1.5 },
+      { type: 'frustum', wB: 104, dB: 104, wT: 90, dT: 90, h: 4, y0: 17 },
+      { type: 'frustum', wB: 90, dB: 90, wT: 74, dT: 74, h: 3.5, y0: 21 },
+      { type: 'ridge', w: 74, d: 74, h: 0, ridgeH: 5.9, y0: 24.5 },
+      { type: 'box', w: 5, d: 5, h: 3.5, y0: 21, dx: -42, dz: -42 },
+      { type: 'box', w: 5, d: 5, h: 3.5, y0: 21, dx: 42, dz: -42 },
+      { type: 'box', w: 5, d: 5, h: 3.5, y0: 21, dx: -42, dz: 42 },
+      { type: 'box', w: 5, d: 5, h: 3.5, y0: 21, dx: 42, dz: 42 },
+    ],
+  },
+];
+
+// Resolve a structure definition into plan data: true tile-frame
+// position, exclusion rectangles, and the distance a "how far is it"
+// answer needs. Pure data, like the rest of the planner.
+function resolveLandmark(def, originLatLon) {
+  const [x, z] = latLonToTile(def.lat, def.lon, originLatLon);
+  const rect = (r) => ({
+    minX: Math.round((x + (r.dx || 0) - r.w / 2) * 10) / 10,
+    maxX: Math.round((x + (r.dx || 0) + r.w / 2) * 10) / 10,
+    minZ: Math.round((z + (r.dz || 0) - r.d / 2) * 10) / 10,
+    maxZ: Math.round((z + (r.dz || 0) + r.d / 2) * 10) / 10,
+  });
+  const site = rect(def.site);
+  const openGround = def.plaza ? rect(def.plaza) : null;
+  return {
+    id: def.id, name: def.name, nameZh: def.nameZh,
+    x, z, lat: def.lat, lon: def.lon,
+    realHeight: def.realHeight, height: def.realHeight,
+    distFromOrigin: Math.round(Math.hypot(x, z)),
+    color: def.color, site, openGround,
+    sites: openGround ? [site, openGround] : [site],
+    parts: def.parts,
+  };
+}
+
+// The registry resolved to plain marker data — the single source the
+// in-game map's landmark layer reads (js/taipei-tile.js assembles the
+// tile's landmark list from this plus Taipei 101 itself), so a
+// structure is added in exactly one place and the map can never drift
+// from the buildings that actually render.
+export function taipeiLandmarkStructures(geodata) {
+  const originLatLon = (geodata.frame && geodata.frame.originLatLon) || [25.033, 121.565];
+  return LANDMARK_STRUCTURES.map((def) => {
+    const r = resolveLandmark(def, originLatLon);
+    return { id: r.id, name: r.name, nameZh: r.nameZh, x: r.x, z: r.z, height: r.realHeight };
+  });
+}
+
 export function planTaipeiBuildings(geodata) {
   const stats = { blocksSeen: 0, blocksSkippedSmall: 0, blocksSkippedParkWater: 0, lotsDroppedVacancy: 0, lotsDroppedParkWater: 0, lotsDroppedTowerSite: 0, lotsDroppedRoad: 0 };
   const polys = [];
@@ -179,6 +452,15 @@ export function planTaipeiBuildings(geodata) {
     ? { minX: t101.x - t101.w / 2, maxX: t101.x + t101.w / 2, minZ: t101.z - t101.d / 2, maxZ: t101.z + t101.d / 2 }
     : null;
 
+  // Landmark structures (issue #26): resolved against the tile
+  // frame's real origin, and every exclusion rectangle they register
+  // (structure sites + City Hall's open plaza) joins the 101 site in
+  // keeping generic lots off.
+  const originLatLon = (geodata.frame && geodata.frame.originLatLon) || [25.033, 121.565];
+  const landmarkTowers = LANDMARK_STRUCTURES.map((def) => resolveLandmark(def, originLatLon));
+  const landmarkSites = landmarkTowers.flatMap((s) => s.sites);
+  const exclusionSites = towerSite ? [towerSite, ...landmarkSites] : landmarkSites;
+
   const lots = [];
   const blocks = geodata.blocks || [];
   for (let bi = 0; bi < blocks.length; bi++) {
@@ -209,7 +491,11 @@ export function planTaipeiBuildings(geodata) {
         const w = cellW - gap, d = cellD - gap;
         if (w < 7 || d < 7) continue;
         if (inPoly(cx, cz)) { stats.lotsDroppedParkWater++; continue; }
-        if (towerSite && cx + w / 2 > towerSite.minX && cx - w / 2 < towerSite.maxX && cz + d / 2 > towerSite.minZ && cz - d / 2 < towerSite.maxZ) {
+        let onLandmarkSite = false;
+        for (const s of exclusionSites) {
+          if (cx + w / 2 > s.minX && cx - w / 2 < s.maxX && cz + d / 2 > s.minZ && cz - d / 2 < s.maxZ) { onLandmarkSite = true; break; }
+        }
+        if (onLandmarkSite) {
           stats.lotsDroppedTowerSite++;
           continue;
         }
@@ -263,7 +549,7 @@ export function planTaipeiBuildings(geodata) {
     const top = { y0: podium.h + tierH * 8, h: 41, hwBottom: 14.0, hwTop: 13.0 };
     tower = { x: tx, z: tz, podium, tiers, top, spire: { y0: top.y0 + top.h, h: 508 - (top.y0 + top.h), w: 2.4 }, totalHeight: 508 };
   }
-  return { lots, tower, stats };
+  return { lots, tower, landmarkTowers, stats };
 }
 
 // Facade material for a planned lot, as an index into upstream
@@ -347,4 +633,104 @@ export function createTaipei101(THREE, plan) {
   spire.castShadow = true;
   towerGroup.add(spire);
   return towerGroup;
+}
+
+// ---- Landmark structure rendering (issue #26) ----
+// The two custom solids the box/cylinder set cannot express: a
+// rectangular frustum (optionally with a diagonal-cut top — the +x
+// top edge dropped by topDropX) and a hip/ridge roof. Both are built
+// as non-indexed triangle soup in a local frame (base at y=0, centre
+// at x/z=0) with flat facets via computeVertexNormals, and rendered
+// DoubleSide so a winding slip can never make a face invisible.
+
+function pushQuad(list, a, b, c, d) {
+  list.push(...a, ...b, ...c, ...a, ...c, ...d);
+}
+
+function soupGeometry(THREE, list) {
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute('position', new THREE.Float32BufferAttribute(list, 3));
+  geo.computeVertexNormals();
+  return geo;
+}
+
+function frustumGeometry(THREE, part) {
+  const drop = part.topDropX || 0;
+  const bw = part.wB / 2, bd = part.dB / 2, tw = part.wT / 2, td = part.dT / 2, h = part.h;
+  const bSW = [-bw, 0, bd], bSE = [bw, 0, bd], bNE = [bw, 0, -bd], bNW = [-bw, 0, -bd];
+  const tSW = [-tw, h, td], tSE = [tw, h - drop, td], tNE = [tw, h - drop, -td], tNW = [-tw, h, -td];
+  const list = [];
+  pushQuad(list, bSW, bSE, tSE, tSW); // south
+  pushQuad(list, bNE, bNW, tNW, tNE); // north
+  pushQuad(list, bSE, bNE, tNE, tSE);  // east (dropped edge)
+  pushQuad(list, bNW, bSW, tSW, tNW); // west
+  pushQuad(list, tSW, tSE, tNE, tNW); // top (slanted when drop > 0)
+  return soupGeometry(THREE, list);
+}
+
+function ridgeGeometry(THREE, part) {
+  const w = part.w / 2, d = part.d / 2, h = part.h, top = part.h + part.ridgeH;
+  const rl = w * 0.5; // ridge half-length along x
+  const bSW = [-w, 0, d], bSE = [w, 0, d], bNE = [w, 0, -d], bNW = [-w, 0, -d];
+  const eSW = [-w, h, d], eSE = [w, h, d], eNE = [w, h, -d], eNW = [-w, h, -d];
+  const rW = [-rl, top, 0], rE = [rl, top, 0];
+  const list = [];
+  if (h > 0) {
+    pushQuad(list, bSW, bSE, eSE, eSW);
+    pushQuad(list, bNE, bNW, eNW, eNE);
+    pushQuad(list, bSE, bNE, eNE, eSE);
+    pushQuad(list, bNW, bSW, eSW, eNW);
+  }
+  pushQuad(list, eSW, eSE, rE, rW);   // south slope
+  pushQuad(list, eNE, eNW, rW, rE);   // north slope
+  list.push(...eNW, ...eSW, ...rW);  // west gable
+  list.push(...eSE, ...eNE, ...rE);  // east gable
+  return soupGeometry(THREE, list);
+}
+
+// The landmark structures around Taipei 101 as plain meshes, one
+// subgroup per structure (named by id), each in its own plain
+// material tint — the same massing register as createTaipei101.
+// `THREE` is passed in for the same reason as createTaipei101.
+export function createTaipeiLandmarkTowers(THREE, plan) {
+  if (!plan.landmarkTowers || !plan.landmarkTowers.length) return null;
+  const group = new THREE.Group();
+  group.name = 'TaipeiLandmarkTowers';
+  for (const s of plan.landmarkTowers) {
+    const mat = new THREE.MeshStandardNodeMaterial({ color: s.color, roughness: 0.5, metalness: 0.1 });
+    const flatMat = new THREE.MeshStandardNodeMaterial({ color: s.color, roughness: 0.5, metalness: 0.1, side: THREE.DoubleSide });
+    const sub = new THREE.Group();
+    sub.name = s.id;
+    for (const part of s.parts) {
+      const y0 = part.y0 || 0;
+      let mesh = null;
+      if (part.type === 'box') {
+        mesh = new THREE.Mesh(new THREE.BoxGeometry(part.w, part.h, part.d), mat);
+        mesh.position.set(s.x + (part.dx || 0), y0 + part.h / 2, s.z + (part.dz || 0));
+        if (part.rotY) mesh.rotation.y = part.rotY;
+      } else if (part.type === 'cylinder') {
+        mesh = new THREE.Mesh(new THREE.CylinderGeometry(part.r, part.r, part.h, 24), mat);
+        if (part.rz) mesh.scale.z = part.rz / part.r; // elliptical plan
+        mesh.position.set(s.x + (part.dx || 0), y0 + part.h / 2, s.z + (part.dz || 0));
+      } else if (part.type === 'dome') {
+        // Half-ellipsoid: a unit hemisphere scaled to the part's radii.
+        mesh = new THREE.Mesh(new THREE.SphereGeometry(1, 28, 14, 0, Math.PI * 2, 0, Math.PI / 2), mat);
+        mesh.scale.set(part.rx, part.h, part.rz);
+        mesh.position.set(s.x + (part.dx || 0), y0, s.z + (part.dz || 0));
+      } else if (part.type === 'frustum') {
+        mesh = new THREE.Mesh(frustumGeometry(THREE, part), flatMat);
+        mesh.position.set(s.x, y0, s.z);
+      } else if (part.type === 'ridge') {
+        mesh = new THREE.Mesh(ridgeGeometry(THREE, part), flatMat);
+        mesh.position.set(s.x, y0, s.z);
+      }
+      if (mesh) {
+        mesh.castShadow = true;
+        mesh.receiveShadow = true;
+        sub.add(mesh);
+      }
+    }
+    group.add(sub);
+  }
+  return group;
 }
