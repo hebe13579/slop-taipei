@@ -315,6 +315,12 @@ export function controllerOptions(tile, env = {}) {
     clampToShore: false,
     groundHeight: () => 0,
     speedScale: 2,
+    // Helicopter (user request 2026-10-24): ceiling above 600 m — 750
+    // clears Taipei 101 (508 m) with margin — and ascend/descend 5×
+    // faster than the current in-Taipei rate: the vertical cap becomes
+    // 16 m/s × speedScale 2 × heliVerticalScale 5 = 160 m/s.
+    heliCeiling: 750,
+    heliVerticalScale: 5,
     avatarFigureFactory: env.webglFallback ? (appearance) => new AvatarFigure(appearance) : null,
     spawnByMode: {
       person: { x: s.x - 15.2, z: s.z + 12 },
