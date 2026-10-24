@@ -159,6 +159,137 @@ test('taipei world: a teleport lands exactly at Da\'an Forest Park centroid', as
   assert.equal(ent.position.y, 0, 'arrival stands on the flat tile ground');
 });
 
+// --- speedScale (user request 2026-10-23: double top speed in Taipei) ---
+// The tile boot passes speedScale 2; every mode's top-speed caps double,
+// acceleration/braking/drag (the driving feel) do not. Without the option
+// (NYC) the caps are the upstream values, pinned numerically below.
+
+function speedHarness(Class, worldOpts) {
+  const controller = bareManager(Class, worldOpts);
+  controller._deriveSpeedTables();
+  controller.keys = Object.fromEntries(
+    ['forward', 'backward', 'left', 'right', 'up', 'down', 'boost'].map((a) => [a, false]));
+  return controller;
+}
+
+test('speedScale 2: derived caps are exactly double, feel parameters unchanged', () => {
+  const Class = loadManagerClass();
+  const taipei = speedHarness(Class, { speedScale: 2 });
+  assert.equal(taipei.carDrive.speed, 47);
+  assert.equal(taipei.carDrive.boostSpeed, 72);
+  assert.equal(taipei.carDrive.reverseSpeed, 21);
+  assert.equal(taipei.carDrive.acceleration, 14, 'acceleration is not a cap: unchanged');
+  assert.equal(taipei.carDrive.boostAcceleration, 21);
+  assert.equal(taipei.carDrive.brake, 9);
+  assert.equal(taipei.carDrive.drag, 0.0004);
+  assert.equal(taipei.bicycleDrive.speed, 25.6);
+  assert.equal(taipei.bicycleDrive.boostSpeed, 38);
+  assert.equal(taipei.bicycleDrive.reverseSpeed, 9);
+  assert.equal(taipei.bicycleDrive.acceleration, 9);
+  assert.deepEqual({ ...taipei.personSpeed }, { walk: 8.8, run: 16.4 });
+  assert.deepEqual({ ...taipei.heliSpeed }, { cruise: 64, boost: 104, vertical: 32 });
+});
+
+test('no speedScale (NYC default): derived caps are the upstream values', () => {
+  const Class = loadManagerClass();
+  for (const worldOpts of [{}, { speedScale: 1 }, { speedScale: 0 }, { speedScale: NaN }]) {
+    const nyc = speedHarness(Class, worldOpts);
+    assert.equal(nyc.carDrive.speed, 23.5);
+    assert.equal(nyc.carDrive.boostSpeed, 36);
+    assert.equal(nyc.carDrive.reverseSpeed, 10.5);
+    assert.equal(nyc.bicycleDrive.speed, 12.8);
+    assert.equal(nyc.bicycleDrive.boostSpeed, 19);
+    assert.equal(nyc.bicycleDrive.reverseSpeed, 4.5);
+    assert.deepEqual({ ...nyc.personSpeed }, { walk: 4.4, run: 8.2 });
+    assert.deepEqual({ ...nyc.heliSpeed }, { cruise: 32, boost: 52, vertical: 16 });
+  }
+});
+
+function carEntity() {
+  return {
+    position: { x: 0, y: 0, z: 0 }, heading: 0, speed: 0,
+    vx: 0, vz: 0, angularVel: 0, steerAngle: 0,
+    pitchVel: 0, rollVel: 0, heaveVel: 0, heaveY: 0, wheelSpin: 0,
+    chassisPivot: { rotation: { x: 0, z: 0 }, position: { y: 0 } },
+    wheels: [], carState: null
+  };
+}
+
+test('speedScale in the loop: car tops out at the doubled caps, NYC at the originals', async () => {
+  const Class = loadManagerClass();
+  const { opts } = await taipeiWorldOpts();
+  const run = (worldOpts, keys) => {
+    const controller = speedHarness(Class, worldOpts);
+    const car = carEntity();
+    controller.entities = { car };
+    Object.assign(controller.keys, keys);
+    for (let i = 0; i < 3600; i++) controller.updateCar(1 / 60);
+    return car.speed;
+  };
+  assert.ok(Math.abs(run({ ...opts, speedScale: 2 }, { forward: true }) - 47) < 0.05, 'Taipei cruise cap 47 m/s');
+  assert.ok(Math.abs(run({ ...opts, speedScale: 2 }, { forward: true, boost: true }) - 72) < 0.05, 'Taipei boost cap 72 m/s');
+  assert.ok(Math.abs(run({ ...opts, speedScale: 2 }, { backward: true }) + 21) < 0.05, 'Taipei reverse cap −21 m/s');
+  assert.ok(Math.abs(run({ ...opts }, { forward: true, boost: true }) - 36) < 0.05, 'no option: boost cap stays 36 m/s');
+});
+
+test('speedScale in the loop: person, cyclist and helicopter caps', async () => {
+  const Class = loadManagerClass();
+  const { opts } = await taipeiWorldOpts();
+
+  const personRun = (worldOpts, keys) => {
+    const controller = speedHarness(Class, worldOpts);
+    const person = { position: { x: 0, y: 0, z: 0 }, heading: 0, speed: 0, verticalVel: 0 };
+    controller.entities = { person };
+    Object.assign(controller.keys, keys);
+    for (let i = 0; i < 1200; i++) controller.updatePerson(1 / 60);
+    return person.speed;
+  };
+  assert.ok(Math.abs(personRun({ ...opts, speedScale: 2 }, { forward: true, boost: true }) - 16.4) < 0.01, 'Taipei run cap 16.4 m/s');
+  assert.ok(Math.abs(personRun({ ...opts, speedScale: 2 }, { forward: true }) - 8.8) < 0.01, 'Taipei walk cap 8.8 m/s');
+  assert.ok(Math.abs(personRun({ ...opts }, { forward: true, boost: true }) - 8.2) < 0.01, 'no option: run cap stays 8.2 m/s');
+
+  const cyclistRun = (worldOpts) => {
+    const controller = speedHarness(Class, worldOpts);
+    const cyclist = {
+      position: { x: 0, y: 0, z: 0 }, heading: 0, speed: 0, leanAngle: 0, pedalPhase: 0,
+      leanPivot: { rotation: { z: 0 } }, frontWheel: { rotation: { x: 0 } },
+      rearWheel: { rotation: { x: 0 } }, crankPivot: { rotation: { x: 0 } }, pedals: []
+    };
+    controller.entities = { cyclist };
+    Object.assign(controller.keys, { forward: true, boost: true });
+    for (let i = 0; i < 3600; i++) controller.updateCyclist(1 / 60);
+    return cyclist.speed;
+  };
+  assert.ok(Math.abs(cyclistRun({ ...opts, speedScale: 2 }) - 38) < 0.05, 'Taipei cyclist boost cap 38 m/s');
+  assert.ok(Math.abs(cyclistRun({ ...opts }) - 19) < 0.05, 'no option: cyclist boost cap stays 19 m/s');
+
+  const heliRun = (worldOpts) => {
+    const controller = speedHarness(Class, worldOpts);
+    const helicopter = {
+      position: { x: 0, y: 100, z: 0 }, heading: 0, speed: 0, verticalSpeed: 0,
+      pitchAngle: 0, rollAngle: 0,
+      tiltPivot: { rotation: { x: 0, z: 0 }, position: { y: 0 } }
+    };
+    controller.entities = { helicopter };
+    Object.assign(controller.keys, { forward: true, boost: true, up: true });
+    for (let i = 0; i < 1200; i++) controller.updateHelicopter(1 / 60, 0);
+    return helicopter;
+  };
+  const taipeiHeli = heliRun({ ...opts, speedScale: 2 });
+  assert.ok(Math.abs(taipeiHeli.speed - 104) < 1e-6, 'Taipei heli boost cap 104 m/s');
+  assert.ok(Math.abs(taipeiHeli.verticalSpeed - 32) < 1e-6, 'Taipei heli vertical cap 32 m/s');
+  const nycHeli = heliRun({ ...opts });
+  assert.ok(Math.abs(nycHeli.speed - 52) < 1e-6, 'no option: heli boost cap stays 52 m/s');
+  assert.ok(Math.abs(nycHeli.verticalSpeed - 16) < 1e-6, 'no option: heli vertical cap stays 16 m/s');
+});
+
+test('taipei speedScale wiring (source contract)', () => {
+  const boot = readFileSync(join(__dirname, '../js/taipei-boot.js'), 'utf8');
+  assert.match(boot, /speedScale: 2/);
+  const main = readFileSync(join(__dirname, '../js/main.js'), 'utf8');
+  assert.match(main, /controllerManager\.worldOpts\?\.speedScale/, 'HUD meter full scale follows the controller speedScale');
+});
+
 test('taipei-boot wires the tile world into main.js (source contract)', () => {
   const boot = readFileSync(join(__dirname, '../js/taipei-boot.js'), 'utf8');
   assert.match(boot, /export function controllerOptions\(tile, env = \{\}\)/);
