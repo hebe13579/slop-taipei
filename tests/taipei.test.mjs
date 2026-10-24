@@ -7,10 +7,11 @@ import {
   getTaipeiLocationLabel,
   taipeiDistrictAt,
   nearestGraphNode,
+  currentTaipeiRoad,
 } from '../js/taipei-adapter.js';
 import { TAIPEI_TILE } from '../js/taipei-tile.js';
 import { TILE_REGISTRY, tileIdFromSearch, loadSelectedTile } from '../js/tile-registry.js';
-import { planTaipeiBuildings, pointInRing } from '../js/taipei-buildings.js';
+import { planTaipeiBuildings, taipeiCityBlocksOptions, pointInRing } from '../js/taipei-buildings.js';
 
 // M1 foundation: the Taipei tile's adapter, road graph, teleports and tile
 // registry. Numbers printed via t.diagnostic are the actual generated values.
@@ -99,6 +100,63 @@ test('getLocationLabel returns a Taipei road name near Taipei 101', (t) => {
   assert.ok(TAIPEI_TILE.roadNames.some((name) => name && label.includes(name)), `label names a real road: ${label}`);
   assert.equal(taipeiDistrictAt(lm.x, lm.z), 'Xinyi');
   assert.ok(taipeiDistrictAt(-2852, 362).startsWith("Da'an"));
+});
+
+// HUD sign ordering (pulled forward from the localization pass at the user's
+// request): the first green plate is the road the player is ON — its merged
+// roadbed footprint contains the point — and the cross street comes second.
+// Off-road points (park / block interior / landmark site) fall back to the
+// nearest-roads pair exactly as before. Points below are derived from, or
+// verified against, the pinned geodata.
+test('location sign leads with the road you are on, cross street second', (t) => {
+  const firstPlate = (label) => label.split(' · ').pop().split(' & ')[0];
+  const segMid = (pts) => {
+    let bi = 0, bl = -1;
+    for (let i = 0; i + 3 < pts.length; i += 2) {
+      const L = Math.hypot(pts[i + 2] - pts[i], pts[i + 3] - pts[i + 1]);
+      if (L > bl) { bl = L; bi = i; }
+    }
+    return [(pts[bi] + pts[bi + 2]) / 2, (pts[bi + 1] + pts[bi + 3]) / 2];
+  };
+
+  // (a) Standing on Zhongxiao E. Rd Sec. 4 (merged boulevard bed, ~29 m wide).
+  const zxBed = TAIPEI_GEO.roadbeds.find((b) => b.merged && b.name === '忠孝東路四段');
+  const [zxX, zxZ] = segMid(zxBed.pts);
+  const onZx = currentTaipeiRoad(zxX, zxZ);
+  t.diagnostic(`on-road at Zhongxiao Sec.4 (${zxX.toFixed(1)}, ${zxZ.toFixed(1)}): ${JSON.stringify(onZx)}`);
+  assert.equal(onZx.name, '忠孝東路四段');
+  assert.equal(firstPlate(getTaipeiLocationLabel(zxX, zxZ)), '忠孝東路四段');
+
+  // (a2) At the Zhongxiao x Dunhua junction the old nearest-pair ordering led
+  // with the cross street (Dunhua); on the boulevard the sign must lead with
+  // Zhongxiao and demote Dunhua to the cross-street plate.
+  const junction = getTaipeiLocationLabel(-1653, -950);
+  t.diagnostic(`junction label: ${junction}`);
+  assert.equal(junction, '忠孝東路四段 & 敦化南路一段');
+
+  // (b) Standing on a named lane (巷): the lane itself leads, not the road it
+  // branches from.
+  const laneBed = TAIPEI_GEO.roadbeds.find((b) => b.name && b.name.includes('巷')
+    && b.pts.some((_, i, p) => i % 2 === 0 && i + 3 < p.length && Math.hypot(p[i + 2] - p[i], p[i + 3] - p[i + 1]) > 60));
+  const [lnX, lnZ] = segMid(laneBed.pts);
+  t.diagnostic(`lane point (${lnX.toFixed(1)}, ${lnZ.toFixed(1)}) on ${laneBed.name}`);
+  assert.equal(currentTaipeiRoad(lnX, lnZ).name, laneBed.name);
+  assert.equal(firstPlate(getTaipeiLocationLabel(lnX, lnZ)), laneBed.name);
+
+  // (c) Da'an Forest Park centroid: inside the park, on no road — the
+  // fallback nearest-roads label applies, no crash, no invented current road.
+  const daan = TAIPEI_TILE.teleports.daanpark;
+  assert.equal(currentTaipeiRoad(daan.x, daan.z), null);
+  const parkLabel = getTaipeiLocationLabel(daan.x, daan.z);
+  t.diagnostic(`Da'an centroid label: ${parkLabel}`);
+  assert.equal(parkLabel, '建國南路二段');
+
+  // (d) Taipei 101 spawn: the landmark centre is a block interior (off every
+  // roadbed), so the familiar landmark + nearest-pair label is unchanged;
+  // the roads it names (市府路 / 松廉路) are the ones adjoining the site.
+  const lm = TAIPEI_GEO.landmarks['Taipei 101'];
+  assert.equal(currentTaipeiRoad(lm.x, lm.z), null);
+  assert.equal(getTaipeiLocationLabel(lm.x, lm.z), 'Taipei 101 · 市府路 & 松廉路');
 });
 
 // Ground-triangulation regression guard (M1 fixes increment): the boot
@@ -251,4 +309,35 @@ test('buildings plan: deterministic, excludes parks/water/101 site, tower presen
   assert.equal(plan.tower.tiers.length, 8, 'eight bamboo-joint tiers');
   assert.equal(plan.tower.totalHeight, 508, 'true overall height');
   assert.ok(plan.tower.x > site.minX && plan.tower.x < site.maxX && plan.tower.z > site.minZ && plan.tower.z < site.maxZ, 'tower stands on its landmark site');
+});
+
+// Issue #11: the plan is rendered by upstream's buildCityBlocks, fed
+// through taipeiCityBlocksOptions. The adapter must be a faithful,
+// deterministic transcription of the plan: one upstream lot per planned
+// lot, same footprint and height, a valid facade material index, the
+// tile frame as bounds, and colliders off (visual-only parity).
+test('buildings options: plan faithfully adapted for the upstream building system', (t) => {
+  const plan = planTaipeiBuildings(TAIPEI_GEO);
+  const opts = taipeiCityBlocksOptions(TAIPEI_GEO, plan);
+  const again = taipeiCityBlocksOptions(TAIPEI_GEO, plan);
+  assert.deepEqual(opts, again, 'options deterministic across calls');
+  assert.equal(opts.lots.length, plan.lots.length, 'one upstream lot per planned lot');
+  assert.equal(opts.colliders, false, 'tile buildings stay visual-only');
+  assert.deepEqual(opts.bounds, TAIPEI_GEO.frame.bbox, 'streaming bounds are the tile frame');
+  assert.deepEqual(opts.initial, [0, 0], 'first detail stream centres on the tile origin');
+  t.diagnostic(`upstream lots: ${opts.lots.length}, mats ${JSON.stringify(opts.lots.reduce((m, l) => { m[l.mat] = (m[l.mat] || 0) + 1; return m; }, {}))}`);
+  opts.lots.forEach((l, i) => {
+    const p = plan.lots[i];
+    assert.ok(l.x0 < l.x1 && l.z0 < l.z1, 'lot rect well-formed');
+    assert.ok(Math.abs((l.x0 + l.x1) / 2 - p.x) < 0.051 && Math.abs((l.z0 + l.z1) / 2 - p.z) < 0.051, 'lot centre matches the plan');
+    assert.ok(Math.abs((l.x1 - l.x0) - p.w) < 0.051 && Math.abs((l.z1 - l.z0) - p.d) < 0.051, 'lot footprint matches the plan');
+    assert.equal(l.h, p.h, 'lot height matches the plan');
+    assert.ok(Number.isInteger(l.mat) && l.mat >= 0 && l.mat <= 5, `facade material index ${l.mat} within upstream's six families`);
+  });
+  // Material zoning: the tall Xinyi core goes curtain glass (3-5), the
+  // low residential interiors stay masonry (0-2).
+  const core = opts.lots.filter((l) => l.h >= 40);
+  assert.ok(core.length > 0 && core.every((l) => l.mat >= 3), 'tall core lots are glass');
+  const low = opts.lots.filter((l) => l.h < 12);
+  assert.ok(low.length > 0 && low.every((l) => l.mat <= 2), 'low residential lots are masonry');
 });

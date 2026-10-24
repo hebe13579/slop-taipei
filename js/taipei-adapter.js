@@ -141,6 +141,57 @@ for (const r of TAIPEI_GEO.roads) {
   }
 }
 
+// Roadbed grid for the "road you are on" test. The generation map's roadbeds
+// (not the raw carriageways) are the right footprint: a divided boulevard is
+// ONE wide bed there, so a driver in its middle lanes is on it even though
+// both raw carriageway centrelines run metres to either side. A point counts
+// as ON a road when its centreline distance is within half the bed width
+// plus a kerb margin; among overlapping beds (junctions) the winner is the
+// one the point sits deepest inside (smallest dist − halfWidth).
+const BED_CELL = 64;
+const BED_ON_RADIUS = 64; // > max half bed width (~29 m) + margin, with slack
+const NON_CARRIAGEWAY_BED = new Set(['footway', 'path', 'steps', 'pedestrian', 'cycleway', 'corridor', 'elevator', 'crossing', 'platform', 'traffic_island']);
+const bedGrid = new Map();
+for (const b of TAIPEI_GEO.roadbeds || []) {
+  if (!b.name || NON_CARRIAGEWAY_BED.has(b.highway)) continue;
+  for (let i = 0; i + 3 < b.pts.length; i += 2) {
+    const seg = { name: b.name, width: b.width || 0, ax: b.pts[i], az: b.pts[i + 1], bx: b.pts[i + 2], bz: b.pts[i + 3] };
+    const ix0 = Math.floor(Math.min(seg.ax, seg.bx) / BED_CELL), ix1 = Math.floor(Math.max(seg.ax, seg.bx) / BED_CELL);
+    const iz0 = Math.floor(Math.min(seg.az, seg.bz) / BED_CELL), iz1 = Math.floor(Math.max(seg.az, seg.bz) / BED_CELL);
+    for (let ix = ix0; ix <= ix1; ix++) for (let iz = iz0; iz <= iz1; iz++) {
+      const k = ix * 100000 + iz;
+      if (!bedGrid.has(k)) bedGrid.set(k, []);
+      bedGrid.get(k).push(seg);
+    }
+  }
+}
+
+/**
+ * The carriageway road (x, z) is standing/driving on, from the roadbed
+ * footprints: { name, dist, width, horizontal } or null when the point is
+ * off every roadbed (park or block interior, a plaza, …).
+ */
+export function currentTaipeiRoad(x, z) {
+  let best = null;
+  const ix0 = Math.floor((x - BED_ON_RADIUS) / BED_CELL), ix1 = Math.floor((x + BED_ON_RADIUS) / BED_CELL);
+  const iz0 = Math.floor((z - BED_ON_RADIUS) / BED_CELL), iz1 = Math.floor((z + BED_ON_RADIUS) / BED_CELL);
+  for (let ix = ix0; ix <= ix1; ix++) for (let iz = iz0; iz <= iz1; iz++) {
+    for (const s of bedGrid.get(ix * 100000 + iz) || []) {
+      const dx = s.bx - s.ax, dz = s.bz - s.az;
+      const L2 = dx * dx + dz * dz || 1e-9;
+      const t = Math.max(0, Math.min(1, ((x - s.ax) * dx + (z - s.az) * dz) / L2));
+      const d = Math.hypot(s.ax + t * dx - x, s.az + t * dz - z);
+      const half = s.width / 2;
+      if (d > half + 3) continue;
+      const key = d - half;
+      if (!best || key < best.key || (key === best.key && d < best.dist)) {
+        best = { name: s.name, dist: d, width: s.width, horizontal: Math.abs(dx) > Math.abs(dz), key };
+      }
+    }
+  }
+  return best && { name: best.name, dist: best.dist, width: best.width, horizontal: best.horizontal };
+}
+
 /** Nearest named roads to (x, z): [{ name, nameEn, highway, dist, horizontal }] sorted by distance. */
 export function nearestTaipeiRoads(x, z, radius = 160) {
   const best = new Map();
@@ -174,10 +225,29 @@ export function nearestGraphNode(x, z) {
 const LANDMARK_LIST = Object.entries(TAIPEI_GEO.landmarks).map(([key, lm]) => ({ key, ...lm }));
 const NON_CARRIAGEWAY = new Set(['footway', 'path', 'steps', 'pedestrian', 'cycleway', 'corridor', 'elevator', 'crossing', 'platform', 'traffic_island']);
 
-/** Location label from the nearest landmark / named carriageways — Taipei analogue of city-config's getLocationLabel. */
+/**
+ * Location label — Taipei analogue of city-config's getLocationLabel.
+ * String shape is the one main.js's renderLocation renders: an optional
+ * "Place · " prefix, then street names joined by " & " (one green plate
+ * each, in order). The first street is the road the player is ON when a
+ * roadbed contains the point (see currentTaipeiRoad); the second is the
+ * cross street. Off-road points keep the nearest-roads pair.
+ */
 export function getTaipeiLocationLabel(x, z) {
   const roadsLabel = () => {
     const near = nearestTaipeiRoads(x, z, 160).filter((r) => !NON_CARRIAGEWAY.has(r.highway));
+    // Lead with the road the player is actually ON (its roadbed footprint
+    // contains the point), then the nearest differently-named cross street.
+    // The old nearest-pair ordering flipped to the cross street whenever its
+    // raw centreline passed closer — e.g. crossing a junction on a wide
+    // merged boulevard, whose own centrelines run metres to either side.
+    const cur = currentTaipeiRoad(x, z);
+    if (cur) {
+      const cross = near.find((r) => r.name !== cur.name && r.horizontal !== cur.horizontal)
+        || near.find((r) => r.name !== cur.name);
+      return cross ? `${cur.name} & ${cross.name}` : cur.name;
+    }
+    // Off-road (park, block interior, landmark site): nearest pair, as before.
     const a = near[0];
     const b = a && near.find((r) => r.name !== a.name && r.horizontal !== a.horizontal);
     if (a && b) return `${a.name} & ${b.name}`;
