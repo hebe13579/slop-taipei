@@ -343,8 +343,11 @@ async function initApp() {
     cyclist: [[['W', 'S'], 'Pedal / Brake'], [['A', 'D'], 'Lean & Turn'], [['Shift'], 'Sprint'], [['Drag'], 'Orbit']],
     helicopter: [[['W', 'S'], 'Pitch'], [['A', 'D'], 'Yaw'], [['Space', 'E'], 'Ascend'], [['Q', 'C'], 'Descend'], [['Shift'], 'Boost']]
   };
-  // Boosted top speeds in mph (controllers.js caps them at 8.2, 36, 19 & 52 m/s): full scale of the speed meter
-  const topSpeedMph = { person: 18, car: 81, cyclist: 43, helicopter: 116 };
+  // Boosted top speeds in mph (controllers.js caps them at 8.2, 36, 19 & 52 m/s): full scale of the speed meter.
+  // The numeric readout always shows the entity's true speed; this table only sets the bar's full
+  // scale, so a tile that scales its caps (Taipei speedScale 2) scales the bar's range with them.
+  const meterScale = controllerManager.worldOpts?.speedScale ?? 1;
+  const topSpeedMph = { person: 18 * meterScale, car: 81 * meterScale, cyclist: 43 * meterScale, helicopter: 116 * meterScale };
 
   function renderControlHints(mode) {
     if (!elControlsHint) return;
