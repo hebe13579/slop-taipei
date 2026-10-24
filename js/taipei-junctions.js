@@ -35,9 +35,16 @@
 //   stand only on the ring entries.
 //
 // Caps render at y = 0.061 (above the carriageways at 0.06, below
-// the median strips at 0.062) in the surface tone of the widest
-// incident arm — the dominant road owns its junction. They are
-// also the hard occluder for the painted layers: taipei-painted,
+// the median strips at 0.062). The RENDERED tone is a per-vertex
+// blend of the incident arms' surface tones (issue #91, see
+// capBlendTones below): a cap meets every arm in that arm's own
+// tone and blends across the middle, instead of wearing the
+// widest arm's flat tone across the whole junction — at mixed
+// junctions (a wide collector crossing arterials, an arterial
+// plugging into lane mouths) the flat rule read as a mismatched
+// slab. `cls` still records the widest arm's class (the census /
+// audit metadata it has always been); it no longer colours the
+// cap. They are also the hard occluder for the painted layers: taipei-painted,
 // taipei-surfaces (medians) and taipei-markings (dashes) take the
 // cap polygons and drop any band / strip / dash quad whose centre
 // lands inside one, so no paint crosses a junction core.
@@ -45,8 +52,8 @@
 // are junction furniture placed by the same crossHalf arithmetic;
 // at major junctions the box reach puts them on the cap itself.
 
-import { surfaceClass } from './taipei-surfaces.js';
-import { ribbonPoly, buildPolyGrid, pointInAnyPoly } from './taipei-painted.js';
+import { surfaceClass, SURFACE_TONES } from './taipei-surfaces.js';
+import { ribbonPoly, buildPolyGrid, pointInAnyPoly, pointInPoly } from './taipei-painted.js';
 
 export const CAP_Y = 0.061;               // between carriageways (0.06) and medians (0.062)
 export const CAP_END_OVERLAP_M = 1.5;     // cap reaches this far past an arm's bed end
@@ -305,7 +312,12 @@ const APRON_R = 12;
 function finishSite(s, roadbeds, junctions) {
   const claimed = claimsOf(s, roadbeds, junctions);
   // Disc tone: the widest arm across the claimed junctions owns
-  // the apron, exactly like a cap; default arterial.
+  // the apron; default arterial. Deliberately NOT the #91 blend:
+  // the blend is a junction-cap treatment, and a roundabout's arms
+  // are the ring itself — near-uniform around the disc, whose
+  // centre the island covers — so no clash arises here (the 北門
+  // disc in the #91 evaluation renders identically under every
+  // candidate rule).
   let cls = 'arterial', widest = null;
   for (const ji of claimed) for (const a of junctions[ji].arms || [])
     if (!widest || a.width > widest.width) widest = a;
@@ -542,15 +554,85 @@ function boxRing(j) {
   return convexHull(pts);
 }
 
+// ---------------------------------------------------------------------
+// Cap tones (issue #91): per-vertex blend of the incident arms.
+//
+// Each cap carries `tones`: { centre, origin, ring } — sRGB
+// [r, g, b] triples in 0..1. `ring` aligns with the cap's ring
+// points; `centre` is the tone at `origin`, the fan centre the
+// renderer triangulates from. The tone at a point is the arms'
+// SURFACE_TONES entries weighted by arm width and an angular
+// kernel around the point's direction from the junction centre:
+// a vertex sitting at an arm's mouth (its angle ≈ the arm's
+// direction, where the hull vertices live) takes that arm's tone
+// almost purely; a corner between two arms mixes the two
+// neighbours; the centre mixes all arms by width. The kernel
+// cos^12 falls fast (a vertex 45° from an arm keeps under 2% of
+// it) yet keeps width in play at mid angles, and it is steep
+// enough that a vertex at a narrow arm's own mouth — within
+// ~13° of its axis — is owned by that arm even against a 5×
+// width disadvantage (measured on the synthetic 30 m arterial ×
+// 6 m lane junction in tests/taipei-captone.test.mjs): narrow
+// lane mouths lose their seam too, not just wide-road mouths.
+// The result is a pure function of the arms and the ring
+// (deterministic, no iteration state), applies to box and fitted
+// caps alike, and is a convex combination — every component
+// stays inside the arms' tone envelope.
+//
+// origin is the junction centre when it lies inside the ring
+// (all but a handful of ramp-cluster caps), else the ring's
+// centroid, which a convex ring always contains — the renderer's
+// fan must start inside the polygon it fans.
+
+export const CAP_BLEND_KERNEL = 12;
+
+const toneRGB = (cls) => {
+  const t = SURFACE_TONES[cls];
+  return [((t >> 16) & 255) / 255, ((t >> 8) & 255) / 255, (t & 255) / 255];
+};
+const round4 = (v) => Math.round(v * 10000) / 10000;
+
+export function capBlendTones(j, ringPts) {
+  const arms = j.arms.map((a) => ({
+    width: a.width,
+    ang: Math.atan2(a.dirZ, a.dirX),
+    rgb: toneRGB(surfaceClass({ highway: a.highway })),
+  }));
+  const totW = arms.reduce((s, a) => s + a.width, 0) || 1;
+  const centre = [0, 1, 2].map((k) => round4(arms.reduce((s, a) => s + a.width * a.rgb[k], 0) / totW));
+  const at = (px, pz) => {
+    const th = Math.atan2(pz - j.z, px - j.x);
+    let den = 0;
+    const num = [0, 0, 0];
+    for (const a of arms) {
+      const d = Math.cos(th - a.ang);
+      if (d <= 0) continue;
+      const w = a.width * Math.pow(d, CAP_BLEND_KERNEL);
+      den += w;
+      for (let k = 0; k < 3; k++) num[k] += w * a.rgb[k];
+    }
+    if (den < 1e-9) return centre;
+    return num.map((v) => round4(v / den));
+  };
+  const origin = pointInPoly([j.x, j.z], ringPts)
+    ? [j.x, j.z]
+    : [
+        ringPts.reduce((s, p) => s + p[0], 0) / ringPts.length,
+        ringPts.reduce((s, p) => s + p[1], 0) / ringPts.length,
+      ];
+  return { centre, origin, ring: ringPts.map(([px, pz]) => at(px, pz)) };
+}
+
 // planJunctionCaps(roadbeds, junctions, sitesIn?) -> [{ x, z,
-// ring, radius, cls, arms, signalized, area, kind }]
+// ring, radius, cls, tones, arms, signalized, area, kind }]
 // junctions: detectJunctions() output (js/taipei-markings.js) — the
 // caller detects once and shares the result with the markings
 // builder. One cap per detected junction with >= 2 arms that no
 // roundabout site claims. kind is 'box' for major junctions,
 // 'fitted' for minor ones. ring is a flat [x, z, …] array in hull
-// order; cls is the surfaceClass of the widest incident arm (its
-// SURFACE_TONES entry is the cap's tone).
+// order; cls is the surfaceClass of the widest incident arm
+// (census/metadata — the rendered tone is `tones`, the per-vertex
+// blend above).
 export function planJunctionCaps(roadbeds, junctions, sitesIn = null) {
   const sites = sitesIn || planRoundabouts(roadbeds, junctions);
   const claimed = new Set(sites.flatMap((s) => s.claimedJunctions));
@@ -567,11 +649,15 @@ export function planJunctionCaps(roadbeds, junctions, sitesIn = null) {
     for (const [px, pz] of hull) radius = Math.max(radius, Math.hypot(px - j.x, pz - j.z));
     let widest = j.arms[0];
     for (const a of j.arms) if (a.width > widest.width) widest = a;
+    const ring = ringOf(hull);
+    const ringPts = [];
+    for (let i = 0; i + 1 < ring.length; i += 2) ringPts.push([ring[i], ring[i + 1]]);
     caps.push({
       x: j.x, z: j.z,
-      ring: ringOf(hull),
+      ring,
       radius: Math.round(radius * 10) / 10,
       cls: surfaceClass({ highway: widest.highway }),
+      tones: capBlendTones(j, ringPts),
       arms: j.arms.length,
       signalized: !!j.signalized,
       area: Math.round(area),
