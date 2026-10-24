@@ -1,9 +1,9 @@
 // js/taipei-streetscape.js
-// Streetscape geometry for the Taipei tile (issues #27, #28): visible
-// sidewalks (人行道) for sidewalk-layout roadbeds and deterministic
-// street-tree placement. Pure functions over the geodata shapes — no
-// three.js — so tests and evidence scripts can run them in node;
-// js/taipei-boot.js turns the results into meshes.
+// Streetscape geometry for the Taipei tile (issues #27, #28, #41):
+// visible sidewalks (人行道) for sidewalk-layout roadbeds, deterministic
+// street-tree placement, and park planting. Pure functions over the
+// geodata shapes — no three.js — so tests and evidence scripts can run
+// them in node; js/taipei-boot.js turns the results into meshes.
 //
 // Sidewalks (issue #27): a sidewalk-layout roadbed gets a paving band on
 // BOTH edges, outside the carriageway, width by road class. Bands are
@@ -449,5 +449,260 @@ export function planStreetTrees(geodata, plan, opts = {}) {
   return {
     trees: [...sidewalk, ...median],
     stats: { sidewalk: sidewalk.length, median: median.length, rejected, capped, cap },
+  };
+}
+
+// ---------------------------------------------------------------------
+// Issue #41 — trees inside parks
+//
+// Street trees (above) deliberately keep OUT of parks; this planner
+// plants the park interiors. Placement is a hash-jittered grid over
+// each park polygon, shaped by three fields, all deterministic:
+//   - an edge bias (denser near the boundary, where real park planting
+//     and street canopy meet),
+//   - a path bias (slightly denser a few metres off the park's own
+//     footpaths — but never ON one: a hard margin keeps every trunk
+//     off paths, water, carriageways, lots and landmark sites),
+//   - hash-placed clearing discs where the acceptance probability
+//     collapses, so a big park reads as woodland WITH clearings (lawn,
+//     amphitheatre apron, playground) instead of uniform fuzz.
+// 廣場-named polygons are paved civic squares since #29 (see
+// isPlazaPark in taipei-surfaces.js) — not planting ground, skipped
+// whole. Density/spacing steps down with park size: big parks get
+// woodland spacing, pocket parks a loose canopy.
+//
+// Budget: PARK_TREE_CAP park instances ON TOP of the street cap. One
+// tree is 60 triangles (5-sided capped trunk 20 + two detail-0
+// icosahedra 20 + 20), so the combined worst case is
+// (3000 + 7500) × 60 = 630k triangles in ONE additional-free draw call
+// (boot feeds both lists to the same InstancedMesh). If the raw plan
+// exceeds the cap it is thinned per park, proportionally, by the same
+// deterministic stride the street cap uses.
+
+export const PARK_TREE_CAP = 7500;
+
+export function ringArea(ring) {
+  let a = 0;
+  for (let i = 0, j = ring.length - 2; i < ring.length; j = i, i += 2) {
+    a += (ring[j] + ring[i]) * (ring[j + 1] - ring[i + 1]);
+  }
+  return Math.abs(a / 2);
+}
+
+// [name, minArea, gridSpacing, baseAccept, clearingCount range, edgeZone]
+const PARK_CLASSES = [
+  { id: 'large', minArea: 40000, spacing: 9, accept: 0.68, clearings: [3, 6], edgeZone: 16 },
+  { id: 'medium', minArea: 4000, spacing: 11, accept: 0.54, clearings: [1, 3], edgeZone: 14 },
+  { id: 'small', minArea: 400, spacing: 12.5, accept: 0.46, clearings: [0, 1], edgeZone: 10 },
+  { id: 'tiny', minArea: 0, spacing: 13, accept: 0.38, clearings: [0, 0], edgeZone: 8 },
+];
+
+export function parkSizeClass(area) {
+  return PARK_CLASSES.find((c) => area >= c.minArea);
+}
+
+// A park polygon whose name carries 廣場 is a paved square (#29), the
+// same predicate taipei-surfaces.js renders by — mirrored here so this
+// module stays dependency-free.
+const isPlazaName = (name) => (name || '').includes('廣場');
+
+export function planParkTrees(geodata, plan, opts = {}) {
+  const cap = opts.cap ?? PARK_TREE_CAP;
+  const parks = geodata.parks || [];
+  const beds = geodata.roadbeds || [];
+  const paths = (geodata.roads || []).filter((r) => NON_CARRIAGEWAY.has(r.highway));
+
+  const maxHalf = (items) => (items.length ? Math.max(...items.map((r) => Math.max((r.width || 3) / 2, 0.75))) : 0);
+  const bedGrid = buildSegmentGrid(beds, maxHalf(beds) + 1.5);
+  const pathGrid = buildSegmentGrid(paths, maxHalf(paths) + 2.5);
+
+  // Water polygons (bbox-prefiltered point-in-ring, as in the street
+  // planner): a park pond or a river clipping a riverside park stays
+  // unplanted.
+  const water = (geodata.water || []).map((w) => {
+    const ring = w.ring;
+    let minX = Infinity, maxX = -Infinity, minZ = Infinity, maxZ = -Infinity;
+    for (let i = 0; i < ring.length; i += 2) {
+      minX = Math.min(minX, ring[i]); maxX = Math.max(maxX, ring[i]);
+      minZ = Math.min(minZ, ring[i + 1]); maxZ = Math.max(maxZ, ring[i + 1]);
+    }
+    return { ring, minX, maxX, minZ, maxZ };
+  });
+  const inWater = (x, z) => water.some((w) => x >= w.minX && x <= w.maxX && z >= w.minZ && z <= w.maxZ && pointInRing(x, z, w.ring));
+
+  // Building lots + the 101 site + landmark structure sites (SYS
+  // Memorial Hall stands inside 中山公園, the Dome borders a park
+  // strip): the same exclusion shapes the street planner uses (32 m
+  // lot grid included — a naive scan is 21k lots per candidate),
+  // plus the landmark rects planTaipeiBuildings resolved.
+  const lots = plan?.lots || [];
+  const lotGrid = new Map();
+  const lotKey = (cx, cz) => `${cx},${cz}`;
+  lots.forEach((lot, i) => {
+    const r = Math.max(lot.w, lot.d) / 2 + 1;
+    const minCx = Math.floor((lot.x - r) / 32), maxCx = Math.floor((lot.x + r) / 32);
+    const minCz = Math.floor((lot.z - r) / 32), maxCz = Math.floor((lot.z + r) / 32);
+    for (let cx = minCx; cx <= maxCx; cx++) for (let cz = minCz; cz <= maxCz; cz++) {
+      const k = lotKey(cx, cz);
+      if (!lotGrid.has(k)) lotGrid.set(k, []);
+      lotGrid.get(k).push(i);
+    }
+  });
+  const inLot = (x, z) => {
+    const cell = lotGrid.get(lotKey(Math.floor(x / 32), Math.floor(z / 32))) || [];
+    for (const i of cell) {
+      const lot = lots[i];
+      if (Math.abs(x - lot.x) <= lot.w / 2 + 0.3 && Math.abs(z - lot.z) <= lot.d / 2 + 0.3) return true;
+    }
+    return false;
+  };
+  const siteRects = [];
+  const tower = plan?.tower || null;
+  if (tower) {
+    const w = (tower.podium?.w || 76) / 2 + 1, d = (tower.podium?.d || 76) / 2 + 1;
+    siteRects.push({ minX: tower.x - w, maxX: tower.x + w, minZ: tower.z - d, maxZ: tower.z + d });
+  }
+  for (const lt of plan?.landmarkTowers || []) for (const s of lt.sites || []) siteRects.push(s);
+  const inSite = (x, z) => siteRects.some((r) => x >= r.minX - 0.5 && x <= r.maxX + 0.5 && z >= r.minZ - 0.5 && z <= r.maxZ + 0.5);
+
+  const rejected = { water: 0, carriageway: 0, path: 0, lot: 0, site: 0, probability: 0 };
+  const byClass = {};
+  for (const c of PARK_CLASSES) byClass[c.id] = { parks: 0, area: 0, candidates: 0, trees: 0 };
+  const perPark = []; // { name, cls, area, trees[] } — cap thinning is per park
+
+  for (const park of parks) {
+    if (isPlazaName(park.name)) continue;
+    const ring = park.ring;
+    if (!ring || ring.length < 6) continue;
+    const area = ringArea(ring);
+    const cls = parkSizeClass(area);
+    const st = byClass[cls.id];
+    st.parks++; st.area += area;
+    const key = `park|${park.name || ''}|${ring[0]},${ring[1]}|${ring.length}`;
+    const trees = [];
+
+    // Ring segments + bbox (boundary-distance field for the edge bias;
+    // each segment carries its bbox so the distance loop can skip
+    // segments that cannot beat the current best).
+    const segs = [];
+    let minX = Infinity, maxX = -Infinity, minZ = Infinity, maxZ = -Infinity;
+    for (let i = 0; i < ring.length; i += 2) {
+      minX = Math.min(minX, ring[i]); maxX = Math.max(maxX, ring[i]);
+      minZ = Math.min(minZ, ring[i + 1]); maxZ = Math.max(maxZ, ring[i + 1]);
+      const j = (i + 2) % ring.length;
+      segs.push({
+        ax: ring[i], az: ring[i + 1], bx: ring[j], bz: ring[j + 1],
+        minX: Math.min(ring[i], ring[j]), maxX: Math.max(ring[i], ring[j]),
+        minZ: Math.min(ring[i + 1], ring[j + 1]), maxZ: Math.max(ring[i + 1], ring[j + 1]),
+      });
+    }
+    // Clearings: hash points inside the bbox, kept only when they land
+    // in the ring; radius scales with the park's own size.
+    const nClear = cls.clearings[0] + Math.floor(hash01(`${key}|nclear`) * (cls.clearings[1] - cls.clearings[0] + 1));
+    const clearings = [];
+    for (let c = 0; c < nClear; c++) {
+      const cx = minX + hash01(`${key}|clear${c}x`) * (maxX - minX);
+      const cz = minZ + hash01(`${key}|clear${c}z`) * (maxZ - minZ);
+      if (!pointInRing(cx, cz, ring)) continue;
+      const r = (0.10 + hash01(`${key}|clear${c}r`) * 0.14) * Math.sqrt(area);
+      clearings.push({ x: cx, z: cz, r });
+    }
+    // Jittered grid in a hash-rotated frame: no axis-aligned orchard.
+    const ang = hash01(`${key}|rot`) * (Math.PI / 6);
+    const cos = Math.cos(ang), sin = Math.sin(ang);
+    const cxm = (minX + maxX) / 2, czm = (minZ + maxZ) / 2;
+    const diag = Math.hypot(maxX - minX, maxZ - minZ) / 2 + cls.spacing;
+    const step = cls.spacing;
+    let candIdx = 0;
+    for (let gy = -diag; gy <= diag; gy += step) {
+      for (let gx = -diag; gx <= diag; gx += step) {
+        const jx = (hash01(`${key}|jx|${gx.toFixed(1)},${gy.toFixed(1)}`) - 0.5) * step * 0.64;
+        const jz = (hash01(`${key}|jz|${gx.toFixed(1)},${gy.toFixed(1)}`) - 0.5) * step * 0.64;
+        const x = cxm + (gx + jx) * cos - (gy + jz) * sin;
+        const z = czm + (gx + jx) * sin + (gy + jz) * cos;
+        if (x < minX || x > maxX || z < minZ || z > maxZ) continue;
+        if (!pointInRing(x, z, ring)) continue;
+        st.candidates++;
+        const ci = candIdx++;
+        // Hard exclusions first (each counted once, in check order).
+        if (inWater(x, z)) { rejected.water++; continue; }
+        let bad = false;
+        for (const s of bedGrid.near(x, z)) {
+          if (distToSegment(x, z, s.ax, s.az, s.bx, s.bz) < s.half + 0.9) { rejected.carriageway++; bad = true; break; }
+        }
+        if (bad) continue;
+        for (const s of pathGrid.near(x, z)) {
+          if (distToSegment(x, z, s.ax, s.az, s.bx, s.bz) < s.half + 1.8) { rejected.path++; bad = true; break; }
+        }
+        if (bad) continue;
+        if (inLot(x, z)) { rejected.lot++; continue; }
+        if (inSite(x, z)) { rejected.site++; continue; }
+        // Acceptance field: base × edge bias × path bias ÷ clearings.
+        let p = cls.accept;
+        let dEdge = Infinity;
+        for (const s of segs) {
+          const dx = Math.max(s.minX - x, 0, x - s.maxX);
+          const dz = Math.max(s.minZ - z, 0, z - s.maxZ);
+          if (dx * dx + dz * dz >= dEdge * dEdge) continue;
+          dEdge = Math.min(dEdge, distToSegment(x, z, s.ax, s.az, s.bx, s.bz));
+        }
+        if (dEdge < cls.edgeZone) p *= 1 + 0.35 * (1 - dEdge / cls.edgeZone);
+        let dPath = Infinity;
+        for (const s of pathGrid.near(x, z)) dPath = Math.min(dPath, distToSegment(x, z, s.ax, s.az, s.bx, s.bz) - s.half);
+        if (dPath < 7) p *= 1.2;
+        for (const c of clearings) {
+          const d = Math.hypot(x - c.x, z - c.z);
+          if (d < c.r) p *= d < 0.65 * c.r ? 0.03 : 0.03 + 0.97 * ((d - 0.65 * c.r) / (0.35 * c.r));
+        }
+        if (hash01(`${key}|roll|${ci}`) >= Math.min(p, 1)) { rejected.probability++; continue; }
+        trees.push({
+          x, z, kind: 'park', park: park.name || '',
+          scale: 0.85 + hash01(`${key}|scale|${ci}`) * 0.6,
+          rot: hash01(`${key}|trot|${ci}`) * Math.PI * 2,
+        });
+      }
+    }
+    st.trees += trees.length;
+    perPark.push({ name: park.name || '', cls: cls.id, area, trees });
+  }
+
+  let total = perPark.reduce((s, p) => s + p.trees.length, 0);
+  let capped = false;
+  if (total > cap) {
+    capped = true;
+    // Proportional per-park allocation (floored), then the flooring
+    // remainder is handed back in park order — stride-thinned, the
+    // street cap's method, so a capped plan is the same plan, sparser.
+    const keeps = perPark.map((p) => Math.floor((cap * p.trees.length) / total));
+    let leftover = cap - keeps.reduce((s, k) => s + k, 0);
+    perPark.forEach((p, i) => {
+      if (leftover <= 0) return;
+      const add = Math.min(leftover, p.trees.length - keeps[i]);
+      keeps[i] += add;
+      leftover -= add;
+    });
+    perPark.forEach((p, i) => {
+      const keep = keeps[i];
+      if (keep > 0 && p.trees.length > keep) {
+        const out = [];
+        for (let j = 0; j < keep; j++) out.push(p.trees[Math.floor((j * p.trees.length) / keep)]);
+        p.trees = out;
+      } else if (keep === 0) p.trees = [];
+    });
+    total = perPark.reduce((s, p) => s + p.trees.length, 0);
+    for (const c of PARK_CLASSES) byClass[c.id].trees = 0;
+    for (const p of perPark) byClass[p.cls].trees += p.trees.length;
+  }
+
+  const trees = perPark.flatMap((p) => p.trees);
+  const topParks = [...perPark]
+    .filter((p) => p.trees.length > 0)
+    .sort((a, b) => b.trees.length - a.trees.length)
+    .slice(0, 8)
+    .map((p) => ({ name: p.name, area: Math.round(p.area), trees: p.trees.length }));
+
+  return {
+    trees,
+    stats: { byClass, topParks, rejected, capped, cap, totalCandidates: Object.values(byClass).reduce((s, c) => s + c.candidates, 0) },
   };
 }
