@@ -1,6 +1,6 @@
 import * as THREE from 'three/webgpu';
 
-import { createTaipeiBuildings } from './taipei-buildings.js';
+import { planTaipeiBuildings, taipeiCityBlocksOptions, createTaipei101 } from './taipei-buildings.js';
 import { AvatarFigure } from './avatar-figure.js';
 
 // js/taipei-boot.js
@@ -8,9 +8,10 @@ import { AvatarFigure } from './avatar-figure.js';
 // contains — the tile land rectangle, block bounding rectangles, water
 // polygons, park polygons and road centrelines as flat ribbons — plus,
 // per roadbed, the Taiwan street-section band its pedestrianLayout
-// calls for (see TAIWAN_STREETSCAPE.md), and the procedural buildings
-// of js/taipei-buildings.js (lots subdivided from the raster blocks;
-// the Taipei 101 landmark gets a massing placeholder). Still absent:
+// calls for (see TAIWAN_STREETSCAPE.md), and the buildings planned by
+// js/taipei-buildings.js (lots subdivided from the raster blocks),
+// rendered by upstream's own building system (js/buildings.js); the
+// Taipei 101 landmark gets a massing placeholder. Still absent:
 //
 //   - NO traffic / pedestrians (the road graph exists in the geodata, but
 //     road-network.js derives lanes from the NYC avenue/street grid; a
@@ -175,7 +176,7 @@ export function controllerOptions(tile, env = {}) {
   };
 }
 
-export function buildTaipeiGround(scene, tile) {
+export function buildTaipeiGround(scene, tile, deps = {}) {
   const geo = tile.geodata;
   const bb = geo.frame.bbox;
   const group = new THREE.Group();
@@ -221,18 +222,30 @@ export function buildTaipeiGround(scene, tile) {
   addLayer(ribbonsGeometry(carriageways, 0.06), mat(0x33363b, 0.9), 'TaipeiRoads');
   addLayer(stripesGeometry(carriageways.filter((r) => r.pedestrianLayout === 'painted'), 0.065), mat(0x35794a, 0.9), 'TaipeiPaintedStripes');
 
-  // Procedural buildings on the raster blocks + the Taipei 101 massing
-  // (js/taipei-buildings.js). The [taipei-buildings] console line is the
-  // boot-log evidence for this step's cost and yield.
+  // Buildings on the raster blocks + the Taipei 101 massing. The lot
+  // plan is js/taipei-buildings.js's; the rendering is upstream's
+  // buildCityBlocks (js/buildings.js) fed the planned lots — the exact
+  // machinery Manhattan renders with. (The first buildings increment
+  // rendered the plan with a custom InstancedMesh whose buildings never
+  // appeared on mobile WebGPU — issue #11.) main.js injects
+  // buildCityBlocks (it already imports it for NYC) so this module's
+  // import graph, and with it the Pages preload list, stay unchanged.
+  // The [taipei-buildings] console line is the boot-log evidence for
+  // this step's cost and yield.
   const buildingsStart = performance.now();
-  const buildings = createTaipeiBuildings(THREE, geo);
-  group.add(buildings.group);
-  console.info(`[taipei-buildings] ${buildings.plan.lots.length} buildings + Taipei 101 massing (508 m) planned in ${Math.round(performance.now() - buildingsStart)}ms`);
+  const plan = planTaipeiBuildings(geo);
+  const cityBlocks = deps.buildCityBlocks
+    ? deps.buildCityBlocks(scene, taipeiCityBlocksOptions(geo, plan))
+    : null;
+  const tower = createTaipei101(THREE, plan);
+  if (tower) group.add(tower);
+  console.info(`[taipei-buildings] ${plan.lots.length} buildings via upstream building system + Taipei 101 massing (508 m) planned in ${Math.round(performance.now() - buildingsStart)}ms`);
 
   scene.add(group);
   return {
     group,
-    buildings: buildings.plan,
+    buildings: plan,
+    cityBlocks,
     sidewalks: [],
     footprints: [],
     colliders: [],
