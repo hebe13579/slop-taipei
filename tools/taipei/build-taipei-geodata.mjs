@@ -90,6 +90,7 @@ function roadWidth(tags) {
 }
 // pedestrianLayout lives in ./pedestrian-layout.mjs, shared with
 // build-generation-map.mjs so the two builders can never disagree.
+
 // Clip a polyline to the tile rect, returning runs (an OSM way can enter/leave
 // the tile several times). Liang-Barsky per segment. Points are records
 // {x, z, nodeId}: nodeId is the OSM node id when the point is an original way

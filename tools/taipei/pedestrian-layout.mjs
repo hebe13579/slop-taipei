@@ -13,6 +13,10 @@
 // rule painted any 巷 and anything < 8 m, which put green bands on
 // 98% sub-8 m roadbeds, where they read as bike lanes.)
 export function pedestrianLayout(tags, width) {
+  // A deck (layer >= 1, or any bridge tag) is not a street: it carries
+  // no pedestrian layout at all — no painted stripes, no sidewalk band.
+  // 'shared' is the enum's no-geometry value (issue #22).
+  if (parseInt(tags.layer || '0', 10) >= 1 || (!!tags.bridge && tags.bridge !== 'no')) return 'shared';
   if (tags.arcade || tags.covered === 'colonnade') return 'arcade';
   const sw = [tags.sidewalk, tags['sidewalk:both'], tags['sidewalk:left'], tags['sidewalk:right']];
   if (sw.some((v) => v && !['no', 'none'].includes(v))) return 'sidewalk';

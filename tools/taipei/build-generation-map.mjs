@@ -32,6 +32,28 @@
 //      They remain in the roads array and the routing graph, untouched.
 //   3. WIDTH OVERRIDES — explicit per-name widths, see OVERRIDES below.
 //
+// Rework v2 (issue #22, road-geometry quality pilot — Jianguo corridor +
+// Xinyi Rd Sec 5):
+//   4. STAGGERED-COUNTERPART MERGE — pairing coverage is judged on the
+//      SHORTER segment of a pair (plus an in-range opposing-tangent
+//      density test on both sides), and a segment may pair with several
+//      counterparts over disjoint arc-length ranges — later ranges are
+//      trimmed against earlier claims at junction fans, and each merged
+//      bed's geometry is dilated slightly past its claimed range so
+//      diverging midlines cannot leave a bare wedge at group boundaries.
+//      OSM splits the two
+//      carriageways of a boulevard at different stations, so v1's
+//      "70% of EACH segment must pair" test failed wherever the
+//      segmentation was staggered — leaving unmerged ribbons with the
+//      median gap showing as a pale seam (Xinyi Rd Sec 5) and skinny
+//      unmerged tails on the Jianguo elevated deck.
+//   5. ELEVATED CARRIAGEWAYS — a way with layer >= 1 or a bridge tag is a
+//      deck, not a street: its pedestrianLayout is 'shared' (no green
+//      painted stripes, no phantom sidewalk band on an expressway), and
+//      elevated *_link ramps are never dropped by the 120 m link policy
+//      (nothing else covers a ramp's diagonal between deck and ground —
+//      dropping it leaves a hole at the interchange).
+//
 // usage: node tools/taipei/build-generation-map.mjs
 import fs from 'node:fs';
 import path from 'node:path';
@@ -52,6 +74,8 @@ const MIN_PAIR_SEGMENT_M = 12;     // shorter runs are junction stubs, not carri
 const MAX_GROUP_MEMBERS = 5;
 const LINK_MIN_LENGTH_M = 120;     // *_link ways shorter than this are not rendered
 const TAIL_MIN_LENGTH_M = 4;       // non-overlap tails shorter than this are dropped
+const MIN_CLAIM_RANGE_M = 25;      // a pairing range trimmed below this is not worth a merged bed
+const GROUP_DILATE_M = 14;         // merged-bed geometry reaches this far past the claimed range at both ends (junction wedge stitch)
 //
 // WIDTH OVERRIDES — by exact road name, applied instead of the inferred
 // width (explicit OSM width tag > lanes x 3.2 m > name/class default).
@@ -61,14 +85,23 @@ const TAIL_MIN_LENGTH_M = 4;       // non-overlap tails shorter than this are dr
 // Anti-rot: an override that matches zero ways fails this script (and
 // validate.mjs), so a renamed road cannot leave a dead rule behind.
 //
-// Currently EMPTY. Candidates observed in the 2026-10-23 extract but NOT
-// overridden, because the true width cannot be demonstrated from the
-// extract alone (only that sibling segments disagree):
+// One entry (issue #22 pilot): the Jianguo deck's lanes tags demonstrably
+// under-measure it — see the entry. Candidates observed in the 2026-10-23
+// extract but NOT overridden, because the true width cannot be
+// demonstrated from the extract alone (only that sibling segments
+// disagree):
 //   - 信義路五段 has one 2-lane (6.4 m) run among 9.6-16 m siblings.
 //   - 仁愛路四段 has 3.2/6.4 m runs (its tree-separated slow lanes — the
 //     boulevard merge already folds these into the roadbed span).
 const OVERRIDES = {
-  // '道路名稱': 12.8, // reason, with the measurement that demonstrates it
+  // 建國快速道路 (Jianguo Elevated deck): OSM lanes tags (2 per carriageway
+  // on the central stretch) infer 6.4 m per carriageway, but Esri World
+  // Imagery (z17, reference in the issue #22 evidence) shows ≈22 m of
+  // asphalt across the deck (≈29 m counting parapets/shoulders) — ≈11 m
+  // per carriageway including shoulders and the central barrier share.
+  // Without this, merged deck beds render 16.1 m wide on the Da'an
+  // stretch, under the measured width under any reading of the imagery.
+  '建國快速道路': 11,
 };
 
 // ---- frame (copied tangent-plane math from build-taipei-geodata.mjs) ----
@@ -102,6 +135,11 @@ function roadWidth(tags) {
   if (name.includes('巷')) return 6;
   return WIDTH_BY_CLASS[tags.highway] ?? 6;
 }
+// A deck (layer >= 1, or any bridge tag) is not a street: its
+// pedestrianLayout is 'shared' via the guard in ./pedestrian-layout.mjs
+// (issue #22). isElevatedTags is used directly below for the
+// elevated-link rendering policy.
+const isElevatedTags = (tags) => parseInt(tags.layer || '0', 10) >= 1 || (!!tags.bridge && tags.bridge !== 'no');
 const NON_CARRIAGEWAY = new Set(['footway', 'path', 'steps', 'pedestrian', 'cycleway', 'corridor', 'elevator', 'crossing', 'platform', 'traffic_island']);
 
 // ---- polyline helpers ----
@@ -237,7 +275,7 @@ for (const el of load('osm_roads.json').elements) {
       wayId: el.id, name: el.tags.name || '', highway: el.tags.highway, width,
       pedestrianLayout: layout,
       oneway: ['yes', 'true', '1', '-1'].includes(onewayRaw), reverse: onewayRaw === '-1',
-      layer: el.tags.layer || '', pts, cum, length,
+      layer: el.tags.layer || '', bridge: el.tags.bridge || '', pts, cum, length,
     });
   }
 }
@@ -249,11 +287,19 @@ for (const [name, n] of overrideMatched) {
 }
 
 // ---- ramp/link policy ----------------------------------------------------
+// Ground-level short links are dropped (junction spaghetti, covered by the
+// crossing roadbeds). ELEVATED links (ramps: layer >= 1 or a bridge tag)
+// are exempt — a ramp's diagonal between deck and ground is covered by
+// nothing else, so dropping it leaves a hole at the interchange (issue #22).
 const linkWayLength = new Map();
-for (const s of segments) if (s.highway.endsWith('_link')) linkWayLength.set(s.wayId, (linkWayLength.get(s.wayId) || 0) + s.length);
+const elevatedWays = new Set();
+for (const s of segments) {
+  if (s.highway.endsWith('_link')) linkWayLength.set(s.wayId, (linkWayLength.get(s.wayId) || 0) + s.length);
+  if (isElevatedTags(s)) elevatedWays.add(s.wayId);
+}
 const excludedLinkWays = new Set();
 let excludedLinkLength = 0;
-for (const [wayId, len] of linkWayLength) if (len < LINK_MIN_LENGTH_M) { excludedLinkWays.add(wayId); excludedLinkLength += len; }
+for (const [wayId, len] of linkWayLength) if (len < LINK_MIN_LENGTH_M && !elevatedWays.has(wayId)) { excludedLinkWays.add(wayId); excludedLinkLength += len; }
 const isExcludedLink = (s) => s.highway.endsWith('_link') && excludedLinkWays.has(s.wayId);
 
 // ---- boulevard merge ------------------------------------------------------
@@ -283,6 +329,8 @@ function pairEval(A, B) {
   // Sampled test, both directions: a sample is "good" when its closest point
   // on the other centreline is within range AND the travel tangents there
   // oppose (this rejects junction crossovers, whose tangents do not).
+  // Returns the good arc-length range plus two quality measures: coverage
+  // (the range's share of S) and density (the good share inside the range).
   const sampleTest = (S, T) => {
     const step = 3;
     const n = Math.max(2, Math.round(S.length / step));
@@ -298,13 +346,27 @@ function pairEval(A, B) {
       flags.push({ s, ok });
       if (ok) { good++; distSum += cp.d; if (s < sMin) sMin = s; if (s > sMax) sMax = s; }
     }
-    if (good / (n + 1) < MIN_PAIR_OVERLAP) return null;
+    if (!good) return null;
     const inRange = flags.filter((f) => f.s >= sMin && f.s <= sMax);
-    if (!inRange.length || inRange.filter((f) => f.ok).length / inRange.length < MIN_INRANGE_OVERLAP) return null;
-    return { range: [sMin, sMax], distSum, good };
+    if (!inRange.length) return null;
+    return {
+      range: [sMin, sMax],
+      coverage: (sMax - sMin) / S.length,
+      density: inRange.filter((f) => f.ok).length / inRange.length,
+      distSum, good,
+    };
   };
   const ta = sampleTest(A, B), tb = sampleTest(B, A);
   if (!ta || !tb) return null;
+  // Acceptance (issue #22): coverage is judged on the SHORTER segment —
+  // OSM splits the two carriageways of a boulevard at different stations,
+  // so the longer segment legitimately pairs over only part of its length
+  // here and pairs with the NEXT counterpart segment over the rest (the
+  // greedy assignment below allows disjoint multi-range claims). Both
+  // sides must still pair densely inside their overlap range.
+  const shortCoverage = A.length <= B.length ? ta.coverage : tb.coverage;
+  if (shortCoverage < MIN_PAIR_OVERLAP) return null;
+  if (ta.density < MIN_INRANGE_OVERLAP || tb.density < MIN_INRANGE_OVERLAP) return null;
   return { meanDist: (ta.distSum + tb.distSum) / (ta.good + tb.good), rangeA: ta.range, rangeB: tb.range };
 }
 
@@ -319,13 +381,55 @@ for (const group of byName.values()) {
   }
 }
 pairEvals.sort((a, b) => a.meanDist - b.meanDist || a.A.wayId - b.A.wayId || a.B.wayId - b.B.wayId);
-const pairedWith = new Map(); // segment -> group
+// Pairing claims: a segment may pair with SEVERAL counterparts over
+// disjoint arc-length ranges (issue #22 — staggered carriageway
+// segmentation). At a junction fan both neighbouring counterparts are
+// within pairing distance of the same stretch, so a later pair's range
+// is TRIMMED against the ranges already claimed: the largest free
+// sub-range survives, and claims stay disjoint by construction.
+const claims = new Map(); // segment -> [{ group, range }]
+const claimedRanges = (seg) => claims.get(seg) || [];
+const trimRange = (seg, range) => {
+  let parts = [[range[0], range[1]]];
+  for (const c of claimedRanges(seg)) {
+    const next = [];
+    for (const [a, b] of parts) {
+      if (c.range[1] <= a || c.range[0] >= b) { next.push([a, b]); continue; }
+      if (c.range[0] > a) next.push([a, c.range[0]]);
+      if (c.range[1] < b) next.push([c.range[1], b]);
+    }
+    parts = next;
+  }
+  parts = parts.filter(([a, b]) => b - a >= MIN_CLAIM_RANGE_M);
+  if (!parts.length) return null;
+  return parts.reduce((best, p) => (p[1] - p[0] > best[1] - best[0] ? p : best));
+};
+const addClaim = (seg, group, range) => {
+  if (!claims.has(seg)) claims.set(seg, []);
+  claims.get(seg).push({ group, range });
+};
+// A group's GEOMETRY range is its claimed (accounting) range dilated by
+// GROUP_DILATE_M at both ends: adjacent groups' midlines diverge at a
+// fork, so beds built strictly on abutting claimed ranges leave a wedge
+// of bare ground at the boundary. The dilation overlaps the neighbour
+// bed slightly (same asphalt colour/material — invisible) and closes
+// the wedge. Accounting (tails, length identity) uses the undilated
+// claimed ranges only.
+const dilate = (seg, range) => [Math.max(0, range[0] - GROUP_DILATE_M), Math.min(seg.length, range[1] + GROUP_DILATE_M)];
 const groups = [];
 for (const ev of pairEvals) {
-  if (pairedWith.has(ev.A) || pairedWith.has(ev.B)) continue;
-  const g = { members: [{ seg: ev.A, range: ev.rangeA }, { seg: ev.B, range: ev.rangeB }], primary: ev.A };
+  const rangeA = trimRange(ev.A, ev.rangeA);
+  const rangeB = trimRange(ev.B, ev.rangeB);
+  if (!rangeA || !rangeB) continue;
+  const g = {
+    members: [
+      { seg: ev.A, range: rangeA, geoRange: dilate(ev.A, rangeA) },
+      { seg: ev.B, range: rangeB, geoRange: dilate(ev.B, rangeB) },
+    ],
+    primary: ev.A,
+  };
   groups.push(g);
-  pairedWith.set(ev.A, g); pairedWith.set(ev.B, g);
+  addClaim(ev.A, g, rangeA); addClaim(ev.B, g, rangeB);
 }
 // Build a group's merged centreline + width from its current members.
 // Parameterised on the primary member's overlap range; at each sample the
@@ -333,7 +437,7 @@ for (const ev of pairEvals) {
 // is the lateral span across all members (median over samples).
 function groupGeometry(g) {
   const P = g.primary;
-  const range = g.members.find((m) => m.seg === P).range;
+  const range = g.members.find((m) => m.seg === P).geoRange;
   const step = 2;
   const n = Math.max(2, Math.round((range[1] - range[0]) / step));
   const mids = [], spans = [], pairDists = [];
@@ -376,7 +480,7 @@ function groupGeometry(g) {
   while (joined) {
     joined = false;
     for (const C of candidates) {
-      if (pairedWith.has(C)) continue;
+      if (claims.has(C)) continue; // extension is for wholly unpaired candidates only
       let best = null;
       for (const g of groups) {
         if (g.members[0].seg.name !== C.name || g.members.length >= MAX_GROUP_MEMBERS) continue;
@@ -395,7 +499,7 @@ function groupGeometry(g) {
         }
         if (good / (n + 1) >= MIN_PAIR_OVERLAP && (!best || distSum / good < best.meanDist)) best = { g, range: [sMin, sMax], meanDist: distSum / good };
       }
-      if (best) { best.g.members.push({ seg: C, range: best.range }); pairedWith.set(C, best.g); joined = true; }
+      if (best) { best.g.members.push({ seg: C, range: best.range, geoRange: best.range }); addClaim(C, best.g, best.range); joined = true; }
     }
   }
 }
@@ -403,7 +507,6 @@ function groupGeometry(g) {
 // ---- emission --------------------------------------------------------------
 const CLASS_RANK = { motorway: 0, trunk: 1, primary: 2, secondary: 3, tertiary: 4, unclassified: 5, residential: 6, living_street: 7, road: 8, busway: 9, service: 10 };
 const roadbeds = [];
-const emittedGroups = new Set();
 let mergedConstituentOverlapLength = 0, mergedLength = 0, droppedScrapLength = 0, roadbedLength = 0;
 const mergedReport = [];
 const flatLength = (flat) => { let L = 0; for (let i = 2; i < flat.length; i += 2) L += Math.hypot(flat[i] - flat[i - 2], flat[i + 1] - flat[i - 1]); return L; };
@@ -412,15 +515,19 @@ const singleEntry = (seg, pts) => ({
   name: seg.name, highway: seg.highway, centreline: flatQ(pts), width: seg.width,
   pedestrianLayout: seg.pedestrianLayout, sourceWayIds: [seg.wayId],
 });
+// Wholly unpaired segments render as single roadbeds.
 for (const seg of segments) {
   if (isExcludedLink(seg)) continue;
-  const g = pairedWith.get(seg);
-  if (!g) { pushRoadbed(singleEntry(seg, seg.pts)); continue; }
-  if (seg !== g.primary || emittedGroups.has(g)) continue;
-  emittedGroups.add(g);
+  if (!claims.has(seg)) pushRoadbed(singleEntry(seg, seg.pts));
+}
+// One merged roadbed per group.
+for (const g of groups) {
   const geo = groupGeometry(g);
-  if (!geo) { // pairing collapsed under resampling: fall back to singles
-    for (const m of g.members) pushRoadbed(singleEntry(m.seg, m.seg.pts));
+  if (!geo) { // pairing collapsed under resampling: fall back to range singles
+    for (const m of g.members) {
+      const mid = splitAt(m.seg.pts, m.seg.cum, m.range[0], m.range[1])[1];
+      if (mid) pushRoadbed(singleEntry(m.seg, mid));
+    }
     continue;
   }
   const widest = g.members.reduce((a, m) => (m.seg.width > a.seg.width ? m : a), g.members[0]);
@@ -445,16 +552,24 @@ for (const seg of segments) {
     members: g.members.map((m) => m.seg.wayId), memberWidths: g.members.map((m) => m.seg.width),
     layers: g.members.map((m) => m.seg.layer || '0'), length: Math.round(geo.length),
   });
-  // Members' non-overlap tails survive as single roadbeds.
-  for (const m of g.members) {
-    mergedConstituentOverlapLength += m.range[1] - m.range[0];
-    const parts = splitAt(m.seg.pts, m.seg.cum, m.range[0], m.range[1]);
-    for (const tail of [parts[0], parts[2]]) {
-      if (!tail) continue;
-      const tl = lineLength(tail);
-      if (tl >= TAIL_MIN_LENGTH_M) pushRoadbed(singleEntry(m.seg, tail));
-      else droppedScrapLength += tl;
-    }
+  for (const m of g.members) mergedConstituentOverlapLength += m.range[1] - m.range[0];
+}
+// Members' unclaimed ranges (the complement of their pairing claims —
+// with multi-range claims a segment can have a middle or several tails)
+// survive as single roadbeds.
+for (const seg of segments) {
+  if (isExcludedLink(seg) || !claims.has(seg)) continue;
+  const ranges = claimedRanges(seg).map((c) => c.range).sort((a, b) => a[0] - b[0]);
+  const gaps = [];
+  let cursor = 0;
+  for (const r of ranges) { if (r[0] > cursor + 0.01) gaps.push([cursor, r[0]]); cursor = Math.max(cursor, r[1]); }
+  if (cursor < seg.length - 0.01) gaps.push([cursor, seg.length]);
+  for (const [s0, s1] of gaps) {
+    const part = splitAt(seg.pts, seg.cum, s0, s1)[1];
+    if (!part) continue;
+    const tl = lineLength(part);
+    if (tl >= TAIL_MIN_LENGTH_M) pushRoadbed(singleEntry(seg, part));
+    else droppedScrapLength += tl;
   }
 }
 
