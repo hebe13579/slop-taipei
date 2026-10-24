@@ -135,6 +135,12 @@ one-for-one. The Taipei builder must synthesise them:
 7. **Tests + hosting**
    - Upstream tests hardcode NYC (`tests/geodata.test.mjs`, `teleports.test.cjs`,
      `nyc-map.test.cjs`, `overpass.test.mjs`) — port or replace per milestone.
+   - The node suite never executes the boot builders, so any change touching
+     `js/taipei-boot.js` or its builders must also pass the browser boot
+     smoke test: `node tools/taipei/boot-smoke.mjs` (issue #59; exit 0 =
+     the real Taipei build completed in headless Chrome with zero
+     exceptions and at least one rendered frame — see
+     `tools/taipei/boot-smoke/README.md`).
    - This fork is public, so GitHub Pages can serve it
      (`hebe13579.github.io/slop-taipei`) once a build boots — same as upstream.
 
