@@ -93,10 +93,13 @@
 //
 // Buildings are visual only: no colliders (the options pass
 // colliders: false), no interiors, no shop signs (the localization
-// increment owns signage). Lots are axis-aligned to the tile frame, not
-// rotated to each street's angle. The plan's per-lot colours are no
-// longer used for rendering — upstream's facade materials carry their
-// own palettes — but stay in the plan as data.
+// increment owns signage). Lots front their street: each block's lot
+// grid turns to the block's dominant frontage angle (issue #62, see
+// the orientation section below), and a turned lot carries its angle
+// as `rot`; blocks on the true grids stay axis-aligned exactly as
+// before. The plan's per-lot colours are no longer used for
+// rendering — upstream's facade materials carry their own palettes —
+// but stay in the plan as data.
 
 const PALETTE = [
   [0.62, 0.59, 0.55], // concrete grey
@@ -919,8 +922,134 @@ export function taipeiLandmarkStructures(geodata) {
   });
 }
 
+// ---- Per-block lot orientation (issue #62) ----
+//
+// Taipei is not one grid: the station district, Xinyi and the
+// diagonal corridors all sit at different angles, and an
+// axis-aligned lot grid reads wrong on every street that runs at an
+// angle. Each block therefore takes a dominant angle from the
+// carriageways that front it: roadbed centreline segments are
+// clipped to the block's bbox grown by FRONTAGE_REACH_M (a wide
+// boulevard's centreline sits that far from the land it fronts) and
+// their directions accumulated at 4θ — the modulo-90° resultant, so
+// the two directions of one street grid reinforce instead of
+// cancelling — weighted by clipped length. The resultant is the
+// block's angle only when it is both strong (coherence =
+// |resultant| / total weight ≥ ORIENT_MIN_COHERENCE; a block
+// fronting two grids at once has no single dominant angle) and
+// actually angled (deviation from the tile axes > ORIENT_EPS_RAD;
+// Taipei's true grids measure within ~3° of the axes and keep the
+// axis grid, so those blocks plan byte-identically to pre-#62).
+// The turned grid is laid over the same inset bbox in the block's
+// frame, and the planner re-tests every exclusion on the lot's TRUE
+// rotated footprint (below), so rotation never weakens an invariant
+// the axis plan carries.
+const FRONTAGE_REACH_M = 18;
+const ORIENT_EPS_RAD = (3 * Math.PI) / 180;
+const ORIENT_MIN_COHERENCE = 0.5;
+const FRONTAGE_CELL = 96;
+
+export function buildFrontageIndex(entries) {
+  const grid = new Map();
+  const key = (gx, gz) => gx * 100003 + gz;
+  for (const e of entries) {
+    const pts = e.pts || [];
+    for (let i = 0; i + 3 < pts.length; i += 2) {
+      const ax = pts[i], az = pts[i + 1], bx = pts[i + 2], bz = pts[i + 3];
+      const len = Math.hypot(bx - ax, bz - az);
+      if (len < 0.01) continue;
+      const phi4 = 4 * Math.atan2(bz - az, bx - ax);
+      const s = { ax, az, bx, bz, len, c4: Math.cos(phi4), s4: Math.sin(phi4) };
+      const gx0 = Math.floor(Math.min(ax, bx) / FRONTAGE_CELL), gx1 = Math.floor(Math.max(ax, bx) / FRONTAGE_CELL);
+      const gz0 = Math.floor(Math.min(az, bz) / FRONTAGE_CELL), gz1 = Math.floor(Math.max(az, bz) / FRONTAGE_CELL);
+      for (let gx = gx0; gx <= gx1; gx++) for (let gz = gz0; gz <= gz1; gz++) {
+        const k = key(gx, gz);
+        let bucket = grid.get(k);
+        if (!bucket) grid.set(k, bucket = []);
+        bucket.push(s);
+      }
+    }
+  }
+  return { grid, key };
+}
+
+// Length of the part of segment a→b inside an axis rect (Liang–Barsky).
+function clippedSegLen(ax, az, bx, bz, minX, maxX, minZ, maxZ) {
+  const dx = bx - ax, dz = bz - az;
+  let t0 = 0, t1 = 1;
+  const p = [-dx, dx, -dz, dz], q = [ax - minX, maxX - ax, az - minZ, maxZ - az];
+  for (let i = 0; i < 4; i++) {
+    if (p[i] === 0) { if (q[i] < 0) return 0; continue; }
+    const r = q[i] / p[i];
+    if (p[i] < 0) { if (r > t1) return 0; if (r > t0) t0 = r; }
+    else { if (r < t0) return 0; if (r < t1) t1 = r; }
+  }
+  return Math.max(0, t1 - t0) * Math.hypot(dx, dz);
+}
+
+// The block's frontage angle in radians, or 0 to keep the axis grid
+// (no frontage found, no dominant direction, or within the epsilon
+// of the tile axes).
+export function blockOrientation(index, block) {
+  const minX = block.bbox.minX - FRONTAGE_REACH_M, maxX = block.bbox.maxX + FRONTAGE_REACH_M;
+  const minZ = block.bbox.minZ - FRONTAGE_REACH_M, maxZ = block.bbox.maxZ + FRONTAGE_REACH_M;
+  const seen = new Set();
+  let sx = 0, sy = 0, wsum = 0;
+  const gx0 = Math.floor(minX / FRONTAGE_CELL), gx1 = Math.floor(maxX / FRONTAGE_CELL);
+  const gz0 = Math.floor(minZ / FRONTAGE_CELL), gz1 = Math.floor(maxZ / FRONTAGE_CELL);
+  for (let gx = gx0; gx <= gx1; gx++) for (let gz = gz0; gz <= gz1; gz++) {
+    const bucket = index.grid.get(index.key(gx, gz));
+    if (!bucket) continue;
+    for (const s of bucket) {
+      if (seen.has(s)) continue;
+      seen.add(s);
+      const w = clippedSegLen(s.ax, s.az, s.bx, s.bz, minX, maxX, minZ, maxZ);
+      if (w <= 0) continue;
+      sx += w * s.c4;
+      sy += w * s.s4;
+      wsum += w;
+    }
+  }
+  if (!wsum) return 0;
+  if (Math.hypot(sx, sy) / wsum < ORIENT_MIN_COHERENCE) return 0;
+  let theta = Math.atan2(sy, sx) / 4;
+  if (theta < 0) theta += Math.PI / 2;
+  const dev = Math.min(theta, Math.PI / 2 - theta);
+  return dev > ORIENT_EPS_RAD ? theta : 0;
+}
+
+// A lot's true footprint corners: centre + w along the frame's u
+// axis (cosθ, sinθ), d along v (−sinθ, cosθ), as [x, z] pairs.
+function lotCorners(cx, cz, w, d, cosT, sinT) {
+  const hw = w / 2, hd = d / 2;
+  return [
+    [cx + hw * cosT - hd * sinT, cz + hw * sinT + hd * cosT],
+    [cx + hw * cosT + hd * sinT, cz + hw * sinT - hd * cosT],
+    [cx - hw * cosT + hd * sinT, cz - hw * sinT - hd * cosT],
+    [cx - hw * cosT - hd * sinT, cz - hw * sinT + hd * cosT],
+  ];
+}
+
+// Separating-axis intersection of two convex quads ([x, z] pairs in
+// loop order): project both onto each quad's two edge normals.
+function quadsIntersect(a, b) {
+  for (const q of [a, b]) {
+    for (const i of [0, 1]) {
+      const [x1, z1] = q[i], [x2, z2] = q[(i + 1) % 4];
+      const ex = x2 - x1, ez = z2 - z1, len = Math.hypot(ex, ez);
+      if (len < 1e-9) continue;
+      const ax = -ez / len, az = ex / len;
+      let aMin = Infinity, aMax = -Infinity, bMin = Infinity, bMax = -Infinity;
+      for (const [px, pz] of a) { const p = px * ax + pz * az; if (p < aMin) aMin = p; if (p > aMax) aMax = p; }
+      for (const [px, pz] of b) { const p = px * ax + pz * az; if (p < bMin) bMin = p; if (p > bMax) bMax = p; }
+      if (aMax < bMin || bMax < aMin) return false;
+    }
+  }
+  return true;
+}
+
 export function planTaipeiBuildings(geodata) {
-  const stats = { blocksSeen: 0, blocksSkippedSmall: 0, blocksSkippedParkWater: 0, blocksSkippedOutsideUnion: 0, lotsDroppedVacancy: 0, lotsDroppedParkWater: 0, lotsDroppedTowerSite: 0, lotsDroppedRoad: 0, lotsDroppedMedian: 0, lotsDroppedOutsideUnion: 0 };
+  const stats = { blocksSeen: 0, blocksSkippedSmall: 0, blocksSkippedParkWater: 0, blocksSkippedOutsideUnion: 0, lotsDroppedVacancy: 0, lotsDroppedParkWater: 0, lotsDroppedTowerSite: 0, lotsDroppedRoad: 0, lotsDroppedMedian: 0, lotsDroppedOutsideUnion: 0, blocksRotated: 0, lotsRotated: 0 };
   // Union-of-boxes tile (issue #60): the geodata frame carries the
   // tile's boxes; ground exists only inside them. Raster blocks are
   // masked to the union by the builder, but a block's bbox can still
@@ -1022,6 +1151,40 @@ export function planTaipeiBuildings(geodata) {
     return null;
   };
 
+  // Issue #62: block frontage angles come from the same carriageway
+  // set the ribbons are built from, and a turned lot's road test is
+  // an exact SAT of its margin-grown true footprint against the
+  // ribbon rects (the axis ribbonVerdict only ever sees the lot's
+  // axis twin — the planner loop runs both, see below).
+  const frontageIndex = buildFrontageIndex(carriageways);
+  const rotatedRoadHit = (cx, cz, w, d, cosT, sinT) => {
+    const grown = lotCorners(cx, cz, w + 2 * ROAD_MARGIN_M, d + 2 * ROAD_MARGIN_M, cosT, sinT);
+    let minX = Infinity, maxX = -Infinity, minZ = Infinity, maxZ = -Infinity;
+    for (const [px, pz] of grown) {
+      if (px < minX) minX = px;
+      if (px > maxX) maxX = px;
+      if (pz < minZ) minZ = pz;
+      if (pz > maxZ) maxZ = pz;
+    }
+    const seen = new Set();
+    const gx0 = Math.floor(minX / RIBBON_GRID_CELL), gx1 = Math.floor(maxX / RIBBON_GRID_CELL);
+    const gz0 = Math.floor(minZ / RIBBON_GRID_CELL), gz1 = Math.floor(maxZ / RIBBON_GRID_CELL);
+    for (let gx = gx0; gx <= gx1; gx++) for (let gz = gz0; gz <= gz1; gz++) {
+      const bucket = ribbonGrid.grid.get(ribbonGrid.key(gx, gz));
+      if (!bucket) continue;
+      for (const idx of bucket) {
+        if (seen.has(idx)) continue;
+        seen.add(idx);
+        const r = ribbonRects[idx];
+        if (r.maxX < minX || r.minX > maxX || r.maxZ < minZ || r.minZ > maxZ) continue;
+        const c = r.corners;
+        const rc = [[c[0], c[1]], [c[2], c[3]], [c[4], c[5]], [c[6], c[7]]];
+        if (quadsIntersect(grown, rc)) return true;
+      }
+    }
+    return false;
+  };
+
   const t101 = (geodata.landmarks || {})['Taipei 101'];
   const towerSite = t101
     ? { minX: t101.x - t101.w / 2, maxX: t101.x + t101.w / 2, minZ: t101.z - t101.d / 2, maxZ: t101.z + t101.d / 2 }
@@ -1054,9 +1217,29 @@ export function planTaipeiBuildings(geodata) {
     const vacancy = big ? 0.30 : 0.13;
     const frontage = (15 + hash01(bi * 7919) * 10) * pitchMul;
     const depthPitch = (15 + hash01(bi * 104729 + 3) * 7) * pitchMul;
-    const cols = Math.max(1, Math.round(innerW / frontage));
-    const rows = Math.max(1, Math.round(innerD / depthPitch));
-    const cellW = innerW / cols, cellD = innerD / rows;
+    // Issue #62: the block's lot grid turns to its fronting streets
+    // (theta = 0 keeps the axis grid — the pre-#62 plan, byte for
+    // byte). In the turned frame the grid spans the inset bbox's
+    // extent along the frame axes; candidate lots whose true
+    // corners leave the inset bbox are skipped in the loop below.
+    const theta = blockOrientation(frontageIndex, block);
+    const cosT = Math.cos(theta), sinT = Math.sin(theta);
+    let cols, rows, cellW, cellD;
+    if (theta) {
+      stats.blocksRotated++;
+      const extU = innerW * Math.abs(cosT) + innerD * Math.abs(sinT);
+      const extV = innerW * Math.abs(sinT) + innerD * Math.abs(cosT);
+      cols = Math.max(1, Math.round(extU / frontage));
+      rows = Math.max(1, Math.round(extV / depthPitch));
+      cellW = extU / cols;
+      cellD = extV / rows;
+    } else {
+      cols = Math.max(1, Math.round(innerW / frontage));
+      rows = Math.max(1, Math.round(innerD / depthPitch));
+      cellW = innerW / cols;
+      cellD = innerD / rows;
+    }
+    const ocx = (minX + maxX) / 2, ocz = (minZ + maxZ) / 2;
     for (let col = 0; col < cols; col++) {
       for (let row = 0; row < rows; row++) {
         const seed = Math.imul(bi + 1, 73856093) ^ Math.imul(col + 1, 19349663) ^ Math.imul(row + 1, 83492791);
@@ -1068,12 +1251,37 @@ export function planTaipeiBuildings(geodata) {
         // sat 5 mm outside a park sliver while its rounded, emitted
         // centre sat inside it, passing the planner and failing the
         // audit. One point, tested once, no disagreement.
-        const cx = Math.round((minX + (col + 0.5) * cellW) * 10) / 10;
-        const cz = Math.round((minZ + (row + 0.5) * cellD) * 10) / 10;
+        let cx, cz;
+        if (theta) {
+          const fu = (col + 0.5) * cellW - (cols * cellW) / 2;
+          const fv = (row + 0.5) * cellD - (rows * cellD) / 2;
+          cx = Math.round((ocx + fu * cosT - fv * sinT) * 10) / 10;
+          cz = Math.round((ocz + fu * sinT + fv * cosT) * 10) / 10;
+        } else {
+          cx = Math.round((minX + (col + 0.5) * cellW) * 10) / 10;
+          cz = Math.round((minZ + (row + 0.5) * cellD) * 10) / 10;
+        }
         const gap = 1.2 + hash01(seed ^ 0x77c3) * 1.8;
         const w = cellW - gap, d = cellD - gap;
         if (w < 7 || d < 7) continue;
+        // Issue #62: a turned lot's true footprint, from its
+        // emitted (rounded) centre and the frame angle. The lot must
+        // stay inside the block's inset bbox — the same ground the
+        // axis grid subdivides (an uncounted skip, like w < 7).
+        const corners = theta ? lotCorners(cx, cz, w, d, cosT, sinT) : null;
+        let cornersAabb = null;
+        if (theta) {
+          cornersAabb = { minX: Infinity, maxX: -Infinity, minZ: Infinity, maxZ: -Infinity };
+          for (const [px, pz] of corners) {
+            if (px < cornersAabb.minX) cornersAabb.minX = px;
+            if (px > cornersAabb.maxX) cornersAabb.maxX = px;
+            if (pz < cornersAabb.minZ) cornersAabb.minZ = pz;
+            if (pz > cornersAabb.maxZ) cornersAabb.maxZ = pz;
+          }
+          if (corners.some(([px, pz]) => px < minX - 1e-9 || px > maxX + 1e-9 || pz < minZ - 1e-9 || pz > maxZ + 1e-9)) continue;
+        }
         if (inPoly(cx, cz)) { stats.lotsDroppedParkWater++; continue; }
+        if (theta && corners.some(([px, pz]) => inPoly(px, pz))) { stats.lotsDroppedParkWater++; continue; }
         if (!inUnion(cx, cz)) { stats.lotsDroppedOutsideUnion++; continue; }
         let onLandmarkSite = false;
         for (const s of exclusionSites) {
@@ -1083,9 +1291,34 @@ export function planTaipeiBuildings(geodata) {
           stats.lotsDroppedTowerSite++;
           continue;
         }
+        if (theta) {
+          // The axis test above sees the lot's axis twin; the true
+          // footprint is a different quad — test it exactly (SAT)
+          // against every exclusion site as well.
+          let siteHit = false;
+          for (const s of exclusionSites) {
+            if (cornersAabb.maxX < s.minX || cornersAabb.minX > s.maxX || cornersAabb.maxZ < s.minZ || cornersAabb.minZ > s.maxZ) continue;
+            if (quadsIntersect(corners, [[s.minX, s.minZ], [s.maxX, s.minZ], [s.maxX, s.maxZ], [s.minX, s.maxZ]])) { siteHit = true; break; }
+          }
+          if (siteHit) { stats.lotsDroppedTowerSite++; continue; }
+        }
         const verdict = ribbonVerdict(cx, cz, w, d);
         if (verdict === 'road') { stats.lotsDroppedRoad++; continue; }
         if (verdict === 'median') { stats.lotsDroppedMedian++; continue; }
+        if (theta) {
+          // Issue #62: the axis verdict guarantees what the #65
+          // audit re-derives from the emitted data; the TRUE
+          // footprint must clear the ribbons exactly as well
+          // (margin-grown SAT), and the median rule is re-run on
+          // the footprint's axis span — its flank lines measured
+          // at that span, the conservative reading: a divided
+          // span that flanks the span flanks the lot. (The span's
+          // own 'road' result is not used: the span is a superset
+          // shape and intersection is judged on the two exact
+          // footprints only.)
+          if (rotatedRoadHit(cx, cz, w, d, cosT, sinT)) { stats.lotsDroppedRoad++; continue; }
+          if (ribbonVerdict(cx, cz, cornersAabb.maxX - cornersAabb.minX, cornersAabb.maxZ - cornersAabb.minZ) === 'median') { stats.lotsDroppedMedian++; continue; }
+        }
         // The ribbon verdicts say nothing about the tile union
         // (issue #60): no footprint corner may hang over a dropped
         // band, where there is no ground at all.
@@ -1094,6 +1327,7 @@ export function planTaipeiBuildings(geodata) {
           if (!inUnion(cx + (ox * w) / 2, cz + (oz * d) / 2)) { cornerOutsideUnion = true; break; }
         }
         if (cornerOutsideUnion) { stats.lotsDroppedOutsideUnion++; continue; }
+        if (theta && corners.some(([px, pz]) => !inUnion(px, pz))) { stats.lotsDroppedOutsideUnion++; continue; }
         const { rank } = roadInfoAt(cx, cz);
         const dOrigin = Math.hypot(cx, cz);
         let lo, hi;
@@ -1104,7 +1338,9 @@ export function planTaipeiBuildings(geodata) {
         const base = PALETTE[Math.floor(hash01(seed ^ 0x9f2c) * PALETTE.length) % PALETTE.length];
         const shade = 0.92 + hash01(seed ^ 0x64d1) * 0.16;
         const color = base.map((c) => Math.max(0, Math.min(255, Math.round(c * shade * 255))));
-        lots.push({ x: Math.round(cx * 10) / 10, z: Math.round(cz * 10) / 10, w: Math.round(w * 10) / 10, d: Math.round(d * 10) / 10, h, color });
+        const lot = { x: Math.round(cx * 10) / 10, z: Math.round(cz * 10) / 10, w: Math.round(w * 10) / 10, d: Math.round(d * 10) / 10, h, color };
+        if (theta) { lot.rot = Math.round(theta * 10000) / 10000; stats.lotsRotated++; }
+        lots.push(lot);
       }
     }
   }
@@ -1513,6 +1749,13 @@ export function taipeiCityBlocksOptions(geodata, plan = planTaipeiBuildings(geod
         h: lot.h,
         mat: facadeMatFor(lot),
       };
+      // Issue #62: a turned lot carries its frontage angle — the
+      // rect stays the lot's LOCAL frame and buildCityBlocks massed
+      // it in that frame, turned into place about the lot centre
+      // (the frontage-frame path). Arcade parts and sign policy
+      // below are computed from the same local rect, so they turn
+      // with the building.
+      if (lot.rot) r.rotY = lot.rot;
       // Issue #55: F7 arcade lots carry their recessed-ground-floor
       // massing (null on lots too small for the inset core).
       if (r.mat === 7) r.arcade = taipeiArcadeParts(r);
