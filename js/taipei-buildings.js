@@ -211,11 +211,21 @@ const LANDMARK_STRUCTURES = [
     // 微風南山 Breeze Nan Shan is NOT a separate structure: it is
     // this complex's podium department store, so the podium mass
     // below is its representation.
+    // Position/footprint corrected in issue #42 from the OSM
+    // building outlines (ways 383731054 南山廣場 + 513491894
+    // 微風南山): the published coordinate is the complex's west
+    // entrance, and the original single 150×105 podium box reached
+    // ~44 m south across 松廉路. The podium is now three boxes on
+    // the real outlines, kept west of the 松壽路20巷 ribbon that
+    // clips the outline's NE notch; the axis sits under the tower
+    // (z18 satellite: the dark slab stands centre-complex).
     id: 'taipei-nan-shan-plaza', name: 'Taipei Nan Shan Plaza', nameZh: '臺北南山廣場',
-    lat: 25.0344, lon: 121.5669, realHeight: 272, color: 0x2c3540,
-    site: { w: 170, d: 124, dx: 0, dz: 6 },
+    lat: 25.0344, lon: 121.566982, realHeight: 272, color: 0x2c3540,
+    site: { w: 242, d: 64, dx: -5, dz: -1 },
     parts: [
-      { type: 'box', w: 150, d: 105, h: 34, dz: 24 },
+      { type: 'box', w: 108, d: 54, h: 30, dx: -77, dz: 1 },
+      { type: 'box', w: 66, d: 58, h: 34, dx: 20, dz: -1 },
+      { type: 'box', w: 48, d: 38, h: 34, dx: 90, dz: 8 },
       { type: 'frustum', wB: 52, dB: 40, wT: 47, dT: 36, h: 208, y0: 34 },
       { type: 'ridge', w: 47, d: 36, h: 0, ridgeH: 30, y0: 242 },
     ],
@@ -225,14 +235,23 @@ const LANDMARK_STRUCTURES = [
     // Completed (2025); the two Hyatt hotels inside are not yet open.
     // ACPV (architect): a green "bamboo shoot" — pleated shaft that
     // narrows gently all the way up to a slanted shoot-tip cut.
+    // Footprint corrected in issue #42 from the OSM outline (way
+    // 1339580862): the real plan is a narrow 41.6 × 92.4 m slab, so
+    // the podium is that slab (not the original 96 × 72 box, which
+    // spilled across 松智路15巷) and the shoot's frustums run long
+    // in z to match; the east faces stay inside the outline, clear
+    // of the construction-road ribbon hugging its east edge.
     id: 'the-sky-taipei', name: 'The Sky Taipei', nameZh: '台北天空塔',
-    lat: 25.0365, lon: 121.566056, realHeight: 280, color: 0x5d7a6c,
-    site: { w: 106, d: 82, dx: 0, dz: 4 },
+    lat: 25.036458, lon: 121.566047, realHeight: 280, color: 0x5d7a6c,
+    site: { w: 44, d: 96, dx: 0, dz: -2 },
     parts: [
-      { type: 'box', w: 96, d: 72, h: 22, dz: 8 },
-      { type: 'frustum', wB: 47, dB: 35, wT: 42, dT: 31, h: 120, y0: 22 },
-      { type: 'frustum', wB: 42, dB: 31, wT: 37, dT: 27, h: 118, y0: 142 },
-      { type: 'frustum', wB: 37, dB: 27, wT: 35, dT: 25, h: 20, y0: 260, topDropX: 14 },
+      // Podium stops at the construction-road ribbon along the
+      // outline's north edge (issue #42 audit: the ribbon's south
+      // edge reaches z ≈ -424 in tile coords).
+      { type: 'box', w: 37, d: 78, h: 22, dz: 4 },
+      { type: 'frustum', wB: 35, dB: 47, wT: 31, dT: 42, h: 120, y0: 22 },
+      { type: 'frustum', wB: 31, dB: 42, wT: 27, dT: 37, h: 118, y0: 142 },
+      { type: 'frustum', wB: 27, dB: 37, wT: 25, dT: 35, h: 20, y0: 260, topDropX: 14 },
     ],
   },
   {
@@ -241,11 +260,17 @@ const LANDMARK_STRUCTURES = [
     // corners (the exposed perimeter bracing lives in the notch —
     // facade territory, not massing) tapering steadily to a slanted
     // top; the low Fubon Art Museum block stands east of the tower.
+    // Position corrected in issue #42: the batch-1 coordinate stood
+    // ~72 m NW of the tower, ON 松高路 — the axis is now the OSM
+    // tower footprint's centroid (way 1010525370 富邦信義A25總部,
+    // 45.8 × 44.1 m), and the east blocks are the real annex (way
+    // 1131522119) and museum (way 1131522120 富邦美術館) outlines.
     id: 'fubon-xinyi-a25', name: 'Fubon Xinyi A25', nameZh: '富邦信義A25',
-    lat: 25.03917, lon: 121.57, realHeight: 266.3, color: 0x8fa5b5,
-    site: { w: 150, d: 95, dx: 0, dz: 0 },
+    lat: 25.039629, lon: 121.570578, realHeight: 266.3, color: 0x8fa5b5,
+    site: { w: 120, d: 74, dx: 36, dz: 14 },
     parts: [
-      { type: 'box', w: 48, d: 38, h: 15, dx: 58 },
+      { type: 'box', w: 47, d: 16, h: 12, dx: 51, dz: 8 },
+      { type: 'box', w: 56, d: 21, h: 15, dx: 66, dz: 38 },
       { type: 'frustum', wB: 43, dB: 43, wT: 32, dT: 32, h: 250 },
       { type: 'frustum', wB: 32, dB: 32, wT: 30, dT: 30, h: 16.3, y0: 250, topDropX: 10 },
     ],
@@ -255,11 +280,18 @@ const LANDMARK_STRUCTURES = [
     // vertically-striped slab on the Breeze Xinyi podium; the top
     // arcs down toward the east in a smooth curve — massed as four
     // descending steps.
+    // Footprint corrected in issue #42 to the OSM outline (way
+    // 378443967 國泰置地廣場, 122.3 × 78.8 m): the batch-1 axis sat
+    // ~13 m east, pushing the podium's east edge onto a service
+    // roadbed.
     id: 'cathay-landmark', name: 'Cathay Landmark', nameZh: '國泰置地廣場',
-    lat: 25.040472, lon: 121.566972, realHeight: 212, color: 0x51606e,
-    site: { w: 128, d: 88, dx: 0, dz: 0 },
+    lat: 25.040488, lon: 121.566845, realHeight: 212, color: 0x51606e,
+    site: { w: 126, d: 82, dx: 0, dz: 0 },
     parts: [
-      { type: 'box', w: 118, d: 78, h: 26 },
+      // Two boxes: the west cap stops north of the service drive
+      // that notches the outline's SW corner (issue #42 audit).
+      { type: 'box', w: 105, d: 77, h: 26, dx: 8 },
+      { type: 'box', w: 15, d: 63, h: 26, dx: -52, dz: -7 },
       { type: 'box', w: 58, d: 36, h: 158, y0: 26 },
       { type: 'box', w: 14.5, d: 36, h: 28, y0: 184, dx: -21.75 },
       { type: 'box', w: 14.5, d: 36, h: 21, y0: 184, dx: -7.25 },
@@ -272,11 +304,18 @@ const LANDMARK_STRUCTURES = [
     // slab over the Eslite Xinyi podium, signed by its open pergola
     // crown: two side fins and the beams spanning between them —
     // the "grille" silhouette over the roof.
+    // Footprint corrected in issue #42 to the OSM outline (way
+    // 228938184 統一國際大樓, 108.8 × 59.1 m): the batch-1 podium
+    // (128 × 82) overshot the real outline on every side.
     id: 'uni-president-international-tower', name: 'Uni-President International Tower', nameZh: '統一國際大樓',
-    lat: 25.0398083, lon: 121.565194, realHeight: 154, color: 0x9a958c,
-    site: { w: 138, d: 92, dx: 0, dz: 0 },
+    lat: 25.039709, lon: 121.565405, realHeight: 154, color: 0x9a958c,
+    site: { w: 112, d: 62, dx: 0, dz: 0 },
     parts: [
-      { type: 'box', w: 128, d: 82, h: 30 },
+      // Main slab + a mid-height east strip: the bus-station drives
+      // east of the tower notch the outline's NE and SE corners
+      // (issue #42 audit), so no single box fits the outline.
+      { type: 'box', w: 92, d: 57, h: 30, dx: -7 },
+      { type: 'box', w: 12, d: 30, h: 30, dx: 45, dz: -7 },
       { type: 'box', w: 60, d: 40, h: 114, y0: 30 },
       { type: 'box', w: 2.5, d: 40, h: 10, y0: 144, dx: -28.75 },
       { type: 'box', w: 2.5, d: 40, h: 10, y0: 144, dx: 28.75 },
@@ -300,11 +339,19 @@ const LANDMARK_STRUCTURES = [
     // tallest building 1988–90. A sheer brown-stone slab along
     // Keelung Road with no setbacks at all; the signature is the
     // unbroken slab itself, closed by a slightly inset top band.
+    // Position corrected in issue #42: the batch-1 axis put the
+    // slab's east edge on the 莊敬路 ribbon and its west edge into
+    // the complex's forecourt drives; the slab now stands inside
+    // the OSM outline (way 137077756 國貿大樓, 65.2 × 67 m) at the
+    // placement the overlap audit verifies clear of the forecourt
+    // drive loop and the 莊敬路 diagonal ribbon — 36 × 60 m, the
+    // depth trimmed from 64 because no full-depth placement inside
+    // the parcel clears both.
     id: 'twtc-international-trade-building', name: 'TWTC International Trade Building', nameZh: '台北世界貿易中心國際貿易大樓',
-    lat: 25.034417, lon: 121.561167, realHeight: 142.92, color: 0x7a5c50,
-    site: { w: 60, d: 96, dx: 0, dz: 0 },
+    lat: 25.034444, lon: 121.561334, realHeight: 142.92, color: 0x7a5c50,
+    site: { w: 68, d: 70, dx: -12.5, dz: 2.4 },
     parts: [
-      { type: 'box', w: 36, d: 64, h: 137.92 },
+      { type: 'box', w: 36, d: 60, h: 137.92 },
       { type: 'box', w: 33, d: 60, h: 5, y0: 137.92 },
     ],
   },
