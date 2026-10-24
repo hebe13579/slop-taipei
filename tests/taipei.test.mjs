@@ -12,7 +12,7 @@ import {
 } from '../js/taipei-adapter.js';
 import { TAIPEI_TILE } from '../js/taipei-tile.js';
 import { TILE_REGISTRY, tileIdFromSearch, loadSelectedTile } from '../js/tile-registry.js';
-import { planTaipeiBuildings, taipeiCityBlocksOptions, pointInRing, latLonToTile, taipei101OrnamentPositions } from '../js/taipei-buildings.js';
+import { planTaipeiBuildings, taipeiCityBlocksOptions, pointInRing, latLonToTile, taipei101OrnamentPositions, taipeiLandmarkStructures } from '../js/taipei-buildings.js';
 
 // M1 foundation: the Taipei tile's adapter, road graph, teleports and tile
 // registry. Numbers printed via t.diagnostic are the actual generated values.
@@ -502,6 +502,16 @@ test('landmark structures: true positions and heights, sites kept clear', (t) =>
     // article body, positioned on its OSM footprint (see registry).
     'taipei-dome': { h: 64, x: -496.2, z: -1030.9 },
     'sun-yat-sen-memorial-hall': { h: 30.4, x: -474.3, z: -776.5 },
+    // Batch 3 (issue #43): positions are the OSM footprint centres
+    // (W: way 312729918; Songshan hall: relation 3067837; Eslite:
+    // way 229059792; Arena: way 244001544). W's 151 m is published;
+    // Songshan's 30 m follows its (unpublished, estimated) chimney;
+    // Eslite's 63 m and the Arena's 31 m are ESTIMATES — see the
+    // registry comments for the methods.
+    'w-taipei': { h: 151, x: -20.2, z: -835.6 },
+    'songshan-cultural-park': { h: 30, x: -481.9, z: -1175.6 },
+    'eslite-spectrum-songyan': { h: 63, x: -372.8, z: -1281.7 },
+    'taipei-arena': { h: 31, x: -1501.0, z: -1962.6 },
   };
   assert.equal(plan.landmarkTowers.length, Object.keys(expected).length, 'all verified structures present');
   const partTop = (p) => (p.y0 || 0) + p.h + (p.type === 'ridge' ? p.ridgeH : 0);
@@ -575,6 +585,81 @@ test('landmark batch 2: dome cap and stylized memorial-hall roof', () => {
   assert.equal(hall.openGround, null, 'no extra open-ground registration — the park is already park');
   const osm = TAIPEI_GEO.landmarks['Sun Yat-sen Memorial Hall'];
   assert.ok(Math.abs(hall.x - osm.x) <= 2 && Math.abs(hall.z - osm.z) <= 2, 'hall stands on its OSM footprint');
+});
+
+// Issue #43 batch 3: four new structures plus the Cathay Landmark
+// rebuild. Cathay's massing follows the user's reference photo —
+// two combined slabs (taller main + one stepped secondary) on the
+// curved-front podium, which is also 微風信義 Breeze Xinyi's
+// representation (the mall is inside this tower, not a separate
+// structure). Eslite Songyan and Taipei Arena carry ESTIMATED
+// heights (no published figure exists for either), flagged as
+// such in the registry and carried through the map export.
+test('landmark batch 3: two-slab Cathay rebuild, W, Songshan, Eslite, Arena', () => {
+  const plan = planTaipeiBuildings(TAIPEI_GEO);
+  const byId = (id) => plan.landmarkTowers.find((s) => s.id === id);
+  const partTop = (p) => (p.y0 || 0) + p.h + (p.type === 'ridge' ? p.ridgeH : 0);
+
+  // Cathay Landmark: elliptical podium + exactly two slabs, one
+  // step between them, sharing a face (combined, not separate).
+  const cathay = byId('cathay-landmark');
+  assert.ok(cathay, 'cathay landmark registered');
+  const podium = cathay.parts.find((p) => p.type === 'cylinder');
+  assert.ok(podium && podium.rz < podium.r, 'podium is the curved-front ellipse');
+  const slabs = cathay.parts.filter((p) => p.type === 'box');
+  assert.equal(slabs.length, 2, 'two combined slabs, no staircase crown');
+  const tops = slabs.map(partTop).sort((a, b) => b - a);
+  assert.equal(tops[0], 212, 'main slab tops out at the published 212 m');
+  assert.ok(tops[1] < tops[0] && tops[1] > 180, 'secondary slab is one clean step below');
+  const [west, east] = slabs.slice().sort((a, b) => (a.dx || 0) - (b.dx || 0));
+  assert.equal((west.dx || 0) + west.w / 2, (east.dx || 0) - east.w / 2, 'slabs share a face — combined massing');
+
+  // W Taipei: three podium blocks around the bus-loop court and
+  // the tower rising from the east block to the published 151 m.
+  const w = byId('w-taipei');
+  assert.ok(w, 'w taipei registered');
+  assert.equal(w.parts.filter((p) => p.type === 'box' && !p.y0).length, 3, 'podium massed as three blocks around the station court');
+  const tower = w.parts.find((p) => p.y0 === 17);
+  assert.ok(tower && partTop(tower) === 151, 'tower rises from the podium to 151 m');
+  const eastPodium = w.parts.find((p) => !p.y0 && p.dx === tower.dx);
+  assert.ok(eastPodium, 'tower stands on the east podium block');
+
+  // Songshan park: hall + ridge roof, boiler room, and the
+  // chimney as the tallest part.
+  const park = byId('songshan-cultural-park');
+  assert.ok(park, 'songshan park registered');
+  const chimney = park.parts.find((p) => p.type === 'cylinder');
+  assert.ok(chimney && partTop(chimney) === 30, 'chimney is the tallest part at 30 m');
+  assert.ok(park.parts.filter((p) => p.type === 'box').length >= 2, 'factory hall and boiler room both massed');
+  assert.ok(park.parts.some((p) => p.type === 'ridge'), 'hall carries its ridge roof');
+
+  // Estimated heights are flagged, and only where flagged.
+  const eslite = byId('eslite-spectrum-songyan');
+  const arena = byId('taipei-arena');
+  assert.equal(eslite.estimated, true, 'eslite height is an estimate (14 floors, no published metres)');
+  assert.equal(arena.estimated, true, 'arena height is an estimate (no published height exists)');
+  for (const s of plan.landmarkTowers) {
+    if (s.id !== 'eslite-spectrum-songyan' && s.id !== 'taipei-arena') {
+      assert.equal(s.estimated, false, `${s.id} height is published, not estimated`);
+    }
+  }
+
+  // Taipei Arena: elliptical drum + shallow dome cap + annex.
+  const drum = arena.parts.find((p) => p.type === 'cylinder');
+  const cap = arena.parts.find((p) => p.type === 'dome');
+  assert.ok(drum && cap && drum.rz > drum.r, 'arena egg = elliptical drum (long in z) + dome cap');
+  assert.equal(cap.y0 + cap.h, 31, 'dome cap peaks at the estimated 31 m');
+  assert.ok(arena.parts.some((p) => p.type === 'box' && (p.dx || 0) > 0), 'ice-rink annex attached east');
+
+  // The map layer reads the same registry: every batch-3 entry is
+  // on the tile's landmark list with its Chinese name (pin +
+  // Chinese-name search read nameZh from this list).
+  for (const id of ['cathay-landmark', 'w-taipei', 'songshan-cultural-park', 'eslite-spectrum-songyan', 'taipei-arena']) {
+    const pin = TAIPEI_TILE.landmarks.find((l) => l.id === id);
+    assert.ok(pin && pin.nameZh && pin.height > 0, `${id} has a map pin with a Chinese name`);
+  }
+  const exported = taipeiLandmarkStructures(TAIPEI_GEO);
+  assert.equal(exported.length, plan.landmarkTowers.length, 'map export covers the whole registry');
 });
 
 // Issue #11: the plan is rendered by upstream's buildCityBlocks, fed
