@@ -133,12 +133,21 @@ class ThirdPersonControllerManager {
   //   idleWalkZ: {min, max} — z range the uncontrolled pedestrian strolls;
   //     defaults to ±340 in NYC, or the tile bounds (30 m inset) when
   //     bounds are given without an explicit range.
+  //   avatarFigureFactory: (appearance) => figure | null — when given, the
+  //     two single-person avatar crowds (walk-mode player, cyclist rider)
+  //     are replaced by CPU-posed figures (see js/avatar-figure.js, issue
+  //     #12: the crowd material's storage-buffer skinning miscompiles on
+  //     the WebGL2 fallback renderer). The factory receives the rig's
+  //     appearance options and returns an object with {group, poseFromRig}.
+  //     Tile boots pass one only when the renderer fell back to WebGL;
+  //     NYC never passes one.
   constructor(scene, colliders = [], opts = {}) {
     this.scene = scene;
     this.worldOpts = {
       bounds: opts.bounds || null,
       clampToShore: opts.clampToShore !== false,
       groundHeight: typeof opts.groundHeight === 'function' ? opts.groundHeight : null,
+      avatarFigureFactory: typeof opts.avatarFigureFactory === 'function' ? opts.avatarFigureFactory : null,
       spawnByMode: opts.spawnByMode || null,
       idleWalkZ: opts.idleWalkZ || (opts.bounds
         ? { min: opts.bounds.minZ + 30, max: opts.bounds.maxZ - 30 }
@@ -331,9 +340,13 @@ class ThirdPersonControllerManager {
     if (this.activeMode === 'person') {
       ent.verticalVel = 0;
       ent.rig.reset(ent.position.x, ent.position.z, ent.heading, personGround, this);
-      ent.crowd.begin();
-      ent.crowd.add(ent.rig, 0);
-      ent.crowd.end();
+      if (ent.figure) {
+        ent.figure.poseFromRig(ent.rig);
+      } else {
+        ent.crowd.begin();
+        ent.crowd.add(ent.rig, 0);
+        ent.crowd.end();
+      }
     } else if (this.activeMode === 'car') {
       ent.vx = ent.vz = ent.angularVel = ent.steerAngle = 0;
       ent.pitchVel = ent.rollVel = ent.heaveY = ent.heaveVel = 0;
@@ -437,10 +450,20 @@ class ThirdPersonControllerManager {
     const root = new THREE.Group();
     root.name = 'PlayerPerson';
 
-    // One skinned person, posed in world space every frame by its rig (walk, run, turn, jump)
-    const crowd = new PersonCrowd(1, { farDistance: Infinity });
-    crowd.meshes.forEach((m) => this.scene.add(m));
+    // One skinned person, posed in world space every frame by its rig (walk, run, turn, jump).
+    // With an avatarFigureFactory (tile boot on the WebGL fallback, issue
+    // #12) a CPU-posed figure replaces the skinned crowd mesh-for-mesh.
     const rig = new PersonRig({ seed: 4.2, scale: 1.0, girth: 1.02, hair: 0.18, armSwing: 1.0 });
+    const figure = this.worldOpts?.avatarFigureFactory
+      ? this.worldOpts.avatarFigureFactory({ seed: 4.2, scale: 1.0, girth: 1.02, hair: 0.18 })
+      : null;
+    let crowd = null;
+    if (figure) {
+      this.scene.add(figure.group);
+    } else {
+      crowd = new PersonCrowd(1, { farDistance: Infinity });
+      crowd.meshes.forEach((m) => this.scene.add(m));
+    }
 
     // Soft Under-Foot Contact Shadow (AO)
     const shadowGeo = new THREE.PlaneGeometry(0.95, 0.95);
@@ -458,6 +481,7 @@ class ThirdPersonControllerManager {
       label: 'Pedestrian',
       mesh: root,
       crowd,
+      figure,
       rig,
       position: new THREE.Vector3(spawn.x, spawn.y, spawn.z),
       heading: spawn.heading,
@@ -699,10 +723,19 @@ class ThirdPersonControllerManager {
     leanPivot.add(crankPivot);
 
     // Skinned rider (see pedestrians.js), posed every frame with its hands on the grips and feet on the pedals; the
-    // helmet rides on its head
-    const riderCrowd = new PersonCrowd(1, { farDistance: Infinity });
-    riderCrowd.meshes.forEach((m) => this.scene.add(m));
+    // helmet rides on its head. With an avatarFigureFactory (tile boot on
+    // the WebGL fallback, issue #12) a CPU-posed figure replaces the crowd.
     const riderRig = new PersonRig({ seed: 12.8, scale: 1.0, girth: 0.97, hair: 0.1 });
+    const riderFigure = this.worldOpts?.avatarFigureFactory
+      ? this.worldOpts.avatarFigureFactory({ seed: 12.8, scale: 1.0, girth: 0.97, hair: 0.1 })
+      : null;
+    let riderCrowd = null;
+    if (riderFigure) {
+      this.scene.add(riderFigure.group);
+    } else {
+      riderCrowd = new PersonCrowd(1, { farDistance: Infinity });
+      riderCrowd.meshes.forEach((m) => this.scene.add(m));
+    }
     const helmet = new THREE.Mesh(new THREE.SphereGeometry(0.125, 14, 12), helmetMat);
     helmet.scale.set(0.95, 0.68, 1.28);
     this.scene.add(helmet);
@@ -733,6 +766,7 @@ class ThirdPersonControllerManager {
       pedals,
       bikeFrame,
       riderCrowd,
+      riderFigure,
       riderRig,
       helmet,
       headLight,
@@ -1050,15 +1084,23 @@ class ThirdPersonControllerManager {
     const p = this.entities.person;
     const air = p.position.y - this.getGroundHeight(p.position.x, p.position.z, 'person');
     p.rig.update(dt, p.position.x, p.position.z, p.heading, personGround, this, air > 0.02 ? air : 0);
-    p.crowd.begin();
-    p.crowd.add(p.rig, 0);
-    p.crowd.end();
+    if (p.figure) {
+      p.figure.poseFromRig(p.rig);
+    } else {
+      p.crowd.begin();
+      p.crowd.add(p.rig, 0);
+      p.crowd.end();
+    }
 
     const b = this.entities.cyclist;
     b.riderRig.ride(b.leanPivot, b.pedalPhase, b.bikeFrame);
-    b.riderCrowd.begin();
-    b.riderCrowd.add(b.riderRig, 0);
-    b.riderCrowd.end();
+    if (b.riderFigure) {
+      b.riderFigure.poseFromRig(b.riderRig);
+    } else {
+      b.riderCrowd.begin();
+      b.riderCrowd.add(b.riderRig, 0);
+      b.riderCrowd.end();
+    }
     b.helmet.quaternion.copy(b.riderRig.headQuaternion);
     b.helmet.position.set(0, 0.175, -0.012).applyQuaternion(b.helmet.quaternion).add(b.riderRig.headPosition);
   }
