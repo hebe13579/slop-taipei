@@ -5,6 +5,7 @@ import { TAIPEI_GEO } from '../js/taipei-geodata.js';
 import {
   TAIPEI_GEO_ADAPTED,
   getTaipeiLocationLabel,
+  getTaipeiLocationParts,
   taipeiDistrictAt,
   nearestGraphNode,
   currentTaipeiRoad,
@@ -157,6 +158,49 @@ test('location sign leads with the road you are on, cross street second', (t) =>
   const lm = TAIPEI_GEO.landmarks['Taipei 101'];
   assert.equal(currentTaipeiRoad(lm.x, lm.z), null);
   assert.equal(getTaipeiLocationLabel(lm.x, lm.z), 'Taipei 101 · 市府路 & 松廉路');
+});
+
+// Structured label parts (drives the HUD's 正行駛 tag on the current
+// road's plate): `current` is non-null ONLY where a roadbed footprint
+// contains the point. The string label and the parts are computed from
+// one shared helper, and this test pins that they agree.
+test('location parts: current road reported only when a roadbed contains the point', (t) => {
+  // (a) Zhongxiao x Dunhua junction: ON Zhongxiao, crossing Dunhua.
+  const junction = getTaipeiLocationParts(-1653, -950);
+  t.diagnostic(`junction parts: ${JSON.stringify(junction)}`);
+  assert.deepEqual(junction, { place: null, current: '忠孝東路四段', cross: '敦化南路一段' });
+
+  // (b) Da'an Forest Park centroid: off every road — the string label
+  // still names the nearest road, but no road is "current".
+  const daan = TAIPEI_TILE.teleports.daanpark;
+  const park = getTaipeiLocationParts(daan.x, daan.z);
+  t.diagnostic(`Da'an centroid parts: ${JSON.stringify(park)}`);
+  assert.deepEqual(park, { place: null, current: null, cross: null });
+
+  // (c) Taipei 101 landmark centre (the spawn point): the place is
+  // reported, but the site is a block interior — no current road even
+  // though the string label names the adjoining roads.
+  const lm = TAIPEI_GEO.landmarks['Taipei 101'];
+  const site = getTaipeiLocationParts(lm.x, lm.z);
+  t.diagnostic(`Taipei 101 parts: ${JSON.stringify(site)}`);
+  assert.deepEqual(site, { place: 'Taipei 101', current: null, cross: null });
+
+  // (d) The tile exposes the parts getter main.js consumes.
+  assert.equal(TAIPEI_TILE.getLocationParts, getTaipeiLocationParts);
+
+  // (e) Parts and string are two views of one computation: wherever a
+  // current road exists, the label's street plates are exactly
+  // "current & cross" (or just "current"); wherever it does not, the
+  // parts carry no street names at all.
+  for (const [x, z] of [[-1653, -950], [45.0, -240.1], [daan.x, daan.z], [lm.x, lm.z]]) {
+    const p = getTaipeiLocationParts(x, z);
+    const streets = getTaipeiLocationLabel(x, z).split(' · ').pop();
+    if (p.current) {
+      assert.equal(streets, p.cross ? `${p.current} & ${p.cross}` : p.current, `parts/string agree at ${x},${z}`);
+    } else {
+      assert.equal(p.cross, null, `no cross street without a current road at ${x},${z}`);
+    }
+  }
 });
 
 // Ground-triangulation regression guard (M1 fixes increment): the boot
