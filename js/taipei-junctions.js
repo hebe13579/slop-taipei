@@ -63,6 +63,22 @@ export const ISLAND_Y = 0.0635;           // roundabout islands: above caps, bel
 // kept local because taipei-markings imports THIS module.
 export const BOX_MARGIN_M = 1.0;
 export const BOX_FURNITURE_REACH_M = 5.7;
+// Issue #81: the box cap's mouth (bed-end) slide is capped at
+// crossHalf + this, NOT the fitted cap's crossHalf + 30
+// (CAP_MAX_EXTRA_REACH_M, fitted construction unchanged): a
+// through bed's far end (a divided boulevard passing a fragment
+// cluster) sits 30+ m out and must not drag the box with it.
+export const BOX_MOUTH_SLIDE_MAX_M = 20;
+// Issue #81: a mouth is DISPLACED when its bed end sits more
+// than this far past the box edge (sd − crossHalf). Displaced
+// mouths are genuine second mouth lines (staggered carriageways,
+// spread fragment clusters): their flare corners are collected
+// from the mouth lines themselves. Undisplaced mouths take
+// their corners from the box+margin lines only — corners taken
+// at furniture/slide-inflated reaches were the slab spikes of
+// the #81 report (a corner's distance scales multiplicatively
+// with the reaches of the two lines that make it).
+export const BOX_DISPLACED_MOUTH_M = 12;
 
 const MAJOR_CLS = new Set(['arterial', 'deck']);
 export const isMajorJunction = (j) =>
@@ -349,14 +365,40 @@ function fittedRing(j) {
 // intersections, hull of corners + cross-section endpoints. The
 // segment endpoints alone close the polygon where lines are
 // parallel or the angular gap is reflex (T mouths, bends).
+//
+// Issue #81 re-split the collection into three passes. The #75
+// construction ran its corners on the EXTENDED lines (mouth slide
+// to crossHalf + 30, furniture reach on signalized junctions) —
+// and at skewed/multi-arm fragment junctions EVERY hull vertex
+// came from that pass: a corner's distance from the junction
+// scales multiplicatively with the reach of the two lines that
+// make it, so the extended corners (and the +30 slide's segment
+// endpoints) paved rotated slabs up to 4.5× the pure box hull,
+// 30–53 m out over blocks and park corners. Now:
+//   pure    — crossHalf lines, segments + corners (the box);
+//   margin  — crossHalf + BOX_MARGIN_M lines, segments + corners
+//             (the default corner source);
+//   mouth   — SEGMENTS ONLY at the furniture/bed-end reach
+//             (slide capped at crossHalf + BOX_MOUTH_SLIDE_MAX_M):
+//             the cap's edges still meet staggered mouths and
+//             keep the furniture strip along each mouth, but no
+//             segment endpoint is dragged 30 m down a through
+//             boulevard either;
+//   displaced-mouth supplement — for an arm pair where a mouth
+//             is genuinely displaced (bed end > BOX_DISPLACED_
+//             MOUTH_M past the box edge), the pair's corners are
+//             ALSO collected from the mouth lines: the flare
+//             between a far mouth and its neighbour is real
+//             junction ground (基隆路×永吉路's 東興路 mouth),
+//             while undisplaced pairs never see inflated lines.
 function boxRing(j) {
   const arms = [...j.arms].sort((a, b) => Math.atan2(a.dirZ, a.dirX) - Math.atan2(b.dirZ, b.dirX));
   const lineOf = (a, reach) => ({ px: j.x + a.dirX * reach, pz: j.z + a.dirZ * reach, nx: -a.dirZ, nz: a.dirX });
-  const reachOf = (a) => {
+  const reachOf = (a, slideCap, furniture) => {
     let reach = a.crossHalf + BOX_MARGIN_M;
     const sd = (a.endX - j.x) * a.dirX + (a.endZ - j.z) * a.dirZ;
-    if (sd > 0) reach = Math.max(reach, Math.min(sd + CAP_END_OVERLAP_M, a.crossHalf + CAP_MAX_EXTRA_REACH_M));
-    if (j.signalized) reach = Math.max(reach, a.crossHalf + BOX_FURNITURE_REACH_M);
+    if (sd > 0) reach = Math.max(reach, Math.min(sd + CAP_END_OVERLAP_M, a.crossHalf + slideCap));
+    if (furniture && j.signalized) reach = Math.max(reach, a.crossHalf + BOX_FURNITURE_REACH_M);
     return reach;
   };
   const pts = [];
@@ -364,7 +406,7 @@ function boxRing(j) {
     const reach = reachFn(a);
     return { a, reach, ...lineOf(a, reach) };
   });
-  const lines = mkLines(reachOf);
+  const lines = mkLines((a) => reachOf(a, BOX_MOUTH_SLIDE_MAX_M, true));
   const maxR = Math.max(...lines.map((l) => l.reach + l.a.width / 2));
   // A corner must be LOCAL to the mouth it closes: within
   // (hA+hB)/sin(gap)+6 of one of the two arms' segment ends.
@@ -387,22 +429,10 @@ function boxRing(j) {
     (p[0] - j.x) * A.a.dirX + (p[1] - j.z) * A.a.dirZ >= A.a.crossHalf - 0.01 &&
     (p[0] - j.x) * B.a.dirX + (p[1] - j.z) * B.a.dirZ >= B.a.crossHalf - 0.01 &&
     local(p, A, B, gap);
-  // One pass over a line set: segment endpoints (widened by the
-  // margin) plus main/edge corners. Run twice — once on the
-  // extended lines (the working cap shape), once on the PURE
-  // crossHalf lines with unwidened edge lines (the audit box's
-  // own construction). The pure pass's gates accept everything
-  // the audit accepts, so the cap's input set contains the box's
-  // input set and hull monotonicity gives cap ⊇ box BY
-  // CONSTRUCTION — the #75 audit's corner invariant.
-  const collect = (ls, edgeHalf) => {
-    for (const L of ls) {
-      const h = L.a.width / 2 + BOX_MARGIN_M;
-      pts.push([L.px + L.nx * h, L.pz + L.nz * h]);
-      pts.push([L.px - L.nx * h, L.pz - L.nz * h]);
-    }
-    for (let i = 0; i < ls.length; i++) {
-      const A = ls[i], B = ls[(i + 1) % ls.length];
+  // The main + edge corners of one adjacent arm pair, from the
+  // pair's line objects (any pass's lines).
+  const collectPair = (A, B, edgeHalf) => {
+    {
       let gap = Math.atan2(B.a.dirZ, B.a.dirX) - Math.atan2(A.a.dirZ, A.a.dirX);
       if (gap <= 0) gap += Math.PI * 2;
       // Corners exist only where two arms actually CROSS: the
@@ -412,7 +442,7 @@ function boxRing(j) {
       // #75 audit's false corners at ramp merges), and the 170°
       // ceiling leaves reflex gaps (T mouths) to the segment
       // endpoints.
-      if (gap < (35 * Math.PI) / 180 || gap > (170 * Math.PI) / 180) continue;
+      if (gap < (35 * Math.PI) / 180 || gap > (170 * Math.PI) / 180) return;
       const det = A.nx * B.nz - A.nz * B.nx;
       if (Math.abs(det) >= 1e-6) {
         const t = ((B.px - A.px) * B.nz - (B.pz - A.pz) * B.nx) / det;
@@ -472,8 +502,39 @@ function boxRing(j) {
       );
     }
   };
-  collect(lines, (a) => a.width / 2 + BOX_MARGIN_M);
-  collect(mkLines((a) => a.crossHalf), (a) => a.width / 2);
+  // One pass over a line set: segment endpoints (widened by the
+  // margin), plus main/edge corners when `withCorners`. The pure
+  // pass's gates accept everything the audit accepts, so the
+  // cap's input set contains the box's input set and hull
+  // monotonicity gives cap ⊇ box BY CONSTRUCTION — the #75
+  // audit's corner invariant.
+  const collect = (ls, edgeHalf, withCorners) => {
+    for (const L of ls) {
+      const h = L.a.width / 2 + BOX_MARGIN_M;
+      pts.push([L.px + L.nx * h, L.pz + L.nz * h]);
+      pts.push([L.px - L.nx * h, L.pz - L.nz * h]);
+    }
+    if (withCorners) for (let i = 0; i < ls.length; i++)
+      collectPair(ls[i], ls[(i + 1) % ls.length], edgeHalf);
+  };
+  collect(lines, (a) => a.width / 2 + BOX_MARGIN_M, false);
+  collect(mkLines((a) => a.crossHalf + BOX_MARGIN_M), (a) => a.width / 2 + BOX_MARGIN_M, true);
+  collect(mkLines((a) => a.crossHalf), (a) => a.width / 2, true);
+  // Displaced-mouth supplement (issue #81): where a mouth is
+  // genuinely displaced (its bed end sits > BOX_DISPLACED_MOUTH_M
+  // past the box edge), the flare corner between it and its
+  // neighbour is paved at the mouth lines themselves — the box
+  // lines would leave the far mouth's furniture strip on bare
+  // ground (基隆路一段×永吉路： 東興路's mouth sits 15 m past
+  // the box; its stop line stands in exactly that flare).
+  const displaced = (a) => {
+    const sd = (a.endX - j.x) * a.dirX + (a.endZ - j.z) * a.dirZ;
+    return sd - a.crossHalf > BOX_DISPLACED_MOUTH_M;
+  };
+  for (let i = 0; i < arms.length; i++) {
+    if (!displaced(arms[i]) && !displaced(arms[(i + 1) % arms.length])) continue;
+    collectPair(lines[i], lines[(i + 1) % lines.length], (a) => a.width / 2 + BOX_MARGIN_M);
+  }
   // The junction centre itself is junction ground by definition;
   // at fragment clusters it can sit outside the cross-section
   // hull (all arms to one side), so pin it explicitly.

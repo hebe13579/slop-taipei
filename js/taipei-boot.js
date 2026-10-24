@@ -635,8 +635,16 @@ export function buildTaipeiGround(scene, tile, deps = {}) {
   // sites. Static — no per-frame update, matching the other tile
   // systems' build-once cost model.
   const treesStart = performance.now();
-  const treePlan = planStreetTrees(geo, plan);
-  const parkTreePlan = planParkTrees(geo, plan);
+  // Issue #81: trees never stand on junction asphalt — the planners
+  // receive the cap rings + roundabout disc/apron rings computed
+  // above as exclusion polygons (their centreline-distance checks
+  // cannot see a cap corner 20+ m from every centreline).
+  const treeExclusions = [
+    ...caps.map((c) => c.ring),
+    ...roundabouts.flatMap((s) => [s.disc.ring, ...s.aprons.map((a) => a.ring)]),
+  ];
+  const treePlan = planStreetTrees(geo, plan, { exclusions: treeExclusions });
+  const parkTreePlan = planParkTrees(geo, plan, { exclusions: treeExclusions });
   const treeMesh = buildStreetTreeMesh([...treePlan.trees, ...parkTreePlan.trees]);
   if (treeMesh) group.add(treeMesh);
   console.info(`[taipei-trees] ${treePlan.trees.length} street trees (${treePlan.stats.sidewalk} sidewalk, ${treePlan.stats.median} median${treePlan.stats.capped ? `, capped at ${treePlan.stats.cap}` : ''}) + ${parkTreePlan.trees.length} park trees${parkTreePlan.stats.capped ? ` (capped at ${parkTreePlan.stats.cap})` : ''} planned in ${Math.round(performance.now() - treesStart)}ms`);

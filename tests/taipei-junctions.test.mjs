@@ -99,11 +99,20 @@ test('real tile: exactly one cap per multi-arm junction, centres and arm ends co
   // minor junctions). Total paved 504,958 m² (the box total
   // includes the junction-centre pin that keeps fragment-cluster
   // centroids inside their caps).
+  // Census re-pinned for issue #81 (junction regression
+  // re-evaluation): the box construction no longer takes corners
+  // from furniture/slide-inflated lines — corners come from the
+  // pure/margin lines, mouth lines contribute segments only
+  // (bed-end slide capped at crossHalf + 20, not +30), and pairs
+  // with a genuinely displaced mouth (bed end > 12 m past the
+  // box edge) additionally collect their corners at the mouth
+  // lines. Box total 315,269 -> 294,960 m²; total paved
+  // 504,958 -> 484,649 m². Fitted caps untouched (189,689 m²).
   assert.equal(junctions.length, 1158, `junctions ${junctions.length}`);
   assert.equal(caps.length, 1151, `caps ${caps.length}`);
   assert.equal(caps.filter((c) => c.kind === 'box').length, 313, 'box caps');
   assert.equal(caps.filter((c) => c.kind === 'fitted').length, 838, 'fitted caps');
-  assert.equal(Math.round(caps.reduce((s, c) => s + c.area, 0)), 504958, 'cap area census');
+  assert.equal(Math.round(caps.reduce((s, c) => s + c.area, 0)), 484649, 'cap area census');
   assert.equal(Math.round(caps.filter((c) => c.kind === 'fitted').reduce((s, c) => s + c.area, 0)), 189689,
     'fitted cap area census (construction unchanged since #73)');
   const capByJ = new Map();
@@ -213,13 +222,17 @@ test('real tile: no painted band, median strip or dash quad centre inside a cap'
   // than the #73 fitted hulls at major junctions and the discs
   // add the two circles, so the bite grows; the clipped builders
   // still put exactly 0 there.
+  // Bite re-derived for issue #81: the tightened box caps (see
+  // the census note above) occlude slightly less — 1,007 band,
+  // 2,000 edge and 2,065 median quad centres; the clipped
+  // builders still put exactly 0 there.
   const unclipped = buildPaintedBands(beds);
-  assert.equal(unclipped.band.filter(inOcc).length, 1022,
+  assert.equal(unclipped.band.filter(inOcc).length, 1007,
     `unclipped bands inside occluders: ${unclipped.band.filter(inOcc).length}`);
-  assert.equal(unclipped.edges.filter(inOcc).length, 2032,
+  assert.equal(unclipped.edges.filter(inOcc).length, 2000,
     `unclipped edges inside occluders: ${unclipped.edges.filter(inOcc).length}`);
   const unclippedMedians = buildMedianStrips(beds);
-  assert.equal([...unclippedMedians.plain, ...unclippedMedians.planted].filter(inOcc).length, 2107,
+  assert.equal([...unclippedMedians.plain, ...unclippedMedians.planted].filter(inOcc).length, 2065,
     'unclipped medians inside occluders');
 });
 
@@ -444,6 +457,61 @@ test('issue #75: roundabouts are handcrafted — discs, islands, aprons, no caps
   const renaiClaimed = new Set(byId['renai-dunhua'].claimedJunctions);
   const entryStripes = markings.stripes.filter((q, i) => renaiClaimed.has(markings.stripeJunction[i])).length;
   assert.ok(entryStripes > 100, `Renai entry stripe quads ${entryStripes}`);
+});
+
+test('issue #81: box-cap vertices stay near the box — no slab spikes', () => {
+  const beds = TAIPEI_GEO.roadbeds;
+  const junctions = detectJunctions(beds);
+  const sites = planRoundabouts(beds, junctions);
+  const claimed = new Set(sites.flatMap((s) => s.claimedJunctions));
+  const caps = planJunctionCaps(beds, junctions, sites);
+  const capByJ = new Map();
+  {
+    let ci = 0;
+    junctions.forEach((j, ji) => { if (j.arms.length >= 2 && !claimed.has(ji)) { capByJ.set(ji, caps[ci]); ci++; } });
+  }
+  // The #75 test (c) bounds every vertex at 40 m past the box;
+  // the #81 complaint was the DISTRIBUTION — corners thrown
+  // 30–53 m out by inflated line reaches at skewed fragment
+  // junctions. Under the #81 construction (corners from the
+  // pure/margin lines; mouth lines give segments only, plus
+  // corners at pairs with a genuinely displaced mouth) the
+  // measured distribution is: max 31.5 m (a displaced-mouth ramp
+  // cluster), 20 vertices past 20 m, 3 past 25 m. Pin the
+  // distribution so a corner-throwing regression fails loudly.
+  let over20 = 0, over25 = 0, maxOver = 0;
+  junctions.forEach((j, ji) => {
+    if (j.arms.length < 2 || claimed.has(ji) || !isMajorJunction(j)) return;
+    const cap = capByJ.get(ji);
+    const box = junctionBox(j);
+    assert.ok(box.length >= 3, `junction ${ji} has a box`);
+    for (const v of ringPoints(cap.ring)) {
+      const d = distToPoly(v, box);
+      if (d > 20) over20++;
+      if (d > 25) over25++;
+      if (d > maxOver) maxOver = d;
+    }
+  });
+  assert.ok(over20 <= 20, `cap vertices >20 m past their box: ${over20}`);
+  assert.ok(over25 <= 3, `cap vertices >25 m past their box: ${over25}`);
+  assert.ok(maxOver <= 32, `worst cap vertex overshoot ${maxOver.toFixed(1)} m`);
+});
+
+test('issue #81: the reported junction 忠孝東路五段×松仁路 keeps a box-hugging cap', () => {
+  // The user's screenshot junction: a skewed 6-arm junction
+  // (忠孝東路五段 × 松仁路 × 永吉路30巷) whose #75 box cap was a
+  // rotated trapezoid slab (1,616 m², radius 33.7 m, spikes NW
+  // and SE) over the corner blocks, in a tone lighter than the
+  // arterial arms. Under the #81 construction the cap hugs the
+  // box: 1,348 m², radius 24.1 m, no spike vertices.
+  const beds = TAIPEI_GEO.roadbeds;
+  const junctions = detectJunctions(beds);
+  const caps = planJunctionCaps(beds, junctions);
+  const near = caps.map((c) => ({ c, d: Math.hypot(c.x - 361.7, c.z - -890.6) })).sort((a, b) => a.d - b.d)[0];
+  assert.ok(near.d < 5, `cap at the reported junction (d=${near.d})`);
+  assert.equal(near.c.kind, 'box');
+  assert.ok(near.c.area <= 1450, `cap area ${near.c.area} m² (was 1,616 under #75)`);
+  assert.ok(near.c.radius <= 26, `cap radius ${near.c.radius} m (was 33.7 under #75)`);
 });
 
 test('acceptance junction 信義路×松仁路： the formerly bare core is capped', () => {
