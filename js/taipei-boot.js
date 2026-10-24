@@ -84,6 +84,57 @@ function flatPolygonGeometry(rings, y) {
   return geo;
 }
 
+// Junction caps (issue #91): fan-triangulated from each cap's
+// blend origin with per-vertex colours — the planner's blend
+// (capBlendTones in js/taipei-junctions.js) gives every ring
+// vertex a tone mixed from the incident arms, so the cap meets
+// each arm in that arm's own tone instead of wearing the widest
+// arm's flat tone across the whole junction. Planner tones are
+// sRGB; setRGB with SRGBColorSpace converts them into the
+// working space exactly as the flat materials' hex colours are
+// converted, so a vertex at an arm's mouth is indistinguishable
+// from the arm ribbon it touches. Fan triangles must wind so
+// their normals point +Y: for the ring's shoelace sum S in XZ,
+// (origin, i, i+1) faces up iff S < 0 — swap the pair otherwise.
+function capFanGeometry(caps, y) {
+  let verts = 0, tris = 0;
+  for (const c of caps) { const n = c.ring.length / 2; verts += n + 1; tris += n; }
+  const positions = new Float32Array(verts * 3);
+  const colors = new Float32Array(verts * 3);
+  const indices = new Uint32Array(tris * 3);
+  const col = new THREE.Color();
+  let vp = 0, ip = 0;
+  const pushVert = (x, z, rgb) => {
+    positions[vp] = x; positions[vp + 1] = y; positions[vp + 2] = z;
+    col.setRGB(rgb[0], rgb[1], rgb[2], THREE.SRGBColorSpace);
+    colors[vp] = col.r; colors[vp + 1] = col.g; colors[vp + 2] = col.b;
+    vp += 3;
+  };
+  for (const c of caps) {
+    const n = c.ring.length / 2;
+    const base = vp / 3;
+    pushVert(c.tones.origin[0], c.tones.origin[1], c.tones.centre);
+    let S = 0;
+    for (let i = 0; i < n; i++) {
+      const x1 = c.ring[i * 2], z1 = c.ring[i * 2 + 1];
+      const x2 = c.ring[((i + 1) % n) * 2], z2 = c.ring[((i + 1) % n) * 2 + 1];
+      S += x1 * z2 - x2 * z1;
+    }
+    for (let i = 0; i < n; i++) pushVert(c.ring[i * 2], c.ring[i * 2 + 1], c.tones.ring[i]);
+    for (let i = 0; i < n; i++) {
+      const a = base + 1 + i, b = base + 1 + ((i + 1) % n);
+      if (S < 0) { indices[ip++] = base; indices[ip++] = a; indices[ip++] = b; }
+      else { indices[ip++] = base; indices[ip++] = b; indices[ip++] = a; }
+    }
+  }
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+  geo.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+  geo.setIndex(new THREE.BufferAttribute(indices, 1));
+  geo.computeVertexNormals();
+  return geo;
+}
+
 function rectsGeometry(blocks, y) {
   const positions = new Float32Array(blocks.length * 18);
   let o = 0;
@@ -546,8 +597,9 @@ export async function buildTaipeiGround(scene, tile, deps = {}) {
   addLayer(ribbonsGeometry(byClass.lane, 0.06), mat(SURFACE_TONES.lane, 0.9), 'TaipeiRoadsLane');
   await completeStage('roads', `${carriageways.length} roadbeds, ${sidewalkBands.quadCount} sidewalk band quads`);
   // Junction caps (issues #66/#75, js/taipei-junctions.js): one
-  // paved polygon per detected junction, in the widest arm's
-  // surface tone at 0.061 — a plain junction-BOX cap at major
+  // paved polygon per detected junction at 0.061, in per-vertex
+  // blended arm tones (issue #91; the roundabout discs below keep
+  // their widest-arm tone) — a plain junction-BOX cap at major
   // junctions (arterial/deck arms), the #66 fitted hull at minor
   // ones — filling the junction box the butt-ended arm ribbons
   // leave bare or fan-overlapped. Roundabouts are handcrafted
@@ -566,14 +618,14 @@ export async function buildTaipeiGround(scene, tile, deps = {}) {
   const roundabouts = planRoundabouts(carriageways, junctions);
   const caps = planJunctionCaps(carriageways, junctions, roundabouts);
   const capPolys = [...caps, ...roundabouts.flatMap((s) => [s.disc, ...s.aprons])].map((c) => ringPoints(c.ring));
-  const capsByClass = { deck: [], arterial: [], collector: [], lane: [] };
-  for (const c of caps) capsByClass[c.cls].push(c.ring);
+  addLayer(capFanGeometry(caps, CAP_Y), new THREE.MeshStandardNodeMaterial({ vertexColors: true, roughness: 0.9, metalness: 0.0 }), 'TaipeiJunctionCaps');
+  const discsByClass = { deck: [], arterial: [], collector: [], lane: [] };
   for (const s of roundabouts) {
-    capsByClass[s.disc.cls].push(s.disc.ring);
-    for (const ap of s.aprons) capsByClass[s.disc.cls].push(ap.ring);
+    discsByClass[s.disc.cls].push(s.disc.ring);
+    for (const ap of s.aprons) discsByClass[s.disc.cls].push(ap.ring);
   }
-  for (const cls of Object.keys(capsByClass))
-    if (capsByClass[cls].length) addLayer(flatPolygonGeometry(capsByClass[cls], CAP_Y), mat(SURFACE_TONES[cls], 0.9), `TaipeiJunctionCaps-${cls}`);
+  for (const cls of Object.keys(discsByClass))
+    if (discsByClass[cls].length) addLayer(flatPolygonGeometry(discsByClass[cls], CAP_Y), mat(SURFACE_TONES[cls], 0.9), `TaipeiJunctionCaps-${cls}`);
   const islandsByKind = { planted: [], plaza: [] };
   for (const s of roundabouts) islandsByKind[s.island.kind].push(s.island.ring);
   if (islandsByKind.planted.length) addLayer(flatPolygonGeometry(islandsByKind.planted, ISLAND_Y), mat(SURFACE_TONES.park, 0.9), 'TaipeiRoundaboutIslands-planted');
