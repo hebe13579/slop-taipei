@@ -7,6 +7,7 @@ import { buildPaintedBands } from './taipei-painted.js';
 import { SURFACE_TONES, surfaceClass, buildMedianStrips, isPlazaPark, isPodiumBlock, podiumCentresOf } from './taipei-surfaces.js';
 import { buildRoadMarkings, detectJunctions } from './taipei-markings.js';
 import { planJunctionCaps, planRoundabouts, ringPoints, CAP_Y, ISLAND_Y } from './taipei-junctions.js';
+import { buildDeckGeometry, PIER_W, PIER_D } from './taipei-viaduct.js';
 import { unionExclusionRects, clipRectToBoxes } from './taipei-union.js';
 import { createCurtainWallMaterial, createPreWarBuildingMaterial } from './tsl-materials.js';
 
@@ -38,7 +39,9 @@ import { createCurtainWallMaterial, createPreWarBuildingMaterial } from './tsl-m
 // roundabout islands 0.0635, painted-walkway green band 0.065
 // and its white edge lines 0.066,
 // road markings 0.068), not terrain elevation:
-// the tile is the flat basin floor. Carriageways render in per-class
+// the tile is the flat basin floor. The one true elevation in the
+// tile is the elevated-highway decks (issue #61): real structures
+// at their computed heights over the ground stack. Carriageways render in per-class
 // surface tones and merged boulevards get a median strip (issue #29,
 // js/taipei-surfaces.js); paved civic squares (廣場) render as paving,
 // not lawn, and the 101 / City Hall blocks wear a podium tone.
@@ -102,6 +105,41 @@ function positionsGeometry(positions) {
   geo.setAttribute('position', new THREE.BufferAttribute(positions, 3));
   geo.computeVertexNormals();
   return geo;
+}
+
+// Deck geometry from js/taipei-viaduct.js arrives with per-face
+// normals already computed (flat shading), so both attributes are
+// set directly.
+function deckPartGeometry(part) {
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute('position', new THREE.BufferAttribute(part.positions, 3));
+  geo.setAttribute('normal', new THREE.BufferAttribute(part.normals, 3));
+  return geo;
+}
+
+// Elevated-deck piers (issue #61): one InstancedMesh of the unit pier
+// box (PIER_W x 1 x PIER_D, base at y=0), scaled per instance to the
+// underside height the pipeline computed. Placement — 32 m rhythm,
+// twin-carriageway merging, carriageway/lot rejection — all happened
+// in tools/taipei/build-elevated.mjs; this only draws the boxes.
+function buildDeckPierMesh(piers) {
+  if (!piers.length) return null;
+  const geo = new THREE.BoxGeometry(PIER_W, 1, PIER_D);
+  geo.translate(0, 0.5, 0);
+  const mesh = new THREE.InstancedMesh(geo, mat(0x8a877c, 0.95), piers.length);
+  mesh.name = 'TaipeiDeckPiers';
+  const dummy = new THREE.Object3D();
+  piers.forEach((p, i) => {
+    dummy.position.set(p.x, 0, p.z);
+    dummy.rotation.set(0, p.yaw, 0);
+    dummy.scale.set(1, Math.max(p.h, 0.1), 1);
+    dummy.updateMatrix();
+    mesh.setMatrixAt(i, dummy.matrix);
+  });
+  mesh.instanceMatrix.needsUpdate = true;
+  mesh.castShadow = true;
+  mesh.receiveShadow = true;
+  return mesh;
 }
 
 function ribbonsGeometry(roads, y) {
@@ -463,9 +501,14 @@ export function buildTaipeiGround(scene, tile, deps = {}) {
   // Carriageways in per-class surface tones (issue #29): one merged
   // layer per class — weathered cool decks, the unchanged arterial
   // asphalt, a hair lighter collectors, pale concrete lanes — instead
-  // of the single flat dark slab every bed used to share.
+  // of the single flat dark slab every bed used to share. Deck beds
+  // (issue #61: roadbeds flagged deck in the generation map) are NOT
+  // drawn here — their pavement is the elevated deck built below;
+  // they stay in `carriageways` for every ground planner (junction
+  // caps, medians, markings, signals), so the ground picture under a
+  // deck is exactly what it was when the deck was a boulevard.
   const byClass = { deck: [], arterial: [], collector: [], lane: [] };
-  for (const r of carriageways) byClass[surfaceClass(r)].push(r);
+  for (const r of carriageways) if (!r.deck) byClass[surfaceClass(r)].push(r);
   addLayer(ribbonsGeometry(byClass.deck, 0.06), mat(SURFACE_TONES.deck, 0.9), 'TaipeiRoadsDeck');
   addLayer(ribbonsGeometry(byClass.arterial, 0.06), mat(SURFACE_TONES.arterial, 0.9), 'TaipeiRoads');
   addLayer(ribbonsGeometry(byClass.collector, 0.06), mat(SURFACE_TONES.collector, 0.9), 'TaipeiRoadsCollector');
@@ -539,6 +582,27 @@ export function buildTaipeiGround(scene, tile, deps = {}) {
   const signalMesh = buildSignalMesh(markings.signals);
   if (signalMesh) group.add(signalMesh);
   console.info(`[taipei-markings] ${markings.stats.dividerKm.toFixed(1)} km of lane dividers on ${markings.stats.dividerBeds} beds; ${markings.stats.signalized} signalized junctions, ${markings.stats.crosswalks} crosswalks, ${markings.stats.stopLines} stop lines, ${markings.stats.signalUnits} static signal units (${markings.stats.signalMast} mast-arm / ${markings.stats.signalPole} corner-pole, ${markings.stats.clearanceUnresolved} unresolved corners) planned in ${Math.round(performance.now() - markingsStart)}ms`);
+
+  // Elevated highway decks (issue #61, js/taipei-viaduct.js): the
+  // 建國 / 市民大道 / 基隆路高架 corridors and their ramps as real
+  // structures — one merged box-section mesh (slab + parapets) with
+  // an asphalt top in the deck surface tone, plus one InstancedMesh
+  // of piers. Heights, ramp profiles and pier placement were
+  // computed by the pipeline (tools/taipei/build-elevated.mjs) into
+  // geodata.elevatedRoads. Drawn, not driven: no collision, no
+  // traffic — the ground streets under the decks carry everything,
+  // as they did when the corridors rendered as ground boulevards.
+  if (geo.elevatedRoads?.lines?.length) {
+    const decksStart = performance.now();
+    const deckGeo = buildDeckGeometry(geo.elevatedRoads);
+    const concrete = addLayer(deckPartGeometry(deckGeo.concrete), mat(0x98958a, 0.95), 'TaipeiDecks');
+    concrete.castShadow = true;
+    const deckTop = addLayer(deckPartGeometry(deckGeo.asphalt), mat(SURFACE_TONES.deck, 0.9), 'TaipeiDeckAsphalt');
+    deckTop.castShadow = true;
+    const pierMesh = buildDeckPierMesh(geo.elevatedRoads.piers || []);
+    if (pierMesh) group.add(pierMesh);
+    console.info(`[taipei-decks] ${deckGeo.lineCount} deck lines (${geo.elevatedRoads.stats?.lineKm ?? '?'} km), ${deckGeo.pierCount} piers, ${deckGeo.triCount.toLocaleString('en-US')} triangles in ${Math.round(performance.now() - decksStart)}ms`);
+  }
 
   // Buildings on the raster blocks + the Taipei 101 massing. The lot
   // plan is js/taipei-buildings.js's; the rendering is upstream's

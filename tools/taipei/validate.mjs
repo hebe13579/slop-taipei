@@ -128,5 +128,143 @@ const acctDelta = Math.abs(accounted - preMergeM) / preMergeM;
 check(acctDelta < 0.015, 'rendered roadbed length accounts for pre-merge carriageway length within 1.5%', `roadbeds ${(roadbedM / 1000).toFixed(1)} km + excluded links ${(gm.stats.excludedLinkLength / 1000).toFixed(2)} km + merged overlap ${(gm.stats.mergedConstituentOverlapLength / 1000).toFixed(1)} km - merged ${(gm.stats.mergedLength / 1000).toFixed(1)} km + scrap ${(gm.stats.droppedScrapLength / 1000).toFixed(2)} km + suppressed ${((gm.stats.suppressedLength || 0) / 1000).toFixed(2)} km + simplify shortening ${((gm.stats.simplificationShorteningM || 0) / 1000).toFixed(2)} km = ${(accounted / 1000).toFixed(1)} km vs ${(preMergeM / 1000).toFixed(1)} km`);
 check(roadbedM < preMergeM, 'rendered carriageway is shorter than pre-merge (merges + link exclusion only remove)', `${(roadbedM / 1000).toFixed(1)} km < ${(preMergeM / 1000).toFixed(1)} km`);
 
+// 8. Elevated decks (issue #61): the deck set's provenance, height
+// discipline, deck-flag agreement between the two builders, and the
+// pier rejection — recomputed here independently of the pipeline.
+{
+  const { isElevatedTags, DECK_CLASSES } = await import('./build-elevated.mjs');
+  const elev = G.elevatedRoads;
+  check(!!elev && Array.isArray(elev.lines) && elev.lines.length > 50, 'elevatedRoads present with deck lines', elev ? `${elev.lines.length} lines, ${elev.piers?.length ?? 0} piers` : 'missing');
+  if (elev) {
+    const rawById = new Map(rawRoads.elements.filter((e) => e.type === 'way').map((e) => [e.id, e]));
+    // Provenance: every line traces to a raw way that is in the deck
+    // set, and every deck-set way in the extract produced a line
+    // (anti-rot in both directions).
+    let badLine = 0;
+    const lineWays = new Set();
+    for (const l of elev.lines) {
+      lineWays.add(l.wayId);
+      const el = rawById.get(l.wayId);
+      if (!el || !DECK_CLASSES.has(el.tags?.highway) || !isElevatedTags(el.tags || {})) badLine++;
+    }
+    check(badLine === 0, 'every deck line traces to an elevated deck-class way', `${lineWays.size} distinct ways`);
+    let missing = 0;
+    {
+      // A selected way emits a line iff some segment of it crosses
+      // the tile union (the builders' exact frame math; ways running
+      // only through the dropped bands or outside the boxes emit
+      // nothing, legitimately).
+      const A = 6378137.0, E2 = 6.69437999014e-3, PHI0 = (25.0330 * Math.PI) / 180, SIN0 = Math.sin(PHI0);
+      const KX = (Math.PI / 180) * (A / Math.sqrt(1 - E2 * SIN0 * SIN0)) * Math.cos(PHI0);
+      const KY = (Math.PI / 180) * (A * (1 - E2)) / Math.pow(1 - E2 * SIN0 * SIN0, 1.5);
+      const toW = (g) => [(g.lon - 121.5650) * KX, -(g.lat - 25.0330) * KY];
+      const segHitsBox = (a, b, bx) => {
+        let t0 = 0, t1 = 1;
+        const dx = b[0] - a[0], dz = b[1] - a[1];
+        for (const [p, qv] of [[-dx, a[0] - bx.minX], [dx, bx.maxX - a[0]], [-dz, a[1] - bx.minZ], [dz, bx.maxZ - a[1]]]) {
+          if (Math.abs(p) < 1e-12) { if (qv < 0) return false; continue; }
+          const r = qv / p;
+          if (p < 0) t0 = Math.max(t0, r); else t1 = Math.min(t1, r);
+          if (t0 > t1) return false;
+        }
+        return true;
+      };
+      for (const el of rawRoads.elements) {
+        if (el.type !== 'way' || !el.tags?.highway) continue;
+        if (!DECK_CLASSES.has(el.tags.highway) || !isElevatedTags(el.tags)) continue;
+        const pts = (el.geometry || []).map(toW);
+        const crosses = pts.some((p, i) => i + 1 < pts.length && G.frame.boxes.some((bx) => segHitsBox(p, pts[i + 1], bx)));
+        if (crosses && !lineWays.has(el.id)) missing++;
+      }
+    }
+    check(missing === 0, 'every union-crossing elevated deck-class way produced a deck line', `${missing} missing`);
+    // Height discipline: 0 <= h <= 21 m (the L3 cap); a point may
+    // exceed its own line's layer top ONLY near nodes shared with a
+    // higher-layer way — the height function takes the max target
+    // over the ways through a node, so an L1 ramp climbing to an L2
+    // interchange legitimately rises above 9 m there (window of +-3
+    // points around a shared coordinate must explain the excess).
+    // And the ramp slope between consecutive points never exceeds
+    // 6% (0.11 m of slack for the 0.1 m height quantisation).
+    const topOf = (layer) => 9 + 6 * (Math.min(Math.max(layer, 1), 3) - 1);
+    const topAtCoord = new Map();
+    for (const l of elev.lines) for (let i = 0; i < l.pts.length; i += 2) {
+      const k = `${Math.round(l.pts[i] * 10)},${Math.round(l.pts[i + 1] * 10)}`;
+      topAtCoord.set(k, Math.max(topAtCoord.get(k) ?? 0, topOf(l.layer)));
+    }
+    let badH = 0, badSlope = 0;
+    for (const l of elev.lines) {
+      for (let i = 0; i < l.h.length; i++) {
+        if (!(l.h[i] >= 0 && l.h[i] <= 21 + 0.051)) badH++;
+        else if (l.h[i] > topOf(l.layer) + 0.051) {
+          let allow = topOf(l.layer);
+          for (let j = Math.max(0, i - 3); j <= Math.min(l.h.length - 1, i + 3); j++)
+            allow = Math.max(allow, topAtCoord.get(`${Math.round(l.pts[2 * j] * 10)},${Math.round(l.pts[2 * j + 1] * 10)}`) ?? 0);
+          if (l.h[i] > allow + 0.051) badH++;
+        }
+        if (i > 0) {
+          const d = Math.hypot(l.pts[2 * i] - l.pts[2 * i - 2], l.pts[2 * i + 1] - l.pts[2 * i - 1]);
+          if (d > 0.01 && Math.abs(l.h[i] - l.h[i - 1]) > 0.06 * d + 0.11) badSlope++;
+        }
+      }
+    }
+    check(badH === 0, 'deck heights bounded by layer tops (shared-node excess only)', `${badH} violations`);
+    check(badSlope === 0, 'deck ramp slope never exceeds 6%', `${badSlope} violations`);
+    // Deck flags: the generation map's flags (recomputed from its
+    // own segment rules) and the geodata pass-through agree, and
+    // every flagged bed derives from at least one deck-set way.
+    const gmDeck = gm.roadbeds.filter((b) => b.deck).length;
+    const geoDeck = (G.roadbeds || []).filter((b) => b.deck).length;
+    check(gmDeck > 100 && gmDeck === geoDeck && gm.stats.deckBeds === gmDeck, 'deck-flagged roadbeds agree across builders', `${gmDeck} flagged`);
+    let flagOrphans = 0;
+    for (const b of gm.roadbeds) {
+      if (!b.deck) continue;
+      const ok = b.sourceWayIds.some((id) => {
+        const el = rawById.get(id);
+        return el && DECK_CLASSES.has(el.tags?.highway) && isElevatedTags(el.tags || {});
+      });
+      if (!ok) flagOrphans++;
+    }
+    check(flagOrphans === 0, 'every deck-flagged roadbed derives from a deck-set way', `${flagOrphans} orphans`);
+    // Piers: none inside a planned lot, and none inside a ground
+    // carriageway ribbon unless it stands in that street's median
+    // strip or under its own deck over a street running parallel to
+    // the deck (the median-pier arrangement — see build-elevated.mjs).
+    const { ribbonPoly, buildPolyGrid, pointInAnyPoly, pointInPoly } = await import('../../js/taipei-painted.js');
+    const { buildMedianStrips } = await import('../../js/taipei-surfaces.js');
+    const { planTaipeiBuildings } = await import('../../js/taipei-buildings.js');
+    const groundBedsV = (G.roadbeds || []).filter((b) => !b.deck);
+    const groundRibbons = groundBedsV.map((b) => ribbonPoly(b));
+    const ribbonGrid = buildPolyGrid(groundRibbons);
+    const med = buildMedianStrips(G.roadbeds || [], null);
+    const medPolys = [...med.plain, ...med.planted].map((quad) => [[quad[0], quad[1]], [quad[2], quad[3]], [quad[4], quad[5]], [quad[6], quad[7]]]);
+    const medGrid = buildPolyGrid(medPolys);
+    const lots = planTaipeiBuildings(G).lots;
+    const bedParallelNear = (bed, p) => {
+      const pts = bed.pts || [];
+      for (let i = 0; i + 3 < pts.length; i += 2) {
+        const ax = pts[i], az = pts[i + 1], bx = pts[i + 2], bz = pts[i + 3];
+        const dx = bx - ax, dz = bz - az, L2 = dx * dx + dz * dz || 1e-9;
+        let t = ((p.x - ax) * dx + (p.z - az) * dz) / L2;
+        t = Math.max(0, Math.min(1, t));
+        if (Math.hypot(ax + t * dx - p.x, az + t * dz - p.z) > 4) continue;
+        if (Math.abs(Math.cos(Math.atan2(dx, dz) - p.yaw)) > 0.9) return true;
+      }
+      return false;
+    };
+    let pierRoad = 0, pierLot = 0;
+    for (const p of elev.piers || []) {
+      if (lots.some((lot) => Math.abs(p.x - lot.x) <= lot.w / 2 && Math.abs(p.z - lot.z) <= lot.d / 2)) pierLot++;
+      if (pointInAnyPoly(medGrid, medPolys, [p.x, p.z])) continue;
+      const cellKey = `${Math.floor(p.x / 100)},${Math.floor(p.z / 100)}`;
+      for (const ci of ribbonGrid.get(cellKey) || []) {
+        if (pointInPoly([p.x, p.z], groundRibbons[ci]) && !bedParallelNear(groundBedsV[ci], p)) { pierRoad++; break; }
+      }
+    }
+    check(pierRoad === 0, 'no deck pier in a crossing carriageway (median/parallel exemptions only)', `${pierRoad} violations`);
+    check(pierLot === 0, 'no deck pier inside a planned building lot', `${pierLot} violations`);
+  }
+}
+
 console.log(failures ? `\n${failures} CHECK(S) FAILED` : '\nALL CHECKS PASSED');
 process.exit(failures ? 1 : 0);
