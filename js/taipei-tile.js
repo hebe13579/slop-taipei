@@ -1,4 +1,5 @@
 import { TAIPEI_GEO } from './taipei-geodata.js';
+import { taipeiLandmarkStructures } from './taipei-buildings.js';
 import {
   TAIPEI_GEO_ADAPTED,
   getTaipeiLocationLabel,
@@ -60,9 +61,23 @@ export const TAIPEI_TILE = {
     daanpark: { x: daanPark.x, z: daanPark.z, heading: 0, name: "Da'an Forest Park", sub: 'Da\'an · 大安森林公園' },
     songshan: { x: wuchangPark.x, z: wuchangPark.z, heading: 0, name: 'Songshan — Wuchang Park', sub: 'Songshan · 五常公園' },
   },
-  landmarks: Object.entries(TAIPEI_GEO.landmarks).map(([key, s]) => ({
-    id: key, name: key, short: key, x: s.x, z: s.z, district: taipeiDistrictAt(s.x, s.z),
-  })),
+  // The map's landmark layer (issue #33): Taipei 101 itself plus every
+  // structure in the LANDMARK_STRUCTURES registry (js/taipei-buildings.js),
+  // resolved through the registry's own export — never a second
+  // hand-maintained list. The geodata's other named points (the 101
+  // MALL, MRT Exit 5) are POIs, not landmark structures, and stay off
+  // this layer; the teleports above are unchanged.
+  landmarks: [
+    {
+      id: 'taipei-101', name: 'Taipei 101', nameZh: '台北101', short: 'Taipei 101',
+      x: lm('Taipei 101').x, z: lm('Taipei 101').z, height: 508,
+      district: taipeiDistrictAt(lm('Taipei 101').x, lm('Taipei 101').z),
+    },
+    ...taipeiLandmarkStructures(TAIPEI_GEO).map((s) => ({
+      id: s.id, name: s.name, nameZh: s.nameZh, short: s.name,
+      x: s.x, z: s.z, height: s.height, district: taipeiDistrictAt(s.x, s.z),
+    })),
+  ],
   roadNames: [...new Set(TAIPEI_GEO.roads.map((r) => r.name || r.nameEn).filter(Boolean))],
   getLocationLabel: getTaipeiLocationLabel,
   getLocationParts: getTaipeiLocationParts,
