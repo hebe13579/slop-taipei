@@ -5,6 +5,7 @@ import { buildSidewalkBands, planStreetTrees, planParkTrees } from './taipei-str
 import { AvatarFigure } from './avatar-figure.js';
 import { buildPaintedBands } from './taipei-painted.js';
 import { SURFACE_TONES, surfaceClass, buildMedianStrips, isPlazaPark, isPodiumBlock, podiumCentresOf } from './taipei-surfaces.js';
+import { buildRoadMarkings } from './taipei-markings.js';
 
 // js/taipei-boot.js
 // Boot builder for registry tiles. It renders what the geodata honestly
@@ -31,7 +32,7 @@ import { SURFACE_TONES, surfaceClass, buildMedianStrips, isPlazaPark, isPodiumBl
 // 0.02, podium blocks 0.021, water 0.03, parks 0.04, plaza paving 0.041,
 // street-section bands 0.045, non-carriageway paths 0.05, carriageways
 // 0.06, boulevard median strips 0.062, painted-walkway green band
-// 0.065 and its white edge lines 0.066), not terrain elevation:
+// 0.065 and its white edge lines 0.066, road markings 0.068), not terrain elevation:
 // the tile is the flat basin floor. Carriageways render in per-class
 // surface tones and merged boulevards get a median strip (issue #29,
 // js/taipei-surfaces.js); paved civic squares (廣場) render as paving,
@@ -218,6 +219,75 @@ function buildStreetTreeMesh(trees) {
   return mesh;
 }
 
+// ---------------------------------------------------------------------
+// Traffic signal units (issue #45): one static unit in local space,
+// lamps facing +Z (the approaching driver) — a pole, a short mast arm
+// and a horizontal 3-lamp head in the Taiwan arrangement (red left
+// from the driver's seat), lenses in muted UNLIT colours (no phase
+// cycle in this increment), plus the pedestrian signal box with a
+// static lit red panel (no figure animation, no countdown — standing
+// user directive). Placements come from taipei-markings.js; every
+// unit is the same vertex-coloured geometry, transformed per
+// placement and merged into ONE mesh / one draw call.
+function signalUnitGeometry() {
+  const parts = [];
+  const addPart = (geo, color, x, y, z, rx = 0) => {
+    const g = geo.index ? geo.toNonIndexed() : geo;
+    if (rx) g.rotateX(rx);
+    g.translate(x, y, z);
+    const pos = g.getAttribute('position');
+    const colors = new Float32Array(pos.count * 3);
+    const c = new THREE.Color(color);
+    for (let i = 0; i < pos.count; i++) { colors[i * 3] = c.r; colors[i * 3 + 1] = c.g; colors[i * 3 + 2] = c.b; }
+    parts.push({ pos: pos.array, nor: g.getAttribute('normal').array, colors });
+  };
+  addPart(new THREE.CylinderGeometry(0.09, 0.12, 5.6, 6), 0x2b2e33, 0, 2.8, 0); // pole
+  addPart(new THREE.BoxGeometry(0.14, 0.14, 2.4), 0x2b2e33, 0, 5.52, 1.05); // mast arm
+  addPart(new THREE.BoxGeometry(1.5, 0.44, 0.3), 0x17191d, 0, 5.02, 2.1); // head housing
+  addPart(new THREE.CylinderGeometry(0.145, 0.145, 0.06, 10), 0x7a1f16, -0.48, 5.02, 2.27, Math.PI / 2); // red lens (unlit)
+  addPart(new THREE.CylinderGeometry(0.145, 0.145, 0.06, 10), 0x7a5c14, 0, 5.02, 2.27, Math.PI / 2); // amber lens (unlit)
+  addPart(new THREE.CylinderGeometry(0.145, 0.145, 0.06, 10), 0x1d5c2a, 0.48, 5.02, 2.27, Math.PI / 2); // green lens (unlit)
+  addPart(new THREE.BoxGeometry(0.52, 0.64, 0.2), 0x17191d, 0, 2.9, 0.14); // pedestrian signal box
+  addPart(new THREE.BoxGeometry(0.38, 0.5, 0.03), 0xa8321f, 0, 2.9, 0.25); // static lit red panel
+  const total = parts.reduce((s, p) => s + p.pos.length, 0);
+  const positions = new Float32Array(total);
+  const normals = new Float32Array(total);
+  const colors = new Float32Array(total);
+  let o = 0;
+  for (const p of parts) { positions.set(p.pos, o); normals.set(p.nor, o); colors.set(p.colors, o); o += p.pos.length; }
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+  geo.setAttribute('normal', new THREE.BufferAttribute(normals, 3));
+  geo.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+  return geo;
+}
+
+function buildSignalMesh(signals) {
+  if (!signals.length) return null;
+  const base = signalUnitGeometry();
+  const vcount = base.getAttribute('position').count;
+  const positions = new Float32Array(vcount * signals.length);
+  const normals = new Float32Array(vcount * signals.length);
+  const colors = new Float32Array(vcount * signals.length);
+  const dummy = new THREE.Object3D();
+  signals.forEach((s, i) => {
+    dummy.position.set(s.x, 0, s.z);
+    dummy.rotation.set(0, Math.atan2(s.faceX, s.faceZ), 0);
+    dummy.updateMatrix();
+    const g = base.clone().applyMatrix4(dummy.matrix);
+    positions.set(g.getAttribute('position').array, i * vcount * 3);
+    normals.set(g.getAttribute('normal').array, i * vcount * 3);
+    colors.set(g.getAttribute('color').array, i * vcount * 3);
+  });
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+  geo.setAttribute('normal', new THREE.BufferAttribute(normals, 3));
+  geo.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+  const mesh = new THREE.Mesh(geo, new THREE.MeshStandardNodeMaterial({ vertexColors: true, roughness: 0.85, metalness: 0.0 }));
+  mesh.name = 'TaipeiTrafficSignals';
+  return mesh;
+}
+
 // Controller world options for a registry tile (see the opts contract in
 // js/controllers.js): the playable world is the tile's own frame — NOT
 // Manhattan's island bounds or shoreline, which would clamp away the
@@ -342,6 +412,23 @@ export function buildTaipeiGround(scene, tile, deps = {}) {
   const painted = paintedGeometries(carriageways, 0.065, 0.066);
   addLayer(painted.band, mat(0x1e9e57, 0.9), 'TaipeiPaintedStripes');
   addLayer(painted.edges, mat(0xf2f2f2, 0.9), 'TaipeiPaintedStripeEdges');
+  // Road detail (issue #45, js/taipei-markings.js): dashed white lane
+  // dividers between same-direction lanes (never on a median, broken
+  // at junctions), zebra crosswalks + stop lines at signalized
+  // junctions, and one STATIC signal unit per signalized approach —
+  // pole + horizontal 3-lamp head with unlit lenses and a static lit
+  // red pedestrian panel. No phase cycle yet, and traffic does not
+  // obey them; scooter waiting boxes are out of scope (user cut).
+  const markingsStart = performance.now();
+  const markings = buildRoadMarkings(carriageways, medians); // reuses the strips built above as dash occluders
+  addLayer(
+    quadsGeometry([...markings.dashes, ...markings.stripes, ...markings.stopLines], 0.068),
+    mat(0xf2f2f2, 0.9),
+    'TaipeiRoadMarkings'
+  );
+  const signalMesh = buildSignalMesh(markings.signals);
+  if (signalMesh) group.add(signalMesh);
+  console.info(`[taipei-markings] ${markings.stats.dividerKm.toFixed(1)} km of lane dividers on ${markings.stats.dividerBeds} beds; ${markings.stats.signalized} signalized junctions, ${markings.stats.crosswalks} crosswalks, ${markings.stats.stopLines} stop lines, ${markings.stats.signalUnits} static signal units planned in ${Math.round(performance.now() - markingsStart)}ms`);
 
   // Buildings on the raster blocks + the Taipei 101 massing. The lot
   // plan is js/taipei-buildings.js's; the rendering is upstream's
