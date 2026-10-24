@@ -319,7 +319,8 @@ export function planStreetTrees(geodata, plan, opts = {}) {
   const lotGrid = new Map();
   const lotKey = (cx, cz) => `${cx},${cz}`;
   lots.forEach((lot, i) => {
-    const r = Math.max(lot.w, lot.d) / 2 + 1;
+    // Issue #62: a turned lot's corner reaches its half-diagonal.
+    const r = (lot.rot ? Math.hypot(lot.w, lot.d) / 2 : Math.max(lot.w, lot.d) / 2) + 1;
     const minCx = Math.floor((lot.x - r) / 32), maxCx = Math.floor((lot.x + r) / 32);
     const minCz = Math.floor((lot.z - r) / 32), maxCz = Math.floor((lot.z + r) / 32);
     for (let cx = minCx; cx <= maxCx; cx++) for (let cz = minCz; cz <= maxCz; cz++) {
@@ -332,7 +333,14 @@ export function planStreetTrees(geodata, plan, opts = {}) {
     const cell = lotGrid.get(lotKey(Math.floor(x / 32), Math.floor(z / 32))) || [];
     for (const i of cell) {
       const lot = lots[i];
-      if (Math.abs(x - lot.x) <= lot.w / 2 + 0.3 && Math.abs(z - lot.z) <= lot.d / 2 + 0.3) return true;
+      const dx = x - lot.x, dz = z - lot.z;
+      if (Math.abs(dx) <= lot.w / 2 + 0.3 && Math.abs(dz) <= lot.d / 2 + 0.3) return true;
+      // Issue #62: a turned lot's true footprint reaches outside its
+      // axis rect along the diagonals — keep trees out of it too.
+      if (lot.rot) {
+        const c = Math.cos(lot.rot), sn = Math.sin(lot.rot);
+        if (Math.abs(dx * c + dz * sn) <= lot.w / 2 + 0.3 && Math.abs(-dx * sn + dz * c) <= lot.d / 2 + 0.3) return true;
+      }
     }
     return false;
   };
@@ -546,7 +554,8 @@ export function planParkTrees(geodata, plan, opts = {}) {
   const lotGrid = new Map();
   const lotKey = (cx, cz) => `${cx},${cz}`;
   lots.forEach((lot, i) => {
-    const r = Math.max(lot.w, lot.d) / 2 + 1;
+    // Issue #62: a turned lot's corner reaches its half-diagonal.
+    const r = (lot.rot ? Math.hypot(lot.w, lot.d) / 2 : Math.max(lot.w, lot.d) / 2) + 1;
     const minCx = Math.floor((lot.x - r) / 32), maxCx = Math.floor((lot.x + r) / 32);
     const minCz = Math.floor((lot.z - r) / 32), maxCz = Math.floor((lot.z + r) / 32);
     for (let cx = minCx; cx <= maxCx; cx++) for (let cz = minCz; cz <= maxCz; cz++) {
@@ -559,7 +568,14 @@ export function planParkTrees(geodata, plan, opts = {}) {
     const cell = lotGrid.get(lotKey(Math.floor(x / 32), Math.floor(z / 32))) || [];
     for (const i of cell) {
       const lot = lots[i];
-      if (Math.abs(x - lot.x) <= lot.w / 2 + 0.3 && Math.abs(z - lot.z) <= lot.d / 2 + 0.3) return true;
+      const dx = x - lot.x, dz = z - lot.z;
+      if (Math.abs(dx) <= lot.w / 2 + 0.3 && Math.abs(dz) <= lot.d / 2 + 0.3) return true;
+      // Issue #62: a turned lot's true footprint reaches outside its
+      // axis rect along the diagonals — keep trees out of it too.
+      if (lot.rot) {
+        const c = Math.cos(lot.rot), sn = Math.sin(lot.rot);
+        if (Math.abs(dx * c + dz * sn) <= lot.w / 2 + 0.3 && Math.abs(-dx * sn + dz * c) <= lot.d / 2 + 0.3) return true;
+      }
     }
     return false;
   };
