@@ -57,8 +57,10 @@ test('geodata: class populations cover every roadbed exactly once', () => {
   const counts = { deck: 0, arterial: 0, collector: 0, lane: 0 };
   for (const b of TAIPEI_GEO.roadbeds) counts[surfaceClass(b)]++;
   assert.equal(counts.deck + counts.arterial + counts.collector + counts.lane, TAIPEI_GEO.roadbeds.length);
-  // Pinned from the regenerated evidence list (post-#30 data).
-  assert.deepEqual(counts, { deck: 101, arterial: 445, collector: 374, lane: 3467 });
+  // Pinned from the regenerated evidence list (post-#51 data: five
+  // duplicate 基隆路車行地下道 beds suppressed, one lane bed folded
+  // into a merged group, one bed reclassed — see issue #51).
+  assert.deepEqual(counts, { deck: 101, arterial: 441, collector: 374, lane: 3466 });
 });
 
 test('medianKind: merged + width rule, planted only on wide secondary', () => {
@@ -93,9 +95,15 @@ test('geodata: no median on any underpass-named bed in the real tile', () => {
   const named = TAIPEI_GEO.roadbeds.filter((b) => isUnderpassName(b.name));
   assert.ok(named.length > 0, 'the tile does contain underpass/tunnel beds');
   for (const b of named) assert.equal(medianKind(b), null, `${b.name} must not get a median`);
-  const xinhai = TAIPEI_GEO.roadbeds.find((b) => b.name === '辛亥路車行地下道' && b.width > 30);
-  assert.ok(xinhai, 'the 34.3 m 辛亥路車行地下道 bed exists in the data');
-  assert.equal(medianKind(xinhai), null);
+  // Issue #51: the 辛亥路車行地下道 underpass pair no longer renders as
+  // its own bed — family pairing folds it into the parent road's merged
+  // bed (the flat-world rule: the underpass is ignored, 辛亥路三段 is
+  // drawn whole). The no-median exclusion above now guards the
+  // remaining underpass/tunnel-named beds （基隆路車行地下道 singles,
+  // 象山/文山 tunnels).
+  const xinhai = TAIPEI_GEO.roadbeds.find((b) => b.sourceWayIds.includes(327119603));
+  assert.ok(xinhai, 'the former 辛亥路車行地下道 ways still render');
+  assert.equal(xinhai.name, '辛亥路三段', 'underpass ways folded into the parent road bed');
 });
 
 test('geodata: median bed counts match the regenerated evidence list', () => {
@@ -106,11 +114,11 @@ test('geodata: median bed counts match the regenerated evidence list', () => {
     if (k === 'plain') plain++;
   }
   assert.equal(planted, 72);
-  assert.equal(plain, 163);
+  assert.equal(plain, 164); // +1 vs #29 list: a 基隆路一段 family-merged bed (issue #51)
   const { stats } = buildMedianStrips(TAIPEI_GEO.roadbeds);
   assert.equal(stats.plantedBeds, 72);
-  assert.equal(stats.plainBeds, 163);
-  assert.equal(stats.excludedUnderpass, 6); // 辛亥路車行地下道 + 象山隧道 x4 + 文山隧道
+  assert.equal(stats.plainBeds, 164);
+  assert.equal(stats.excludedUnderpass, 5); // 象山隧道 x4 + 文山隧道 (辛亥路車行地下道 folded into 辛亥路三段, issue #51)
   assert.ok(stats.plantedKm > 8 && stats.plantedKm < 11.3, `planted rendered ${stats.plantedKm} km`);
   assert.ok(stats.plainKm > 30 && stats.plainKm < 40.9, `plain rendered ${stats.plainKm} km`);
 });
