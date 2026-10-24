@@ -683,6 +683,21 @@ body.hud-minimized .icon-show {
   box-shadow: 0 1px 0 rgba(0, 0, 0, 0.35), 0 10px 22px -10px rgba(0, 0, 0, 0.75);
 }
 
+/* "You are driving on this road" tag inside the current street's plate (tiles whose adapter reports the on-road street) */
+.street-sign .sign-tag {
+  display: inline-block;
+  margin-right: 8px;
+  padding: 2px 6px 3px;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  line-height: 1.25;
+  vertical-align: 3px;
+  color: var(--sign-green);
+  background: rgba(255, 255, 255, 0.94);
+  border-radius: 3px;
+}
+
 .radar {
   position: relative;
   width: 288px;
