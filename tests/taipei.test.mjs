@@ -517,6 +517,20 @@ test('landmark structures: true positions and heights, sites kept clear', (t) =>
     'songshan-cultural-park': { h: 30, x: -481.9, z: -1175.6 },
     'eslite-spectrum-songyan': { h: 63, x: -372.8, z: -1281.7 },
     'taipei-arena': { h: 31, x: -1501.0, z: -1962.6 },
+    // Batch 4 (issue #74, west-expansion phase 2): the station
+    // district. Positions are the OSM footprint centres (Shin Kong:
+    // way 204711206; Main Station: way 23641610; CKS Hall: the way
+    // 1052759757 terrace centre; Concert Hall: way 1052759775;
+    // Theater: way 1052759776; Presidential Office: relation 206817
+    // assembly centre). Heights 244.15 / 48 / 70 / 60 m are
+    // published; the two halls' 37 m is the OSM tag, flagged
+    // estimated in the registry (see the batch-4 test).
+    'shin-kong-life-tower': { h: 244.15, x: -5016.4, z: -1458.4 },
+    'taipei-main-station': { h: 48, x: -4839.7, z: -1623.1 },
+    'chiang-kai-shek-memorial-hall': { h: 70, x: -4388.2, z: -200.6 },
+    'national-concert-hall': { h: 37, x: -4616.0, z: -441.4 },
+    'national-theater': { h: 37, x: -4718.7, z: -256.9 },
+    'presidential-office-building': { h: 60, x: -5351.6, z: -774.7 },
   };
   assert.equal(plan.landmarkTowers.length, Object.keys(expected).length, 'all verified structures present');
   const partTop = (p) => (p.y0 || 0) + p.h + (p.type === 'ridge' ? p.ridgeH : 0);
@@ -644,7 +658,10 @@ test('landmark batch 3: two-slab Cathay rebuild, W, Songshan, Eslite, Arena', ()
   assert.equal(eslite.estimated, true, 'eslite height is an estimate (14 floors, no published metres)');
   assert.equal(arena.estimated, true, 'arena height is an estimate (no published height exists)');
   for (const s of plan.landmarkTowers) {
-    if (s.id !== 'eslite-spectrum-songyan' && s.id !== 'taipei-arena') {
+    // Batch 4 (issue #74) adds two more estimated heights: the two
+    // national halls' 37 m is OSM-derived, not published.
+    if (s.id !== 'eslite-spectrum-songyan' && s.id !== 'taipei-arena'
+      && s.id !== 'national-concert-hall' && s.id !== 'national-theater') {
       assert.equal(s.estimated, false, `${s.id} height is published, not estimated`);
     }
   }
@@ -665,6 +682,75 @@ test('landmark batch 3: two-slab Cathay rebuild, W, Songshan, Eslite, Arena', ()
   }
   const exported = taipeiLandmarkStructures(TAIPEI_GEO);
   assert.equal(exported.length, plan.landmarkTowers.length, 'map export covers the whole registry');
+});
+
+// Issue #74 batch 4 (west-expansion phase 2): the six station-
+// district landmarks. Shin Kong is the beige tower under its
+// pyramid crown; the Main Station is the long house under stepped
+// red roofs with the clock tower at the centre (its massing sits
+// +11 m east inside the slanted OSM outline to clear the 承德路
+// diagonal — see the registry comment); the CKS Hall stacks three
+// terrace steps, the white hall and two blue frustum eaves under a
+// gold finial; the two national halls are the palace pair (plinth,
+// walls, golden frustum hip + ridge) across Liberty Square; the
+// Presidential Office is the red-brick baroque block — long main
+// range, two end pavilions, central tower. The halls' sites only
+// became buildable when the memorial park's internal service
+// drives stopped being roadbeds (generation-map rule, issue #74).
+test('landmark batch 4: station district — crown, clock tower, terrace hall, palace pair, brick block', () => {
+  const plan = planTaipeiBuildings(TAIPEI_GEO);
+  const byId = (id) => plan.landmarkTowers.find((s) => s.id === id);
+  const partTop = (p) => (p.y0 || 0) + p.h + (p.type === 'ridge' ? p.ridgeH : 0);
+
+  // Shin Kong Life Tower: podium + shaft + pyramid crown + cap.
+  const shinKong = byId('shin-kong-life-tower');
+  assert.ok(shinKong, 'shin kong life tower registered');
+  const crown = shinKong.parts.find((p) => p.type === 'frustum');
+  assert.ok(crown && crown.wT < crown.wB, 'pyramid crown steps in from the shaft');
+  assert.equal(Math.max(...shinKong.parts.map(partTop)), 244.15, 'cap tops out at the published 244.15 m');
+
+  // Taipei Main Station: stepped red roofs + clock tower at 48 m.
+  const station = byId('taipei-main-station');
+  assert.ok(station, 'taipei main station registered');
+  const clock = station.parts.find((p) => p.y0 === 40);
+  assert.ok(clock && partTop(clock) === 48, 'clock tower tops out at the published 48 m');
+  assert.ok(station.parts.filter((p) => p.flat === 0x9c4a38).length >= 2, 'red roof steps carry the flat terracotta');
+
+  // CKS Memorial Hall: three terrace steps + two blue eaves + finial.
+  const cks = byId('chiang-kai-shek-memorial-hall');
+  assert.ok(cks, 'cks memorial hall registered');
+  const terraces = cks.parts.filter((p) => p.type === 'box' && p.flat === 0xa39a8b || (p.type === 'box' && (p.y0 === 4.8 || p.y0 === 9.6)));
+  assert.ok(terraces.length >= 2, 'stepped terrace levels present under the hall');
+  const eaves = cks.parts.filter((p) => p.type === 'frustum' && p.flat === 0x1e4d8c);
+  assert.equal(eaves.length, 2, 'blue double-eaved roof as two frustum tiers');
+  const finial = cks.parts.find((p) => p.type === 'cylinder');
+  assert.ok(finial && partTop(finial) === 70, 'gold finial tops out at the published 70 m');
+
+  // The palace pair: same recipe (plinth / walls / frustum / ridge),
+  // ridge peaks at the OSM-derived 37 m, flagged estimated.
+  const concert = byId('national-concert-hall');
+  const theater = byId('national-theater');
+  assert.ok(concert && theater, 'both national halls registered');
+  for (const hall of [concert, theater]) {
+    assert.deepEqual(hall.parts.map((p) => p.type), ['box', 'box', 'frustum', 'ridge'], `${hall.id} = plinth + walls + frustum hip + ridge`);
+    const ridge = hall.parts.find((p) => p.type === 'ridge');
+    assert.equal(partTop(ridge), 37, `${hall.id} ridge peaks at 37 m`);
+    assert.equal(hall.estimated, true, `${hall.id} height is OSM-derived, flagged estimated`);
+  }
+  assert.ok(concert.x > theater.x && concert.z < theater.z, 'concert hall stands NE of the theater across the square');
+
+  // Presidential Office: main range + two pavilions + tower at 60 m.
+  const office = byId('presidential-office-building');
+  assert.ok(office, 'presidential office registered');
+  const pavilions = office.parts.filter((p) => p.type === 'box' && Math.abs(p.dz || 0) === 54);
+  assert.equal(pavilions.length, 2, 'two end pavilions flank the main range');
+  assert.equal(Math.max(...office.parts.map(partTop)), 60, 'tower cap tops out at the published 60 m');
+
+  // Map pins + Chinese names for all six, via the tile landmark list.
+  for (const id of ['shin-kong-life-tower', 'taipei-main-station', 'chiang-kai-shek-memorial-hall', 'national-concert-hall', 'national-theater', 'presidential-office-building']) {
+    const pin = TAIPEI_TILE.landmarks.find((l) => l.id === id);
+    assert.ok(pin && pin.nameZh && pin.height > 0, `${id} has a map pin with a Chinese name`);
+  }
 });
 
 // Issue #11: the plan is rendered by upstream's buildCityBlocks, fed

@@ -25,6 +25,14 @@ const EXPECTED_FACADES = {
   'songshan-cultural-park': 'prewar', // brick factory hall
   'eslite-spectrum-songyan': 'prewar', // pale ribbon-window stone
   'taipei-arena': 'curtain', // silvery shell panels (tuned curtain)
+  // Batch 4 (issue #74): the station district — all six are stone /
+  // brick civic-era masses, so all six take the prewar grid.
+  'shin-kong-life-tower': 'prewar', // beige stone-clad tower
+  'taipei-main-station': 'prewar', // stone station house
+  'chiang-kai-shek-memorial-hall': 'prewar', // white marble hall
+  'national-concert-hall': 'prewar', // cream palace walls
+  'national-theater': 'prewar', // cream palace walls
+  'presidential-office-building': 'prewar', // red-brick baroque block
 };
 
 // The only Latin wordmarks a landmark sign may carry — the ones the
@@ -37,6 +45,10 @@ const EXPECTED_SIGNS = {
   'taipei-dome': { glyphs: 7 },
   'sun-yat-sen-memorial-hall': { glyphs: 6 },
   'songshan-cultural-park': { glyphs: 6 },
+  // Batch 4 (issue #74): the rooftop 新光人壽 band and the station's
+  // 臺北車站 entrance band — abstract glyphs, as on the real signs.
+  'shin-kong-life-tower': { glyphs: 4 },
+  'taipei-main-station': { glyphs: 4 },
 };
 
 test('every landmark resolves its pinned facade treatment', () => {

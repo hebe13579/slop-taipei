@@ -172,6 +172,35 @@ const FRONTAGE_INSIDE = 0.5;
 //       suffix only.
 const UNDERPASS_SUFFIX = '車行地下道';
 const UNDERPASS_DEDUP_COVER = 0.85;
+// Memorial-park service drives (issue #74): the 中正紀念公園 grounds
+// (the CKS Memorial, Liberty Square and the two national halls) carry
+// a web of unnamed highway=service drives in OSM — the complex's own
+// site circulation, several of them drawn straight through the
+// National Theater and National Concert Hall outlines as entrance
+// schematics (ways 1053359233/1053359237/1053359248 cross the halls'
+// wall plans diagonally). They are not streets, and as roadbeds they
+// make the phase-2 landmark sites unusable: the standing rule that
+// no landmark footprint sits on a roadbed cannot be met at any
+// palace scale while a drive crosses the building core. A
+// highway=service roadbed whose centreline lies mostly inside the
+// named park's polygon is therefore excluded from roadbeds and its
+// length booked into parkServiceExcludedLength, so the length
+// identity still closes. "Mostly" is a majority test, not ~all:
+// the drives run gate-to-gate across the grounds and their tails
+// cross the coarse 22-point relation ring by 10-40 m on the way to
+// the perimeter streets (measured inside shares for the web's
+// beds: 0.61-1.00). Routing is untouched (roadGraph is built
+// separately in build-taipei-geodata.mjs). Scoped to this one named
+// park on purpose: the same majority test matches ~80 service beds /
+// 5.1 km across 24 parks and plazas citywide （中山公園， 河濱公園，
+// 市民廣場， …) — a general park-drive rule is a map-wide decision
+// for its own issue, not a rider on a landmark batch. Anti-rot: with
+// osm_parks.json present, a listed park that matches no ring, or a
+// rule that excludes zero beds, fails the build (OVERRIDES pattern).
+// osm_parks.json absent (synthetic test extracts) leaves the rule
+// inert.
+const PARK_SERVICE_EXCLUSIONS = ['中正紀念公園'];
+const PARK_SERVICE_INSIDE = 0.5;
 //
 // WIDTH OVERRIDES — by exact road name, applied instead of the inferred
 // width (explicit OSM width tag > lanes x 3.2 m > name/class default).
@@ -829,6 +858,65 @@ function pip(p, poly) {
   }
   return inside;
 }
+// Memorial-park service-drive exclusion (issue #74, constants above):
+// drop highway=service roadbeds lying >= PARK_SERVICE_INSIDE inside a
+// PARK_SERVICE_EXCLUSIONS park polygon. Runs before the underpass
+// dedup so excluded drives cannot act as coverers there or in the
+// orphan pass. Park rings come from osm_parks.json (same el.rings /
+// closed-way assembly as build-taipei-geodata.mjs); the file is an
+// optional input — absent means the rule is inert.
+const parkServiceReport = [];
+let parkServiceExcludedLength = 0;
+{
+  const parksPath = path.join(DATA, 'osm_parks.json');
+  if (fs.existsSync(parksPath) && PARK_SERVICE_EXCLUSIONS.length) {
+    const parkPolys = [];
+    for (const el of load('osm_parks.json').elements) {
+      const name = el.tags?.name || '';
+      if (!PARK_SERVICE_EXCLUSIONS.includes(name)) continue;
+      const rings = el.rings
+        ? el.rings.map((r) => r.map((g) => toWorld(g.lon, g.lat)))
+        : (el.geometry && el.geometry.length >= 4 ? [[...el.geometry.map((g) => toWorld(g.lon, g.lat))]] : []);
+      for (const ring of rings) if (ring.length >= 4) parkPolys.push({ name, ring });
+    }
+    for (const name of PARK_SERVICE_EXCLUSIONS) {
+      if (!parkPolys.some((p) => p.name === name)) {
+        console.error(`[generation-map] FATAL: park service exclusion "${name}" matched no park ring — the rule has rotted (park renamed or retagged?). Fix or remove it.`);
+        process.exit(1);
+      }
+    }
+    const keep = new Array(roadbeds.length).fill(true);
+    roadbeds.forEach((b, bi) => {
+      if (b.highway !== 'service') return;
+      const pts = pairsOf(b.centreline);
+      const cum = cumLen(pts);
+      const total = cum[cum.length - 1];
+      if (!(total > 0)) return;
+      const n = Math.max(2, Math.round(total / 2));
+      let inside = 0;
+      for (let i = 0; i <= n; i++) {
+        const p = pointAt(pts, cum, (total * i) / n);
+        if (parkPolys.some((pp) => pip([p.x, p.z], pp.ring))) inside++;
+      }
+      if (inside / (n + 1) >= PARK_SERVICE_INSIDE) {
+        keep[bi] = false;
+        const len = flatLength(b.centreline);
+        parkServiceExcludedLength += len;
+        parkServiceReport.push({ name: b.name, highway: b.highway, sourceWayIds: b.sourceWayIds, lengthM: Math.round(len), insidePct: Math.round((inside / (n + 1)) * 100), reason: 'memorial-park-service' });
+      }
+    });
+    if (!parkServiceReport.length) {
+      console.error('[generation-map] FATAL: park service exclusion matched zero roadbeds — the rule has rotted (drives retagged or already removed?). Fix or remove it.');
+      process.exit(1);
+    }
+    const kept = roadbeds.filter((_, i) => keep[i]);
+    roadbeds.length = 0;
+    roadbeds.push(...kept);
+    roadbedLength -= parkServiceExcludedLength;
+    console.log(`[generation-map] park service exclusion (issue #74): ${parkServiceReport.length} roadbeds inside ${PARK_SERVICE_EXCLUSIONS.join(', ')} dropped, ${(parkServiceExcludedLength / 1000).toFixed(2)} km`);
+  }
+}
+
 // Underpass dedup (issue #51): an underpass-named bed whose centreline
 // is >= UNDERPASS_DEDUP_COVER covered by differently-named beds is a
 // duplicate underlay of the surface road — suppress it (its length is
@@ -958,6 +1046,8 @@ const stats = {
   droppedScrapLength: Math.round(droppedScrapLength * 10) / 10,
   suppressedLength: Math.round(suppressedLength * 10) / 10,
   suppressedBeds: suppressedReport,
+  parkServiceExcludedLength: Math.round(parkServiceExcludedLength * 10) / 10,
+  parkServiceExcludedBeds: parkServiceReport,
   underpassFamilies: [...familyParent.entries()].map(([underpass, parent]) => ({ underpass, parent })),
   underpassDedupBeds: dedupedReport,
   simplificationShorteningM: Math.round(simplificationShorteningM * 10) / 10,
@@ -968,8 +1058,8 @@ const stats = {
   overrides: [...overrideMatched.entries()].map(([name, matchedWays]) => ({ name, width: OVERRIDES[name], matchedWays })),
   mergedRoads: mergedReport,
 };
-const identity = stats.roadbedLength + stats.excludedLinkLength + stats.mergedConstituentOverlapLength - stats.mergedLength + stats.droppedScrapLength + stats.suppressedLength + stats.simplificationShorteningM;
-console.log(`[generation-map] length identity: roadbeds ${stats.roadbedLength} + excludedLinks ${stats.excludedLinkLength} + mergedOverlap ${stats.mergedConstituentOverlapLength} - merged ${stats.mergedLength} + scrap ${stats.droppedScrapLength} + suppressed ${stats.suppressedLength} + simplifyShortening ${stats.simplificationShorteningM} = ${identity.toFixed(1)} vs carriageway ${stats.carriagewayLength} (delta ${(identity - stats.carriagewayLength).toFixed(1)} m)`);
+const identity = stats.roadbedLength + stats.excludedLinkLength + stats.mergedConstituentOverlapLength - stats.mergedLength + stats.droppedScrapLength + stats.suppressedLength + stats.parkServiceExcludedLength + stats.simplificationShorteningM;
+console.log(`[generation-map] length identity: roadbeds ${stats.roadbedLength} + excludedLinks ${stats.excludedLinkLength} + mergedOverlap ${stats.mergedConstituentOverlapLength} - merged ${stats.mergedLength} + scrap ${stats.droppedScrapLength} + suppressed ${stats.suppressedLength} + parkService ${stats.parkServiceExcludedLength} + simplifyShortening ${stats.simplificationShorteningM} = ${identity.toFixed(1)} vs carriageway ${stats.carriagewayLength} (delta ${(identity - stats.carriagewayLength).toFixed(1)} m)`);
 const out = {
   version: 1,
   generatedBy: 'tools/taipei/build-generation-map.mjs',

@@ -729,6 +729,152 @@ const LANDMARK_STRUCTURES = [
       { type: 'box', w: 50, d: 82, h: 13, dx: 46, dz: -4 },
     ],
   },
+  {
+    // Station district batch (issue #74, expansion phase 2).
+    // 244.15 m, 51F, completed 1993 (Wikipedia / CTBUH; the OSM
+    // outline way 204711206 carries the same tagged height). For
+    // a decade Taiwan's tallest building: a beige stone-clad slab
+    // over its department-store podium, closed by the stepped
+    // pyramid crown that still anchors the station skyline. The
+    // OSM outline (40.9 × 85.1 m) is the tower way itself; the
+    // podium stays inside it (its NW corner is trimmed — the
+    // outline's north-west taper is left unbuilt), the shaft
+    // stands on the podium's north half, and the crown is one
+    // frustum taper to a small cap: 22 + 194 + 24 + 4.15 = 244.15.
+    id: 'shin-kong-life-tower', name: 'Shin Kong Life Tower', nameZh: '新光人壽保險大樓',
+    lat: 25.046166, lon: 121.515295, realHeight: 244.15, color: 0xbfb198,
+    site: { w: 52, d: 96, dx: 1, dz: 10 },
+    // Issue #57 machinery: beige stone grid on shaft and podium
+    // (the podium a wider-bayed retail variant); the crown stays
+    // flat stone, and the Chinese name the real crown carries is
+    // an abstract glyph band on the shaft's south face.
+    facade: { kind: 'prewar', stoneColor: 0xcabfa5, trimColor: 0xa2937a, windowGlassColor: 0x2c3844, windowWidth: 2.8, floorHeight: 4.4, litProbability: 0.32, warmth: 0.6, seed: 57.27 },
+    sign: { glyphs: 4, w: 20, h: 3.6, y: 205, dx: 0, dz: 21.4, bg: '#33302a', fg: '#e8dfc8' },
+    parts: [
+      { type: 'box', w: 36, d: 70, h: 22, dx: 2, dz: 23, facade: { kind: 'prewar', stoneColor: 0xbfb198, trimColor: 0x9c8f76, windowGlassColor: 0x2c3844, windowWidth: 3.6, floorHeight: 3.7, litProbability: 0.4, warmth: 0.62, seed: 57.33 } },
+      { type: 'box', w: 34, d: 42, h: 194, y0: 22 },
+      { type: 'frustum', wB: 34, dB: 42, wT: 9, dT: 14, h: 24, y0: 216, flat: 0xc0b090 },
+      { type: 'box', w: 9, d: 14, h: 4.15, y0: 240, flat: 0xa89878 },
+    ],
+  },
+  {
+    // Station district batch (issue #74). 48 m published (the
+    // OSM height tag on way 23641610 says 30 m — wrong; the
+    // station house is six floors under a tall red hip roof with
+    // the clock tower over the central hall). The OSM outline
+    // (178.5 × 153.7 m) is the whole station block, and like the
+    // district grid it slants ~10° against the tile frame; the
+    // massing simplifies to an axis-aligned house (150 × 96 m)
+    // placed inside the outline with margin on every side, its
+    // red roof as three stepped boxes (the ridge primitive takes
+    // no offset, and the house is offset within its block) and
+    // the clock tower at the roof's centre: 27 + 3.5 + 5 + 4.5
+    // + 8 = 48. The 臺北車站 characters over the south entrance
+    // are an abstract glyph band. Placement disclosure (issue
+    // #74): the house sits +11 m east of the outline centre —
+    // at centre, its NW corner clipped the diagonal 承德路一段
+    // roadbed ribbon west of the block (0.52 m² on the house,
+    // 38.8 m² on the eaves); shifted east and with the eaves
+    // trimmed to 154 × 100 it clears the ribbon and stays
+    // inside the outline on every side.
+    id: 'taipei-main-station', name: 'Taipei Main Station', nameZh: '臺北車站',
+    lat: 25.047652, lon: 121.517046, realHeight: 48, color: 0xcbb694,
+    site: { w: 186, d: 162, dx: 0, dz: 0 },
+    facade: { kind: 'prewar', stoneColor: 0xd6c8ac, trimColor: 0xa08b6a, windowGlassColor: 0x2a3540, windowWidth: 3.2, floorHeight: 4.2, litProbability: 0.34, warmth: 0.62, seed: 57.28 },
+    sign: { glyphs: 4, w: 30, h: 4, y: 20, dx: 11, dz: 42.4, bg: '#7c3a2c', fg: '#efe6d0' },
+    parts: [
+      { type: 'box', w: 150, d: 96, h: 27, dx: 11, dz: -6 },
+      { type: 'box', w: 154, d: 100, h: 3.5, y0: 27, dx: 11, dz: -6, flat: 0x9c4a38 },
+      { type: 'box', w: 128, d: 78, h: 5, y0: 30.5, dx: 11, dz: -6, flat: 0x9c4a38 },
+      { type: 'box', w: 92, d: 54, h: 4.5, y0: 35.5, dx: 11, dz: -6, flat: 0x94422f },
+      { type: 'box', w: 20, d: 22, h: 8, y0: 40, dx: 11, dz: -6 },
+    ],
+  },
+  {
+    // Station district batch (issue #74). 70 m published: the
+    // white hall on its three-level stepped terrace in the
+    // memorial park, under the blue double-eaved roof. The OSM
+    // terrace way (1052759757, tagged 14.5 m — the terrace top)
+    // is a loose trace of the ~120 m-square platform, rotated
+    // against the frame with the park's own diagonal paths; the
+    // massing keeps the platform's true scale as three clean
+    // axis-aligned steps (the SYS Hall stylization precedent),
+    // the hall's walls in white stone, and the octagonal roof
+    // read as two stepped square frustum eaves under a gold
+    // finial: 14.5 (terrace) + 26 (hall) + 12 + 10 (eaves) + 7.5
+    // (finial) = 70.
+    id: 'chiang-kai-shek-memorial-hall', name: 'Chiang Kai-shek Memorial Hall', nameZh: '中正紀念堂',
+    lat: 25.034811, lon: 121.521519, realHeight: 70, color: 0xdfd9cc,
+    site: { w: 150, d: 150, dx: 0, dz: 0 },
+    facade: { kind: 'prewar', stoneColor: 0xe9e5db, trimColor: 0xcac4b4, windowGlassColor: 0x2e3a46, windowWidth: 3.4, floorHeight: 5.2, litProbability: 0.22, warmth: 0.6, seed: 57.29 },
+    parts: [
+      { type: 'box', w: 118, d: 118, h: 4.8, flat: 0xa39a8b },
+      { type: 'box', w: 104, d: 104, h: 4.8, y0: 4.8, flat: 0xa39a8b },
+      { type: 'box', w: 90, d: 90, h: 4.9, y0: 9.6, flat: 0xaca294 },
+      { type: 'box', w: 62, d: 62, h: 26, y0: 14.5 },
+      { type: 'frustum', wB: 70, dB: 70, wT: 54, dT: 54, h: 12, y0: 40.5, flat: 0x1e4d8c },
+      { type: 'frustum', wB: 52, dB: 52, wT: 30, dT: 30, h: 10, y0: 52.5, flat: 0x1e4d8c },
+      { type: 'cylinder', r: 3.2, h: 7.5, y0: 62.5, flat: 0xcfa14e },
+    ],
+  },
+  {
+    // Station district batch (issue #74). One of the twin
+    // palace halls flanking Liberty Square (the north hall):
+    // cream walls under a golden Chinese hip roof, massed as a
+    // plinth, a wall block, a frustum hip and a ridge crest.
+    // Height 37 m is the OSM tag on way 1052759775 (118.5 ×
+    // 113.7 m outline) — no figure is published anywhere, so
+    // the entry is flagged estimated.
+    id: 'national-concert-hall', name: 'National Concert Hall', nameZh: '國家音樂廳',
+    lat: 25.036985, lon: 121.519262, realHeight: 37, estimated: true, color: 0xdccfa9,
+    site: { w: 126, d: 121, dx: 0, dz: 0 },
+    facade: { kind: 'prewar', stoneColor: 0xe6d9bc, trimColor: 0xbfae87, windowGlassColor: 0x2a3644, windowWidth: 3.4, floorHeight: 5.0, litProbability: 0.26, warmth: 0.68, seed: 57.30 },
+    parts: [
+      { type: 'box', w: 110, d: 105, h: 5, flat: 0xa89c80 },
+      { type: 'box', w: 94, d: 90, h: 15, y0: 5 },
+      { type: 'frustum', wB: 112, dB: 108, wT: 84, dT: 80, h: 9, y0: 20, flat: 0xc79a3f },
+      { type: 'ridge', w: 84, d: 80, h: 0, ridgeH: 8, y0: 29, flat: 0xc79a3f },
+    ],
+  },
+  {
+    // Station district batch (issue #74). The south twin of the
+    // concert hall across Liberty Square — the same palace
+    // recipe at its own OSM outline (way 1052759776, 122.9 ×
+    // 116.0 m), the mirror of the pair. Height 37 m is the OSM
+    // tag (levels 7); unpublished, so flagged estimated.
+    id: 'national-theater', name: 'National Theater', nameZh: '國家戲劇院',
+    lat: 25.035319, lon: 121.518245, realHeight: 37, estimated: true, color: 0xdccfa9,
+    site: { w: 130, d: 123, dx: 0, dz: 0 },
+    facade: { kind: 'prewar', stoneColor: 0xe6d9bc, trimColor: 0xbfae87, windowGlassColor: 0x2a3644, windowWidth: 3.4, floorHeight: 5.0, litProbability: 0.26, warmth: 0.68, seed: 57.31 },
+    parts: [
+      { type: 'box', w: 114, d: 107, h: 5, flat: 0xa89c80 },
+      { type: 'box', w: 98, d: 92, h: 15, y0: 5 },
+      { type: 'frustum', wB: 116, dB: 110, wT: 88, dT: 82, h: 9, y0: 20, flat: 0xc79a3f },
+      { type: 'ridge', w: 88, d: 82, h: 0, ridgeH: 8, y0: 29, flat: 0xc79a3f },
+    ],
+  },
+  {
+    // Station district batch (issue #74). 60 m published — the
+    // central tower of the 1919 red-brick baroque block (the
+    // wings are five floors). The OSM relation 206817 assembles
+    // the perimeter block (102.0 × 137.7 m, long in z, facing
+    // Ketagalan Boulevard east): massed as the long brick slab
+    // with its two end pavilions, the tower at the centre and a
+    // small frustum cap: 27 + 30 + 3 = 60. The prewar factory
+    // in brick red with pale trim reads as the brick-and-band
+    // facade.
+    id: 'presidential-office-building', name: 'Presidential Office Building', nameZh: '總統府',
+    lat: 25.039994, lon: 121.511973, realHeight: 60, color: 0x9c5a41,
+    site: { w: 110, d: 145, dx: 0, dz: 0 },
+    facade: { kind: 'prewar', stoneColor: 0xa9603f, trimColor: 0xd9d0bd, windowGlassColor: 0x27313d, windowWidth: 2.6, floorHeight: 4.6, litProbability: 0.27, warmth: 0.58, seed: 57.32 },
+    parts: [
+      { type: 'box', w: 44, d: 130, h: 27 },
+      { type: 'box', w: 54, d: 22, h: 27, dz: -54 },
+      { type: 'box', w: 54, d: 22, h: 27, dz: 54 },
+      { type: 'box', w: 26, d: 26, h: 30, y0: 27 },
+      { type: 'frustum', wB: 26, dB: 26, wT: 13, dT: 13, h: 3, y0: 57, flat: 0x4a4440 },
+    ],
+  },
 ];
 
 // Resolve a structure definition into plan data: true tile-frame

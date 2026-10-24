@@ -99,12 +99,19 @@ test('real tile: exactly one cap per multi-arm junction, centres and arm ends co
   // minor junctions). Total paved 504,958 m² (the box total
   // includes the junction-centre pin that keeps fragment-cluster
   // centroids inside their caps).
-  assert.equal(junctions.length, 1158, `junctions ${junctions.length}`);
-  assert.equal(caps.length, 1151, `caps ${caps.length}`);
+  // Census re-pinned for issue #74 (station-district landmarks):
+  // the memorial-park service-drive exclusion removed 22 minor
+  // service beds inside 中正紀念公園, taking 6 fitted-cap junctions
+  // with them — junctions 1,158 -> 1,152, caps 1,151 -> 1,145,
+  // fitted 838 -> 832 (box caps unchanged at 313; one box cap by
+  // the park loses a service arm and 13 m²). Total paved
+  // 503,740 m², fitted 188,484 m².
+  assert.equal(junctions.length, 1152, `junctions ${junctions.length}`);
+  assert.equal(caps.length, 1145, `caps ${caps.length}`);
   assert.equal(caps.filter((c) => c.kind === 'box').length, 313, 'box caps');
-  assert.equal(caps.filter((c) => c.kind === 'fitted').length, 838, 'fitted caps');
-  assert.equal(Math.round(caps.reduce((s, c) => s + c.area, 0)), 504958, 'cap area census');
-  assert.equal(Math.round(caps.filter((c) => c.kind === 'fitted').reduce((s, c) => s + c.area, 0)), 189689,
+  assert.equal(caps.filter((c) => c.kind === 'fitted').length, 832, 'fitted caps');
+  assert.equal(Math.round(caps.reduce((s, c) => s + c.area, 0)), 503740, 'cap area census');
+  assert.equal(Math.round(caps.filter((c) => c.kind === 'fitted').reduce((s, c) => s + c.area, 0)), 188484,
     'fitted cap area census (construction unchanged since #73)');
   const capByJ = new Map();
   {
@@ -213,13 +220,18 @@ test('real tile: no painted band, median strip or dash quad centre inside a cap'
   // than the #73 fitted hulls at major junctions and the discs
   // add the two circles, so the bite grows; the clipped builders
   // still put exactly 0 there.
+  // Bite re-pinned for issue #74: band and edge counts unchanged;
+  // medians 2,107 -> 2,108 — the box cap by 中正紀念公園 that lost
+  // its service arm (see the census re-pin above) reshaped enough
+  // to cover one more unclipped median quad centre. The clipped
+  // builders still put exactly 0 there.
   const unclipped = buildPaintedBands(beds);
   assert.equal(unclipped.band.filter(inOcc).length, 1022,
     `unclipped bands inside occluders: ${unclipped.band.filter(inOcc).length}`);
   assert.equal(unclipped.edges.filter(inOcc).length, 2032,
     `unclipped edges inside occluders: ${unclipped.edges.filter(inOcc).length}`);
   const unclippedMedians = buildMedianStrips(beds);
-  assert.equal([...unclippedMedians.plain, ...unclippedMedians.planted].filter(inOcc).length, 2107,
+  assert.equal([...unclippedMedians.plain, ...unclippedMedians.planted].filter(inOcc).length, 2108,
     'unclipped medians inside occluders');
 });
 
