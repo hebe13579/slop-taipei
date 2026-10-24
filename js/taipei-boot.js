@@ -1,6 +1,6 @@
 import * as THREE from 'three/webgpu';
 
-import { planTaipeiBuildings, taipeiCityBlocksOptions, createTaipei101 } from './taipei-buildings.js';
+import { planTaipeiBuildings, taipeiCityBlocksOptions, createTaipei101, createTaipeiLandmarkTowers } from './taipei-buildings.js';
 import { AvatarFigure } from './avatar-figure.js';
 
 // js/taipei-boot.js
@@ -11,7 +11,11 @@ import { AvatarFigure } from './avatar-figure.js';
 // calls for (see TAIWAN_STREETSCAPE.md), and the buildings planned by
 // js/taipei-buildings.js (lots subdivided from the raster blocks),
 // rendered by upstream's own building system (js/buildings.js); the
-// Taipei 101 landmark gets a massing placeholder. Still absent:
+// Taipei 101 landmark gets a massing placeholder, as do the notable
+// structures around it (issue #26: Nan Shan Plaza, The Sky Taipei,
+// Fubon A25, Cathay Landmark, Uni-President, Tao Zhu Yin Yuan, the
+// TWTC trade tower and City Hall — true heights, plain massing).
+// Still absent:
 //
 //   - NO traffic / pedestrians (the road graph exists in the geodata, but
 //     road-network.js derives lanes from the NYC avenue/street grid; a
@@ -277,7 +281,9 @@ export function buildTaipeiGround(scene, tile, deps = {}) {
     : null;
   const tower = createTaipei101(THREE, plan);
   if (tower) group.add(tower);
-  console.info(`[taipei-buildings] ${plan.lots.length} buildings via upstream building system + Taipei 101 massing (508 m) planned in ${Math.round(performance.now() - buildingsStart)}ms`);
+  const landmarkTowers = createTaipeiLandmarkTowers(THREE, plan);
+  if (landmarkTowers) group.add(landmarkTowers);
+  console.info(`[taipei-buildings] ${plan.lots.length} buildings via upstream building system + Taipei 101 massing (508 m) + ${plan.landmarkTowers.length} landmark structures planned in ${Math.round(performance.now() - buildingsStart)}ms`);
 
   scene.add(group);
   return {
