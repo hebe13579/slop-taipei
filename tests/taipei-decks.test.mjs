@@ -212,7 +212,11 @@ test('ground network unchanged: beds, junctions and caps exactly as before decks
   const junctions = detectJunctions(carriageways);
   assert.equal(junctions.length, 1158, 'ground junction detection unchanged');
   const caps = planJunctionCaps(carriageways, junctions);
-  assert.equal(caps.length, 1158, 'junction caps still planned over the full bed set, deck beds included');
+  // Gate re-pin (PR #78 onto post-#77 main): caps = junctions minus the 7
+  // junctions claimed by #77's handcrafted roundabout sites (Renai 4 +
+  // Dongmen 3). The invariant this test protects is unchanged: decks do not
+  // remove a single cap — the delta is #77's, documented in its audit.
+  assert.equal(caps.length, 1151, 'junction caps still planned over the full bed set, deck beds included (1158 detected − 7 roundabout-claimed, #77)');
 });
 
 test('viaduct renderer: synthetic box section with parapets', () => {
