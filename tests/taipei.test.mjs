@@ -379,14 +379,18 @@ test('landmark structures: true positions and heights, sites kept clear', (t) =>
   const plan = planTaipeiBuildings(TAIPEI_GEO);
   const again = planTaipeiBuildings(TAIPEI_GEO);
   assert.deepEqual(plan.landmarkTowers, again.landmarkTowers, 'landmark plan deterministic across runs');
+  // Positions for the six issue-#42-corrected structures are the
+  // OSM building-footprint centroids recorded in the registry (the
+  // batch-1 published-coordinate pins put Fubon A25 on 松高路 and
+  // oversized podiums on four more); heights are unchanged.
   const expected = {
-    'taipei-nan-shan-plaza': { h: 272, x: 191.8, z: -155.1 },
-    'the-sky-taipei': { h: 280, x: 106.6, z: -387.7 },
-    'fubon-xinyi-a25': { h: 266.3, x: 504.6, z: -683.5 },
-    'cathay-landmark': { h: 212, x: 199.0, z: -827.7 },
-    'uni-president-international-tower': { h: 154, x: 19.6, z: -754.2 },
+    'taipei-nan-shan-plaza': { h: 272, x: 200.0, z: -155.1 },
+    'the-sky-taipei': { h: 280, x: 105.7, z: -383.1 },
+    'fubon-xinyi-a25': { h: 266.3, x: 562.9, z: -734.3 },
+    'cathay-landmark': { h: 212, x: 186.2, z: -829.5 },
+    'uni-president-international-tower': { h: 154, x: 40.9, z: -743.2 },
     'tao-zhu-yin-yuan': { h: 93.2, x: 545.0, z: -620.3 },
-    'twtc-international-trade-building': { h: 142.92, x: -386.8, z: -157.0 },
+    'twtc-international-trade-building': { h: 142.92, x: -370.0, z: -160.0 },
     'taipei-city-hall': { h: 54.42, x: -56.5, z: -498.5 },
     // Batch 2 (issue #33): the Dome's 64 m is the above-ground height
     // (74.5 m published total minus the 10.5 m sunken field); the
