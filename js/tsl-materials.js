@@ -1065,6 +1065,58 @@ function createPreWarBuildingMaterial(opts = {}) {
   return mat;
 }
 
+// Issue #105: real-text sign atlases, injected by the Taipei boot
+// (js/taipei-signs.js paints them; taipei-boot.js builds the canvas
+// textures). This module is on the Pages preload list and may not
+// import the signs module, so the textures arrive through this setter
+// instead — the same injection pattern as the landmark factories.
+// Null (NYC, gallery, any boot that never sets them) keeps the
+// procedural-glyph treatment everywhere.
+let _taipeiSignAtlases = { band: null, blade: null };
+export function setTaipeiSignAtlases(band, blade) {
+  _taipeiSignAtlases = { band: band || null, blade: blade || null };
+}
+export function getTaipeiSignAtlases() {
+  return _taipeiSignAtlases;
+}
+// 1×1 white placeholder so the sign shader graph is valid even when
+// no atlas is injected (the uSignText mix factor is 0 then and the
+// placeholder is never visible).
+let _signFallbackTex = null;
+function signFallbackTexture() {
+  if (!_signFallbackTex) {
+    _signFallbackTex = new THREE.DataTexture(new Uint8Array([255, 255, 255, 255]), 1, 1);
+    _signFallbackTex.needsUpdate = true;
+  }
+  return _signFallbackTex;
+}
+// Band atlas grid, mirrored from js/taipei-signs.js (BAND_ATLAS /
+// TAIPEI_BAND_SIGNS): 8 cols × 6 rows of plates, 48 plates, plate row
+// counted from the texture's bottom. The node suite source-pins these
+// literals against the signs module — change them together.
+const SIGN_BAND_COLS = 8.0;
+const SIGN_BAND_ROWS = 6.0;
+const SIGN_BAND_PLATES = 48.0;
+// Sample one band plate for a shop bay: the plate is chosen by a
+// seed/bay hash (deterministic — the same bay shows the same shop on
+// every load), and the plate UV spans exactly the panel zone the
+// glyph bars used to occupy (cellUV x 0.035–0.965, y 0.775–0.995),
+// inset a touch inside the atlas cell against mip bleeding.
+const bandPlateColor = (cellUV, cellId, boxSeed, atlasTex) => {
+  const hp = hash2D(vec2(cellId.x.mul(5.13), boxSeed.mul(9.31)));
+  const plate = floor(hp.mul(SIGN_BAND_PLATES));
+  const colI = mod(plate, SIGN_BAND_COLS);
+  const rowB = floor(plate.div(SIGN_BAND_COLS));
+  const inset = float(0.03);
+  const bu = clamp(cellUV.x.sub(0.035).div(0.93), 0.0, 1.0);
+  const bv = clamp(cellUV.y.sub(0.775).div(0.22), 0.0, 1.0);
+  const auv = vec2(
+    colI.add(inset).add(bu.mul(float(1.0).sub(inset.mul(2.0)))).div(SIGN_BAND_COLS),
+    rowB.add(inset).add(bv.mul(float(1.0).sub(inset.mul(2.0)))).div(SIGN_BAND_ROWS)
+  );
+  return texture(atlasTex, auv).rgb;
+};
+
 /**
  * Taiwan shophouse material set (issue #17, family indices 6–9 in
  * js/buildings.js — selected only by the Taipei planner; Manhattan never
@@ -1088,6 +1140,13 @@ function createPreWarBuildingMaterial(opts = {}) {
  * panels carrying abstract glyph bars — procedural blocks, never rendered
  * text (the same stylization as the prewar ghost signs). Rear / lot-line
  * walls fall back to plain plaster, as on the real blocks.
+ *
+ * Issue #105: when the Taipei boot injects the real-text sign atlases
+ * (setTaipeiSignAtlases below — canvas textures painted by
+ * js/taipei-signs.js), the band panels sample the atlas instead: one
+ * real shop name per bay, picked by the same seed/bay hashes, so a
+ * shop keeps its name on every load. The glyph bars remain the
+ * fallback wherever no atlas is injected (NYC, the gallery).
  */
 function createTileShophouseMaterial(opts = {}) {
   const {
@@ -1118,7 +1177,12 @@ function createTileShophouseMaterial(opts = {}) {
     wallRoughness = 0.60
   } = opts;
 
-  const cacheKey = JSON.stringify(opts);
+  // Issue #105: the real-text band is part of the material, so the
+  // atlas-injected and glyph variants must not share a cache slot.
+  const bandAtlasTex = _taipeiSignAtlases.band || signFallbackTexture();
+  const uSignText = uniform(_taipeiSignAtlases.band ? 1 : 0);
+
+  const cacheKey = JSON.stringify(opts) + '|signtext:' + (_taipeiSignAtlases.band ? '1' : '0');
   if (_tileShophouseCache.has(cacheKey)) {
     return _tileShophouseCache.get(cacheKey);
   }
@@ -1375,7 +1439,11 @@ function createTileShophouseMaterial(opts = {}) {
     const panelMask = bandMask.mul(panelOn);
     col = mix(col, cTrim.mul(0.92), bandMask.mul(panelOn.oneMinus()));
     const glyph = signGlyphMask(cellUV, cellId, boxSeed, fw);
-    const signCol = mix(sign.bg, sign.ink, glyph.mul(panelMask));
+    const glyphCol = mix(sign.bg, sign.ink, glyph.mul(panelMask));
+    // Issue #105: with the atlas injected, the panel is one real shop
+    // sign — canvas-painted name plate instead of glyph bars.
+    const plateCol = bandPlateColor(cellUV, cellId, boxSeed, bandAtlasTex);
+    const signCol = mix(glyphCol, plateCol, uSignText);
     col = mix(col, signCol, panelMask);
     // Thin darker outline under the panel so it reads as a mounted board.
     const signUnder = filteredPulse(cellUV.x, 0.035, 0.965, fw.x)
@@ -1511,8 +1579,13 @@ function createTileShophouseMaterial(opts = {}) {
       .mul(isGroundFloor).mul(cell.back.oneMinus())
       .mul(step(signBayHashE, float(signRate)));
     const glyph = signGlyphMask(cellUV, cellId, boxSeed, fw);
-    const signEmit = sign.bg.mul(panelMask).mul(cityUniforms.uInteriorGlow)
+    const glyphEmit = sign.bg.mul(panelMask).mul(cityUniforms.uInteriorGlow)
       .mul(float(0.42).sub(glyph.mul(0.22)));
+    // Issue #105: a real-text plate glows like the lightbox sign it
+    // is — the whole plate, lettering included.
+    const plateEmit = bandPlateColor(cellUV, cellId, boxSeed, bandAtlasTex)
+      .mul(panelMask).mul(cityUniforms.uInteriorGlow).mul(0.38);
+    const signEmit = mix(glyphEmit, plateEmit, uSignText);
 
     return winEmit.add(shopGlow).add(signEmit);
   })();
