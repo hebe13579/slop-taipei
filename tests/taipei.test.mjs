@@ -911,14 +911,24 @@ test('taiwan types: family zoning, distribution and rooftop clamp', (t) => {
   // rounded to 0.1 m, so a full-precision-cleared corner could
   // reconstruct ~0.01 m inside a creek polygon — the orientation
   // corner invariant caught one at 石牌）.
-  assert.equal(glass, 3244, 'glass family counts untouched by the Taiwan-type assignment');
+  // Re-pinned for issue #114 (green-land exclusion): the plan drops
+  // 6,597 lots (41,269 -> 34,672) whose centres stood on farmland /
+  // nature / recreation-ground polygons — 421 of them glass. The
+  // glass rolls are unchanged and still evaluate first; the proof
+  // is the counterfactual plan: the same geodata with the green
+  // layer stripped reproduces 3,244 glass / 28,976 masonry exactly,
+  // so the whole delta is the green rule's drops.
+  assert.equal(glass, 2823, 'glass family counts untouched by the Taiwan-type assignment');
   const masonry = opts.lots.filter((l) => l.mat <= 2).length;
   // Range re-based for issue #65: the exact ribbon exclusion removed
   // ~4,400 masonry lots that stood on ribbons or in medians; masonry
   // is reduced but still the city's majority fabric.
   // Range re-based for issue #102: 28,976 of 41,269 lots — still
   // the majority fabric of the enlarged tile.
-  assert.ok(masonry > 25000 && masonry < 33000, `masonry 0-2 reduced but still present (${masonry})`);
+  // Range re-based for issue #114: the green-land exclusion removed
+  // 4,778 masonry lots along with the glass above — 24,198 of
+  // 34,672 lots (69.8%), still the majority fabric.
+  assert.ok(masonry > 20000 && masonry < 30000, `masonry 0-2 reduced but still present (${masonry})`);
   assert.equal(typeof opts.rooftopGearClamp, 'function', 'options carry the rooftop-gear clamp');
 
   const lot = { x0: 0, x1: 9, z0: 0, z1: 14 };
