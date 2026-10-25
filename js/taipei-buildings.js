@@ -1,5 +1,6 @@
 // js/taipei-buildings.js
 // Procedural buildings for registry tiles (buildings increment).
+import { drapeHeight } from './taipei-drape.js'; // issue #132 PROTOTYPE (pure data + math, node-safe)
 //
 // The geodata's blocks are raster components: each carries only a bbox,
 // a centroid and an area — no lot rects, no frontage frames (see
@@ -2306,6 +2307,13 @@ export function taipeiCityBlocksOptions(geodata, plan = planTaipeiBuildings(geod
       // below are computed from the same local rect, so they turn
       // with the building.
       if (lot.rot) r.rotY = lot.rot;
+      // Issue #132 PROTOTYPE: a lot inside a drape region carries
+      // its terrain base height (the shared h at the lot centre);
+      // buildCityBlocks lifts the lot's parts by it. The lot stays
+      // level — what the slope does to its corners is measured in
+      // the prototype report, not hidden.
+      const baseY = drapeHeight(lot.x, lot.z);
+      if (baseY > 0) r.y = Math.round(baseY * 100) / 100;
       // Issue #55: F7 arcade lots carry their recessed-ground-floor
       // massing (null on lots too small for the inset core).
       if (r.mat === 7) r.arcade = taipeiArcadeParts(r);
@@ -2670,6 +2678,16 @@ export function createTaipeiLandmarkTowers(THREE, plan, factories) {
     };
     const sub = new THREE.Group();
     sub.name = s.id;
+    // Issue #132 PROTOTYPE: the Grand Hotel sits on its real hill —
+    // the whole structure rises by the drape height at the site
+    // centre. Its hand-authored 11 m plinth is KEPT: on the slope it
+    // reads as the hotel's terraced platform (the real hotel is
+    // terraced into the hillside), and keeping it preserves the
+    // published 87 m of building on the ~40 m hill. The id check is
+    // explicit so no other landmark can be lifted silently — every
+    // other registry structure stands where h = 0 (audited in the
+    // prototype report).
+    if (s.id === 'grand-hotel') sub.position.y = drapeHeight(s.x, s.z);
     for (const part of s.parts) {
       const y0 = part.y0 || 0;
       let mesh = null;

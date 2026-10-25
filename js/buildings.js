@@ -2051,6 +2051,12 @@ function buildCityBlocks(scene, opts = null) {
       for (let i = colStart; i < b.parts.length; i++) b.parts[i].walls = WALL_KINDS.blankStone;
     }
     mass(b, [rect(minX, maxX, minZ, maxZ)], lot.arcade && floors >= 2 ? 1 : 0, floors);
+    // Issue #132 PROTOTYPE: a planned lot may carry a terrain base
+    // height (lot.y — the Taipei options set it for lots inside a
+    // drape region). Shift every part before commit so massing,
+    // cornices and the committed gear rise together. NYC lots and
+    // undraped lots never carry y.
+    if (lot.y) for (const p of b.parts) { p.y0 += lot.y; p.y1 += lot.y; }
     // Issue #85: no Manhattan storefront dressing on planned lots — the
     // avenueFront path (commit step 4) hangs a canvas awning, an
     // English-text fascia sign and a storefront spotlight on every
