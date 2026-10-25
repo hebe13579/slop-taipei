@@ -946,24 +946,44 @@ const LANDMARK_STRUCTURES = [
       { type: 'box', w: 118, d: 118, h: 4.8, rotY: 0.4924, flat: 0xa39a8b },
       { type: 'box', w: 104, d: 104, h: 4.8, y0: 4.8, rotY: 0.4924, flat: 0xa39a8b },
       { type: 'box', w: 90, d: 90, h: 4.9, y0: 9.6, rotY: 0.4924, flat: 0xaca294 },
-      { type: 'box', w: 62, d: 62, h: 26, y0: 14.5, rotY: 0.4924, flat: 0xe9e5db },
+      // Issue #138 gate revision: the hall body BATTERS — the
+      // photos show walls visibly wider at the base than at the
+      // top. The straight 62 m box becomes six stepped tiers,
+      // plan 66 -> 59 m over the 26 m wall height. The tiers are
+      // offset along the local x so the WEST face stays on the
+      // plane the #138 arch assembly is seated on (arch, plaque
+      // and stairs untouched); the taper reads on the other
+      // three faces and in the front silhouette's width.
+      { type: 'box', w: 66, d: 66, h: 4.33, y0: 14.5, dx: 1.8, dz: 0.9, rotY: 0.4924, flat: 0xe9e5db },
+      { type: 'box', w: 64.6, d: 64.6, h: 4.33, y0: 18.83, dx: 1.1, dz: 0.6, rotY: 0.4924, flat: 0xe9e5db },
+      { type: 'box', w: 63.2, d: 63.2, h: 4.33, y0: 23.17, dx: 0.5, dz: 0.3, rotY: 0.4924, flat: 0xe9e5db },
+      { type: 'box', w: 61.8, d: 61.8, h: 4.33, y0: 27.5, dx: -0.1, dz: 0, rotY: 0.4924, flat: 0xe9e5db },
+      { type: 'box', w: 60.4, d: 60.4, h: 4.33, y0: 31.83, dx: -0.7, dz: -0.4, rotY: 0.4924, flat: 0xe9e5db },
+      { type: 'box', w: 59, d: 59, h: 4.33, y0: 36.17, dx: -1.3, dz: -0.7, rotY: 0.4924, flat: 0xe9e5db },
       // Issue #138: moulded base + cornice bands on the blank
       // hall block, a pale fascia under the first eave tier and
-      // a lighter-blue ridge cap under the finial.
-      { type: 'box', w: 63.4, d: 63.4, h: 1.8, y0: 14.5, rotY: 0.4924, flat: 0xd9d3c3 },
-      { type: 'box', w: 63.4, d: 63.4, h: 1.5, y0: 39.0, rotY: 0.4924, flat: 0xf0ebdf },
+      // a lighter-blue ridge cap under the finial. The base and
+      // cornice bands follow the battered tiers they wrap (the
+      // base band rides tier 1's offset, the cornice tier 6's).
+      { type: 'box', w: 67.2, d: 67.2, h: 1.8, y0: 14.5, dx: 1.8, dz: 0.9, rotY: 0.4924, flat: 0xd9d3c3 },
+      { type: 'box', w: 60.4, d: 60.4, h: 1.5, y0: 39.0, dx: -1.3, dz: -0.7, rotY: 0.4924, flat: 0xf0ebdf },
       { type: 'box', w: 71, d: 71, h: 0.8, y0: 39.9, rotY: 0.4924, flat: 0xe9e5db },
       { type: 'box', w: 20, d: 4.5, h: 1.2, y0: 62.2, rotY: 0.4924, flat: 0x2a5a9e },
       // Issue #116: the two blue eave frustums as stepped box
-      // tiers (see the entry note) — same profile, same total
-      // heights (12 + 10), footprints from each frustum's
-      // profile at the step base.
-      { type: 'box', w: 70, d: 70, h: 4, y0: 40.5, rotY: 0.4924, flat: 0x1e4d8c },
-      { type: 'box', w: 64, d: 64, h: 4, y0: 44.5, rotY: 0.4924, flat: 0x1e4d8c },
-      { type: 'box', w: 58, d: 58, h: 4, y0: 48.5, rotY: 0.4924, flat: 0x1e4d8c },
-      { type: 'box', w: 52, d: 52, h: 3.33, y0: 52.5, rotY: 0.4924, flat: 0x1e4d8c },
-      { type: 'box', w: 45, d: 45, h: 3.33, y0: 55.83, rotY: 0.4924, flat: 0x1e4d8c },
-      { type: 'box', w: 38, d: 38, h: 3.34, y0: 59.17, rotY: 0.4924, flat: 0x1e4d8c },
+      // tiers (see the entry note). Issue #138 gate revision:
+      // the profile is re-cut so the DOUBLE EAVE reads — a wide,
+      // flatter lower skirt (80 -> 71 m over 8 m, flaring past
+      // the battered body) under a steeper upper roof (65 ->
+      // 43 m over 14 m). Same total roof height (40.5 -> 62.5).
+      { type: 'box', w: 80, d: 80, h: 2, y0: 40.5, rotY: 0.4924, flat: 0x1e4d8c },
+      { type: 'box', w: 77, d: 77, h: 2, y0: 42.5, rotY: 0.4924, flat: 0x1e4d8c },
+      { type: 'box', w: 74, d: 74, h: 2, y0: 44.5, rotY: 0.4924, flat: 0x1e4d8c },
+      { type: 'box', w: 71, d: 71, h: 2, y0: 46.5, rotY: 0.4924, flat: 0x1e4d8c },
+      { type: 'box', w: 65, d: 65, h: 2.8, y0: 48.5, rotY: 0.4924, flat: 0x1e4d8c },
+      { type: 'box', w: 59.5, d: 59.5, h: 2.8, y0: 51.3, rotY: 0.4924, flat: 0x1e4d8c },
+      { type: 'box', w: 54, d: 54, h: 2.8, y0: 54.1, rotY: 0.4924, flat: 0x1e4d8c },
+      { type: 'box', w: 48.5, d: 48.5, h: 2.8, y0: 56.9, rotY: 0.4924, flat: 0x1e4d8c },
+      { type: 'box', w: 43, d: 43, h: 2.8, y0: 59.7, rotY: 0.4924, flat: 0x1e4d8c },
       { type: 'cylinder', r: 2.4, h: 7.5, y0: 62.5, flat: 0xcfa14e },
       // Issue #98: the front the references show, authored on
       // the WEST face (the Liberty Square side): the stair
@@ -1230,7 +1250,12 @@ const LANDMARK_STRUCTURES = [
       { type: 'box', w: 44, d: 130, h: 27, rotY: 0.0977 },
       { type: 'box', w: 54, d: 22, h: 30, dx: 5.3, dz: -53.7, rotY: 0.0977 },
       { type: 'box', w: 54, d: 22, h: 30, dx: -5.3, dz: 53.7, rotY: 0.0977 },
-      { type: 'box', w: 26, d: 26, h: 30, y0: 27, rotY: 0.0977 },
+      // Issue #138 gate revision: the tower is SLENDER — the
+      // photo puts it at ~1/8 of the facade width, where the old
+      // 26 m block read at ~1/4 and barely cleared the wings.
+      // The shaft is now 16.5 m square, still y0 27 and still
+      // topping out (with its cap) at the published 60 m.
+      { type: 'box', w: 16.5, d: 16.5, h: 27, y0: 27, rotY: 0.0977 },
       { type: 'box', w: 45.6, d: 131.6, h: 2.0, rotY: 0.0977, flat: 0x8d867b },
       { type: 'box', w: 44.7, d: 130.7, h: 0.85, y0: 5.0, rotY: 0.0977, flat: 0xd9d0bd },
       { type: 'box', w: 44.7, d: 130.7, h: 0.85, y0: 10.4, rotY: 0.0977, flat: 0xd9d0bd },
@@ -1265,13 +1290,18 @@ const LANDMARK_STRUCTURES = [
       { type: 'box', w: 0.6, d: 5.5, h: 5.2, y0: 1.2, dx: 27.5, dz: 2.7, rotY: 0.0977, flat: 0x17120e },
       { type: 'box', w: 0.6, d: 1.8, h: 3.6, y0: 1.6, dx: 27.9, dz: -1.8, rotY: 0.0977, flat: 0x27313d },
       { type: 'box', w: 0.6, d: 1.8, h: 3.6, y0: 1.6, dx: 27.0, dz: 7.2, rotY: 0.0977, flat: 0x27313d },
-      { type: 'box', w: 26.7, d: 26.7, h: 0.8, y0: 34, rotY: 0.0977, flat: 0xd9d0bd },
-      { type: 'box', w: 26.7, d: 26.7, h: 0.8, y0: 41, rotY: 0.0977, flat: 0xd9d0bd },
-      { type: 'box', w: 26.7, d: 26.7, h: 0.8, y0: 48, rotY: 0.0977, flat: 0xd9d0bd },
-      { type: 'box', w: 25, d: 25, h: 2.6, y0: 53.5, rotY: 0.0977, flat: 0xd9d0bd },
-      { type: 'box', w: 19, d: 19, h: 1.6, y0: 56.1, rotY: 0.0977, flat: 0x5d6d66 },
-      { type: 'box', w: 12.5, d: 12.5, h: 1.5, y0: 57.7, rotY: 0.0977, flat: 0x5d6d66 },
-      { type: 'box', w: 2, d: 2, h: 0.8, y0: 59.2, rotY: 0.0977, flat: 0x5d6d66 },
+      // Tower dress on the slender shaft (gate revision): the
+      // white band rings keep their 7 m rhythm, shrunk to ride
+      // just proud of the 16.5 m shaft; above the shaft top
+      // (54 m) a white crown, then the slate-green stepped cap
+      // and the small spire, still topping out at exactly 60 m.
+      { type: 'box', w: 17.2, d: 17.2, h: 0.8, y0: 34, rotY: 0.0977, flat: 0xd9d0bd },
+      { type: 'box', w: 17.2, d: 17.2, h: 0.8, y0: 41, rotY: 0.0977, flat: 0xd9d0bd },
+      { type: 'box', w: 17.2, d: 17.2, h: 0.8, y0: 48, rotY: 0.0977, flat: 0xd9d0bd },
+      { type: 'box', w: 18, d: 18, h: 2, y0: 54, rotY: 0.0977, flat: 0xd9d0bd },
+      { type: 'box', w: 13.5, d: 13.5, h: 1.6, y0: 56, rotY: 0.0977, flat: 0x5d6d66 },
+      { type: 'box', w: 9.5, d: 9.5, h: 1.4, y0: 57.6, rotY: 0.0977, flat: 0x5d6d66 },
+      { type: 'box', w: 2, d: 2, h: 1, y0: 59, rotY: 0.0977, flat: 0x5d6d66 },
     ],
   },
   {
