@@ -538,6 +538,15 @@ test('landmark structures: true positions and heights, sites kept clear', (t) =>
     // fitted between the generated carriageways, NOT the
     // published gate point ~19 m WNW (see registry comment).
     'beimen': { h: 19, x: -5410.1, z: -1625.0 },
+    // Batch 6 (issue #103, northern phase 2): the Grand Hotel's
+    // 87 m is published (Wikipedia); its position is the phase-1
+    // terrain report's footprint point, corroborated by the OSM
+    // POIs inside the main building. The incinerator's 150 m is
+    // published (zh-Wikipedia incinerator list); its position is
+    // the OSM 摘星樓 restaurant node (7775187071), which sits on
+    // the chimney.
+    'grand-hotel': { h: 87, x: -3905.7, z: -5073.4 },
+    'beitou-incinerator': { h: 150, x: -6620.6, z: -8312.4 },
   };
   assert.equal(plan.landmarkTowers.length, Object.keys(expected).length, 'all verified structures present');
   const partTop = (p) => (p.y0 || 0) + p.h + (p.type === 'ridge' ? p.ridgeH : 0);
@@ -911,13 +920,23 @@ test('taiwan types: family zoning, distribution and rooftop clamp', (t) => {
   // rounded to 0.1 m, so a full-precision-cleared corner could
   // reconstruct ~0.01 m inside a creek polygon — the orientation
   // corner invariant caught one at 石牌）.
-  assert.equal(glass, 3244, 'glass family counts untouched by the Taiwan-type assignment');
+  // Re-pinned for issue #103 (northern landmarks): the two new
+  // registry sites exclude the lots that stood on them — the plan
+  // goes 41,269 -> 41,151 lots (-118: the Grand Hotel's hilltop
+  // site and the incinerator plant site; measured by planning
+  // with and without the two entries). The excluded lots carry
+  // the local mix: glass -4 (all F3), Taiwan-type -25 (F6 -5,
+  // F7 -7, F8 -7, F9 -6), masonry -89 (F0 -20, F1 -29, F2 -40),
+  // re-pinning glass 3,244 -> 3,240, Taiwan 9,049 -> 9,024 and
+  // masonry 28,976 -> 28,887.
+  assert.equal(glass, 3240, 'glass family counts untouched by the Taiwan-type assignment');
   const masonry = opts.lots.filter((l) => l.mat <= 2).length;
   // Range re-based for issue #65: the exact ribbon exclusion removed
   // ~4,400 masonry lots that stood on ribbons or in medians; masonry
   // is reduced but still the city's majority fabric.
   // Range re-based for issue #102: 28,976 of 41,269 lots — still
-  // the majority fabric of the enlarged tile.
+  // the majority fabric of the enlarged tile. Issue #103 takes
+  // it to 28,887 of 41,151 (see the glass re-pin above).
   assert.ok(masonry > 25000 && masonry < 33000, `masonry 0-2 reduced but still present (${masonry})`);
   assert.equal(typeof opts.rooftopGearClamp, 'function', 'options carry the rooftop-gear clamp');
 
