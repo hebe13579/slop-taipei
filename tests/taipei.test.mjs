@@ -528,8 +528,8 @@ test('landmark structures: true positions and heights, sites kept clear', (t) =>
     'shin-kong-life-tower': { h: 244.15, x: -5016.4, z: -1458.4 },
     'taipei-main-station': { h: 48, x: -4839.7, z: -1623.1 },
     'chiang-kai-shek-memorial-hall': { h: 70, x: -4388.2, z: -200.6 },
-    'national-concert-hall': { h: 37, x: -4718.7, z: -256.9 },
-    'national-theater': { h: 37, x: -4616.0, z: -441.4 },
+    'national-concert-hall': { h: 37, x: -4616.0, z: -441.4 },
+    'national-theater': { h: 37, x: -4718.7, z: -256.9 },
     'presidential-office-building': { h: 60, x: -5351.6, z: -774.7 },
     // Batch 5 (issue #86): Beimen on its #77 junction island.
     // The 19 m is the accepted overall estimate (no published
@@ -754,11 +754,11 @@ test('landmark batch 4: station district — crown, hip roof, terrace hall, pala
     assert.equal(partTop(ridge), 37, `${hall.id} ridge peaks at 37 m`);
     assert.equal(hall.estimated, true, `${hall.id} height is OSM-derived, flagged estimated`);
   }
-  // Issue #98 label swap: the north hall is the THEATER, the south
-  // hall the CONCERT hall (EN Wikipedia's north/south sentence;
-  // OSM ways 1052759776 north / 1052759775 south) — the entries
-  // carried each other's names until this PR.
-  assert.ok(theater.x > concert.x && theater.z < concert.z, 'theater stands NE of the concert hall across the square');
+  // Issue #98: the pairing was challenged in the facing sweep and
+  // verified against the ways' own OSM name tags (concert hall =
+  // way 1052759775 at the north position; theatre = way
+  // 1052759776 at the south) — the labels were always correct.
+  assert.ok(concert.x > theater.x && concert.z < theater.z, 'concert hall stands NE of the theater across the square');
 
   // Presidential Office: main range + two pavilions + tower at 60 m.
   const office = byId('presidential-office-building');
