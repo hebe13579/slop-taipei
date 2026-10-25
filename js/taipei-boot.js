@@ -9,6 +9,7 @@ import { buildRoadMarkings, detectJunctions, DASH_LEN, DASH_GAP, STRIPE_W, STRIP
 import { planJunctionCaps, planRoundabouts, ringPoints, CAP_Y, ISLAND_Y } from './taipei-junctions.js';
 import { buildDeckGeometry, PIER_W, PIER_D } from './taipei-viaduct.js';
 import { buildMrtStationGeometry } from './taipei-mrt-stations.js';
+import { buildTerrainSkinGeometry } from './taipei-terrain.js';
 import { unionExclusionRects, clipRectToBoxes } from './taipei-union.js';
 import { createCurtainWallMaterial, createPreWarBuildingMaterial, createTaipeiMarkingMaterial, setTaipeiSignAtlases } from './tsl-materials.js';
 import { drawBandAtlas, drawBladeAtlas, BAND_ATLAS, BLADE_ATLAS, TAIPEI_BAND_SIGNS, TAIPEI_BLADE_SIGNS } from './taipei-signs.js';
@@ -44,7 +45,12 @@ import { createBuildProgress, TAIPEI_BUILD_STAGES } from './taipei-progress.js';
 // road markings 0.068), not terrain elevation:
 // the tile is the flat basin floor. The one true elevation in the
 // tile is the elevated-highway decks (issue #61): real structures
-// at their computed heights over the ground stack. Carriageways render in per-class
+// at their computed heights over the ground stack. Behind the
+// northern boxes sits one pure backdrop: the DEM terrain skin
+// (issue #129, js/taipei-terrain.js) — a displaced mesh that reads
+// as the Datun foothills but is seated by a road-distance mask so
+// it never touches the flat ground systems; controllers still see
+// groundHeight() === 0 everywhere. Carriageways render in per-class
 // surface tones and merged boulevards get a median strip (issue #29,
 // js/taipei-surfaces.js); paved civic squares (廣場) render as paving,
 // not lawn, and the 101 / City Hall blocks wear a podium tone.
@@ -193,6 +199,27 @@ function buildDeckPierMesh(piers) {
   mesh.instanceMatrix.needsUpdate = true;
   mesh.castShadow = true;
   mesh.receiveShadow = true;
+  return mesh;
+}
+
+// Terrain skin (issue #129): one merged vertex-coloured mesh for
+// the baked DEM backdrop grids (geodata.terrain). The geometry
+// builder is pure (js/taipei-terrain.js). Visual only: the mesh is
+// seated under the ground stack and masked away from every road;
+// it casts no shadow and no system reads it back.
+function buildTerrainSkinMesh(terrain) {
+  if (!terrain?.grids?.length) return null;
+  const g = buildTerrainSkinGeometry(terrain);
+  if (!g.triCount) return null;
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute('position', new THREE.BufferAttribute(g.positions, 3));
+  geo.setAttribute('normal', new THREE.BufferAttribute(g.normals, 3));
+  geo.setAttribute('color', new THREE.BufferAttribute(g.colors, 3));
+  const mesh = new THREE.Mesh(geo, new THREE.MeshStandardNodeMaterial({ vertexColors: true, roughness: 1.0, metalness: 0.0 }));
+  mesh.name = 'TaipeiTerrainSkin';
+  mesh.receiveShadow = true;
+  mesh.userData.triCount = g.triCount;
+  mesh.userData.grids = g.grids;
   return mesh;
 }
 
@@ -586,6 +613,16 @@ export async function buildTaipeiGround(scene, tile, deps = {}) {
     land.position.set((r.minX + r.maxX) / 2, 0, (r.minZ + r.maxZ) / 2);
     land.receiveShadow = true;
     group.add(land);
+  }
+
+  // Terrain skin (issue #129): the DEM backdrop for the northern
+  // boxes, built with the land planes so it sits under the whole
+  // ground stack. It rises only where the baked road mask leaves
+  // the flat benches alone (see js/taipei-terrain.js).
+  const terrainMesh = buildTerrainSkinMesh(geo.terrain);
+  if (terrainMesh) {
+    group.add(terrainMesh);
+    console.info(`[taipei-terrain] skin: ${terrainMesh.userData.triCount.toLocaleString('en-US')} tris over ${terrainMesh.userData.grids.map((g) => `${g.box} (max ${g.maxY.toFixed(0)} m)`).join(', ')}`);
   }
 
   const addLayer = (geometry, material, name) => {

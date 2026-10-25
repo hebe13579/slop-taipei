@@ -285,5 +285,35 @@ check(roadbedM < preMergeM, 'rendered carriageway is shorter than pre-merge (mer
   }
 }
 
+
+// 9. Terrain skin (issue #129): the baked DEM backdrop grids. Pure
+// visual data — the checks pin its shape and its two honesty rules:
+// the grids share their seam postings, and the Guandu plain (DEM
+// ~0-3 m) carries no rise.
+{
+  const T = G.terrain;
+  check(!!T && Array.isArray(T.grids) && T.grids.length === 2, 'terrain skin grids present', T ? `${T.grids.length} grids` : 'missing');
+  if (T) {
+    let sane = true, maxH = 0;
+    for (const g of T.grids) {
+      if (g.h.length !== g.cols * g.rows || g.mask.length !== g.cols * g.rows) sane = false;
+      for (const v of g.h) { if (!Number.isFinite(v) || v < -50 || v > 1200) sane = false; if (v > maxH) maxH = v; }
+      for (const v of g.mask) if (!(v >= 0 && v <= 1)) sane = false;
+    }
+    check(sane, 'terrain grids well-formed (postings, DEM range, mask in [0,1])', `DEM max ${maxH} m`);
+    const bei = T.grids.find((g) => g.box === '4-beitou'), cor = T.grids.find((g) => g.box === '3-corridor');
+    check(!!bei && !!cor && Math.abs(bei.x1 - cor.x0) < 0.01 && Math.abs(bei.z0 - cor.z0) < 0.01 && Math.abs(bei.z1 - cor.z1) < 0.01,
+      'terrain grids share the beitou/corridor seam', bei && cor ? `beitou x1 ${bei.x1} = corridor x0 ${cor.x0}` : 'grid missing');
+    if (bei) { // Guandu plain interior postings (inset from the confluence bluff at the box's NW rim)
+      let n = 0, over = 0;
+      for (let r = 0; r < bei.rows; r++) for (let c = 0; c < bei.cols; c++) {
+        const lon = bei.w + c * T.stepDeg, lat = bei.n - r * T.stepDeg;
+        if (lon >= 121.470 && lon <= 121.490 && lat >= 25.114 && lat <= 25.126) { n++; if (bei.h[r * bei.cols + c] > 20) over++; }
+      }
+      check(n > 500 && over === 0, 'Guandu plain carries no terrain rise (DEM <= 20 m at every interior posting)', `${n} postings, ${over} over 20 m`);
+    }
+  }
+}
+
 console.log(failures ? `\n${failures} CHECK(S) FAILED` : '\nALL CHECKS PASSED');
 process.exit(failures ? 1 : 0);

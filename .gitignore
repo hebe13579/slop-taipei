@@ -1,4 +1,6 @@
 .DS_Store
+# Terrain bake DEM cache (tools/taipei/build-terrain.mjs re-fetches from AWS Terrain Tiles)
+tools/taipei/data/dem/
 # Issue #128: raw OGDL downloads for build-heights.py (doors CSV ~125 MB, never committed)
 tools/taipei/data/heights-downloads/
 
