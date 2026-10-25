@@ -65,6 +65,16 @@
 //       tertiary/collector face (rank 2)      → 15–30 m
 //     — the Taipei pattern of tall continuous walls on the big roads
 //     with the low walk-up fabric behind them in the lanes.
+//   - Issue #128: where the height layer (geodata.heights, built by
+//     tools/taipei/build-heights.py from the OGDL permit/door
+//     datasets and OSM height tags) carries a REAL signal for a lot,
+//     the real height wins over every band above — permit floors,
+//     then an OSM footprint's height/levels at the lot centre, then
+//     the median door floors of the lot's block face. Lots with no
+//     signal of their own blend their band draw with the median real
+//     height within 100 m (the neighbourhood field). Every lot is
+//     labelled (hSrc) real vs estimated; see the join section in the
+//     planner and HEIGHT_JOIN below.
 //   - Colours come from a Taipei-plausible palette (concrete greys,
 //     tile beige, brick) with a small per-lot brightness jitter.
 //
@@ -1443,8 +1453,30 @@ function quadsIntersect(a, b) {
   return true;
 }
 
+// Issue #128: the real-height join's constants. The floors->metres
+// factors are validated against OSM height tags by the layer builder
+// (tools/taipei/build-heights.py prints the MAE table on every run);
+// the heights census test asserts the generated layer's header
+// factors agree with these, so the two can never drift silently.
+export const HEIGHT_JOIN = {
+  permitM: 3.0,        // permit floor count (surveyed outlines) -> metres
+  osmLevelsM: 3.0,     // OSM building:levels -> metres (counted floors:
+                       // MAE 2.10 m vs OSM height tags, n=1,705 — see
+                       // build-heights.py's FACTORS note)
+  doorM: 3.85,         // door max floor -> metres: a plate point names the
+                       // highest REGISTERED floor, undercounting the
+                       // building by its roof level, so its metres per
+                       // floor run higher (validated in build-heights.py)
+  faceDoorDepthM: 22,  // plate points count for a block face up to this
+                       // far inside the block from the face line
+  faceDoorMinDoors: 2, // a face needs at least this many plate points
+                       // before its median speaks for a lot
+  fieldRadiusM: 100,   // neighbourhood-field reach for signal-less lots
+  fieldMinLots: 3,     // ...and at least this many real lots inside it
+};
+
 export function planTaipeiBuildings(geodata) {
-  const stats = { blocksSeen: 0, blocksSkippedSmall: 0, blocksSkippedParkWater: 0, blocksSkippedGreen: 0, blocksSkippedOutsideUnion: 0, lotsDroppedVacancy: 0, lotsDroppedParkWater: 0, lotsDroppedGreen: 0, lotsDroppedTowerSite: 0, lotsDroppedRoad: 0, lotsDroppedMedian: 0, lotsDroppedOutsideUnion: 0, blocksRotated: 0, lotsRotated: 0, lotsPackedFrontage: 0, lotsTallFrontage: 0 };
+  const stats = { blocksSeen: 0, blocksSkippedSmall: 0, blocksSkippedParkWater: 0, blocksSkippedGreen: 0, blocksSkippedOutsideUnion: 0, lotsDroppedVacancy: 0, lotsDroppedParkWater: 0, lotsDroppedGreen: 0, lotsDroppedTowerSite: 0, lotsDroppedRoad: 0, lotsDroppedMedian: 0, lotsDroppedOutsideUnion: 0, blocksRotated: 0, lotsRotated: 0, lotsPackedFrontage: 0, lotsTallFrontage: 0, heightsPermit: 0, heightsOsmHeight: 0, heightsOsmLevels: 0, heightsDoor: 0, heightsField: 0, heightsProc: 0 };
   // Union-of-boxes tile (issue #60): the geodata frame carries the
   // tile's boxes; ground exists only inside them. Raster blocks are
   // masked to the union by the builder, but a block's bbox can still
@@ -1503,6 +1535,76 @@ export function planTaipeiBuildings(geodata) {
       if (distToRing(x, z, p.ring) < CORNER_CLEARANCE) return true;
     }
     return false;
+  };
+
+  // Issue #128: the real-height join. geodata.heights (built by
+  // tools/taipei/build-heights.py from the OGDL permit + door
+  // datasets and OSM height/levels tags) is sampled per lot in
+  // strict priority order — permit footprint over the lot centre,
+  // then an OSM footprint there, then the door floors of the lot's
+  // block face (below), then the neighbourhood field (second pass,
+  // after the lot loop), then the procedural bands. Real signals
+  // are never clamped to the bands: where the data says a tower
+  // stands, the tower's height stands (the #115 study: Xinyi's real
+  // massing far exceeds the 25–60 m core band). A geodata without
+  // the layer plans exactly as before.
+  const heightLayer = geodata.heights && Array.isArray(geodata.heights.footprints) ? geodata.heights : null;
+  const FP_CELL = 48;
+  const fpKey = (gx, gz) => gx * 100003 + gz;
+  const fpGrid = new Map();
+  if (heightLayer) {
+    for (const f of heightLayer.footprints) {
+      const e = { ring: f.ring, bb: ringBbox(f.ring), src: f.src, floors: f.floors, height: f.height };
+      const gx0 = Math.floor(e.bb.minX / FP_CELL), gx1 = Math.floor(e.bb.maxX / FP_CELL);
+      const gz0 = Math.floor(e.bb.minZ / FP_CELL), gz1 = Math.floor(e.bb.maxZ / FP_CELL);
+      for (let gx = gx0; gx <= gx1; gx++) for (let gz = gz0; gz <= gz1; gz++) {
+        const k = fpKey(gx, gz);
+        if (!fpGrid.has(k)) fpGrid.set(k, []);
+        fpGrid.get(k).push(e);
+      }
+    }
+  }
+  // Tiers 1–2: the signal of the footprint over a point. Permits
+  // win over OSM wherever both contain the point (a surveyed permit
+  // outline outranks a mapper's tag), so the scan completes before
+  // any OSM hit is returned.
+  const footprintSignalAt = (x, z) => {
+    if (!heightLayer) return null;
+    const bucket = fpGrid.get(fpKey(Math.floor(x / FP_CELL), Math.floor(z / FP_CELL)));
+    if (!bucket) return null;
+    let osm = null;
+    for (const e of bucket) {
+      if (x < e.bb.minX || x > e.bb.maxX || z < e.bb.minZ || z > e.bb.maxZ) continue;
+      if (!pointInRing(x, z, e.ring)) continue;
+      if (e.src === 'permit' && e.floors > 0) return { src: 'permit', floors: e.floors };
+      if (e.src === 'osm' && !osm) osm = e;
+    }
+    if (osm) {
+      if (osm.height > 0) return { src: 'osm-height', height: osm.height };
+      if (osm.floors > 0) return { src: 'osm-levels', floors: osm.floors };
+    }
+    return null;
+  };
+  // Tier 3 support: door plate points (flat [x, z, maxFloors]) on a
+  // grid. A plate point samples the WHOLE building at its address —
+  // the join therefore never reads a single door for a lot; each
+  // block face pools its doors and speaks by their median (the
+  // per-face pools are built in the block loop, where the faces
+  // live). The #115 study's per-lot nearest-door join oscillated
+  // 3 m -> 35 m along one real row of houses; a face median cannot.
+  const DOOR_CELL = 24;
+  const doorPts = heightLayer && Array.isArray(heightLayer.doors) ? heightLayer.doors : null;
+  const doorGrid = new Map();
+  if (doorPts) {
+    for (let i = 0; i + 2 < doorPts.length; i += 3) {
+      const k = fpKey(Math.floor(doorPts[i] / DOOR_CELL), Math.floor(doorPts[i + 1] / DOOR_CELL));
+      if (!doorGrid.has(k)) doorGrid.set(k, []);
+      doorGrid.get(k).push(i / 3);
+    }
+  }
+  const medianOf = (vals) => {
+    const s = [...vals].sort((a, b) => a - b);
+    return s.length % 2 ? s[(s.length - 1) / 2] : (s[s.length / 2 - 1] + s[s.length / 2]) / 2;
   };
 
   // Road ribbons the lots must keep off: merged roadbeds for carriageways
@@ -1673,6 +1775,7 @@ export function planTaipeiBuildings(geodata) {
   const exclusionSites = towerSite ? [towerSite, ...landmarkSites, ...mrtSites] : [...landmarkSites, ...mrtSites];
 
   const lots = [];
+  const lotProcH = []; // issue #128: each lot's procedural draw, index-aligned with lots
   const blocks = geodata.blocks || [];
   for (let bi = 0; bi < blocks.length; bi++) {
     const block = blocks[bi];
@@ -1743,6 +1846,35 @@ export function planTaipeiBuildings(geodata) {
     const edgeRankVHigh = edgeRankAt(0, halfV, 0, 1);
     const edgeRankULow = edgeRankAt(-halfU, 0, -1, 0);
     const edgeRankUHigh = edgeRankAt(halfU, 0, 1, 0);
+    // Issue #128: this block's door plate points, pooled per face
+    // in the block frame. A door belongs to a face when it stands
+    // inside the block within FACE_DOOR_DEPTH of the face line (a
+    // plate point sits at its building's entrance, behind the
+    // frontage) and within the face's span; a corner door serves
+    // both faces it touches. Doors deeper inside the block belong
+    // to no face — interior lots hear from the neighbourhood field
+    // instead. Pools hold door indices; a lot pools the faces it
+    // stands in and takes the pooled median (see the height pick).
+    const faceDoorIdx = { vLow: [], vHigh: [], uLow: [], uHigh: [] };
+    if (doorPts) {
+      const reach = Math.max(halfU, halfV) + HEIGHT_JOIN.faceDoorDepthM + 4;
+      const gx0 = Math.floor((ocx - reach) / DOOR_CELL), gx1 = Math.floor((ocx + reach) / DOOR_CELL);
+      const gz0 = Math.floor((ocz - reach) / DOOR_CELL), gz1 = Math.floor((ocz + reach) / DOOR_CELL);
+      for (let gx = gx0; gx <= gx1; gx++) for (let gz = gz0; gz <= gz1; gz++) {
+        const bucket = doorGrid.get(fpKey(gx, gz));
+        if (!bucket) continue;
+        for (const di of bucket) {
+          const dx = doorPts[di * 3] - ocx, dz = doorPts[di * 3 + 1] - ocz;
+          const fu = dx * cosT + dz * sinT, fv = -dx * sinT + dz * cosT;
+          if (fu < -halfU - 2 || fu > halfU + 2 || fv < -halfV - 2 || fv > halfV + 2) continue;
+          const dep = HEIGHT_JOIN.faceDoorDepthM;
+          if (fv >= -halfV - 1 && fv <= -halfV + dep) faceDoorIdx.vLow.push(di);
+          if (fv <= halfV + 1 && fv >= halfV - dep) faceDoorIdx.vHigh.push(di);
+          if (fu >= -halfU - 1 && fu <= -halfU + dep) faceDoorIdx.uLow.push(di);
+          if (fu <= halfU + 1 && fu >= halfU - dep) faceDoorIdx.uHigh.push(di);
+        }
+      }
+    }
     for (let col = 0; col < cols; col++) {
       for (let row = 0; row < rows; row++) {
         const seed = Math.imul(bi + 1, 73856093) ^ Math.imul(col + 1, 19349663) ^ Math.imul(row + 1, 83492791);
@@ -1867,17 +1999,88 @@ export function planTaipeiBuildings(geodata) {
           else if (frontRank === 3) { lo = 18; hi = 42; } // secondary face
           else { lo = 15; hi = 30; }                      // tertiary / collector face
         }
-        const h = Math.round((lo + hash01(seed ^ 0x3d9a) * (hi - lo)) * 2) / 2;
+        const procH = Math.round((lo + hash01(seed ^ 0x3d9a) * (hi - lo)) * 2) / 2;
+        // Issue #128: a real signal overrides the band draw (see
+        // the join section above for the tiers). The procedural
+        // draw is still computed for every lot — it is the fallback
+        // for signal-less lots, the field tier's blend partner, and
+        // it keeps every hash consumer downstream byte-stable.
+        let h = procH, hSrc = 'proc';
+        if (heightLayer) {
+          const fp = footprintSignalAt(cx, cz);
+          if (fp) {
+            if (fp.src === 'permit') { h = Math.round(fp.floors * HEIGHT_JOIN.permitM * 2) / 2; hSrc = 'permit'; }
+            else if (fp.src === 'osm-height') { h = Math.round(fp.height * 2) / 2; hSrc = 'osm-height'; }
+            else { h = Math.round(fp.floors * HEIGHT_JOIN.osmLevelsM * 2) / 2; hSrc = 'osm-levels'; }
+          } else if (doorPts) {
+            // Tier 3: pool the plate points of the face(s) this
+            // lot stands in; the pooled median floor speaks.
+            const pool = new Set();
+            if (row === 0) for (const di of faceDoorIdx.vLow) pool.add(di);
+            if (row === rows - 1) for (const di of faceDoorIdx.vHigh) pool.add(di);
+            if (col === 0) for (const di of faceDoorIdx.uLow) pool.add(di);
+            if (col === cols - 1) for (const di of faceDoorIdx.uHigh) pool.add(di);
+            if (pool.size >= HEIGHT_JOIN.faceDoorMinDoors) {
+              const med = medianOf([...pool].map((di) => doorPts[di * 3 + 2]));
+              h = Math.round(med * HEIGHT_JOIN.doorM * 2) / 2;
+              hSrc = 'door';
+            }
+          }
+        }
         const base = PALETTE[Math.floor(hash01(seed ^ 0x9f2c) * PALETTE.length) % PALETTE.length];
         const shade = 0.92 + hash01(seed ^ 0x64d1) * 0.16;
         const color = base.map((c) => Math.max(0, Math.min(255, Math.round(c * shade * 255))));
-        const lot = { x: Math.round(cx * 10) / 10, z: Math.round(cz * 10) / 10, w: Math.round(w * 10) / 10, d: Math.round(d * 10) / 10, h, color };
+        const lot = { x: Math.round(cx * 10) / 10, z: Math.round(cz * 10) / 10, w: Math.round(w * 10) / 10, d: Math.round(d * 10) / 10, h, color, hSrc };
         if (theta) { lot.rot = Math.round(theta * 10000) / 10000; stats.lotsRotated++; }
         if (packU || packV) stats.lotsPackedFrontage++;
         if (tallFrontage) stats.lotsTallFrontage++;
         lots.push(lot);
+        lotProcH.push(procH);
       }
     }
+  }
+
+  // Issue #128 tier 4: the neighbourhood field. A lot with no real
+  // signal of its own blends its procedural draw 50/50 with the
+  // median of the REAL lot heights within fieldRadiusM (the #128
+  // proposal: the field reaches most of the uncovered lots, and the
+  // blend keeps the core/frontage/lane bands shaping them). Beyond
+  // the field's reach the pure band draw stands. Field lots are
+  // labelled 'field' — estimated, never real.
+  if (heightLayer) {
+    const CELL = HEIGHT_JOIN.fieldRadiusM;
+    const fieldGrid = new Map();
+    for (let i = 0; i < lots.length; i++) {
+      if (lots[i].hSrc === 'proc') continue;
+      const k = fpKey(Math.floor(lots[i].x / CELL), Math.floor(lots[i].z / CELL));
+      if (!fieldGrid.has(k)) fieldGrid.set(k, []);
+      fieldGrid.get(k).push(i);
+    }
+    if (fieldGrid.size) {
+      for (let i = 0; i < lots.length; i++) {
+        if (lots[i].hSrc !== 'proc') continue;
+        const { x, z } = lots[i];
+        const gx = Math.floor(x / CELL), gz = Math.floor(z / CELL);
+        const near = [];
+        for (let ax = gx - 1; ax <= gx + 1; ax++) for (let az = gz - 1; az <= gz + 1; az++) {
+          for (const j of fieldGrid.get(fpKey(ax, az)) || []) {
+            if (Math.hypot(lots[j].x - x, lots[j].z - z) <= CELL) near.push(lots[j].h);
+          }
+        }
+        if (near.length >= HEIGHT_JOIN.fieldMinLots) {
+          lots[i].h = Math.round(((lotProcH[i] + medianOf(near)) / 2) * 2) / 2;
+          lots[i].hSrc = 'field';
+        }
+      }
+    }
+  }
+  for (const lot of lots) {
+    if (lot.hSrc === 'permit') stats.heightsPermit++;
+    else if (lot.hSrc === 'osm-height') stats.heightsOsmHeight++;
+    else if (lot.hSrc === 'osm-levels') stats.heightsOsmLevels++;
+    else if (lot.hSrc === 'door') stats.heightsDoor++;
+    else if (lot.hSrc === 'field') stats.heightsField++;
+    else stats.heightsProc++;
   }
 
   // Taipei 101 massing (see header): podium + 8 identical flared

@@ -342,7 +342,21 @@ test('buildings plan: deterministic, excludes parks/water/101 site, tower presen
       if (lot.x < p.bb.minX || lot.x > p.bb.maxX || lot.z < p.bb.minZ || lot.z > p.bb.maxZ) continue;
       assert.ok(!pointInRing(lot.x, lot.z, p.ring), `building at ${lot.x},${lot.z} inside "${p.name || 'water'}"`);
     }
-    assert.ok(lot.h >= 8 && lot.h <= 60, `height ${lot.h} within the contextual tiers`);
+    // Issue #128 re-base: this loop used to assert 8 <= h <= 60
+    // ('the contextual tiers') — true when every height came from
+    // the procedural bands. With the real-height join, REAL
+    // heights break both bounds legitimately: 2,940 lots stand
+    // below 8 m (1-2F door faces at 3.85 m/f, 1F permits/levels at
+    // 3.0 m/f — Taipei's lane shops really are that low) and 819
+    // stand above the 60 m core cap (real towers, never clamped).
+    // The invariant is now two-part: every height is a plausible
+    // building height (measured range on this tree: 2..222 m),
+    // AND the lots the join leaves procedural still satisfy the
+    // old band bounds exactly (0 exceptions at the #128 gate) —
+    // the tiers still bind the tier that draws from them. The
+    // per-source census lives in tests/heights.test.mjs.
+    assert.ok(lot.h > 0 && lot.h <= 250, `height ${lot.h} sane`);
+    if (lot.hSrc === 'proc') assert.ok(lot.h >= 8 && lot.h <= 60, `procedural height ${lot.h} within the contextual tiers`);
     assert.ok(lot.w >= 7 && lot.d >= 7, 'footprint sane');
   }
   // Some Xinyi-core lots reach the tall tier.
@@ -969,7 +983,21 @@ test('taiwan types: family zoning, distribution and rooftop clamp', (t) => {
   // the dropped lots are glass here than on the pre-#106 base,
   // where the same exclusions measured -5): 3,832 - 7 = 3,825.
   // The MRT test file pins the exclusion itself.
-  assert.equal(glass, 3825, 'glass family counts untouched by the Taiwan-type assignment');
+  // Re-pinned for issue #128 (real-height join), composed on the
+  // merged tree above: the join moves heights only (same 34,645
+  // lots, same positions — placement identical, verified in
+  // tests/heights.test.mjs), but real heights re-draw the
+  // families, because facadeMatFor is height-driven and was NOT
+  // edited: lots the join lifts to >= 40 m are glass by its first
+  // rule, and the 15-40 m local stock rolls Taiwan at 55%.
+  // Glass 3,825 -> 7,988 (+4,163: F3 +1,175, F4 +1,438, F5 +1,550
+  // — Taipei's real towers are curtain-wall, and 26% of
+  // real-signal lots stand >= 30 m); Taiwan 8,189 -> 10,123
+  // (+1,934: F6 +580, F7 +415, F8 +519, F9 +420); masonry
+  // 22,631 -> 16,534 (-6,097: F0 -1,741, F1 -2,100, F2 -2,256).
+  // Deltas diffed lot by lot against the heights-stripped plan on
+  // this tree; the per-source census lives in heights.test.mjs.
+  assert.equal(glass, 7988, 'glass family counts after the #128 real-height join');
   const masonry = opts.lots.filter((l) => l.mat <= 2).length;
   // Range re-based for issue #65: the exact ribbon exclusion removed
   // ~4,400 masonry lots that stood on ribbons or in medians; masonry
@@ -985,7 +1013,14 @@ test('taiwan types: family zoning, distribution and rooftop clamp', (t) => {
   // Issue #106 composition: 22,671 of 34,707 (65.3%) on the merged
   // tree (see the glass re-pin above) — still the majority fabric,
   // still inside this range unedited.
-  assert.ok(masonry > 20000 && masonry < 30000, `masonry 0-2 reduced but still present (${masonry})`);
+  // Range re-based for issue #128: the real-height join moves
+  // 6,097 masonry lots into the glass and Taiwan families (their
+  // real heights demand it; facadeMatFor unedited) — 16,534 of
+  // 34,645 (47.7%). The imported masonry families are no longer
+  // the majority alone; the local fabric is: masonry + Taiwan
+  // types together are 26,657 (76.9%). The range is re-based to
+  // hold the new count with headroom for dataset refreshes.
+  assert.ok(masonry > 12000 && masonry < 20000, `masonry 0-2 reduced but still present (${masonry})`);
   assert.equal(typeof opts.rooftopGearClamp, 'function', 'options carry the rooftop-gear clamp');
 
   const lot = { x0: 0, x1: 9, z0: 0, z1: 14 };

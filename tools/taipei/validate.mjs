@@ -34,6 +34,20 @@ check(outOfBounds === 0, 'all coords within frame bbox', `max |coord| ${maxAbs.t
 // recreation polygons the planner must keep lot-free.
 check(Array.isArray(G.green) && G.green.length > 200, 'green-land layer present', `${(G.green || []).length} polygons`);
 
+// 1c. Real-height layer present (issue #128): OGDL permit + door
+// datasets and OSM height tags, built by tools/taipei/build-heights.py.
+{
+  const h = G.heights;
+  const doorPoints = h && Array.isArray(h.doors) ? h.doors.length / 3 : 0;
+  check(!!h && h.footprints.length > 10000 && doorPoints > 50000,
+    'real-height layer present',
+    h ? `${h.footprints.length} signal footprints, ${doorPoints} door points` : 'missing');
+  if (h) {
+    const bad = h.footprints.filter((f) => !(f.ring.length >= 8) || (f.src === 'permit' ? !(f.floors > 0) : !(f.height > 0 || f.floors > 0))).length;
+    check(bad === 0, 'every height footprint carries its signal', `${bad} bad`);
+  }
+}
+
 // 2. Taipei 101 landmark exists near origin
 const t101 = G.landmarks['Taipei 101'];
 check(!!t101, "landmarks['Taipei 101'] exists");
