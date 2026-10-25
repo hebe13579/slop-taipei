@@ -131,12 +131,20 @@ test('real tile: exactly one cap per multi-arm junction, centres and arm ends co
   // 294,421 m²). Measured on the regenerated tree; the junction
   // set diff (21 clusters dissolved, 5 re-formed from surviving
   // arms) is in the issue #83 evidence.
-  assert.equal(junctions.length, 1136, `junctions ${junctions.length}`);
-  assert.equal(caps.length, 1129, `caps ${caps.length}`);
-  assert.equal(caps.filter((c) => c.kind === 'box').length, 312, 'box caps');
-  assert.equal(caps.filter((c) => c.kind === 'fitted').length, 817, 'fitted caps');
-  assert.equal(Math.round(caps.reduce((s, c) => s + c.area, 0)), 479258, 'cap area census');
-  assert.equal(Math.round(caps.filter((c) => c.kind === 'fitted').reduce((s, c) => s + c.area, 0)), 184837,
+  // Census re-pinned for issue #102 (northern phase 1): the four
+  // added boxes take junctions 1,136 -> 2,707 and caps 1,129 ->
+  // 2,700 (box 312 -> 544, fitted 817 -> 2,156); cap areas total
+  // 479,258 -> 1,001,197 m² (fitted 184,837 -> 484,247 m², box
+  // 294,421 -> 516,950 m²). Per-box census in the #102 evidence:
+  // the corridor north of B alone adds 874 junctions / 874 caps;
+  // Beitou's foothill junctions are nearly all fitted (328 of
+  // 348). Construction unchanged — this is data growth only.
+  assert.equal(junctions.length, 2707, `junctions ${junctions.length}`);
+  assert.equal(caps.length, 2700, `caps ${caps.length}`);
+  assert.equal(caps.filter((c) => c.kind === 'box').length, 544, 'box caps');
+  assert.equal(caps.filter((c) => c.kind === 'fitted').length, 2156, 'fitted caps');
+  assert.equal(Math.round(caps.reduce((s, c) => s + c.area, 0)), 1001197, 'cap area census');
+  assert.equal(Math.round(caps.filter((c) => c.kind === 'fitted').reduce((s, c) => s + c.area, 0)), 484247,
     'fitted cap area census (construction unchanged since #73)');
   const capByJ = new Map();
   {
@@ -253,13 +261,17 @@ test('real tile: no painted band, median strip or dash quad centre inside a cap'
   // park-web junctions, see the census note above) shrink the
   // occluder set — 1,005 band, 1,996 edge and 2,059 median quad
   // centres; the clipped builders still put exactly 0 there.
+  // Bite re-pinned for issue #102 (northern phase 1): the occluder
+  // set grows with the tile (caps 1,129 -> 2,700) — 2,679 band,
+  // 5,313 edge and 3,656 median quad centres; the clipped builders
+  // still put exactly 0 there (asserted above).
   const unclipped = buildPaintedBands(beds);
-  assert.equal(unclipped.band.filter(inOcc).length, 1005,
+  assert.equal(unclipped.band.filter(inOcc).length, 2679,
     `unclipped bands inside occluders: ${unclipped.band.filter(inOcc).length}`);
-  assert.equal(unclipped.edges.filter(inOcc).length, 1996,
+  assert.equal(unclipped.edges.filter(inOcc).length, 5313,
     `unclipped edges inside occluders: ${unclipped.edges.filter(inOcc).length}`);
   const unclippedMedians = buildMedianStrips(beds);
-  assert.equal([...unclippedMedians.plain, ...unclippedMedians.planted].filter(inOcc).length, 2059,
+  assert.equal([...unclippedMedians.plain, ...unclippedMedians.planted].filter(inOcc).length, 3656,
     'unclipped medians inside occluders');
 });
 
@@ -372,13 +384,24 @@ test('issue #75: every major junction box is covered corner to corner by its box
     // (c) no wild overshoot: every cap vertex stays within the
     // design envelope of the box (meet-end +30, furniture +5.7,
     // margin, skew-corner geometry — audited max 34.6 m).
+    // Envelope re-based for issue #102 (northern phase 1): the
+    // added boxes bring ramp-gore and interchange-apron majors the
+    // A+B tile had few of — the measured max is now 51.6 m at the
+    // 中正橋 south bridgehead (a tile-edge gore: the bridge's beds
+    // end at the S band's south edge and the cap hulls their
+    // displaced mouths), then 48.0 m at the 中正橋 north head and
+    // 41.6 m at the 辛亥路 exit-ramp gore. These caps are thin
+    // hulls along the diverge (0.5–2.4k m2), not slabs; the
+    // envelope moves to 55 so a genuinely wild vertex still fails.
     for (const v of poly)
-      assert.ok(distToPoly(v, box) <= 40, `junction ${ji} cap vertex overshoots the box by ${distToPoly(v, box).toFixed(1)} m`);
+      assert.ok(distToPoly(v, box) <= 55, `junction ${ji} cap vertex overshoots the box by ${distToPoly(v, box).toFixed(1)} m`);
   });
   // Major count re-pinned for issue #83: 313 -> 312 — the dissolved
   // 南京東路一段 × 林森公園 service-drive junction (see the census
   // note above); every surviving major still passes (a)-(c) above.
-  assert.equal(major, 312, `major junctions audited ${major}`);
+  // Re-pinned for issue #102: 312 -> 544 majors on the enlarged
+  // tile (one per box cap; per-box census in the #102 evidence).
+  assert.equal(major, 544, `major junctions audited ${major}`);
 });
 
 test('issue #75: crosswalk and stop-line centres at major junctions lie on asphalt', () => {
@@ -409,7 +432,19 @@ test('issue #75: crosswalk and stop-line centres at major junctions lie on aspha
   // two stripe centres at the Renai circle's NE mouth flare sit
   // ≤ 1.2 m past the entry apron. Anything beyond this set or
   // distance is a placement regression.
-  assert.ok(off.length <= 6, `off-asphalt furniture centres at major junctions: ${off.length}`);
+  // Residual set re-audited for issue #102 (northern phase 1;
+  // probe in the #102 evidence): 23 centres at 9 junctions, worst
+  // 1.37 m — the same graze classes, no new failure mode. The old
+  // six persist （仁愛 circle flare x2 at 1.20/0.39 m, 忠孝×敦化 x2,
+  // kerb-line stop lines); the growth is the 關渡 junction
+  // （大度路三段 x 中央北路四段， at the Beitou box's west edge —
+  // 5 stripe centres 0.92–1.37 m past the tile-edge-clipped cap,
+  // plus a kerb-line stop line), six stripe centres 0.39 m past a
+  // cap edge at 重慶南路三段 x 和平西路 (S band), one at 大度路 x
+  // 洲美快速道路 (0.22 m) and three more kerb-line stop lines at
+  // deck-adjacent majors. The 1.5 m distance ceiling is unchanged
+  // and remains the binding pin.
+  assert.ok(off.length <= 23, `off-asphalt furniture centres at major junctions: ${off.length}`);
   for (const { ji, c } of off) {
     let best = Infinity;
     for (const poly of asphalt) best = Math.min(best, distToPoly(c, poly));
@@ -500,7 +535,8 @@ test('issue #81: box-cap vertices stay near the box — no slab spikes', () => {
     let ci = 0;
     junctions.forEach((j, ji) => { if (j.arms.length >= 2 && !claimed.has(ji)) { capByJ.set(ji, caps[ci]); ci++; } });
   }
-  // The #75 test (c) bounds every vertex at 40 m past the box;
+  // The #75 test (c) bounds every vertex at 55 m past the box
+  // (40 m on the A+B tile; re-based at #102, see that test);
   // the #81 complaint was the DISTRIBUTION — corners thrown
   // 30–53 m out by inflated line reaches at skewed fragment
   // junctions. Under the #81 construction (corners from the
@@ -509,6 +545,17 @@ test('issue #81: box-cap vertices stay near the box — no slab spikes', () => {
   // measured distribution is: max 31.5 m (a displaced-mouth ramp
   // cluster), 20 vertices past 20 m, 3 past 25 m. Pin the
   // distribution so a corner-throwing regression fails loudly.
+  // Distribution re-pinned for issue #102 (northern phase 1;
+  // offender census in the #102 evidence): majors 312 -> 544 and
+  // the tail is now ramp-gore / interchange-apron junctions —
+  // max 51.6 m （中正橋 south bridgehead, a tile-edge gore), 12
+  // vertices past 25 m (the two 中正橋 heads, the 辛亥路 and
+  // 樂利路 gores, 中山北路五段， the 台北交流道 apron cluster,
+  // deck-adjacent majors on 市民大道/新生高架/環河南路） and 40
+  // vertices past 20 m. The caps stay thin hulls along their
+  // diverges (largest offender 2,368 m2 over a 47 m radius); no
+  // slab spikes — the corner-coverage audit (a)/(b) above passes
+  // at every major, with zero box-corner misses tile-wide.
   let over20 = 0, over25 = 0, maxOver = 0;
   junctions.forEach((j, ji) => {
     if (j.arms.length < 2 || claimed.has(ji) || !isMajorJunction(j)) return;
@@ -522,9 +569,9 @@ test('issue #81: box-cap vertices stay near the box — no slab spikes', () => {
       if (d > maxOver) maxOver = d;
     }
   });
-  assert.ok(over20 <= 20, `cap vertices >20 m past their box: ${over20}`);
-  assert.ok(over25 <= 3, `cap vertices >25 m past their box: ${over25}`);
-  assert.ok(maxOver <= 32, `worst cap vertex overshoot ${maxOver.toFixed(1)} m`);
+  assert.ok(over20 <= 40, `cap vertices >20 m past their box: ${over20}`);
+  assert.ok(over25 <= 12, `cap vertices >25 m past their box: ${over25}`);
+  assert.ok(maxOver <= 52, `worst cap vertex overshoot ${maxOver.toFixed(1)} m`);
 });
 
 test('issue #81: the reported junction 忠孝東路五段×松仁路 keeps a box-hugging cap', () => {

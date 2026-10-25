@@ -889,12 +889,20 @@ test('taiwan types: family zoning, distribution and rooftop clamp', (t) => {
   // Memorial park service beds, reshaping the park-edge blocks;
   // the merged-tree plan yields 3 fewer glass lots. Proven delta,
   // measured at the #79 gate on main f7693317.
-  assert.equal(glass, 1611, 'glass family counts untouched by the Taiwan-type assignment');
+  // Re-pinned for issue #102 (northern phase 1): the plan grows
+  // 16,793 -> 45,548 lots over the five-box tile; the glass rolls
+  // still evaluate first and unchanged, so the count is whatever
+  // the enlarged plan yields — 3,636 glass (the north adds the
+  // Tianmu/Shilin mid-rise stock plus Beitou resort towers), 9,823
+  // Taiwan-type and 32,089 masonry lots.
+  assert.equal(glass, 3636, 'glass family counts untouched by the Taiwan-type assignment');
   const masonry = opts.lots.filter((l) => l.mat <= 2).length;
   // Range re-based for issue #65: the exact ribbon exclusion removed
   // ~4,400 masonry lots that stood on ribbons or in medians; masonry
   // is reduced but still the city's majority fabric.
-  assert.ok(masonry > 9500 && masonry < 12500, `masonry 0-2 reduced but still present (${masonry})`);
+  // Range re-based for issue #102: 32,089 of 45,548 lots — still
+  // the majority fabric of the enlarged tile.
+  assert.ok(masonry > 28000 && masonry < 36000, `masonry 0-2 reduced but still present (${masonry})`);
   assert.equal(typeof opts.rooftopGearClamp, 'function', 'options carry the rooftop-gear clamp');
 
   const lot = { x0: 0, x1: 9, z0: 0, z1: 14 };

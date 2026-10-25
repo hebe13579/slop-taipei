@@ -68,7 +68,13 @@ test('geodata: class populations cover every roadbed exactly once', () => {
   // Re-pinned for issue #83: the exclusion generalized to every
   // park — 62 more lane-class (service) beds left the rendered
   // set (5,770 -> 5,708 roadbeds), all other classes unchanged.
-  assert.deepEqual(counts, { deck: 141, arterial: 612, collector: 579, lane: 4376 });
+  // Re-pinned for issue #102 (northern phase 1): the four added
+  // boxes take roadbeds 5,708 -> 13,363; the northern network is
+  // lane-heavy (Shilin/Beitou residential + foothill lanes) with a
+  // thick elevated layer — deck 141 -> 225, arterial 612 -> 1,035,
+  // collector 579 -> 970, lane 4,376 -> 11,133. Per-box census in
+  // the #102 evidence.
+  assert.deepEqual(counts, { deck: 225, arterial: 1035, collector: 970, lane: 11133 });
 });
 
 test('medianKind: merged + width rule, planted only on wide secondary', () => {
@@ -124,14 +130,19 @@ test('geodata: median bed counts match the regenerated evidence list', () => {
   // take planted 72 -> 96 and plain 164 -> 251; excludedUnderpass
   // counts only beds wide/merged enough to otherwise earn a median:
   // 象山隧道 x3 now (文山隧道 left with the dropped south band).
-  assert.equal(planted, 96);
-  assert.equal(plain, 251);
+  // Re-pinned for issue #102 (northern phase 1): the corridor's
+  // divided boulevards （承德路, 中山北路五段 on, 大度路） and the S
+  // band take planted 96 -> 176 and plain 251 -> 437 (rendered
+  // 26.5 planted km / 81.0 plain km); three more wide underpass
+  // beds in the added boxes take excludedUnderpass 3 -> 6.
+  assert.equal(planted, 176);
+  assert.equal(plain, 437);
   const { stats } = buildMedianStrips(TAIPEI_GEO.roadbeds);
-  assert.equal(stats.plantedBeds, 96);
-  assert.equal(stats.plainBeds, 251);
-  assert.equal(stats.excludedUnderpass, 3); // 象山隧道 x3
-  assert.ok(stats.plantedKm > 8 && stats.plantedKm < 13, `planted rendered ${stats.plantedKm} km`);
-  assert.ok(stats.plainKm > 30 && stats.plainKm < 48, `plain rendered ${stats.plainKm} km`);
+  assert.equal(stats.plantedBeds, 176);
+  assert.equal(stats.plainBeds, 437);
+  assert.equal(stats.excludedUnderpass, 6);
+  assert.ok(stats.plantedKm > 20 && stats.plantedKm < 32, `planted rendered ${stats.plantedKm} km`);
+  assert.ok(stats.plainKm > 65 && stats.plainKm < 95, `plain rendered ${stats.plainKm} km`);
 });
 
 test('medianStripWidth clamps to 1.2–3.5 m at 8% of bed width', () => {
@@ -184,7 +195,7 @@ test('plaza classification: 廣場 polygons are paving, real parks stay green', 
   const plazas = TAIPEI_GEO.parks.filter(isPlazaPark);
   const greens = TAIPEI_GEO.parks.filter((p) => !isPlazaPark(p));
   assert.equal(plazas.length + greens.length, TAIPEI_GEO.parks.length);
-  assert.equal(plazas.length, 17); // pinned on post-#30 data; re-pinned 2026-10-24 (issue #60: +中山堂/行旅/西本願寺/北門 and other west-side 廣場)
+  assert.equal(plazas.length, 24); // pinned on post-#30 data; re-pinned 2026-10-24 (issue #60: +中山堂/行旅/西本願寺/北門 and other west-side 廣場); re-pinned for issue #102 (+7 in the added boxes: 北投3號廣場, 關渡自然公園 x2 賞鳥廣場, 大同16號廣場, 交通8號廣場, 厚生廣場 x2)
   for (const name of ['台北市民廣場', '松壽廣場', '台北世貿廣場', '信義21號廣場', '忠信廣場']) {
     assert.ok(plazas.some((p) => p.name === name), `${name} classified as plaza paving`);
   }
