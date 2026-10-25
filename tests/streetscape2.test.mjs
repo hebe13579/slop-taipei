@@ -239,7 +239,14 @@ test('real tile: park trees are deterministic, capped, and Da-an reads as woodla
   // the cap is a phone-budget call, flagged in the #102 PR for the
   // gate (≈29k would restore the A+B-era density); the band below
   // pins the measured spread so a further silent thinning fails.
-  assert.ok(daan >= 130 && daan <= 1600, `Da-an woodland density (${daan})`);
+  // Re-based for issue #134: the recovered park polygons (the
+  // two-pass relation stitch completing the riverside and Guandu
+  // parks) plus the new boxes' parks take parkland 8.62 ->
+  // 11.22 km2, and the same fixed budget thins Da-an 163 -> 117.
+  // The band floor moves to 100 to pin the new measured spread;
+  // raising PARK_TREE_CAP to restore density remains a
+  // phone-budget call for the gate, as flagged at #102.
+  assert.ok(daan >= 100 && daan <= 1600, `Da-an woodland density (${daan})`);
   const capped = planParkTrees(TAIPEI_GEO, plan, { cap: 400 });
   assert.equal(capped.trees.length, 400, 'cap hits exactly');
   // The subset invariant is against the UNTHINNED plan: since the west

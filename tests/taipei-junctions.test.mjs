@@ -142,12 +142,18 @@ test('real tile: exactly one cap per multi-arm junction, centres and arm ends co
   // (328 of 348); region A's census is byte-for-byte the live one
   // (1,051 junctions, 293 box / 751 fitted caps). Construction
   // unchanged — this is data growth only.
-  assert.equal(junctions.length, 2361, `junctions ${junctions.length}`);
-  assert.equal(caps.length, 2354, `caps ${caps.length}`);
-  assert.equal(caps.filter((c) => c.kind === 'box').length, 480, 'box caps');
-  assert.equal(caps.filter((c) => c.kind === 'fitted').length, 1874, 'fitted caps');
-  assert.equal(Math.round(caps.reduce((s, c) => s + c.area, 0)), 887296, 'cap area census');
-  assert.equal(Math.round(caps.filter((c) => c.kind === 'fitted').reduce((s, c) => s + c.area, 0)), 431011,
+  // Census re-pinned for issue #134 (airport box + corridor west
+  // extension): junctions 2,361 -> 2,701 and caps 2,354 -> 2,694
+  // (box 480 -> 579, fitted 1,874 -> 2,115); cap areas total
+  // 887,296 -> 1,028,652 m2 (fitted 431,011 -> 488,109 m2, box
+  // 456,285 -> 540,543 m2). Construction unchanged — data growth
+  // only, on the airport box's arterial grid and the strip.
+  assert.equal(junctions.length, 2701, `junctions ${junctions.length}`);
+  assert.equal(caps.length, 2694, `caps ${caps.length}`);
+  assert.equal(caps.filter((c) => c.kind === 'box').length, 579, 'box caps');
+  assert.equal(caps.filter((c) => c.kind === 'fitted').length, 2115, 'fitted caps');
+  assert.equal(Math.round(caps.reduce((s, c) => s + c.area, 0)), 1028652, 'cap area census');
+  assert.equal(Math.round(caps.filter((c) => c.kind === 'fitted').reduce((s, c) => s + c.area, 0)), 488109,
     'fitted cap area census (construction unchanged since #73)');
   const capByJ = new Map();
   {
@@ -268,13 +274,16 @@ test('real tile: no painted band, median strip or dash quad centre inside a cap'
   // set grows with the tile (caps 1,129 -> 2,354) — 2,397 band,
   // 4,763 edge and 3,219 median quad centres; the clipped builders
   // still put exactly 0 there (asserted above).
+  // Bite re-pinned for issue #134: caps 2,354 -> 2,694 on the
+  // enlarged tile — 2,758 band, 5,485 edge and 3,814 median quad
+  // centres; the clipped builders still put exactly 0 there.
   const unclipped = buildPaintedBands(beds);
-  assert.equal(unclipped.band.filter(inOcc).length, 2397,
+  assert.equal(unclipped.band.filter(inOcc).length, 2758,
     `unclipped bands inside occluders: ${unclipped.band.filter(inOcc).length}`);
-  assert.equal(unclipped.edges.filter(inOcc).length, 4763,
+  assert.equal(unclipped.edges.filter(inOcc).length, 5485,
     `unclipped edges inside occluders: ${unclipped.edges.filter(inOcc).length}`);
   const unclippedMedians = buildMedianStrips(beds);
-  assert.equal([...unclippedMedians.plain, ...unclippedMedians.planted].filter(inOcc).length, 3219,
+  assert.equal([...unclippedMedians.plain, ...unclippedMedians.planted].filter(inOcc).length, 3814,
     'unclipped medians inside occluders');
 });
 
@@ -406,7 +415,11 @@ test('issue #75: every major junction box is covered corner to corner by its box
   // note above); every surviving major still passes (a)-(c) above.
   // Re-pinned for issue #102: 312 -> 480 majors on the enlarged
   // tile (one per box cap; per-box census in the #102 evidence).
-  assert.equal(major, 480, `major junctions audited ${major}`);
+  // Re-pinned for issue #134: 480 -> 579 majors — the airport
+  // box's arterial grid （敦化北路 x 民權/民族/民生， 南京東路東段，
+  // 塔悠路 x 撫遠街） and the strip's Datong majors join; every one
+  // still passes (a)-(c) above.
+  assert.equal(major, 579, `major junctions audited ${major}`);
 });
 
 test('issue #75: crosswalk and stop-line centres at major junctions lie on asphalt', () => {
@@ -447,7 +460,13 @@ test('issue #75: crosswalk and stop-line centres at major junctions lie on aspha
   // stop line), one at 大度路 x 洲美快速道路 (0.22 m) and three
   // more kerb-line stop lines at deck-adjacent majors. The 1.5 m
   // distance ceiling is unchanged and remains the binding pin.
-  assert.ok(off.length <= 16, `off-asphalt furniture centres at major junctions: ${off.length}`);
+  // Residual set re-audited for issue #134 (offender census in the
+  // #134 evidence): 17 centres, worst still 1.37 m. The #102 set
+  // of 16 persists exactly; the single addition is one kerb-line
+  // stop line (0.00 m — the boundary-blind class) at 民權東路三段
+  // x 敦化北路， a new major in the airport box. Same graze
+  // classes, no new failure mode; the 1.5 m ceiling is unchanged.
+  assert.ok(off.length <= 17, `off-asphalt furniture centres at major junctions: ${off.length}`);
   for (const { ji, c } of off) {
     let best = Infinity;
     for (const poly of asphalt) best = Math.min(best, distToPoly(c, poly));
@@ -557,6 +576,14 @@ test('issue #81: box-cap vertices stay near the box — no slab spikes', () => {
   // vertices past 20 m. The caps stay hulls along their arms; no
   // slab spikes — the corner-coverage audit (a)/(b) above passes
   // at every major, with zero box-corner misses tile-wide.
+  // Distribution re-pinned for issue #134 (offender census in the
+  // #134 evidence): majors 480 -> 579; the max is UNCHANGED at
+  // 38.4 m (still 中山北路五段）. The tail grows to 41 vertices
+  // past 20 m and 9 past 25 m — the new >25 m offenders are the
+  // same displaced-mouth class at new skewed majors: 塔悠路 x
+  // 撫遠街 35.0 m (airport box east edge), 敦化北路 service mouth
+  // 27.3 m, 環河南路 x 福德南路 27.2 m and 重慶北路三段 x 敦煌路
+  // 26.7 m (the corridor strip). No slab spikes.
   let over20 = 0, over25 = 0, maxOver = 0;
   junctions.forEach((j, ji) => {
     if (j.arms.length < 2 || claimed.has(ji) || !isMajorJunction(j)) return;
@@ -570,8 +597,8 @@ test('issue #81: box-cap vertices stay near the box — no slab spikes', () => {
       if (d > maxOver) maxOver = d;
     }
   });
-  assert.ok(over20 <= 34, `cap vertices >20 m past their box: ${over20}`);
-  assert.ok(over25 <= 6, `cap vertices >25 m past their box: ${over25}`);
+  assert.ok(over20 <= 41, `cap vertices >20 m past their box: ${over20}`);
+  assert.ok(over25 <= 9, `cap vertices >25 m past their box: ${over25}`);
   assert.ok(maxOver <= 39, `worst cap vertex overshoot ${maxOver.toFixed(1)} m`);
 });
 

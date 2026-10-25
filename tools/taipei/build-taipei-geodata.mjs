@@ -424,12 +424,111 @@ const ringSelfIntersects = (pts) => {
     }
   return false;
 };
-const riverBooked = { capped: [], dropped: [] };
+// Issue #134/#125: the big rivers DO have true bankfull polygons in
+// OSM (Tamsui = relation 4010571, Keelung east = 3298928, Xindian
+// lower = 4615380); they only failed to reach this builder because the
+// extractor's stitch could not see member ways outside the tile — the
+// recovery pass in extract-from-pbf.py (issue #134) fixed that. A
+// river whose centreline already runs inside collected water polygons
+// therefore keeps NO centreline buffer: the polygon is the truth, and
+// the 160 m ribbon under-drew the Tamsui by 300-700 m, which is what
+// planted the #125 phantom lots on its banks.
+// Issue #137: flag the Tamsui's polygons so the planner can hold its
+// riverside band against the true bank line. The test runs per
+// ELEMENT on the UNCLIPPED rings: a collected polygon belongs to the
+// Tamsui when the 淡水河 centreline runs through the element's full
+// ring — testing the clipped pieces instead would miss every piece
+// whose tile-local fragment the centreline never enters (the river's
+// centre runs west of box A's edge along the whole Dadaocheng reach,
+// and north pieces sit in boxes the centreline crosses only outside
+// the tile), leaving the band full of holes.
+const tamsuiCentrelinePts = [];
+for (const el of load('osm_water.json').elements) {
+  if (el.type === 'way' && el.tags?.waterway === 'river' && (el.tags.name || '') === '淡水河') tamsuiCentrelinePts.push(...geomPts(el));
+}
+const pointInPtsRing = (x, z, pts) => {
+  let inside = false;
+  for (let i = 0, j = pts.length - 1; i < pts.length; j = i++) {
+    const xi = pts[i][0], zi = pts[i][1], xj = pts[j][0], zj = pts[j][1];
+    if ((zi > z) !== (zj > z) && x < ((xj - xi) * (z - zi)) / (zj - zi) + xi) inside = !inside;
+  }
+  return inside;
+};
+const isTamsuiElement = (el) => {
+  if (!tamsuiCentrelinePts.length) return false;
+  for (const rawRing of elRings(el)) {
+    if (rawRing.length < 4) continue;
+    for (const [x, z] of tamsuiCentrelinePts) if (pointInPtsRing(x, z, rawRing)) return true;
+  }
+  return false;
+};
+function collectWaterPolys() {
+  const out = [];
+  for (const el of load('osm_water.json').elements) {
+    const tamsui = isTamsuiElement(el);
+    for (const rawRing of elRings(el)) {
+      if (rawRing.length < 4) continue;
+      for (const ring of clipRingUnion(rawRing, BOXES_WORLD)) {
+        const area = Math.abs(ringArea(ring));
+        if (area < 50) continue;
+        out.push({ name: el.tags?.name || el.tags?.['name:en'] || '', ring: flat(ring), area, ...(tamsui ? { river: 'tamsui' } : {}) });
+      }
+    }
+  }
+  return out;
+}
+const collectedWater = collectWaterPolys();
+const pointInFlatRing = (x, z, ring) => {
+  let inside = false;
+  for (let i = 0, j = ring.length - 2; i < ring.length; j = i, i += 2) {
+    const xi = ring[i], zi = ring[i + 1], xj = ring[j], zj = ring[j + 1];
+    if ((zi > z) !== (zj > z) && x < ((xj - xi) * (z - zi)) / (zj - zi) + xi) inside = !inside;
+  }
+  return inside;
+};
+const flatRingBbox = (ring) => {
+  let minX = Infinity, maxX = -Infinity, minZ = Infinity, maxZ = -Infinity;
+  for (let i = 0; i < ring.length; i += 2) {
+    if (ring[i] < minX) minX = ring[i]; if (ring[i] > maxX) maxX = ring[i];
+    if (ring[i + 1] < minZ) minZ = ring[i + 1]; if (ring[i + 1] > maxZ) maxZ = ring[i + 1];
+  }
+  return { minX, maxX, minZ, maxZ };
+};
+const collectedWaterBb = collectedWater.map((p) => flatRingBbox(p.ring));
+const inCollectedWater = (x, z) => {
+  for (let i = 0; i < collectedWater.length; i++) {
+    const bb = collectedWaterBb[i];
+    if (x < bb.minX || x > bb.maxX || z < bb.minZ || z > bb.maxZ) continue;
+    if (pointInFlatRing(x, z, collectedWater[i].ring)) return i;
+  }
+  return -1;
+};
+const riverCoverage = new Map(); // element id -> share of in-union centreline points inside collected water
+const inUnionPt = (x, z) => BOXES_WORLD.some((b) => x >= b.minX && x <= b.maxX && z >= b.minZ && z <= b.maxZ);
+for (const el of load('osm_water.json').elements) {
+  if (el.type !== 'way' || el.tags?.waterway !== 'river' || !el.geometry) continue;
+  const near = geomPts(el).filter(([x, z]) => x >= BBOX.minX - 300 && x <= BBOX.maxX + 300 && z >= BBOX.minZ - 300 && z <= BBOX.maxZ + 300);
+  if (near.length < 2) continue;
+  // Coverage is judged on IN-UNION points only: the frame bbox has
+  // concave notches (west of the corridor's south end, south of the
+  // Beitou box) where a centreline runs within 300 m of the frame but
+  // outside every box — those reaches can never hold a clipped
+  // polygon, and counting them would keep the Tamsui's buffer alive
+  // at 38% "coverage" despite its in-tile course being fully mapped.
+  const inU = near.filter(([x, z]) => inUnionPt(x, z));
+  if (inU.length) {
+    let inside = 0;
+    for (const [x, z] of inU) if (inCollectedWater(x, z) >= 0) inside++;
+    riverCoverage.set(el.id, inside / inU.length);
+  }
+}
+const riverBooked = { capped: [], dropped: [], covered: [] };
 for (const el of load('osm_water.json').elements) {
   if (el.type !== 'way' || el.tags?.waterway !== 'river' || !el.geometry) continue;
   const all = geomPts(el);
   const near = all.filter(([x, z]) => x >= BBOX.minX - 300 && x <= BBOX.maxX + 300 && z >= BBOX.minZ - 300 && z <= BBOX.maxZ + 300);
   if (near.length < 2) continue;
+  if ((riverCoverage.get(el.id) ?? 0) >= 0.9) { riverBooked.covered.push(`${el.tags.name || el.id} (${(riverCoverage.get(el.id) * 100).toFixed(0)}% inside mapped polygons)`); continue; }
   const wtag = parseFloat(el.tags.width || '');
   const baseHalf = (Number.isFinite(wtag) ? wtag : 160) / 2;
   const clear = vertexClearances(near);
@@ -445,17 +544,137 @@ for (const el of load('osm_water.json').elements) {
   }
   if (!pieces) { riverBooked.dropped.push(el.tags.name || String(el.id)); continue; }
   for (const ring of pieces) {
-    riverPolys.push({ name: el.tags.name || el.tags['name:en'] || '', ring: flat(ring), area: Math.abs(ringArea(ring)), derived: 'centreline-buffer' });
+    riverPolys.push({ name: el.tags.name || el.tags['name:en'] || '', ring: flat(ring), area: Math.abs(ringArea(ring)), derived: 'centreline-buffer', ...((el.tags.name || '') === '淡水河' ? { river: 'tamsui' } : {}) });
   }
 }
 if (riverBooked.capped.length) console.log(`[taipei-geodata] river buffers width-capped by centreline clearance: ${riverBooked.capped.join('; ')}`);
 if (riverBooked.dropped.length) console.log(`[taipei-geodata] river buffers dropped (self-intersecting at every width): ${riverBooked.dropped.join('; ')}`);
-const waterRaw = [...collectPolys('osm_water.json', 50), ...riverPolys];
+if (riverBooked.covered.length) console.log(`[taipei-geodata] river buffers skipped (bankfull polygon mapped, issue #134): ${riverBooked.covered.join('; ')}`);
+const waterRaw = [...collectedWater, ...riverPolys];
 const parksRaw = collectPolys('osm_parks.json', 100);
-const water = waterRaw.map(({ name, ring, derived }) => (derived ? { name, ring, derived } : { name, ring }));
+const water = waterRaw.map(({ name, ring, derived, river }) => ({ name, ring, ...(derived ? { derived } : {}), ...(river ? { river } : {}) }));
 const parks = parksRaw.map(({ name, ring }) => ({ name, ring }));
 const waterArea = waterRaw.reduce((s, w) => s + w.area, 0);
 const parksArea = parksRaw.reduce((s, p) => s + p.area, 0);
+
+// ---- Tamsui riverside band (issue #137) ----
+// The planner enforces the band as a distance verdict against the
+// flagged Tamsui rings (bandM below is the single source — the
+// planner reads it off geodata.riverside). For the aerial read this
+// pass also derives band polygons: each Tamsui ring offset outward by
+// bandM, drawn under the water layer in boot so only the land-side
+// strip shows, in the park tone. Offsets use per-vertex bisectors
+// (outward = away from the ring centroid; river reaches are
+// star-shaped) on a >=12 m decimation; a ring whose offset still
+// self-intersects at 0.6x is skipped and booked — the planner's
+// distance verdict does not depend on these polygons.
+// Band width, measured against the satellite (evidence:
+// overlay-shezi.png / overlay-dadaocheng.png): the levee/wharf strip
+// between the bank line and the first carriageway runs 15-30 m along
+// the in-tile frontage, while real first-row lot centres (Shezi's
+// west shore) sit >= ~35 m from the bank — 30 m covers the strip the
+// rule is about and spares the first row. The wide park reaches
+// (Dadaocheng's Yanping strip, 60-90 m) are already polygon-excluded
+// as mapped parks; the band is the backstop for untagged slivers.
+const RIVERSIDE_BAND_M = 30;
+const offsetRingOutward = (ring, d) => {
+  let pts = [];
+  for (let i = 0; i + 1 < ring.length; i += 2) pts.push([ring[i], ring[i + 1]]);
+  if (pts.length > 1 && Math.hypot(pts[0][0] - pts[pts.length - 1][0], pts[0][1] - pts[pts.length - 1][1]) < 0.01) pts.pop();
+  const dec = pts.length ? [pts[0]] : [];
+  for (let i = 1; i < pts.length; i++) if (Math.hypot(pts[i][0] - dec[dec.length - 1][0], pts[i][1] - dec[dec.length - 1][1]) >= 12) dec.push(pts[i]);
+  if (dec.length < 3) return null;
+  pts = dec;
+  const cx = pts.reduce((s, p) => s + p[0], 0) / pts.length, cz = pts.reduce((s, p) => s + p[1], 0) / pts.length;
+  const nrm = (u, v) => { const dx = v[0] - u[0], dz = v[1] - u[1], L = Math.hypot(dx, dz) || 1; return [-dz / L, dx / L]; };
+  const out = [];
+  for (let i = 0; i < pts.length; i++) {
+    const p = pts[i], a = pts[(i + pts.length - 1) % pts.length], b = pts[(i + 1) % pts.length];
+    const n1 = nrm(a, p), n2 = nrm(p, b);
+    let mx = n1[0] + n2[0], mz = n1[1] + n2[1];
+    const ml = Math.hypot(mx, mz);
+    if (ml < 1e-6) { mx = n1[0]; mz = n1[1]; } else { mx /= ml; mz /= ml; }
+    if (mx * (p[0] - cx) + mz * (p[1] - cz) < 0) { mx = -mx; mz = -mz; }
+    const cosHalf = Math.max(0.35, Math.abs(mx * n1[0] + mz * n1[1]));
+    const dist = Math.min(d / cosHalf, 2.5 * d);
+    out.push([p[0] + mx * dist, p[1] + mz * dist]);
+  }
+  out.push(out[0]);
+  return out;
+};
+const riversidePolys = [];
+const riversideSkipped = [];
+for (const w of waterRaw) {
+  if (w.river !== 'tamsui') continue;
+  let done = false;
+  for (const f of [1, 0.6]) {
+    const off = offsetRingOutward(w.ring, RIVERSIDE_BAND_M * f);
+    if (off && !ringSelfIntersects(off)) {
+      for (const piece of clipRingUnion(off, BOXES_WORLD)) riversidePolys.push({ name: '淡水河', ring: flat(piece) });
+      done = true; break;
+    }
+  }
+  if (!done) riversideSkipped.push(`${w.name || 'unnamed'} (${(w.area / 1e6).toFixed(2)} km2)`);
+}
+if (riversideSkipped.length) console.log(`[taipei-geodata] riverside band polygons skipped (offset self-intersects; planner distance verdict unaffected): ${riversideSkipped.join('; ')}`);
+console.log(`[taipei-geodata] tamsui: ${waterRaw.filter((w) => w.river === 'tamsui').length} water polygons flagged, riverside band ${RIVERSIDE_BAND_M} m -> ${riversidePolys.length} band polygons (issue #137)`);
+
+// ---- Songshan Airport airfield (issue #134) ----
+// osm_aeroway.json (extract-from-pbf.py): the aerodrome boundary
+// (relation 5421750) as the special SITE polygon, and the field's
+// hard surfaces — apron/terminal/hangar/helipad polygons as mapped,
+// runway/taxiway/stopway centrelines buffered at their width tag
+// (runway 10/28 carries width: 60; taxiways default 23 m) with the
+// river pass's clearance clamp. The planner drops every lot inside
+// the site; boot draws site + surfaces as the field's ground. The
+// terminal/parking structures are #135 and will sit on this site.
+let airfield = null;
+if (fs.existsSync(path.join(DATA, 'osm_aeroway.json'))) {
+  const site = [], surfaces = [];
+  for (const el of load('osm_aeroway.json').elements) {
+    if (el.type === 'relation') {
+      for (const rawRing of elRings(el)) {
+        if (rawRing.length < 4) continue;
+        for (const ring of clipRingUnion(rawRing, BOXES_WORLD)) {
+          if (Math.abs(ringArea(ring)) < 1000) continue;
+          site.push({ name: el.tags?.name || '', ring: flat(ring) });
+        }
+      }
+      continue;
+    }
+    const a = el.tags?.aeroway;
+    if (['apron', 'terminal', 'hangar', 'helipad'].includes(a)) {
+      for (const rawRing of elRings(el)) {
+        if (rawRing.length < 4) continue;
+        for (const ring of clipRingUnion(rawRing, BOXES_WORLD)) {
+          if (Math.abs(ringArea(ring)) < 50) continue;
+          surfaces.push(flat(ring));
+        }
+      }
+    } else if (a === 'runway' || a === 'taxiway' || a === 'stopway') {
+      const near = geomPts(el).filter(([x, z]) => x >= BBOX.minX - 300 && x <= BBOX.maxX + 300 && z >= BBOX.minZ - 300 && z <= BBOX.maxZ + 300);
+      if (near.length < 2) continue;
+      const wtag = parseFloat(el.tags.width || '');
+      const baseHalf = (Number.isFinite(wtag) ? wtag : (a === 'taxiway' ? 23 : 60)) / 2;
+      const clear = vertexClearances(near);
+      const halfArr = clear.map((c) => Math.max(1.5, Math.min(baseHalf, 0.45 * c)));
+      for (const f of [1, 0.5]) {
+        const raw = bufferLineVar(near, halfArr.map((h) => h * f));
+        if (!raw) break;
+        const clipped = clipRingUnion(raw, BOXES_WORLD);
+        if (!clipped.every((ring) => !ringSelfIntersects(ring))) continue;
+        for (const ring of clipped) surfaces.push(flat(ring));
+        break;
+      }
+    }
+  }
+  if (site.length) {
+    airfield = { site, surfaces };
+    console.log(`[taipei-geodata] airfield: Songshan site ${site.length} ring(s), ${surfaces.length} hard-surface polygons (issue #134)`);
+  } else {
+    console.warn('[taipei-geodata] WARNING: osm_aeroway.json present but no aerodrome site ring — airport exclusion inactive');
+  }
+}
 
 // ---- green land (issue #114) ----
 // Open land that carries no city buildings: farmland / meadow / nature /
@@ -631,6 +850,11 @@ const TAIPEI_GEO = {
   frame: { origin: 'Taipei 101 (25.0330, 121.5650)', originLatLon: [LAT0, LON0], bearingDeg: 0, units: 'm', bbox: BBOX, boxes: BOXES_WORLD },
   roads, roadGraph, roadbeds, water, parks, green, heights, landmarks, blocks,
 };
+// Issue #137: the Tamsui riverside band (bandM is the planner's single
+// source; polys are the aerial-read render rings). Issue #134: the
+// Songshan airfield site + hard surfaces.
+TAIPEI_GEO.riverside = { bandM: RIVERSIDE_BAND_M, polys: riversidePolys };
+if (airfield) TAIPEI_GEO.airfield = airfield;
 
 // ---- terrain skin grids (issue #129) ----
 // Baked by tools/taipei/build-terrain.mjs from SRTM GL1 into

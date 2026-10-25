@@ -35,8 +35,11 @@ const REAL = ['permit', 'osm-height', 'osm-levels', 'door'];
 test('height layer present, provenanced, factors agree with the planner', () => {
   const h = TAIPEI_GEO.heights;
   assert.ok(h, 'geodata carries the heights layer');
-  assert.equal(h.footprints.length, 18146, 'signal footprints (5,615 permit + 12,531 OSM)');
-  assert.equal(h.doors.length / 3, 125460, 'door plate points in tile');
+  // Footprint/door counts re-pinned for issue #134: the layer is
+  // re-clipped to the enlarged union (airport box + corridor strip),
+  // so both pools grow with the tile.
+  assert.equal(h.footprints.length, 21471, 'signal footprints (6,012 permit + 15,459 OSM)');
+  assert.equal(h.doors.length / 3, 137332, 'door plate points in tile');
   assert.match(h.sources.permits.dataset, /151936/, 'permit source is data.gov.tw 151936');
   assert.match(h.sources.doors.dataset, /155472/, 'door source is data.gov.tw 155472');
   assert.match(h.sources.permits.licence, /OGDL/, 'OGDL v1 licence recorded');
@@ -51,7 +54,7 @@ test('height layer present, provenanced, factors agree with the planner', () => 
 
 test('join census: every lot labelled, per-source counts pinned', (t) => {
   const lots = plan.lots;
-  assert.equal(lots.length, 34121, 'the join moves heights only — the lot count is the #106 plan as composed with #118, less the #139 removals');
+  assert.equal(lots.length, 38396, 'the join moves heights only — the lot count is the #106 plan as composed with #118, #134 and #137, less the #139 removals');
   for (const lot of lots) assert.ok([...REAL, 'field', 'proc'].includes(lot.hSrc), `lot labelled (${lot.hSrc})`);
   const c = {};
   for (const lot of lots) c[lot.hSrc] = (c[lot.hSrc] || 0) + 1;
@@ -71,26 +74,38 @@ test('join census: every lot labelled, per-source counts pinned', (t) => {
   // pools of 0/1 doors fall through). Interior lots hear the
   // field instead — field + real = 81.4% of lots carry a
   // data-derived height; 18.6% stay purely procedural.
+  // Census re-pinned for issue #134 (+ #137), measured on this
+  // tree: the plan grows to 38,857 lots (airport box + corridor
+  // strip join, old ground sheds its in-water/band lots — see the
+  // glass re-pin in taipei.test.mjs) and the join re-runs over the
+  // enlarged layer: permit 3,420 -> 3,505, osm-height 920 ->
+  // 1,112, osm-levels 3,978 -> 4,743, door 7,049 -> 8,102, field
+  // 12,825 -> 14,429, proc 6,453 -> 6,966. Real-signal lots
+  // 15,367 -> 17,462 = 44.9% of the plan, inside the band below.
   // Issue #139 composition (MRT completion), diffed lot by lot on
   // this tree: the track-corridor clearance and the Beitou depot
-  // + at-grade station sites removed 524 lots (34,645 -> 34,121;
-  // census in taipei-mrt.test.mjs). The removed lots' height
-  // sources: proc 280, field 139, osm-levels 78, permit 15, door
-  // 8, osm-height 4 — mostly procedural/field stock on the depot
-  // farmland fringe and the at-grade corridor, so every count
-  // below is the #128 census minus exactly those removals.
-  assert.equal(c.permit, 3405);
-  assert.equal(c['osm-height'], 916);
-  assert.equal(c['osm-levels'], 3900);
-  assert.equal(c.door, 7041);
-  assert.equal(c.field, 12677);
-  assert.equal(c.proc, 6182);
+  // + at-grade station sites removed 461 lots (38,857 -> 38,396;
+  // census in taipei-mrt.test.mjs). The removed lots' sources on
+  // the counterfactual plan: proc 256, field 115, osm-levels 66,
+  // permit 11, door 9, osm-height 4 — mostly procedural/field
+  // stock on the depot fringe and the at-grade corridor. The
+  // shipped census below is the #134 census minus those removals
+  // and a few lots more where the field tier re-pools around the
+  // removals (net: permit 3,494, osm-height 1,108, osm-levels
+  // 4,677, door 8,093, field 14,298, proc 6,726; real-signal
+  // 17,372 = 45.2%).
+  assert.equal(c.permit, 3494);
+  assert.equal(c['osm-height'], 1108);
+  assert.equal(c['osm-levels'], 4677);
+  assert.equal(c.door, 8093);
+  assert.equal(c.field, 14298);
+  assert.equal(c.proc, 6726);
   assert.equal(plan.stats.heightsPermit, c.permit, 'stats census agrees (permit)');
   assert.equal(plan.stats.heightsDoor, c.door, 'stats census agrees (door)');
   assert.equal(plan.stats.heightsField, c.field, 'stats census agrees (field)');
   assert.equal(plan.stats.heightsProc, c.proc, 'stats census agrees (proc)');
   const real = REAL.reduce((s, k) => s + c[k], 0);
-  assert.equal(real, 15262, 'real-signal lots');
+  assert.equal(real, 17372, 'real-signal lots');
   assert.ok(real / lots.length > 0.40 && real / lots.length < 0.50, 'real coverage in the measured band');
 });
 
@@ -101,12 +116,16 @@ test('joined skyline: the >=30 m share lands on the study’s real figure', () =
   // 5,500 of 34,645 = 15.9% — the small gap to 16.2% is the door
   // tier's stricter face rule plus the levels factor (3.0 vs the
   // prototype's 3.3 for OSM levels — see build-heights.py FACTORS).
-  // Issue #139: 11 of the >=30 m lots were among the corridor /
-  // depot removals — 5,489 of 34,121 = 16.1%.
+  // Re-pinned for issue #134: 6,059 of 38,857 = 15.6% — the share
+  // holds on the enlarged tile (the airport box's real office
+  // stock replaces the strip's low fabric in the mix).
+  // Issue #139: 8 of the >=30 m lots were among the corridor /
+  // depot removals (all 8 in the Beitou box) — 6,051 of 38,396
+  // = 15.8%.
   const tall = plan.lots.filter((l) => l.h >= 30).length;
-  assert.equal(tall, 5489);
+  assert.equal(tall, 6051);
   const g60 = plan.lots.filter((l) => l.h >= 60).length;
-  assert.equal(g60, 923, 'a >=60 m class exists at all (procedural plan: 5 lots)');
+  assert.equal(g60, 1038, 'a >=60 m class exists at all (procedural plan: 5 lots)');
 });
 
 test('real heights are never clamped to the procedural bands', () => {
@@ -114,8 +133,10 @@ test('real heights are never clamped to the procedural bands', () => {
   // (the tallest, 222 m, is a 74F permit at 3.0 m/f). If a future
   // change re-imposes a cap, this count collapses — that is the
   // steam-cap failure the study warned about.
+  // Re-pinned for issue #134: 857 lots (the tallest is still the
+  // same 222 m permit — the max assert below is unedited).
   const over = plan.lots.filter((l) => REAL.includes(l.hSrc) && l.h > 60).length;
-  assert.equal(over, 745);
+  assert.equal(over, 857);
   assert.ok(Math.max(...plan.lots.map((l) => l.h)) <= 250, 'no absurd heights (tallest real signal is 222 m)');
 });
 
@@ -126,10 +147,19 @@ test('Beitou: the hot-spring towers exist now', () => {
   // MRT corridor) puts 403 data-derived lots there.
   const bei = plan.lots.filter((l) => l.x >= -10193.2 && l.x <= -5550.8 && l.z >= -12960.5 && l.z <= -8861.9);
   const tall = bei.filter((l) => l.h >= 30 && l.hSrc !== 'proc');
-  // Issue #139: 11 of these towers were among the corridor /
-  // depot removals (the same 11 as the >=30 m census delta in
-  // taipei.test.mjs): 403 - 11 = 392.
-  assert.equal(tall.length, 392);
+  // Re-pinned for issue #134: 403 -> 350. The box itself sheds 133
+  // lots (4,685 -> 4,552) to the #114/#137 exclusions working
+  // inside it (the Guandu plain's recovered water/green polygons
+  // and the riverside band), and the pipeline regeneration re-cut
+  // the box's blocks, shifting door-face medians — and with them
+  // tier assignments — at the margin (permit 478 -> 438, field
+  // 1,972 -> 1,733 in the box census). The invariant this test
+  // protects is untouched: the hot-spring towers stand (350
+  // data-derived tall lots vs 39 procedural).
+  // Issue #139: 350 -> 342 — 8 of these towers were among the
+  // depot/corridor removals (the same 8 as the >=30 m census
+  // delta above; the box plan is 4,095 lots after #139).
+  assert.equal(tall.length, 342);
 });
 
 test('fallback byte-stability: untouched lots keep their procedural heights exactly', () => {
@@ -142,6 +172,8 @@ test('fallback byte-stability: untouched lots keep their procedural heights exac
   // 7.2 m underside, but whose procedural height pierces and
   // drops it. The flip is the clearance rule working as designed
   // in both regimes; every other lot is placed identically.
+  // (Measured identically on the #134+#137 tree: the same single
+  // flipped lot, h 6.0, osm-levels.)
   assert.equal(bare.lots.length, plan.lots.length - 1, 'one height-flipped lot under the guideway');
   const key = (l) => `${l.x}|${l.z}|${l.w}|${l.d}`;
   const bareByKey = new Map(bare.lots.map((l) => [key(l), l]));
@@ -158,7 +190,7 @@ test('fallback byte-stability: untouched lots keep their procedural heights exac
       procChecked++;
     }
   }
-  assert.equal(procChecked, 6182);
+  assert.equal(procChecked, 6726); // the proc census, re-pinned with it for issues #134 + #139
   assert.ok(bare.lots.every((l) => l.hSrc === 'proc'), 'no layer, no labels but proc');
 });
 

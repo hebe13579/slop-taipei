@@ -132,3 +132,106 @@ test('Xiangshan slopes: wooded/park polygons at the SE tile edge are lot-free', 
   assert.ok(slopes.length >= 1, 'no Xiangshan slope polygon in the data');
   assert.equal(lotsInside(plan.lots, slopes), 0, 'lots on Xiangshan slopes');
 });
+
+// Issue #137 enforcement: the Tamsui River + its riverside band is
+// non-buildable BY RULE, on both banks, wherever the tile carries
+// it — not only where OSM happens to tag a park. The mechanism:
+// the extractor's two-pass relation stitch recovers the true bank
+// polygons (relation 4010571 — the old build saw only the
+// centreline and buffered it to a ~160 m ribbon where the river
+// runs 450-900 m wide, which is how the #125 audit found 740 lots
+// standing in the water); the geodata flags those polygons
+// river: 'tamsui'; the planner drops any lot whose centre or
+// turned corners come within RIVERSIDE_BAND_M (30 m — measured
+// against satellite: the levee/wharf strip is 15-30 m, while the
+// first real housing row on Shezi's west shore stands 35-60 m
+// from the bank, so 30 m clears the phantoms and spares the row)
+// of a flagged ring; the boot renders the band as park-tone ground.
+const distToRing = (x, z, ring) => {
+  if (pointInRing(x, z, ring)) return 0;
+  let best = Infinity;
+  for (let i = 0; i + 3 < ring.length; i += 2) {
+    const ax = ring[i], az = ring[i + 1], bx = ring[i + 2], bz = ring[i + 3];
+    const dx = bx - ax, dz = bz - az, L2 = dx * dx + dz * dz;
+    let tt = L2 > 0 ? ((x - ax) * dx + (z - az) * dz) / L2 : 0;
+    tt = Math.max(0, Math.min(1, tt));
+    best = Math.min(best, Math.hypot(x - (ax + tt * dx), z - (az + tt * dz)));
+  }
+  return best;
+};
+
+test('issue #137: the Tamsui stem is real water and its band is lot-free on both banks', (t) => {
+  const tamsui = (TAIPEI_GEO.water || []).filter((p) => p.river === 'tamsui').map(withBb);
+  const km2 = tamsui.reduce((s, p) => s + ringArea(p.ring), 0) / 1e6;
+  t.diagnostic(`Tamsui flagged: ${tamsui.length} polys, ${km2.toFixed(2)} km2 in tile; band ${JSON.stringify(TAIPEI_GEO.riverside && { bandM: TAIPEI_GEO.riverside.bandM, polys: TAIPEI_GEO.riverside.polys.length })}; stats riverside drops ${plan.stats.lotsDroppedRiverside}`);
+  assert.ok(tamsui.length >= 3, `Tamsui stem polygons flagged (${tamsui.length})`);
+  assert.ok(km2 > 2, `Tamsui water in tile ${km2.toFixed(2)} km2 (the centreline ribbon carried ~0.8)`);
+  assert.equal(lotsInside(plan.lots, tamsui), 0, 'lots standing in the Tamsui (the #125 phantom finding)');
+  // The band itself: rendered riverside polygons carry no lot
+  // centre, and the planner's drop counter proves the rule engaged.
+  const band = (TAIPEI_GEO.riverside?.polys || []).map(withBb);
+  assert.equal(TAIPEI_GEO.riverside?.bandM, 30, 'riverside band is 30 m (measured: levee strip yes, first housing row no)');
+  assert.ok(band.length >= 5, `riverside band polygons ${band.length}`);
+  assert.equal(lotsInside(plan.lots, band), 0, 'lots inside the riverside band');
+  assert.ok(plan.stats.lotsDroppedRiverside > 0, 'the band rule dropped lots (it engages)');
+  // The audit bites: strip the river flags (the rule's switch)
+  // and the levee strip plants again.
+  const noRule = planTaipeiBuildings({
+    ...TAIPEI_GEO,
+    water: TAIPEI_GEO.water.map((p) => ({ ...p, river: undefined })),
+  });
+  assert.ok(lotsInside(noRule.lots, band) > 0, 'without the rule the band plants (audit would have caught it)');
+  // Named Tamsui-frontage parks, east and west banks: present in
+  // the sourced polygons and lot-free.
+  for (const name of ['延平河濱公園', '龍山河濱公園', '大稻埕公園', '福安河濱公園', '淡水河畔公園']) {
+    const polys = openLand.filter((p) => p.name === name);
+    assert.ok(polys.length >= 1, `${name} missing from parks/green data`);
+    assert.equal(lotsInside(plan.lots, polys), 0, `lots inside ${name}`);
+  }
+  // Shezi's Tamsui shore wetland, at the island's NW tip:
+  const shezi = openLand.filter((p) => p.name === '社子島溼地');
+  assert.ok(shezi.length >= 1, '社子島溼地 missing from parks/green data');
+  assert.equal(lotsInside(plan.lots, shezi), 0, 'lots inside 社子島溼地');
+  // 馬場町紀念公園 lies entirely SOUTH of the tile union, like
+  // 古亭/中正河濱公園 above: pin its ground as zero-lot.
+  const machang = plan.lots.filter((l) => inLonLat(l.x, l.z, 121.500, 121.505, 25.020, 25.027)).length;
+  assert.equal(machang, 0, 'lots on 馬場町紀念公園 ground (south of tile)');
+  // Dadaocheng reach: the real fabric WEST of the levee line
+  // (lon 121.5085) survives — the band must not eat the city —
+  // but every surviving lot stands clear of the true bank
+  // (test frame = the full reach lon 121.494-121.5085 x lat
+  // 25.045-25.075, both banks: 1,317 lots, min centre distance
+  // 60 m — twice the band; the narrower audit frame in the #134
+  // evidence counted its 129 east-bank lots at min 106 m. The
+  // phantom neighbours the old build planted on the strip and
+  // in the river are gone — the zero asserts above).
+  const frame = plan.lots.filter((l) => inLonLat(l.x, l.z, 121.494, 121.5085, 25.045, 25.075));
+  let minD = Infinity;
+  for (const l of frame) for (const p of tamsui) minD = Math.min(minD, distToRing(l.x, l.z, p.ring));
+  t.diagnostic(`Dadaocheng frame west of 121.5085: ${frame.length} lots, min distance to the true bank ${minD.toFixed(0)} m`);
+  assert.ok(frame.length >= 100, `the Dadaocheng fabric survives (${frame.length} lots)`);
+  assert.ok(minD >= 50, `every frame lot clears the bank (min ${minD.toFixed(0)} m)`);
+});
+
+test('issue #134: Songshan Airport is a special site — no procedural lots on airfield ground', (t) => {
+  const af = TAIPEI_GEO.airfield;
+  assert.ok(af, 'geodata carries the airfield layer');
+  const site = (af.site || []).map(withBb);
+  const km2 = site.reduce((s, p) => s + ringArea(p.ring), 0) / 1e6;
+  t.diagnostic(`airfield: site ${site.length} polys ${km2.toFixed(2)} km2, surfaces ${(af.surfaces || []).length}; stats ${JSON.stringify({ blocksSkippedAirfield: plan.stats.blocksSkippedAirfield, lotsDroppedAirfield: plan.stats.lotsDroppedAirfield })}`);
+  assert.equal(site.length, 1, 'the aerodrome boundary (OSM relation 5421750) is one site ring');
+  assert.ok(km2 > 2, `aerodrome site area ${km2.toFixed(2)} km2 (ring clipped to the union)`);
+  assert.ok((af.surfaces || []).length >= 50, 'runway/taxiway/apron surfaces carried for the renderer');
+  assert.equal(lotsInside(plan.lots, site), 0, 'lots on the airfield');
+  assert.ok(plan.stats.blocksSkippedAirfield > 0 && plan.stats.lotsDroppedAirfield > 0,
+    'the site exclusion engaged (blocks skipped / lots dropped)');
+  // The audit bites: strip the layer and the field plants.
+  const noSite = planTaipeiBuildings({ ...TAIPEI_GEO, airfield: null });
+  assert.ok(lotsInside(noSite.lots, site) > 0, 'without the site rule the airfield plants (audit would have caught it)');
+  // The ground AROUND the field is ordinary city and stays built:
+  // the airport box (minus the site) carries its Dunhua/Minquan
+  // fabric.
+  const boxLots = plan.lots.filter((l) => inLonLat(l.x, l.z, 121.533, 121.570, 25.055, 25.078));
+  t.diagnostic(`airport box lots (outside the site): ${boxLots.length}`);
+  assert.ok(boxLots.length > 3000, `airport box fabric present (${boxLots.length} lots)`);
+});
