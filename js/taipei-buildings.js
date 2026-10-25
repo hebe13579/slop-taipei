@@ -26,6 +26,12 @@
 //     1.2–3 m gap between neighbouring footprints. Very large blocks
 //     (> 40,000 m² — campuses, depots, riverside tracts) use a coarser
 //     pitch and a higher vacancy rate so they don't read as carpet.
+//   - Issue #106: a block face that fronts a collector-or-better road
+//     (tertiary rank ≥ 2, measured per block edge — see the frontage
+//     section in the planner) packs its row to ZERO side gap with no
+//     vacancy holes: Taipei's main streets are continuous party-wall
+//     frontages, not detached slabs. Faces on lanes/alleys keep the
+//     gapped subdivision above.
 //   - The tile is a union of boxes (issue #60): a block whose centroid
 //     is outside every box is skipped, and a lot whose centre or any
 //     footprint corner leaves the union is dropped — nothing is
@@ -49,6 +55,14 @@
 //       < 650 m from origin (Xinyi core)      → 25–60 m
 //       next to a secondary-or-better road    → 12–30 m
 //       everything else (residential lanes)   →  8–18 m
+//     Issue #106 adds the frontage regime on top: a lot standing in a
+//     block face that fronts a main road draws its height from that
+//     face's class instead (the Xinyi core band still wins there):
+//       primary-or-better face (rank ≥ 4)     → 24–54 m
+//       secondary face (rank 3)               → 18–42 m
+//       tertiary/collector face (rank 2)      → 15–30 m
+//     — the Taipei pattern of tall continuous walls on the big roads
+//     with the low walk-up fabric behind them in the lanes.
 //   - Colours come from a Taipei-plausible palette (concrete greys,
 //     tile beige, brick) with a small per-lot brightness jitter.
 //
@@ -1372,7 +1386,7 @@ function quadsIntersect(a, b) {
 }
 
 export function planTaipeiBuildings(geodata) {
-  const stats = { blocksSeen: 0, blocksSkippedSmall: 0, blocksSkippedParkWater: 0, blocksSkippedOutsideUnion: 0, lotsDroppedVacancy: 0, lotsDroppedParkWater: 0, lotsDroppedTowerSite: 0, lotsDroppedRoad: 0, lotsDroppedMedian: 0, lotsDroppedOutsideUnion: 0, blocksRotated: 0, lotsRotated: 0 };
+  const stats = { blocksSeen: 0, blocksSkippedSmall: 0, blocksSkippedParkWater: 0, blocksSkippedOutsideUnion: 0, lotsDroppedVacancy: 0, lotsDroppedParkWater: 0, lotsDroppedTowerSite: 0, lotsDroppedRoad: 0, lotsDroppedMedian: 0, lotsDroppedOutsideUnion: 0, blocksRotated: 0, lotsRotated: 0, lotsPackedFrontage: 0, lotsTallFrontage: 0 };
   // Union-of-boxes tile (issue #60): the geodata frame carries the
   // tile's boxes; ground exists only inside them. Raster blocks are
   // masked to the union by the builder, but a block's bbox can still
@@ -1429,6 +1443,20 @@ export function planTaipeiBuildings(geodata) {
       }
     }
     return { clearance, rank };
+  };
+  // Issue #106: the best road class whose ribbon edge actually comes
+  // within `reach` of a point (roadInfoAt's rank windows a flat 34 m,
+  // which lets a crossing arterial claim faces it never fronts). Used
+  // to classify each block face by the road that fronts IT.
+  const frontageRankAt = (x, z, reach) => {
+    const bucket = grid.get(key(Math.floor(x / GRID_CELL), Math.floor(z / GRID_CELL)));
+    let rank = 0;
+    if (bucket) {
+      for (const s of bucket) {
+        if (distToSegment(x, z, s.ax, s.az, s.bx, s.bz) - s.half <= reach && s.rank > rank) rank = s.rank;
+      }
+    }
+    return rank;
   };
 
   // Exact ribbon verdicts (issue #65), over the same carriageway +
@@ -1580,10 +1608,53 @@ export function planTaipeiBuildings(geodata) {
       cellD = innerD / rows;
     }
     const ocx = (minX + maxX) / 2, ocz = (minZ + maxZ) / 2;
+    // Issue #106: classify the block's four faces by the road that
+    // fronts each — three samples per face, pushed 7 m out from the
+    // inset edge (past the block's own bbox edge, into the street
+    // section), best class whose ribbon edge comes within 16 m of a
+    // sample. Faces are named by the frame axis they cap: vLow/vHigh
+    // are the row ends (row 0 / row rows-1), uLow/uHigh the column
+    // ends. A face at rank ≥ 2 (tertiary/collector or better) packs
+    // its row wall-to-wall and skips vacancy; rank ≥ 2 faces also
+    // carry the tall-frontage height regime (see the height pick).
+    const halfU = (cols * cellW) / 2, halfV = (rows * cellD) / 2;
+    const edgeRankAt = (cu, cv, ou, ov) => {
+      // Sample the face whose centre is (cu, cv) in frame coords and
+      // whose outward normal is (ou, ov): points at ±30% and centre
+      // along the face, pushed 7 m outward.
+      let rank = 0;
+      const alongU = ou === 0; // face runs along u when its normal is v
+      const span = alongU ? halfU : halfV;
+      for (const f of [-0.3, 0, 0.3]) {
+        const fu = cu + (alongU ? f * 2 * span : 0) + ou * 7;
+        const fv = cv + (alongU ? 0 : f * 2 * span) + ov * 7;
+        const r = frontageRankAt(ocx + fu * cosT - fv * sinT, ocz + fu * sinT + fv * cosT, 16);
+        if (r > rank) rank = r;
+      }
+      return rank;
+    };
+    const edgeRankVLow = edgeRankAt(0, -halfV, 0, -1);
+    const edgeRankVHigh = edgeRankAt(0, halfV, 0, 1);
+    const edgeRankULow = edgeRankAt(-halfU, 0, -1, 0);
+    const edgeRankUHigh = edgeRankAt(halfU, 0, 1, 0);
     for (let col = 0; col < cols; col++) {
       for (let row = 0; row < rows; row++) {
         const seed = Math.imul(bi + 1, 73856093) ^ Math.imul(col + 1, 19349663) ^ Math.imul(row + 1, 83492791);
-        if (hash01(seed ^ 0x51ab) < vacancy) { stats.lotsDroppedVacancy++; continue; }
+        // Issue #106: which of the block's faces does this lot stand
+        // in, and how are they classed? packU/packV: the lot's row
+        // runs along a collector-or-better face, so its side gap
+        // along that row closes to zero; frontRank is the best face
+        // class the lot stands in (drives the tall regime below).
+        const packU = (row === 0 && edgeRankVLow >= 2) || (row === rows - 1 && edgeRankVHigh >= 2);
+        const packV = (col === 0 && edgeRankULow >= 2) || (col === cols - 1 && edgeRankUHigh >= 2);
+        let frontRank = 0;
+        if (row === 0) frontRank = Math.max(frontRank, edgeRankVLow);
+        if (row === rows - 1) frontRank = Math.max(frontRank, edgeRankVHigh);
+        if (col === 0) frontRank = Math.max(frontRank, edgeRankULow);
+        if (col === cols - 1) frontRank = Math.max(frontRank, edgeRankUHigh);
+        // A packed frontage row takes no vacancy holes — a missing
+        // tooth is exactly what the continuous street wall is not.
+        if (hash01(seed ^ 0x51ab) < (packU || packV ? 0 : vacancy)) { stats.lotsDroppedVacancy++; continue; }
         // The emitted lot centre is rounded to 0.1 m (see the push
         // below); run every exclusion test at THAT point, not the raw
         // grid centre. The two can straddle a polygon edge — the west
@@ -1602,7 +1673,10 @@ export function planTaipeiBuildings(geodata) {
           cz = Math.round((minZ + (row + 0.5) * cellD) * 10) / 10;
         }
         const gap = 1.2 + hash01(seed ^ 0x77c3) * 1.8;
-        const w = cellW - gap, d = cellD - gap;
+        // Issue #106: packed rows share party walls — no gap is
+        // subtracted along the packed direction, so neighbouring
+        // footprints meet at the cell boundary exactly.
+        const w = cellW - (packU ? 0 : gap), d = cellD - (packV ? 0 : gap);
         if (w < 7 || d < 7) continue;
         // Issue #62: a turned lot's true footprint, from its
         // emitted (rounded) centre and the frame angle. The lot must
@@ -1674,12 +1748,25 @@ export function planTaipeiBuildings(geodata) {
         if (dOrigin < 650) { lo = 25; hi = 60; }        // Xinyi commercial core
         else if (rank >= 3) { lo = 12; hi = 30; }       // boulevard / arterial frontage
         else { lo = 8; hi = 18; }                        // residential interiors
+        // Issue #106: the tall-frontage regime — a lot standing in a
+        // main-road face draws from that face's band instead of the
+        // contextual tiers (the Xinyi core band already out-talls
+        // every frontage band, so it keeps its own).
+        let tallFrontage = false;
+        if (dOrigin >= 650 && frontRank >= 2) {
+          tallFrontage = true;
+          if (frontRank >= 4) { lo = 24; hi = 54; }      // primary-or-better face
+          else if (frontRank === 3) { lo = 18; hi = 42; } // secondary face
+          else { lo = 15; hi = 30; }                      // tertiary / collector face
+        }
         const h = Math.round((lo + hash01(seed ^ 0x3d9a) * (hi - lo)) * 2) / 2;
         const base = PALETTE[Math.floor(hash01(seed ^ 0x9f2c) * PALETTE.length) % PALETTE.length];
         const shade = 0.92 + hash01(seed ^ 0x64d1) * 0.16;
         const color = base.map((c) => Math.max(0, Math.min(255, Math.round(c * shade * 255))));
         const lot = { x: Math.round(cx * 10) / 10, z: Math.round(cz * 10) / 10, w: Math.round(w * 10) / 10, d: Math.round(d * 10) / 10, h, color };
         if (theta) { lot.rot = Math.round(theta * 10000) / 10000; stats.lotsRotated++; }
+        if (packU || packV) stats.lotsPackedFrontage++;
+        if (tallFrontage) stats.lotsTallFrontage++;
         lots.push(lot);
       }
     }

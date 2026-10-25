@@ -929,14 +929,35 @@ test('taiwan types: family zoning, distribution and rooftop clamp', (t) => {
   // F7 -7, F8 -7, F9 -6), masonry -89 (F0 -20, F1 -29, F2 -40),
   // re-pinning glass 3,244 -> 3,240, Taiwan 9,049 -> 9,024 and
   // masonry 28,976 -> 28,887.
-  assert.equal(glass, 3240, 'glass family counts untouched by the Taiwan-type assignment');
+  // Re-pinned for issue #106 (street walls + tall frontages): the
+  // glass RULES are untouched — facadeMatFor still evaluates the
+  // same rolls first — but the plan's heights legitimately change:
+  // 3,185 lots standing in collector-or-better block faces draw
+  // from the tall-frontage bands (24-54 / 18-42 / 15-30 m) instead
+  // of the contextual tiers, and packed frontage rows take no
+  // vacancy holes. Measured on this tree, family by family
+  // (before -> after): the plan goes 41,151 -> 41,319 lots (+168:
+  // +5,392 vacancy candidates flow on from packed rows, -1,825
+  // more fall to the exact ribbon test on the wider packed
+  // footprints, the rest to park/site/union tests); glass 3,240 ->
+  // 4,303 (+1,063: F3 +293, F4 +396, F5 +374 — frontage lots the
+  // new bands lift to >= 40 m are glass by the untouched first
+  // rule, and lots lifted into 22-40 m roll glass at the same
+  // pre-#17 half share); Taiwan 9,024 -> 9,641 (+617: F6 +202,
+  // F7 +143, F8 +147, F9 +125 — frontage lots lifted into the
+  // 15-40 m Taiwan band); masonry 28,887 -> 27,375 (-1,512:
+  // F0 -401, F1 -501, F2 -610). Lane/interior lots are unchanged
+  // by construction (same gap, vacancy and height rules).
+  assert.equal(glass, 4303, 'glass family counts untouched by the Taiwan-type assignment');
   const masonry = opts.lots.filter((l) => l.mat <= 2).length;
   // Range re-based for issue #65: the exact ribbon exclusion removed
   // ~4,400 masonry lots that stood on ribbons or in medians; masonry
   // is reduced but still the city's majority fabric.
   // Range re-based for issue #102: 28,976 of 41,269 lots — still
   // the majority fabric of the enlarged tile. Issue #103 takes
-  // it to 28,887 of 41,151 (see the glass re-pin above).
+  // it to 28,887 of 41,151 (see the glass re-pin above); issue
+  // #106's tall frontages take it to 27,375 of 41,319 — still the
+  // majority fabric, still inside this range unedited.
   assert.ok(masonry > 25000 && masonry < 33000, `masonry 0-2 reduced but still present (${masonry})`);
   assert.equal(typeof opts.rooftopGearClamp, 'function', 'options carry the rooftop-gear clamp');
 
