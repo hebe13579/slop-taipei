@@ -116,12 +116,27 @@ test('real tile: exactly one cap per multi-arm junction, centres and arm ends co
   // box cap's lost service arm accounts for the remaining ~76 m²
   // of the total (484,649 -> 483,368). Bite counts: medians 2,065
   // -> 2,066 (+1, the same reshaped park cap as #74's +1).
-  assert.equal(junctions.length, 1152, `junctions ${junctions.length}`);
-  assert.equal(caps.length, 1145, `caps ${caps.length}`);
-  assert.equal(caps.filter((c) => c.kind === 'box').length, 313, 'box caps');
-  assert.equal(caps.filter((c) => c.kind === 'fitted').length, 832, 'fitted caps');
-  assert.equal(Math.round(caps.reduce((s, c) => s + c.area, 0)), 483368, 'cap area census');
-  assert.equal(Math.round(caps.filter((c) => c.kind === 'fitted').reduce((s, c) => s + c.area, 0)), 188484,
+  // Census re-pinned for issue #83 (general park service-drive
+  // exclusion): the #74 rule generalized from one named park to
+  // unnamed service beds >= 50% inside ANY leisure=park polygon —
+  // 86 beds / 5.44 km dropped across 23 parks (the 22 CKS beds
+  // included), 62 of them in the rendered set (2 more were already
+  // orphan-suppressed). The park webs' internal junctions
+  // dissolve with their drives: junctions 1,152 -> 1,136, caps
+  // 1,145 -> 1,129 — fitted 832 -> 817, box 313 -> 312 (the lost
+  // box cap is the 南京東路一段 junction whose third arm was a
+  // 林森公園 drive; the 環河快速道路 major survives, re-detected
+  // on its trunk arms alone). Cap areas: total 483,368 ->
+  // 479,258 m², fitted 188,484 -> 184,837 m² (box 294,884 ->
+  // 294,421 m²). Measured on the regenerated tree; the junction
+  // set diff (21 clusters dissolved, 5 re-formed from surviving
+  // arms) is in the issue #83 evidence.
+  assert.equal(junctions.length, 1136, `junctions ${junctions.length}`);
+  assert.equal(caps.length, 1129, `caps ${caps.length}`);
+  assert.equal(caps.filter((c) => c.kind === 'box').length, 312, 'box caps');
+  assert.equal(caps.filter((c) => c.kind === 'fitted').length, 817, 'fitted caps');
+  assert.equal(Math.round(caps.reduce((s, c) => s + c.area, 0)), 479258, 'cap area census');
+  assert.equal(Math.round(caps.filter((c) => c.kind === 'fitted').reduce((s, c) => s + c.area, 0)), 184837,
     'fitted cap area census (construction unchanged since #73)');
   const capByJ = new Map();
   {
@@ -234,13 +249,17 @@ test('real tile: no painted band, median strip or dash quad centre inside a cap'
   // the census note above) occlude slightly less — 1,007 band,
   // 2,000 edge and 2,065 median quad centres; the clipped
   // builders still put exactly 0 there.
+  // Bite re-pinned for issue #83: 16 fewer caps (the dissolved
+  // park-web junctions, see the census note above) shrink the
+  // occluder set — 1,005 band, 1,996 edge and 2,059 median quad
+  // centres; the clipped builders still put exactly 0 there.
   const unclipped = buildPaintedBands(beds);
-  assert.equal(unclipped.band.filter(inOcc).length, 1007,
+  assert.equal(unclipped.band.filter(inOcc).length, 1005,
     `unclipped bands inside occluders: ${unclipped.band.filter(inOcc).length}`);
-  assert.equal(unclipped.edges.filter(inOcc).length, 2000,
+  assert.equal(unclipped.edges.filter(inOcc).length, 1996,
     `unclipped edges inside occluders: ${unclipped.edges.filter(inOcc).length}`);
   const unclippedMedians = buildMedianStrips(beds);
-  assert.equal([...unclippedMedians.plain, ...unclippedMedians.planted].filter(inOcc).length, 2066,
+  assert.equal([...unclippedMedians.plain, ...unclippedMedians.planted].filter(inOcc).length, 2059,
     'unclipped medians inside occluders');
 });
 
@@ -356,7 +375,10 @@ test('issue #75: every major junction box is covered corner to corner by its box
     for (const v of poly)
       assert.ok(distToPoly(v, box) <= 40, `junction ${ji} cap vertex overshoots the box by ${distToPoly(v, box).toFixed(1)} m`);
   });
-  assert.equal(major, 313, `major junctions audited ${major}`);
+  // Major count re-pinned for issue #83: 313 -> 312 — the dissolved
+  // 南京東路一段 × 林森公園 service-drive junction (see the census
+  // note above); every surviving major still passes (a)-(c) above.
+  assert.equal(major, 312, `major junctions audited ${major}`);
 });
 
 test('issue #75: crosswalk and stop-line centres at major junctions lie on asphalt', () => {

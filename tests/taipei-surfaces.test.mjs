@@ -65,7 +65,10 @@ test('geodata: class populations cover every roadbed exactly once', () => {
   // Re-pinned for issue #74: the memorial-park service-drive
   // exclusion removed 22 lane-class beds inside 中正紀念公園
   // (5,792 -> 5,770 roadbeds), all other classes unchanged.
-  assert.deepEqual(counts, { deck: 141, arterial: 612, collector: 579, lane: 4438 });
+  // Re-pinned for issue #83: the exclusion generalized to every
+  // park — 62 more lane-class (service) beds left the rendered
+  // set (5,770 -> 5,708 roadbeds), all other classes unchanged.
+  assert.deepEqual(counts, { deck: 141, arterial: 612, collector: 579, lane: 4376 });
 });
 
 test('medianKind: merged + width rule, planted only on wide secondary', () => {
