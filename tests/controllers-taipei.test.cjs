@@ -379,11 +379,11 @@ test('taipei speedScale wiring (source contract)', () => {
 test('taipei world: an exclusion rect pushes ground modes out to its nearest edge', async () => {
   const Class = loadManagerClass();
   const { geodata, opts } = await taipeiWorldOpts();
-  // Issue #102: the five-box union leaves four exclusion rects
+  // Issue #102: the five-box union leaves five exclusion rects
   // (was one NE notch for the A+B base). The scenario below runs on
   // the first — the north strip east of Beitou — whose south edge
   // is the corridor's north edge (lat 25.133).
-  assert.equal(opts.excludeRects.length, 4, 'the five-box union has exactly four exclusion rects');
+  assert.equal(opts.excludeRects.length, 5, 'the five-box union has exactly five exclusion rects');
   const notch = opts.excludeRects[0];
   const taipei = bareManager(Class, opts);
   taipei.activeMode = 'person';

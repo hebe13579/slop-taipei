@@ -249,15 +249,16 @@ test('geodata: tile-wide marking counts are in the audited bands', () => {
   // 241 (junctions 897 -> 1,158); the old 200 ceiling was an M0-tile
   // figure, not a rule.
   // Band re-based for issue #102 (northern phase 1): junctions
-  // 1,136 -> 2,707 across the S band, corridor, Beitou and the
-  // connector, but the north signalizes sparsely (Shilin/Beitou
-  // arterials, long rural stretches) — signalized 241 -> 393.
+  // 1,136 -> 2,361 across the corridor, Beitou and the connector,
+  // but the north signalizes sparsely (Shilin/Beitou arterials,
+  // long rural stretches) — signalized 241 -> 344.
   assert.ok(r.stats.signalized >= 120 && r.stats.signalized <= 450, `signalized ${r.stats.signalized}`);
   // Census pin (PR #72 rebase, 2026-10-24, on PR #70's data): the
   // expanded map's signalized count is exactly 241.
-  // Re-pinned for issue #102: exactly 393 (per-box census in the
-  // #102 evidence: A 234, S 47, corridor 93, Beitou 18, connector 1).
-  assert.equal(r.stats.signalized, 393, `signalized census ${r.stats.signalized}`);
+  // Re-pinned for issue #102: exactly 344 (per-box census in the
+  // #102 evidence: A 231, B 9, corridor 85, Beitou 18, connector 1
+  // — region A's 231 is its live count, untouched).
+  assert.equal(r.stats.signalized, 344, `signalized census ${r.stats.signalized}`);
   assert.ok(r.stats.dividerKm > 50, `divider km ${r.stats.dividerKm}`);
   assert.ok(r.stats.crosswalks > 400, `crosswalks ${r.stats.crosswalks}`);
   assert.ok(r.stats.signalUnits >= r.stats.stopLines && r.stats.stopLines > 600,
@@ -342,16 +343,16 @@ test('geodata (issue #64): no signal stands on a carriageway; mast-arms only on 
   // drawn at ground level. Detection, caps and every ground arm's
   // furniture are unchanged.
   // Re-pinned for issue #102 (northern phase 1): signalized
-  // junctions 241 -> 393 on the enlarged tile take units 1,091 ->
-  // 1,703 (mast 359 -> 584, pole 732 -> 1,119); the northern
+  // junctions 241 -> 344 on the enlarged tile take units 1,091 ->
+  // 1,489 (mast 359 -> 506, pole 732 -> 983); the northern
   // elevated network's deck arms at signalized junctions take
-  // deckArmsSkipped 71 -> 144. The 0-inside invariant and the
+  // deckArmsSkipped 71 -> 127. The 0-inside invariant and the
   // mast<->divided audit below are unchanged and pass tile-wide.
   assert.equal(r.stats.signalMast + r.stats.signalPole, r.stats.signalUnits);
-  assert.equal(r.stats.signalUnits, 1703, `signal units ${r.stats.signalUnits}`);
-  assert.equal(r.stats.signalMast, 584, `mast units ${r.stats.signalMast}`);
-  assert.equal(r.stats.signalPole, 1119, `pole units ${r.stats.signalPole}`);
-  assert.equal(r.stats.deckArmsSkipped, 144, `deck arms skipped ${r.stats.deckArmsSkipped}`);
+  assert.equal(r.stats.signalUnits, 1489, `signal units ${r.stats.signalUnits}`);
+  assert.equal(r.stats.signalMast, 506, `mast units ${r.stats.signalMast}`);
+  assert.equal(r.stats.signalPole, 983, `pole units ${r.stats.signalPole}`);
+  assert.equal(r.stats.deckArmsSkipped, 127, `deck arms skipped ${r.stats.deckArmsSkipped}`);
   // Mast ⟺ divided, recomputed independently of the planner's own
   // helper: the approach bed splits at a drawn median, or a
   // same-name near-parallel twin arm shares its junction.

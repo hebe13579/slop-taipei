@@ -890,19 +890,24 @@ test('taiwan types: family zoning, distribution and rooftop clamp', (t) => {
   // the merged-tree plan yields 3 fewer glass lots. Proven delta,
   // measured at the #79 gate on main f7693317.
   // Re-pinned for issue #102 (northern phase 1): the plan grows
-  // 16,793 -> 45,548 lots over the five-box tile; the glass rolls
+  // 16,793 -> 41,269 lots over the five-box tile; the glass rolls
   // still evaluate first and unchanged, so the count is whatever
-  // the enlarged plan yields — 3,636 glass (the north adds the
-  // Tianmu/Shilin mid-rise stock plus Beitou resort towers), 9,823
-  // Taiwan-type and 32,089 masonry lots.
-  assert.equal(glass, 3636, 'glass family counts untouched by the Taiwan-type assignment');
+  // the enlarged plan yields — 3,244 glass (the north adds the
+  // Tianmu/Shilin mid-rise stock plus Beitou resort towers), 9,049
+  // Taiwan-type and 28,976 masonry lots. The total is 8 under the
+  // raw plan: the planner's turned-corner park/water check gained
+  // an 0.08 m clearance epsilon at #102 (emitted centres/sizes are
+  // rounded to 0.1 m, so a full-precision-cleared corner could
+  // reconstruct ~0.01 m inside a creek polygon — the orientation
+  // corner invariant caught one at 石牌）.
+  assert.equal(glass, 3244, 'glass family counts untouched by the Taiwan-type assignment');
   const masonry = opts.lots.filter((l) => l.mat <= 2).length;
   // Range re-based for issue #65: the exact ribbon exclusion removed
   // ~4,400 masonry lots that stood on ribbons or in medians; masonry
   // is reduced but still the city's majority fabric.
-  // Range re-based for issue #102: 32,089 of 45,548 lots — still
+  // Range re-based for issue #102: 28,976 of 41,269 lots — still
   // the majority fabric of the enlarged tile.
-  assert.ok(masonry > 28000 && masonry < 36000, `masonry 0-2 reduced but still present (${masonry})`);
+  assert.ok(masonry > 25000 && masonry < 33000, `masonry 0-2 reduced but still present (${masonry})`);
   assert.equal(typeof opts.rooftopGearClamp, 'function', 'options carry the rooftop-gear clamp');
 
   const lot = { x0: 0, x1: 9, z0: 0, z1: 14 };

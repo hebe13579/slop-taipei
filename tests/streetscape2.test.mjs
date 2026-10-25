@@ -232,14 +232,14 @@ test('real tile: park trees are deterministic, capped, and Da-an reads as woodla
   // Re-based for issue #102 (northern phase 1): PARK_TREE_CAP is a
   // fixed instance budget (7,500). The A+B tile planted ~8.7k raw
   // candidates, so Da-an kept 844 of them; the five-box tile plants
-  // ~49k raw candidates over 9.42 km2 of parks (Beitou's foothill
+  // ~45.5k raw candidates over 8.62 km2 of parks (Beitou's foothill
   // parks alone offer ~22.7k), and the same budget spread evenly
-  // leaves Da-an 201. The trees are the same planting, thinned by
+  // leaves Da-an 163. The trees are the same planting, thinned by
   // the shared stride — no park lost its planting logic. Raising
   // the cap is a phone-budget call, flagged in the #102 PR for the
   // gate (≈29k would restore the A+B-era density); the band below
   // pins the measured spread so a further silent thinning fails.
-  assert.ok(daan >= 150 && daan <= 1600, `Da-an woodland density (${daan})`);
+  assert.ok(daan >= 130 && daan <= 1600, `Da-an woodland density (${daan})`);
   const capped = planParkTrees(TAIPEI_GEO, plan, { cap: 400 });
   assert.equal(capped.trees.length, 400, 'cap hits exactly');
   // The subset invariant is against the UNTHINNED plan: since the west

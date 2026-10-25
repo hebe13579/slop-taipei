@@ -150,6 +150,17 @@ export function pointInRing(x, z, ring) {
   return inside;
 }
 
+// Shortest distance from a point to a flat ring's boundary.
+function distToRing(x, z, ring) {
+  let best = Infinity;
+  const n = ring.length / 2;
+  for (let i = 0, j = n - 1; i < n; j = i++) {
+    const d = distToSegment(x, z, ring[j * 2], ring[j * 2 + 1], ring[i * 2], ring[i * 2 + 1]);
+    if (d < best) best = d;
+  }
+  return best;
+}
+
 function distToSegment(px, pz, ax, az, bx, bz) {
   const dx = bx - ax, dz = bz - az;
   const len2 = dx * dx + dz * dz;
@@ -1134,6 +1145,23 @@ export function planTaipeiBuildings(geodata) {
     }
     return false;
   };
+  // Issue #102: emitted lot centres/sizes are rounded (0.1 m grid),
+  // so a turned corner the planner cleared at full precision can
+  // reconstruct up to ~0.07 m across a park/water edge. Guard the
+  // turned-corner check with a clearance epsilon: a corner inside
+  // a polygon OR within CORNER_CLEARANCE of its boundary counts as
+  // in — the emitted plan then satisfies the corner invariant at
+  // its own precision.
+  const CORNER_CLEARANCE = 0.08;
+  const nearPoly = (x, z) => {
+    for (const p of polys) {
+      if (x < p.bb.minX - CORNER_CLEARANCE || x > p.bb.maxX + CORNER_CLEARANCE ||
+          z < p.bb.minZ - CORNER_CLEARANCE || z > p.bb.maxZ + CORNER_CLEARANCE) continue;
+      if (pointInRing(x, z, p.ring)) return true;
+      if (distToRing(x, z, p.ring) < CORNER_CLEARANCE) return true;
+    }
+    return false;
+  };
 
   // Road ribbons the lots must keep off: merged roadbeds for carriageways
   // (raw carriageway ways as fallback), plus the non-carriageway paths.
@@ -1345,7 +1373,7 @@ export function planTaipeiBuildings(geodata) {
           if (corners.some(([px, pz]) => px < minX - 1e-9 || px > maxX + 1e-9 || pz < minZ - 1e-9 || pz > maxZ + 1e-9)) continue;
         }
         if (inPoly(cx, cz)) { stats.lotsDroppedParkWater++; continue; }
-        if (theta && corners.some(([px, pz]) => inPoly(px, pz))) { stats.lotsDroppedParkWater++; continue; }
+        if (theta && corners.some(([px, pz]) => nearPoly(px, pz))) { stats.lotsDroppedParkWater++; continue; }
         if (!inUnion(cx, cz)) { stats.lotsDroppedOutsideUnion++; continue; }
         let onLandmarkSite = false;
         for (const s of exclusionSites) {
