@@ -1024,7 +1024,15 @@ test('vertical signs: sparse deterministic panels on Taiwan types', (t) => {
 // glass towers. Rates are measured over thousands of synthetic lots so
 // the bands pin the POLICY (14% / 12% rolls plus fitting losses), not
 // one plan's luck.
-test('rooftop additions: sparse fitted tanks and sheet-metal huts', (t) => {
+// Issue #100 supersedes the #56 hut PLACEMENT: the hut is no longer a
+// patch that dodges the HVAC unit — it spans the host's ENTIRE roof
+// (inset 0.4 m), displaces the roof's HVAC units at the clamp, and
+// suppresses the tank roll on its lot. Selection (eligibility + the
+// 12% roll) is unchanged, so the hut rate below is now the bare roll;
+// the old patch build silently lost ~5% of roll winners to its
+// spot-fit test (measured on the real plan: 1,568 placed of 1,655
+// selected — the full-roof rule recovers them).
+test('rooftop additions: sparse fitted tanks and full-roof sheet-metal huts', (t) => {
   let lots = 0, tanks = 0, huts = 0;
   const overlaps = (a, b) => a.x0 < b.x1 && a.x1 > b.x0 && a.z0 < b.z1 && a.z1 > b.z0;
   for (let i = 0; i < 4000; i++) {
@@ -1042,12 +1050,16 @@ test('rooftop additions: sparse fitted tanks and sheet-metal huts', (t) => {
     for (const hu of adds.huts) {
       huts++;
       const r = { x0: hu.x - hu.w / 2, x1: hu.x + hu.w / 2, z0: hu.z - hu.d / 2, z1: hu.z + hu.d / 2 };
-      assert.ok(r.x0 >= lot.x0 && r.x1 <= lot.x1 && r.z0 >= lot.z0 && r.z1 <= lot.z1, 'hut fits inside the roof');
-      assert.ok(!overlaps(r, hvacRect), 'hut clears the HVAC unit');
+      // Issue #100: the hut spans the ENTIRE roof — its rect is the lot
+      // rect inset 0.4 m on every side, centred on the lot. It covers
+      // the HVAC unit's spot by design (the clamp displaces the unit;
+      // pinned at the clamp level below).
+      assert.ok(Math.abs(r.x0 - (lot.x0 + 0.4)) < 1e-9 && Math.abs(r.x1 - (lot.x1 - 0.4)) < 1e-9
+        && Math.abs(r.z0 - (lot.z0 + 0.4)) < 1e-9 && Math.abs(r.z1 - (lot.z1 - 0.4)) < 1e-9,
+        'hut spans the full roof, inset 0.4 m');
+      assert.ok(overlaps(r, hvacRect), 'full-roof hut covers the HVAC spot (displacement, not dodging)');
       assert.ok(hu.h >= 2.4 && hu.h <= 3.2 && hu.pitch >= 0.15 && hu.pitch <= 0.25, 'hut proportions in range');
-      for (const tk of adds.tanks) {
-        assert.ok(!overlaps(r, { x0: tk.x - 1, x1: tk.x + 1, z0: tk.z - 1, z1: tk.z + 1 }), 'hut and tank never share a spot');
-      }
+      assert.equal(adds.tanks.length, 0, 'no tank roll under a full-roof hut');
     }
     if (i === 0) {
       assert.deepEqual(taipeiRooftopAdditions(gear, lot, gear.hvacUnits), adds, 'additions are deterministic per lot');
@@ -1064,4 +1076,34 @@ test('rooftop additions: sparse fitted tanks and sheet-metal huts', (t) => {
     assert.deepEqual(taipeiRooftopAdditions({ maxH: 20 }, { ...base, h: 20, mat: 5 }, []).huts, [], 'no huts on glass');
     assert.deepEqual(taipeiRooftopAdditions({ maxH: 45 }, { ...base, h: 45, mat: 6 }, []).huts, [], 'no huts on tall lots');
   }
+});
+
+// Issue #100 at the clamp level: a lot that rolls a full-roof hut loses
+// its clamped HVAC units (displaced by the addition) and its tank,
+// while an identical lot that does not roll a hut keeps its unit.
+test('rooftop clamp: a full-roof hut displaces HVAC and tank', (t) => {
+  const mkLot = (x0) => ({ x0, x1: x0 + 18, z0: 0, z1: 15, h: 20, mat: 6 });
+  const mkGear = (lot) => ({
+    maxH: 20,
+    waterTowers: [{ x: lot.x0 + 3, y: 20, z: 3 }],
+    hvacUnits: [{ x: lot.x0 + 9, y: 20, z: 7.5, w: 3, h: 2, d: 3 }],
+  });
+  let hutLot = null, plainLot = null;
+  for (let i = 0; i < 400 && (!hutLot || !plainLot); i++) {
+    const lot = mkLot(i * 37.3);
+    const has = taipeiRooftopAdditions(mkGear(lot), lot, []).huts.length > 0;
+    if (has && !hutLot) hutLot = lot;
+    if (!has && !plainLot) plainLot = lot;
+  }
+  assert.ok(hutLot && plainLot, 'scan finds both a hut lot and a plain lot');
+  const gHut = clampTaipeiRooftopGear(mkGear(hutLot), hutLot);
+  assert.equal(gHut.rooftopAdds.length, 1, 'hut lot carries its addition');
+  assert.equal(gHut.hvacUnits.length, 0, 'hut displaces the roof HVAC unit');
+  assert.equal(gHut.waterTowers.length, 0, 'no tank on a hut lot');
+  const hut = gHut.rooftopAdds[0];
+  assert.ok(Math.abs(hut.w - (18 - 0.8)) < 1e-9 && Math.abs(hut.d - (15 - 0.8)) < 1e-9,
+    'clamp hut spans the full roof inset 0.4 m');
+  const gPlain = clampTaipeiRooftopGear(mkGear(plainLot), plainLot);
+  assert.equal(gPlain.rooftopAdds.length, 0, 'plain lot has no addition');
+  assert.equal(gPlain.hvacUnits.length, 1, 'plain lot keeps its HVAC unit');
 });
