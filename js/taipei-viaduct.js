@@ -33,6 +33,16 @@ export const LOW_BED_MAX = 0.5;    // profiles below this render as a low bed
 export const LOW_BED_H = 0.25;     // low-bed slab height, m
 export const PIER_W = 1.6;         // pier box crosswise, m
 export const PIER_D = 2.24;        // pier box along-road, m
+// Issue #139: the MRT track treatment (opts.tracks) — a brown
+// ballast/plinth strip per track on the running surface, with two
+// steel rail ribbons on it. Offsets per track come from the line's
+// `tracks` field (digest: [0] on a twin way, [-3, 3] on a shared
+// formation); the strip replaces the asphalt ribbon in this mode.
+export const BALLAST_H = 0.24;     // strip height above the running surface, m
+export const BALLAST_HALF = 1.7;   // half width of one track's strip, m
+export const RAIL_OFF = 0.72;      // rail centre offset from the track centre (1435 mm gauge), m
+export const RAIL_W = 0.15;        // rail ribbon width, m
+export const RAIL_LIFT = 0.06;     // rail ribbon above the strip top, m
 
 const ptsOf = (line) => {
   const p = [];
@@ -52,18 +62,23 @@ function pointNormals(pts) {
   });
 }
 
-// buildDeckGeometry(elevated) -> {
+// buildDeckGeometry(elevated, opts) -> {
 //   concrete: { positions, normals },  // slab + parapets, flat-shaded
 //   asphalt:  { positions, normals },  // deck-top ribbon inside parapets
+//   ballast:  { positions, normals },  // MRT track strips (opts.tracks)
+//   rails:    { positions, normals },  // MRT rail ribbons (opts.tracks)
 //   triCount, lineCount, pierCount,
 // }
 // Positions are non-indexed triangles (6 vertices per quad face) in
 // world metres, y-up; normals are per-face (flat shading).
-export function buildDeckGeometry(elevated) {
+export function buildDeckGeometry(elevated, opts = {}) {
+  const tracks = !!opts.tracks;
   const depth = elevated?.deckDepth ?? 1.8;
   const lines = elevated?.lines || [];
   const concrete = { pos: [], nor: [] };
   const asphalt = { pos: [], nor: [] };
+  const ballast = { pos: [], nor: [] };
+  const rails = { pos: [], nor: [] };
   // Append one quad (corners in boundary order) as two triangles
   // with the quad's flat normal.
   const quad = (sink, a, b, c, d) => {
@@ -74,11 +89,34 @@ export function buildDeckGeometry(elevated) {
     nx /= L; ny /= L; nz /= L;
     for (const p of [a, b, c, a, c, d]) { sink.pos.push(p[0], p[1], p[2]); sink.nor.push(nx, ny, nz); }
   };
+  // Issue #139: one track's ballast strip + rails over a segment.
+  // (pA, nA, yA) / (pB, nB, yB) are the ends' centre points, point
+  // normals and running-surface heights (deck top, or LOW_BED_H on
+  // at-grade stretches); `o` is the track's offset from the line
+  // centreline along the normal.
+  const trackStrip = (pA, nA, yA, pB, nB, yB, o) => {
+    const corner = (p, n, off, y) => [p[0] + n[0] * off, y, p[1] + n[1] * off];
+    const aL = corner(pA, nA, o + BALLAST_HALF, yA + BALLAST_H), aR = corner(pA, nA, o - BALLAST_HALF, yA + BALLAST_H);
+    const bL = corner(pB, nB, o + BALLAST_HALF, yB + BALLAST_H), bR = corner(pB, nB, o - BALLAST_HALF, yB + BALLAST_H);
+    const aLb = corner(pA, nA, o + BALLAST_HALF, yA), aRb = corner(pA, nA, o - BALLAST_HALF, yA);
+    const bLb = corner(pB, nB, o + BALLAST_HALF, yB), bRb = corner(pB, nB, o - BALLAST_HALF, yB);
+    quad(ballast, aL, bL, bR, aR);       // strip top
+    quad(ballast, aL, aLb, bLb, bL);     // left side
+    quad(ballast, aR, bR, bRb, aRb);     // right side
+    for (const s of [-RAIL_OFF, RAIL_OFF]) {
+      const raL = corner(pA, nA, o + s + RAIL_W / 2, yA + BALLAST_H + RAIL_LIFT);
+      const raR = corner(pA, nA, o + s - RAIL_W / 2, yA + BALLAST_H + RAIL_LIFT);
+      const rbL = corner(pB, nB, o + s + RAIL_W / 2, yB + BALLAST_H + RAIL_LIFT);
+      const rbR = corner(pB, nB, o + s - RAIL_W / 2, yB + BALLAST_H + RAIL_LIFT);
+      quad(rails, raL, rbL, rbR, raR);
+    }
+  };
 
   for (const line of lines) {
     const pts = ptsOf(line);
     if (pts.length < 2) continue;
     const normals = pointNormals(pts);
+    const trackOffs = tracks ? (line.tracks?.length ? line.tracks : [0]) : [];
     const half = (line.width || 6) / 2;
     const inner = half - PARAPET_T;
     // Cross-section corners per point: slab TL/TR (top) and BL/BR
@@ -115,8 +153,12 @@ export function buildDeckGeometry(elevated) {
         quad(concrete, aBl, aBr, aBrb, aBlb);      // bottom
         quad(concrete, aT, aBl, aBlb, aTb);        // left side
         quad(concrete, aR, aRb, aBrb, aBr);        // right side
-        const asph = (c, key) => [c[key][0], LOW_BED_H + ASPHALT_LIFT, c[key][2]];
-        quad(asphalt, asph(A, 'aL'), asph(B, 'aL'), asph(B, 'aR'), asph(A, 'aR'));
+        if (!tracks) {
+          const asph = (c, key) => [c[key][0], LOW_BED_H + ASPHALT_LIFT, c[key][2]];
+          quad(asphalt, asph(A, 'aL'), asph(B, 'aL'), asph(B, 'aR'), asph(A, 'aR'));
+        } else {
+          for (const o of trackOffs) trackStrip(pts[i], normals[i], LOW_BED_H, pts[i + 1], normals[i + 1], LOW_BED_H, o);
+        }
         continue;
       }
       // Slab box section.
@@ -131,8 +173,10 @@ export function buildDeckGeometry(elevated) {
       quad(concrete, A.oRt, B.oRt, B.oR, A.oR);    // right outer
       quad(concrete, A.iRt, A.iR, B.iR, B.iRt);    // right inner
       quad(concrete, A.iRt, B.iRt, B.oRt, A.oRt);  // right top
-      // Asphalt ribbon on the slab top, inside the parapets.
-      quad(asphalt, A.aL, B.aL, B.aR, A.aR);
+      // Top ribbon inside the parapets: the asphalt ribbon, or in
+      // track mode the ballast strips + rails on the slab top.
+      if (!tracks) quad(asphalt, A.aL, B.aL, B.aR, A.aR);
+      else for (const o of trackOffs) trackStrip(pts[i], normals[i], A.h, pts[i + 1], normals[i + 1], B.h, o);
     }
     // End caps where the line ends in the air (portal ends sit at
     // h ~ 0 and need none; tile-edge ends close the box).
@@ -145,10 +189,12 @@ export function buildDeckGeometry(elevated) {
     cap(cs[cs.length - 1], true);
   }
 
-  const triCount = (concrete.pos.length + asphalt.pos.length) / 9;
+  const triCount = (concrete.pos.length + asphalt.pos.length + ballast.pos.length + rails.pos.length) / 9;
   return {
     concrete: { positions: new Float32Array(concrete.pos), normals: new Float32Array(concrete.nor) },
     asphalt: { positions: new Float32Array(asphalt.pos), normals: new Float32Array(asphalt.nor) },
+    ballast: { positions: new Float32Array(ballast.pos), normals: new Float32Array(ballast.nor) },
+    rails: { positions: new Float32Array(rails.pos), normals: new Float32Array(rails.nor) },
     triCount,
     lineCount: lines.length,
     pierCount: (elevated?.piers || []).length,

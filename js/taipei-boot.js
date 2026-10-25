@@ -8,7 +8,7 @@ import { SURFACE_TONES, surfaceClass, buildMedianStrips, isPlazaPark, isPodiumBl
 import { buildRoadMarkings, detectJunctions, DASH_LEN, DASH_GAP, STRIPE_W, STRIPE_PITCH } from './taipei-markings.js';
 import { planJunctionCaps, planRoundabouts, ringPoints, CAP_Y, ISLAND_Y } from './taipei-junctions.js';
 import { buildDeckGeometry, PIER_W, PIER_D } from './taipei-viaduct.js';
-import { buildMrtStationGeometry } from './taipei-mrt-stations.js';
+import { buildMrtStationGeometry, buildMrtDepotGeometry } from './taipei-mrt-stations.js';
 import { buildTerrainSkinGeometry } from './taipei-terrain.js';
 import { unionExclusionRects, clipRectToBoxes } from './taipei-union.js';
 import { createCurtainWallMaterial, createPreWarBuildingMaterial, createTaipeiMarkingMaterial, setTaipeiSignAtlases } from './tsl-materials.js';
@@ -237,6 +237,23 @@ function buildMrtStationMesh(stations) {
   geo.setAttribute('color', new THREE.BufferAttribute(g.colors, 3));
   const mesh = new THREE.Mesh(geo, new THREE.MeshStandardNodeMaterial({ vertexColors: true, roughness: 0.92, metalness: 0.0 }));
   mesh.name = 'TaipeiMrtStations';
+  mesh.castShadow = true;
+  mesh.receiveShadow = true;
+  return mesh;
+}
+
+// Beitou depot (issue #139): the maintenance halls + yard fan as
+// one merged vertex-coloured mesh, same idiom as the stations.
+function buildMrtDepotMesh(depot) {
+  if (!depot) return null;
+  const g = buildMrtDepotGeometry(depot);
+  if (!g.triCount) return null;
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute('position', new THREE.BufferAttribute(g.positions, 3));
+  geo.setAttribute('normal', new THREE.BufferAttribute(g.normals, 3));
+  geo.setAttribute('color', new THREE.BufferAttribute(g.colors, 3));
+  const mesh = new THREE.Mesh(geo, new THREE.MeshStandardNodeMaterial({ vertexColors: true, roughness: 0.95, metalness: 0.0 }));
+  mesh.name = 'TaipeiMrtDepot';
   mesh.castShadow = true;
   mesh.receiveShadow = true;
   return mesh;
@@ -816,20 +833,32 @@ export async function buildTaipeiGround(scene, tile, deps = {}) {
   // geodata field — guideway decks (elevated 圓山→北投 + branch,
   // portal ramp out of the 民權西路 tunnel, at-grade low bed after
   // Beitou) plus the elevated station structures. The underground
-  // stretch emits nothing, as it should.
+  // stretch emits nothing, as it should. Issue #139: the decks get
+  // the brown track treatment (ballast strips + rails instead of
+  // the asphalt ribbon), the three at-grade stations join the
+  // station mesh, and the Beitou depot stands by Fuxinggang.
   let mrtDetail = '';
   if (geo.mrtDecks?.lines?.length) {
-    const mrtGeo = buildDeckGeometry(geo.mrtDecks);
+    const mrtGeo = buildDeckGeometry(geo.mrtDecks, { tracks: true });
     const mrtConcrete = addLayer(deckPartGeometry(mrtGeo.concrete), mat(0x98958a, 0.95), 'TaipeiMrtDecks');
     mrtConcrete.castShadow = true;
-    const mrtTop = addLayer(deckPartGeometry(mrtGeo.asphalt), mat(SURFACE_TONES.deck, 0.9), 'TaipeiMrtDeckAsphalt');
-    mrtTop.castShadow = true;
+    if (mrtGeo.ballast.positions.length) {
+      const mrtBallast = addLayer(deckPartGeometry(mrtGeo.ballast), mat(0x6e5136, 1.0), 'TaipeiMrtBallast');
+      mrtBallast.castShadow = true;
+      mrtBallast.receiveShadow = true;
+    }
+    if (mrtGeo.rails.positions.length) {
+      const mrtRails = addLayer(deckPartGeometry(mrtGeo.rails), mat(0x8f9296, 0.45), 'TaipeiMrtRails');
+      mrtRails.castShadow = true;
+    }
     const mrtPiers = buildDeckPierMesh(geo.mrtDecks.piers || []);
     if (mrtPiers) { mrtPiers.name = 'TaipeiMrtDeckPiers'; group.add(mrtPiers); }
     const stationMesh = buildMrtStationMesh(geo.mrtStations || []);
     if (stationMesh) group.add(stationMesh);
+    const depotMesh = buildMrtDepotMesh(geo.mrtDepot);
+    if (depotMesh) group.add(depotMesh);
     mrtDetail = `, MRT ${geo.mrtDecks.lines.length} lines + ${(geo.mrtStations || []).length} stations`;
-    console.info(`[taipei-mrt] ${mrtGeo.lineCount} deck lines (${geo.mrtDecks.stats?.lineKm ?? '?'} km), ${mrtGeo.pierCount} piers, ${(geo.mrtStations || []).length} elevated stations`);
+    console.info(`[taipei-mrt] ${mrtGeo.lineCount} deck lines (${geo.mrtDecks.stats?.lineKm ?? '?'} km), ${mrtGeo.pierCount} piers, ${(geo.mrtStations || []).length} stations${geo.mrtDepot ? ', Beitou depot' : ''}`);
   }
   await completeStage('decks', geo.elevatedRoads?.lines?.length ? `${geo.elevatedRoads.lines.length} elevated lines${mrtDetail}` : 'no elevated roads in tile');
 

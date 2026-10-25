@@ -676,6 +676,14 @@ let mrtDigest = null;
     const railElements = JSON.parse(fs.readFileSync(railPath, 'utf8')).elements;
     mrtDigest = digestRedLine(railElements, (lat, lon) => toWorld(lon, lat));
     TAIPEI_GEO.mrtStations = mrtDigest.stations;
+    TAIPEI_GEO.mrtDepot = mrtDigest.depot;
+    // Issue #139: the lot planner tests candidates against the MRT
+    // track corridor, so the deck LINES are built once here, before
+    // the plan (line geometry depends only on the digest records;
+    // the MRT pass below re-places the piers against the real plan
+    // and overwrites this field with the complete deck set).
+    const preDecks = buildMrtDecks(mrtDigest.records, [], []);
+    TAIPEI_GEO.mrtDecks = { lines: preDecks.lines, deckDepth: preDecks.deckDepth };
   }
 }
 const lotPlan = planTaipeiBuildings(TAIPEI_GEO);
@@ -696,7 +704,7 @@ const lotPlan = planTaipeiBuildings(TAIPEI_GEO);
     const mrt = mrtDigest;
     TAIPEI_GEO.mrtDecks = buildMrtDecks(mrt.records, TAIPEI_GEO.roadbeds || [], lotPlan.lots);
     const ms = TAIPEI_GEO.mrtDecks.stats;
-    console.log(`[taipei-geodata] mrt red line: ${mrt.stats.lineWays} line ways (${JSON.stringify(mrt.stats.byFormKm)} km by form), ${mrt.stats.pathsFound}/13 station paths, ${mrt.stats.crossoverWays} crossover ways -> ${ms.lines} deck lines (${ms.lineKm} km), piers ${ms.piers} (${ms.piersMerged} twin-merged, ${ms.piersRejectedRoad} road-rejected, ${ms.piersRejectedLot} lot-rejected); ${mrt.stations.length} elevated stations`);
+    console.log(`[taipei-geodata] mrt red line: ${mrt.stats.lineWays} line ways (${JSON.stringify(mrt.stats.byFormKm)} km by form), ${mrt.stats.pathsFound}/13 station paths, ${mrt.stats.crossoverWays} crossover ways -> ${ms.lines} deck lines (${ms.lineKm} km), piers ${ms.piers} (${ms.piersMerged} twin-merged, ${ms.piersRejectedRoad} road-rejected, ${ms.piersRejectedLot} lot-rejected); ${mrt.stations.length} stations (10 elevated + ${mrt.stations.length - 10} at-grade); depot: ${mrt.stats.yardWays} yard ways (${mrt.stats.yardKm} km), ${mrt.stats.depotHalls} halls`);
   } else {
     console.log('[taipei-geodata] mrt: osm_railways.json absent — no MRT decks/stations emitted');
   }
