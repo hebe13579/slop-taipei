@@ -502,6 +502,11 @@ export function controllerOptions(tile, env = {}) {
     // 16 m/s × speedScale 2 × heliVerticalScale 5 = 160 m/s.
     heliCeiling: 750,
     heliVerticalScale: 5,
+    // Helicopter horizontal speed ×3 from current (user request
+    // 2026-10-24, issue #101): cruise 32 × speedScale 2 ×
+    // heliSpeedScale 3 = 192 m/s, boost 52 × 2 × 3 = 312 m/s. The
+    // vertical cap stays at 160 m/s (heliVerticalScale's knob).
+    heliSpeedScale: 3,
     avatarFigureFactory: env.webglFallback ? (appearance) => new AvatarFigure(appearance) : null,
     spawnByMode: {
       person: { x: s.x - 15.2, z: s.z + 12 },
