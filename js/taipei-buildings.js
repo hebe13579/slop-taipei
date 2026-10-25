@@ -2303,6 +2303,22 @@ export function planTaipeiBuildings(geodata) {
   return { lots, tower, landmarkTowers, stats };
 }
 
+// Issue #136: the office cores — the districts where curtain glass
+// is the REAL fabric, so facadeMatFor's glass rules keep applying
+// there. Two zones, both simple map facts: the Xinyi planning
+// district as its real rectangle (Keelung Rd to Songren Rd, Zhongxiao
+// E. Rd to Zhuangjing Rd — a 650 m ring around Taipei 101 was tried
+// first and bulged south across Zhuangjing Rd into the Wuxing St
+// housing apron, which is exactly the Xiangshan-frame monoculture
+// the reality audit flagged), and the station-front band, 700 m
+// around Taipei Main Station (Shin Kong, Asiaworld, the 館前/忠孝西路
+// office stock). Exported so the taipei suite can pin the boundary.
+const [STATION_FRONT_X, STATION_FRONT_Z] = latLonToTile(25.0478, 121.5170, [25.0330, 121.5650]);
+export function officeCoreFor(lot) {
+  if (lot.x >= -450 && lot.x <= 1000 && lot.z >= -1000 && lot.z <= 170) return true; // Xinyi planning district
+  return Math.hypot(lot.x - STATION_FRONT_X, lot.z - STATION_FRONT_Z) < 700; // station front
+}
+
 // Facade material for a planned lot, as an index into upstream
 // buildings.js's facade families (0-2 masonry pre-war/brick/brownstone,
 // 3-5 curtain-wall glass, 6-9 the Taiwan types — issue #17).
@@ -2317,13 +2333,35 @@ export function planTaipeiBuildings(geodata) {
 // The glass rolls in both bands are evaluated first with the exact
 // pre-#17 formulas, so the glass families' counts are untouched; above
 // 40 m and below 15 m nothing changes at all.
+//
+// Issue #136 re-draws the two tall bands around the office cores (see
+// officeCoreFor): the #128 real-height join put true heights on the
+// plan, and facadeMatFor's height rules then made every tall lot glass
+// (7,988 of 34,645 lots) — dark glass canyons where real Taipei's tall
+// RESIDENTIAL stock is tile/concrete in red/pink/white/beige. Inside
+// the cores the rules below are the pre-#136 ones verbatim (Xinyi
+// stays a glass district); outside them, lots of 40 m or more wear
+// the Taiwan tile types (tallTaiwanTypeFor) with only a small glass
+// accent, and the 22–40 m glass share drops from a half to a fifth.
 function facadeMatFor(lot) {
   const seed = (Math.imul(Math.round(lot.x * 10), 73856093) ^ Math.imul(Math.round(lot.z * 10), 19349663) ^ 0x101) | 0;
   const r = hash01(seed);
-  if (lot.h >= 40) return [3, 4, 5][Math.floor(r * 3) % 3];
+  const core = officeCoreFor(lot);
+  if (lot.h >= 40) {
+    if (core) return [3, 4, 5][Math.floor(r * 3) % 3];
+    if (r < 0.12) { const u = r / 0.12; return [3, 4, 5][Math.floor(u * 3) % 3]; } // glass accent: the curtain-wall 豪宅 minority
+    return tallTaiwanTypeFor(lot, seed);
+  }
   if (lot.h >= 22) {
-    if (r < 0.5) return [3, 4, 5][Math.floor(r * 6) % 3]; // glass half, unchanged
-    const u = (r - 0.5) * 2; // masonry half, rescaled to 0..1
+    if (core) {
+      if (r < 0.5) return [3, 4, 5][Math.floor(r * 6) % 3]; // glass half, unchanged
+      const u = (r - 0.5) * 2; // masonry half, rescaled to 0..1
+      if (u < 0.75) return taiwanTypeFor(lot, seed);
+      const v = (u - 0.75) * 4;
+      return [0, 1][Math.floor(v * 2) % 2];
+    }
+    if (r < 0.2) { const u = r / 0.2; return [3, 4, 5][Math.floor(u * 6) % 3]; } // glass fifth: district offices/hotels
+    const u = (r - 0.2) / 0.8; // remainder, rescaled to 0..1
     if (u < 0.75) return taiwanTypeFor(lot, seed);
     const v = (u - 0.75) * 4;
     return [0, 1][Math.floor(v * 2) % 2];
@@ -2339,6 +2377,25 @@ function facadeMatFor(lot) {
   return [0, 1, 2][Math.floor(r * 3) % 3];
 }
 
+// The tall-residential pick (issue #136): a lot of 40 m or more
+// outside the office cores wears a Taiwan tile type — Taipei's real
+// residential towers are tile/concrete slabs, not curtain glass. The
+// walk-up slab (8) carries the largest share (its dense tile grid,
+// balconies and grilles ARE the 電梯大樓 read), the tile shophouse (6)
+// and pebble-dash (9) split the rest. The arcade type (7) is not in
+// this pick: its colonnade is a street-wall ground floor, not a tower
+// language, so it keeps its under-36 m cap in taiwanTypeFor.
+function tallTaiwanTypeFor(lot, seed) {
+  const weights = [[8, 3.4], [6, 2.2], [9, 2.2]];
+  const total = weights.reduce((s, [, w]) => s + w, 0);
+  let pick = hash01(seed ^ 0x1360) * total;
+  for (const [mat, w] of weights) {
+    if (pick < w) return mat;
+    pick -= w;
+  }
+  return 8;
+}
+
 // Which Taiwan type a Taiwan-set lot becomes, by height plausibility —
 // a second hash of the same seed picks within the weights, and a type's
 // weight is zero outside its band, which is what caps each type:
@@ -2352,9 +2409,12 @@ function facadeMatFor(lot) {
 //     too; the pure stairs-only walk-ups are its low end)
 //   9 pebble-dash      15–40 m, weight 2.2 (洗石子 runs from 5-storey
 //     walk-ups to mid-rises, but is the least common of the four)
-// All caps stay under 40 m on purpose: facadeMatFor sends every lot of
-// 40 m or more to glass, and that rule is not touched, so the glass
-// families' counts are exactly what they were (see the taiwan test).
+// All caps stay under 40 m on purpose: this pick serves the classic
+// mixed-use bands only. Above 40 m facadeMatFor's own rules decide —
+// glass inside the office cores, tallTaiwanTypeFor outside them
+// (issue #136) — and neither path consults these weights, so the
+// counts this function produces in its bands are exactly what they
+// were (see the taiwan test).
 function taiwanTypeFor(lot, seed) {
   const h = lot.h;
   const weights = [

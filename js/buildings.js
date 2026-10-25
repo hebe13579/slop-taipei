@@ -427,8 +427,12 @@ function buildCityBlocks(scene, opts = null) {
       balconyPalette: [0xcbb59a, 0xb89a76],
       recess: 0.62
     }],
-    // 8: Walk-up slab — beige/brown 70s-80s tile, dense window grid,
+    // 8: Walk-up slab — 70s-80s tile, dense window grid,
     // security-grille speckle, rail balconies on most columns.
+    // Issue #136: the tile range carries the red/pink/white of real
+    // Taipei residential cladding (rose and rose-red 二丁掛 beside the
+    // beige anchor and a warm white) instead of four browns — this is
+    // the family the tall-residential rule plants above 40 m.
     [createTileShophouseMaterial, {
       windowWidth: 2.05,
       floorHeight: 3.1,
@@ -438,7 +442,7 @@ function buildCityBlocks(scene, opts = null) {
       warmth: 0.80,
       seed: 322.9,
       cornerPier: 0.4,
-      tilePalette: [0xd9c49c, 0xcbb086, 0xbf9d72, 0xd3c2a4],
+      tilePalette: [0xd9c49c, 0xd8b0a2, 0xc98d7e, 0xe6dcc9],
       accentColor: 0xa98f66,
       accentEvery: 0,
       trimColor: 0xa08b62,
