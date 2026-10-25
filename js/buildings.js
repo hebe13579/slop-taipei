@@ -6,6 +6,7 @@ import {
   vec2,
   color,
   uv,
+  texture,
   positionGeometry,
   positionWorld,
   normalWorldGeometry,
@@ -41,6 +42,7 @@ import {
   createTileShophouseMaterial,
   createFacadeBoxes,
   createBillboardMaterial,
+  getTaipeiSignAtlases,
   WALL_KINDS
 } from './tsl-materials.js';
 import { GEO } from './nyc-geodata.js';
@@ -2675,11 +2677,13 @@ function buildCityBlocks(scene, opts = null) {
   // 6d. Vertical signs （直式招牌， issue #56): thin panels mounted
   // perpendicular to Taiwan-type facades — real instanced boxes whose
   // panel colour and abstract glyph bars are hashed per panel in the
-  // shader (coloured panel + glyph marks, no rendered text — the same
-  // stylization as the facade signage bands; the facade materials hash
-  // their sign colours in-shader too, and instanceColor does not reach
-  // a custom colorNode on the WebGL backend), with a slight emissive
-  // so the panels read as lit sign boxes. Filled from blk.signs
+  // shader (coloured panel + glyph marks — the same stylization as
+  // the facade signage bands; the facade materials hash their sign
+  // colours in-shader too, and instanceColor does not reach a custom
+  // colorNode on the WebGL backend), with a slight emissive so the
+  // panels read as lit sign boxes. Issue #105: when the Taipei boot
+  // injects the blade atlas, the panels sample real shop-name plates
+  // instead (see vSignPlateColor below). Filled from blk.signs
   // (planner policy data); Manhattan blocks never carry any.
   const MAX_VSIGNS = 1024;
   const vSignMat = new THREE.MeshStandardNodeMaterial({ roughness: 0.42, metalness: 0.08 });
@@ -2731,13 +2735,56 @@ function buildCityBlocks(scene, opts = null) {
     const ink = mix(color(0xf4ead2), color(0x8c2b23), step(0.62, lum)); // cream ink, dark red-brown on pale panels
     return { panel, ink, glyph };
   };
+  // Issue #105: with the blade atlas injected (Taipei boot, via
+  // tsl-materials' setTaipeiSignAtlases), the panel samples a real
+  // shop-name plate — vertical text stacked top-to-bottom — instead
+  // of glyph bars. The plate is hashed from the same face coordinate
+  // as the panel colour, so a panel keeps its shop on every load, and
+  // the glyph look remains the fallback where no atlas is injected.
+  // Blade atlas grid, mirrored from js/taipei-signs.js (BLADE_ATLAS /
+  // TAIPEI_BLADE_SIGNS): 9 cols × 6 rows, 51 plates, plate row counted
+  // from the texture's bottom. The node suite source-pins these
+  // literals against the signs module — change them together.
+  const SIGN_BLADE_COLS = 9.0;
+  const SIGN_BLADE_ROWS = 6.0;
+  const SIGN_BLADE_PLATES = 51.0;
+  const bladeAtlasTex = getTaipeiSignAtlases().blade;
+  const vSignPlateColor = () => {
+    const uvN = uv();
+    const nW = normalWorldGeometry;
+    const faceCoord = mix(positionWorld.z, positionWorld.x, step(abs(nW.z), abs(nW.x)));
+    const hashN = (v) => mx_noise_float(v).mul(0.5).add(0.5);
+    const hp = hashN(vec2(floor(faceCoord.mul(0.5)), 4.97));
+    const plate = floor(hp.mul(SIGN_BLADE_PLATES));
+    const colI = mod(plate, SIGN_BLADE_COLS);
+    const rowB = floor(plate.div(SIGN_BLADE_COLS));
+    const inset = float(0.03);
+    const tuv = vec2(
+      colI.add(inset).add(uvN.x.mul(float(1.0).sub(inset.mul(2.0)))).div(SIGN_BLADE_COLS),
+      rowB.add(inset).add(uvN.y.mul(float(1.0).sub(inset.mul(2.0)))).div(SIGN_BLADE_ROWS)
+    );
+    const texCol = texture(bladeAtlasTex, tuv).rgb;
+    // Thin edges and the top/bottom faces have no room for lettering:
+    // they take the plate's own background (sampled from the cell's
+    // bottom margin). A broad face's face coordinate is constant, so
+    // a nonzero derivative marks an edge face.
+    const bgUV = vec2(colI.add(0.5).div(SIGN_BLADE_COLS), rowB.add(0.02).div(SIGN_BLADE_ROWS));
+    const bgCol = texture(bladeAtlasTex, bgUV).rgb;
+    const edge = step(0.001, fwidth(faceCoord)).add(step(0.5, abs(nW.y))).clamp(0.0, 1.0);
+    return mix(texCol, bgCol, edge);
+  };
   vSignMat.colorNode = Fn(() => {
     const { panel, ink, glyph } = vSignLook();
-    return mix(panel, ink, glyph.mul(0.92));
+    const glyphCol = mix(panel, ink, glyph.mul(0.92));
+    if (!bladeAtlasTex) return glyphCol;
+    return vSignPlateColor();
   })();
   vSignMat.emissiveNode = Fn(() => {
     const { panel, ink, glyph } = vSignLook();
-    return mix(panel, ink, glyph).mul(0.26);
+    const glyphCol = mix(panel, ink, glyph).mul(0.26);
+    if (!bladeAtlasTex) return glyphCol;
+    // A lit lightbox sign: the whole plate glows, lettering included.
+    return vSignPlateColor().mul(0.30);
   })();
   const vSignInst = new THREE.InstancedMesh(unitBox, vSignMat, MAX_VSIGNS);
   vSignInst.castShadow = vSignInst.receiveShadow = true;

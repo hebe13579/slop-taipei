@@ -538,6 +538,15 @@ test('landmark structures: true positions and heights, sites kept clear', (t) =>
     // fitted between the generated carriageways, NOT the
     // published gate point ~19 m WNW (see registry comment).
     'beimen': { h: 19, x: -5410.1, z: -1625.0 },
+    // Batch 6 (issue #103, northern phase 2): the Grand Hotel's
+    // 87 m is published (Wikipedia); its position is the phase-1
+    // terrain report's footprint point, corroborated by the OSM
+    // POIs inside the main building. The incinerator's 150 m is
+    // published (zh-Wikipedia incinerator list); its position is
+    // the OSM 摘星樓 restaurant node (7775187071), which sits on
+    // the chimney.
+    'grand-hotel': { h: 87, x: -3905.7, z: -5073.4 },
+    'beitou-incinerator': { h: 150, x: -6620.6, z: -8312.4 },
   };
   assert.equal(plan.landmarkTowers.length, Object.keys(expected).length, 'all verified structures present');
   const partTop = (p) => (p.y0 || 0) + p.h + (p.type === 'ridge' ? p.ridgeH : 0);
@@ -918,7 +927,10 @@ test('taiwan types: family zoning, distribution and rooftop clamp', (t) => {
   // is the counterfactual plan: the same geodata with the green
   // layer stripped reproduces 3,244 glass / 28,976 masonry exactly,
   // so the whole delta is the green rule's drops.
-  assert.equal(glass, 2823, 'glass family counts untouched by the Taiwan-type assignment');
+  // Gate composition with issue #103 (merged first): the two new
+  // landmark sites exclude 4 more glass lots, all off green land —
+  // 2,823 - 4 = 2,819, measured on the merged tree at the #114 gate.
+  assert.equal(glass, 2819, 'glass family counts untouched by the Taiwan-type assignment');
   const masonry = opts.lots.filter((l) => l.mat <= 2).length;
   // Range re-based for issue #65: the exact ribbon exclusion removed
   // ~4,400 masonry lots that stood on ribbons or in medians; masonry
@@ -927,7 +939,10 @@ test('taiwan types: family zoning, distribution and rooftop clamp', (t) => {
   // the majority fabric of the enlarged tile.
   // Range re-based for issue #114: the green-land exclusion removed
   // 4,778 masonry lots along with the glass above — 24,198 of
-  // 34,672 lots (69.8%), still the majority fabric.
+  // 34,672 lots (69.8%), still the majority fabric. On the merged
+  // tree with issue #103 the count is 24,125 of 34,573 (69.8%):
+  // #103 excludes 89 masonry lots by site, 16 of which the green
+  // rule had already dropped (net -73), measured at the #114 gate.
   assert.ok(masonry > 20000 && masonry < 30000, `masonry 0-2 reduced but still present (${masonry})`);
   assert.equal(typeof opts.rooftopGearClamp, 'function', 'options carry the rooftop-gear clamp');
 
