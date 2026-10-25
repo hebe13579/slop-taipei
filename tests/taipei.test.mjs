@@ -561,6 +561,11 @@ test('landmark structures: true positions and heights, sites kept clear', (t) =>
     // the chimney.
     'grand-hotel': { h: 87, x: -3905.7, z: -5073.4 },
     'beitou-incinerator': { h: 150, x: -6620.6, z: -8312.4 },
+    // Batch 7 (issue #144): the Performing Arts Center by
+    // Jiantan. The 55 m is the published built height (ASCE,
+    // Jan 2023); the position is the fitted centre of the cube
+    // in the OSM building relation 13913132 (see registry).
+    'taipei-performing-arts-center': { h: 55, x: -4115.4, z: -5777.2 },
   };
   assert.equal(plan.landmarkTowers.length, Object.keys(expected).length, 'all verified structures present');
   const partTop = (p) => (p.y0 || 0) + p.h + (p.type === 'ridge' ? p.ridgeH : 0);
@@ -1056,7 +1061,17 @@ test('taiwan types: family zoning, distribution and rooftop clamp', (t) => {
   // at-grade bed, 15 piercing the guideway). Of the removed
   // lots 27 were glass, 79 Taiwan, 355 masonry: glass
   // 4,375 - 27 = 4,348.
-  assert.equal(glass, 4348, 'glass family counts after #136 + #139, composed with #134 + #137');
+  // Composed with issue #144 (TPAC landmark) at the #144 gate,
+  // diffed lot by lot on this merged tree against the
+  // #134+#137+#139 tree (38,396 / 4,348): the site exclusion
+  // removes the 7 lots that stand on the parcel on this tree
+  // (38,396 -> 38,389; the #134 data refresh re-packed the
+  // parcel's block, so the parcel holds 7 lots here where the
+  // pre-expansion tree held 4). Families: glass -4 (F3 +1,
+  // F4 -3, F5 -2 — two neighbours also change family as their
+  // face-statistic heights move), masonry -1, Taiwan -2:
+  // glass 4,348 - 4 = 4,344.
+  assert.equal(glass, 4344, 'glass family counts after #136 + #139, composed with #134 + #137 and #144');
   const masonry = opts.lots.filter((l) => l.mat <= 2).length;
   // Range re-based for issue #65: the exact ribbon exclusion removed
   // ~4,400 masonry lots that stood on ribbons or in medians; masonry

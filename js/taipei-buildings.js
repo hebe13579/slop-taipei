@@ -1283,6 +1283,82 @@ const LANDMARK_STRUCTURES = [
       { type: 'cylinder', r: 4.9, h: 3.4, y0: 146.6, flat: 0xb9b4a8 },
     ],
   },
+  {
+    // Batch 7 (issue #144): 臺北表演藝術中心 — the Taipei
+    // Performing Arts Center (OMA, opened 2022), immediately SW
+    // of Jiantan station. A 12-storey central cube with three
+    // theatres plugged into it: the Grand Theater (south), the
+    // Blue Box (north) and the spherical Globe Playhouse (east)
+    // — the "planet docking against the cube" of the user's
+    // reference photo. Height 55 m PUBLISHED for the built
+    // building (ASCE Civil Engineering Magazine, Jan 2023: "a
+    // 12-story, 55 m tall central cube"; the 63 m in OMA's
+    // project data is the competition scheme). The Chinese
+    // structural paper （土木水利 42(2), 2015) gives the cube's
+    // structural module as ~55 m tall, 50 × 50 m, the Grand
+    // Theater 37 × 39 m plugged at 3F–8F of the south side and
+    // the multiform theater 29 × 31 m at 3F–7F of the north.
+    // Siting is measured from the OSM building relation
+    // 13913132 (outline way 449040993 + its building:part ways),
+    // fitted in the tile frame: the composition axis is the
+    // cube's fitted centre and every box carries the outline's
+    // measured axis, rotY −0.159 rad (−9.1° — both the west-face
+    // chain and the north edge measure it). The cube's plan
+    // envelope measures 56 × 59 m (the paper's 50 × 50 is the
+    // braced core inside it) and the cube zone's WEST TOWER
+    // slab 19 × 59 m along its west face. The two theatre boxes
+    // take their OSM part footprints (GT 43.6 × 35.6,
+    // MT 32.8 × 27.9)
+    // at their plugged heights over the open plaza storey
+    // (y0 9, the ground storey the whole composition is raised
+    // on: corner pilotis + a ground core + the GT's own legs
+    // stand in for the public-loop undercroft).
+    // The sphere is an ELLIPSOID （實構築季刊： 橢圓形結構）: the
+    // OSM part's arc fits a plan circle of R 22.1 m (max
+    // residual 0.02 m) centred 28 m east of the cube centre
+    // — the published cantilever is 26 m (New Atlas: "juts
+    // outwards by 26 m"), measured from the cube's
+    // structural face; against the OSM envelope's east
+    // steps the disc stands 22 m proud, and the model keeps
+    // the fitted disc position exactly. The Blue Box keeps
+    // its part's exact size but sits 2 m south of the part's
+    // north edge: the lane along the north face (OSM way
+    // 1184381230) has its centreline drawn ON the building's
+    // face line, so the lane's 5 m ribbon clips the true
+    // footprint's NW corner by 0.91 m² in the issue-#42
+    // audit — the closest legal siting, flagged here (the
+    // Main Station's +11 m shift inside its outline, issue
+    // #74, is the same medicine).
+    // Vertically it is squashed: Ø 44 in plan × 34 tall,
+    // spanning 19–53 m (the published 5F–12F band), crown
+    // 2 m under the cube's 55 m roof, as the user's photo
+    // shows. Two hemisphere parts
+    // (one flipped) make the ball; the plan disc the issue-#42
+    // audit tests is the OSM disc. The axis stands ~89 m SW of
+    // the Jiantan guideway centreline; no part reaches the
+    // MRT corridor, and the roadbed audit runs in the PR.
+    id: 'taipei-performing-arts-center', name: 'Taipei Performing Arts Center', nameZh: '臺北表演藝術中心',
+    lat: 25.085153, lon: 121.524222, realHeight: 55, color: 0x232d36,
+    site: { w: 111, d: 137, dx: -1, dz: 5 },
+    // The cube's corrugated dark glass (the theatres' matte
+    // aluminium shells are flat overrides on their parts).
+    facade: { kind: 'curtain', glassTint: 0x1c262f, frameTint: 0x707880, windowWidth: 2.4, floorHeight: 4.6, litProbability: 0.3, warmth: 0.5, reflectivity: 0.9, seed: 57.38 },
+    parts: [
+      { type: 'box', w: 19, d: 59, h: 48, dx: -34.8, dz: 5.8, rotY: -0.159, facade: { kind: 'curtain', glassTint: 0x151b21, frameTint: 0x565e63, windowWidth: 2.0, floorHeight: 4.0, litProbability: 0.26, warmth: 0.5, reflectivity: 0.85, seed: 57.39 } },
+      { type: 'box', w: 26, d: 30, h: 9, dx: 0.3, dz: 2.0, rotY: -0.159, flat: 0x3d4143 },
+      { type: 'box', w: 3.5, d: 3.5, h: 9, dx: 20.0, dz: -27.0, rotY: -0.159, flat: 0x53575a },
+      { type: 'box', w: 3.5, d: 3.5, h: 9, dx: -23.5, dz: -20.0, rotY: -0.159, flat: 0x53575a },
+      { type: 'box', w: 3.5, d: 3.5, h: 9, dx: 27.4, dz: 19.4, rotY: -0.159, flat: 0x53575a },
+      { type: 'box', w: 3.5, d: 3.5, h: 9, dx: -16.0, dz: 26.4, rotY: -0.159, flat: 0x53575a },
+      { type: 'box', w: 3.5, d: 3.5, h: 9, dx: -12.2, dz: 62.7, rotY: -0.159, flat: 0x53575a },
+      { type: 'box', w: 3.5, d: 3.5, h: 9, dx: 19.4, dz: 57.6, rotY: -0.159, flat: 0x53575a },
+      { type: 'box', w: 56, d: 59, h: 46, y0: 9, dx: 2.0, dz: -0.3, rotY: -0.159 },
+      { type: 'box', w: 43.6, d: 35.6, h: 25, y0: 9, dx: 3.6, dz: 47.6, rotY: -0.159, flat: { color: 0xb7bbbd, roughness: 0.5, metalness: 0.3 } },
+      { type: 'box', w: 32.8, d: 27.9, h: 20, y0: 9, dx: -13.9, dz: -39.7, rotY: -0.159, flat: { color: 0xb7bbbd, roughness: 0.5, metalness: 0.3 } },
+      { type: 'dome', rx: 22, rz: 22, h: 17, y0: 36, dx: 29.6, dz: -4.5, flat: { color: 0xc2c5c7, roughness: 0.55, metalness: 0.25 } },
+      { type: 'dome', rx: 22, rz: 22, h: 17, y0: 36, dx: 29.6, dz: -4.5, flip: true, flat: { color: 0xc2c5c7, roughness: 0.55, metalness: 0.25 } },
+    ],
+  },
 ];
 
 // Resolve a structure definition into plan data: true tile-frame
@@ -3146,6 +3222,11 @@ export function createTaipeiLandmarkTowers(THREE, plan, factories) {
         mesh = new THREE.Mesh(new THREE.SphereGeometry(1, 28, 14, 0, Math.PI * 2, 0, Math.PI / 2), partMaterial(part, false));
         mesh.scale.set(part.rx, part.h, part.rz);
         mesh.position.set(s.x + (part.dx || 0), y0, s.z + (part.dz || 0));
+        // flip: the same hemisphere hung below its base plane —
+        // the bottom half of a full ellipsoid (the TPAC sphere,
+        // issue #144) without a second geometry type; the plan
+        // disc the issue-#42 audit tests is unchanged.
+        if (part.flip) mesh.rotation.x = Math.PI;
       } else if (part.type === 'frustum') {
         mesh = new THREE.Mesh(frustumGeometry(THREE, part), partMaterial(part, true));
         mesh.position.set(s.x, y0, s.z);
