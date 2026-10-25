@@ -9,7 +9,8 @@ import { buildRoadMarkings, detectJunctions, DASH_LEN, DASH_GAP, STRIPE_W, STRIP
 import { planJunctionCaps, planRoundabouts, ringPoints, CAP_Y, ISLAND_Y } from './taipei-junctions.js';
 import { buildDeckGeometry, PIER_W, PIER_D } from './taipei-viaduct.js';
 import { unionExclusionRects, clipRectToBoxes } from './taipei-union.js';
-import { createCurtainWallMaterial, createPreWarBuildingMaterial, createTaipeiMarkingMaterial } from './tsl-materials.js';
+import { createCurtainWallMaterial, createPreWarBuildingMaterial, createTaipeiMarkingMaterial, setTaipeiSignAtlases } from './tsl-materials.js';
+import { drawBandAtlas, drawBladeAtlas, BAND_ATLAS, BLADE_ATLAS, TAIPEI_BAND_SIGNS, TAIPEI_BLADE_SIGNS } from './taipei-signs.js';
 import { createBuildProgress, TAIPEI_BUILD_STAGES } from './taipei-progress.js';
 
 // js/taipei-boot.js
@@ -766,6 +767,31 @@ export async function buildTaipeiGround(scene, tile, deps = {}) {
   // import graph, and with it the Pages preload list, stay unchanged.
   // The [taipei-buildings] console line is the boot-log evidence for
   // this step's cost and yield.
+  // Issue #105: real-text 招牌 — paint the shop-name atlases and
+  // inject them into the sign materials BEFORE buildCityBlocks
+  // creates them (the shophouse bands sample the band atlas, the
+  // vertical blades the blade atlas; js/taipei-signs.js holds the
+  // pool and the painters). A failure here must never block the
+  // city: the materials keep their glyph treatment without atlases.
+  try {
+    const mkSignTexture = (draw, atlas) => {
+      const c = document.createElement('canvas');
+      c.width = atlas.w;
+      c.height = atlas.h;
+      draw(c.getContext('2d'));
+      const t = new THREE.CanvasTexture(c);
+      t.colorSpace = THREE.SRGBColorSpace;
+      t.anisotropy = 4;
+      return t;
+    };
+    setTaipeiSignAtlases(
+      mkSignTexture(drawBandAtlas, BAND_ATLAS),
+      mkSignTexture(drawBladeAtlas, BLADE_ATLAS)
+    );
+    console.info(`[taipei-signs] real-text sign atlases ready (${TAIPEI_BAND_SIGNS.length} band plates, ${TAIPEI_BLADE_SIGNS.length} blade plates)`);
+  } catch (err) {
+    console.warn('[taipei-signs] sign atlas build failed; glyph signs remain', err);
+  }
   const buildingsStart = performance.now();
   const plan = planTaipeiBuildings(geo);
   const cityBlocks = deps.buildCityBlocks
