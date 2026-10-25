@@ -960,7 +960,16 @@ test('taiwan types: family zoning, distribution and rooftop clamp', (t) => {
   // F7 +135, F8 +131, F9 +119); masonry 24,125 -> 22,671 (-1,454:
   // F0 -380, F1 -480, F2 -594). Lane/interior lots are unchanged
   // by construction (same gap, vacancy and height rules).
-  assert.equal(glass, 3832, 'glass family counts untouched by the Taiwan-type assignment');
+  // Gate composition with issue #118 (MRT Red Line), re-measured on
+  // THIS merged tree: the ten elevated-station footprints joined
+  // the planner's exclusion sites, dropping exactly 62 lots
+  // (34,707 -> 34,645 — the counterfactual plan with mrtStations
+  // stripped reproduces 34,707 exactly), 7 of them glass (the
+  // station sites sit on #106's tall frontage bands, so more of
+  // the dropped lots are glass here than on the pre-#106 base,
+  // where the same exclusions measured -5): 3,832 - 7 = 3,825.
+  // The MRT test file pins the exclusion itself.
+  assert.equal(glass, 3825, 'glass family counts untouched by the Taiwan-type assignment');
   const masonry = opts.lots.filter((l) => l.mat <= 2).length;
   // Range re-based for issue #65: the exact ribbon exclusion removed
   // ~4,400 masonry lots that stood on ribbons or in medians; masonry

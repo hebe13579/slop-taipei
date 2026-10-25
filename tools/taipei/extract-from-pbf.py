@@ -51,8 +51,12 @@ class Collector(osmium.SimpleHandler):
         super().__init__()
         self.ways = {}        # id -> {tags, nodes:[ids], geometry:[{lat,lon}]}
         self.nodes = {}       # id -> {tags, lat, lon} (only tagged/landmark nodes in bbox)
+        self.station_nodes = {}  # id -> {tags, lat, lon} (railway station/stop nodes in bbox, issue #118)
         self.relations = []   # {tags, members:[(type, ref, role)]}
     def node(self, n):
+        if n.tags.get('railway') in ('station', 'stop', 'halt') or n.tags.get('public_transport') == 'station':
+            if in_bbox(n.location.lat, n.location.lon, M):
+                self.station_nodes[n.id] = {'tags': dict(n.tags), 'lat': n.location.lat, 'lon': n.location.lon}
         if n.tags.get('name:en') == 'Taipei 101' or n.tags.get('name') == '台北101':
             if in_bbox(n.location.lat, n.location.lon, M):
                 self.nodes[n.id] = {'tags': dict(n.tags), 'lat': n.location.lat, 'lon': n.location.lon}
@@ -127,6 +131,15 @@ def main():
     landmarks += [{'type': 'node', 'id': nid, 'tags': n['tags'], 'lat': n['lat'], 'lon': n['lon']}
                   for nid, n in c.nodes.items()]
 
+    # Railways (issue #118): every way carrying a `railway` tag (tracks,
+    # platforms, station outlines) with node refs preserved like roads,
+    # plus the station/stop nodes — the MRT deck + station pass
+    # (tools/taipei/build-mrt.mjs) digests this file.
+    railways = [{'type': 'way', 'id': wid, 'tags': w['tags'], 'nodes': w['nodes'], 'geometry': w['geometry']}
+                for wid, w in c.ways.items() if 'railway' in w['tags']]
+    railways += [{'type': 'node', 'id': nid, 'tags': n['tags'], 'lat': n['lat'], 'lon': n['lon']}
+                 for nid, n in c.station_nodes.items()]
+
     for rel in c.relations:
         outer = [ref for (t, ref, role) in rel['members'] if t == 'w' and role in ('outer', '')]
         rings = stitch(outer, c.ways)
@@ -143,7 +156,7 @@ def main():
             landmarks.append(el)
 
     import os
-    for name, els in [('osm_roads', roads), ('osm_water', water), ('osm_parks', parks), ('osm_landmarks', landmarks), ('osm_green', green)]:
+    for name, els in [('osm_roads', roads), ('osm_water', water), ('osm_parks', parks), ('osm_landmarks', landmarks), ('osm_green', green), ('osm_railways', railways)]:
         path = os.path.join(outdir, name + '.json')
         with open(path, 'w') as f:
             json.dump({'version': 0.6, 'generator': 'extract-from-pbf.py (Geofabrik Taiwan extract)', 'elements': els}, f)

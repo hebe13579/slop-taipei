@@ -8,6 +8,7 @@ import { SURFACE_TONES, surfaceClass, buildMedianStrips, isPlazaPark, isPodiumBl
 import { buildRoadMarkings, detectJunctions, DASH_LEN, DASH_GAP, STRIPE_W, STRIPE_PITCH } from './taipei-markings.js';
 import { planJunctionCaps, planRoundabouts, ringPoints, CAP_Y, ISLAND_Y } from './taipei-junctions.js';
 import { buildDeckGeometry, PIER_W, PIER_D } from './taipei-viaduct.js';
+import { buildMrtStationGeometry } from './taipei-mrt-stations.js';
 import { unionExclusionRects, clipRectToBoxes } from './taipei-union.js';
 import { createCurtainWallMaterial, createPreWarBuildingMaterial, createTaipeiMarkingMaterial, setTaipeiSignAtlases } from './tsl-materials.js';
 import { drawBandAtlas, drawBladeAtlas, BAND_ATLAS, BLADE_ATLAS, TAIPEI_BAND_SIGNS, TAIPEI_BLADE_SIGNS } from './taipei-signs.js';
@@ -190,6 +191,25 @@ function buildDeckPierMesh(piers) {
     mesh.setMatrixAt(i, dummy.matrix);
   });
   mesh.instanceMatrix.needsUpdate = true;
+  mesh.castShadow = true;
+  mesh.receiveShadow = true;
+  return mesh;
+}
+
+// MRT elevated stations (issue #118): one merged vertex-coloured
+// mesh for all station structures. The geometry builder is pure
+// (js/taipei-mrt-stations.js); the defs come from the pipeline
+// (geodata.mrtStations — OSM anchor + track yaw + measured length).
+function buildMrtStationMesh(stations) {
+  if (!stations?.length) return null;
+  const g = buildMrtStationGeometry(stations);
+  if (!g.triCount) return null;
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute('position', new THREE.BufferAttribute(g.positions, 3));
+  geo.setAttribute('normal', new THREE.BufferAttribute(g.normals, 3));
+  geo.setAttribute('color', new THREE.BufferAttribute(g.colors, 3));
+  const mesh = new THREE.Mesh(geo, new THREE.MeshStandardNodeMaterial({ vertexColors: true, roughness: 0.92, metalness: 0.0 }));
+  mesh.name = 'TaipeiMrtStations';
   mesh.castShadow = true;
   mesh.receiveShadow = true;
   return mesh;
@@ -755,7 +775,26 @@ export async function buildTaipeiGround(scene, tile, deps = {}) {
     if (pierMesh) group.add(pierMesh);
     console.info(`[taipei-decks] ${deckGeo.lineCount} deck lines (${geo.elevatedRoads.stats?.lineKm ?? '?'} km), ${deckGeo.pierCount} piers, ${deckGeo.triCount.toLocaleString('en-US')} triangles in ${Math.round(performance.now() - decksStart)}ms`);
   }
-  await completeStage('decks', geo.elevatedRoads?.lines?.length ? `${geo.elevatedRoads.lines.length} elevated lines` : 'no elevated roads in tile');
+  // MRT Red Line (issue #118): the same deck idiom on the sibling
+  // geodata field — guideway decks (elevated 圓山→北投 + branch,
+  // portal ramp out of the 民權西路 tunnel, at-grade low bed after
+  // Beitou) plus the elevated station structures. The underground
+  // stretch emits nothing, as it should.
+  let mrtDetail = '';
+  if (geo.mrtDecks?.lines?.length) {
+    const mrtGeo = buildDeckGeometry(geo.mrtDecks);
+    const mrtConcrete = addLayer(deckPartGeometry(mrtGeo.concrete), mat(0x98958a, 0.95), 'TaipeiMrtDecks');
+    mrtConcrete.castShadow = true;
+    const mrtTop = addLayer(deckPartGeometry(mrtGeo.asphalt), mat(SURFACE_TONES.deck, 0.9), 'TaipeiMrtDeckAsphalt');
+    mrtTop.castShadow = true;
+    const mrtPiers = buildDeckPierMesh(geo.mrtDecks.piers || []);
+    if (mrtPiers) { mrtPiers.name = 'TaipeiMrtDeckPiers'; group.add(mrtPiers); }
+    const stationMesh = buildMrtStationMesh(geo.mrtStations || []);
+    if (stationMesh) group.add(stationMesh);
+    mrtDetail = `, MRT ${geo.mrtDecks.lines.length} lines + ${(geo.mrtStations || []).length} stations`;
+    console.info(`[taipei-mrt] ${mrtGeo.lineCount} deck lines (${geo.mrtDecks.stats?.lineKm ?? '?'} km), ${mrtGeo.pierCount} piers, ${(geo.mrtStations || []).length} elevated stations`);
+  }
+  await completeStage('decks', geo.elevatedRoads?.lines?.length ? `${geo.elevatedRoads.lines.length} elevated lines${mrtDetail}` : 'no elevated roads in tile');
 
   // Buildings on the raster blocks + the Taipei 101 massing. The lot
   // plan is js/taipei-buildings.js's; the rendering is upstream's
