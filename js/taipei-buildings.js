@@ -572,9 +572,13 @@ const LANDMARK_STRUCTURES = [
     // curtain factory tuned to near-zero lit windows, wide panels
     // and matched glass/frame tones reads as panel bands; the cap
     // is a flat silvery shell (see the part note). The entrance
-    // gets an abstract glyph band (project stylization).
+    // gets an abstract glyph band (project stylization) — on the
+    // NORTH rim since issue #98: Gate 1, the main entrance,
+    // fronts Zhongxiao East Road (zh-Wikipedia captions its
+    // Gate 1 photo 台北大巨蛋正門， the dome's main gate); the
+    // band previously sat on the south rim, facing the park.
     facade: { kind: 'curtain', glassTint: 0xb7b1a1, frameTint: 0xa39c8c, windowWidth: 7.6, floorHeight: 5.5, litProbability: 0.05, warmth: 0.5, reflectivity: 0.5, seed: 57.21 },
-    sign: { glyphs: 7, w: 40, h: 4.5, y: 11, dx: 0, dz: 95.4, bg: '#3a3f45', fg: '#ddd6c2' },
+    sign: { glyphs: 7, w: 40, h: 4.5, y: 11, dx: 0, dz: -95.4, rotY: Math.PI, bg: '#3a3f45', fg: '#ddd6c2' },
     parts: [
       { type: 'cylinder', r: 125, rz: 95, h: 22 },
       // The cap is a smooth titanium shell: the curtain factory's
@@ -669,9 +673,12 @@ const LANDMARK_STRUCTURES = [
     site: { w: 244, d: 140, dx: 33, dz: 18 },
     // Issue #57: brick-red masonry for the factory hall and boiler
     // room; the roof ridge and chimney stay flat brick/tile tones.
-    // An abstract glyph band marks the hall entrance.
+    // An abstract glyph band marks the hall entrance — on the
+    // WEST face since issue #98 (zh-Wikipedia's park article: the
+    // factory's 入口在西側， its entrance is on the west side,
+    // where the office wing stands); it previously sat south.
     facade: { kind: 'prewar', stoneColor: 0x9a6a52, trimColor: 0x7c5540, windowGlassColor: 0x232f3a, windowWidth: 3.2, floorHeight: 5.0, litProbability: 0.28, warmth: 0.72, seed: 57.24 },
-    sign: { glyphs: 6, w: 38, h: 3.4, y: 7.2, dx: 0, dz: 46.9, bg: '#4a3226', fg: '#e6d9c3' },
+    sign: { glyphs: 6, w: 38, h: 3.4, y: 7.2, dx: -82.9, dz: 0, rotY: -Math.PI / 2, bg: '#4a3226', fg: '#e6d9c3' },
     parts: [
       { type: 'box', w: 165, d: 93, h: 10 },
       { type: 'ridge', w: 165, d: 93, h: 0, ridgeH: 4, y0: 10, flat: 0x6e4a38 },
@@ -747,18 +754,37 @@ const LANDMARK_STRUCTURES = [
     // outline's north-west taper is left unbuilt), the shaft
     // stands on the podium's north half, and the crown is one
     // frustum taper to a small cap: 22 + 194 + 24 + 4.15 = 244.15.
+    //
+    // Issues #98/#99 (facing audit; evidence in the PR): the
+    // front is NORTH. The office portal — the gold 新光人壽保險
+    // 摩天大樓 band zh-Wikipedia captions 正面外牆題字, the
+    // inscription on the FRONT exterior wall — flanked by the
+    // Mitsukoshi entrances, opens on the forecourt on Zhongxiao
+    // West Road, and the store fills the tower's own B2–13F
+    // (zh floor table): there is no separate low podium. The
+    // #74 massing got both wrong — the glyph band sat on the
+    // shaft's SOUTH face, and the podium was a 22 m annexe
+    // offset south with the shaft protruding past its north
+    // edge. The base is now the full 13-storey store (52 m)
+    // inside the outline, a 6 m mechanical band stepping back
+    // on E/W/S (the terraces the east elevation shows), and
+    // the shaft rising from it with its north face flush with
+    // the base's: 52 + 6 + 158 + 24 + 4.15 = 244.15. The glyph
+    // band moves to the shaft's north face.
     id: 'shin-kong-life-tower', name: 'Shin Kong Life Tower', nameZh: '新光人壽保險大樓',
     lat: 25.046166, lon: 121.515295, realHeight: 244.15, color: 0xbfb198,
     site: { w: 52, d: 96, dx: 1, dz: 10 },
-    // Issue #57 machinery: beige stone grid on shaft and podium
-    // (the podium a wider-bayed retail variant); the crown stays
-    // flat stone, and the Chinese name the real crown carries is
-    // an abstract glyph band on the shaft's south face.
+    // Issue #57 machinery: beige stone grid on shaft and base
+    // (the base a wider-bayed retail variant); the crown stays
+    // flat stone, and the Chinese name the real building carries
+    // is an abstract glyph band on the shaft's north face (the
+    // front — issue #98; before the audit it sat on the south).
     facade: { kind: 'prewar', stoneColor: 0xcabfa5, trimColor: 0xa2937a, windowGlassColor: 0x2c3844, windowWidth: 2.8, floorHeight: 4.4, litProbability: 0.32, warmth: 0.6, seed: 57.27 },
-    sign: { glyphs: 4, w: 20, h: 3.6, y: 205, dx: 0, dz: 21.4, bg: '#33302a', fg: '#e8dfc8' },
+    sign: { glyphs: 4, w: 20, h: 3.6, y: 205, dx: 0, dz: -21.4, rotY: Math.PI, bg: '#33302a', fg: '#e8dfc8' },
     parts: [
-      { type: 'box', w: 36, d: 70, h: 22, dx: 2, dz: 23, facade: { kind: 'prewar', stoneColor: 0xbfb198, trimColor: 0x9c8f76, windowGlassColor: 0x2c3844, windowWidth: 3.6, floorHeight: 3.7, litProbability: 0.4, warmth: 0.62, seed: 57.33 } },
-      { type: 'box', w: 34, d: 42, h: 194, y0: 22 },
+      { type: 'box', w: 38, d: 80, h: 52, dx: 1.7, dz: 19, facade: { kind: 'prewar', stoneColor: 0xbfb198, trimColor: 0x9c8f76, windowGlassColor: 0x2c3844, windowWidth: 4.6, floorHeight: 4.0, litProbability: 0.4, warmth: 0.62, seed: 57.33 } },
+      { type: 'box', w: 36, d: 76, h: 6, y0: 52, dx: 0.8, dz: 17, flat: 0xbfb198 },
+      { type: 'box', w: 34, d: 42, h: 158, y0: 58 },
       { type: 'frustum', wB: 34, dB: 42, wT: 9, dT: 14, h: 24, y0: 216, flat: 0xc0b090 },
       { type: 'box', w: 9, d: 14, h: 4.15, y0: 240, flat: 0xa89878 },
     ],
@@ -766,23 +792,38 @@ const LANDMARK_STRUCTURES = [
   {
     // Station district batch (issue #74). 48 m published (the
     // OSM height tag on way 23641610 says 30 m — wrong; the
-    // station house is six floors under a tall red hip roof with
-    // the clock tower over the central hall). The OSM outline
-    // (178.5 × 153.7 m) is the whole station block, and like the
-    // district grid it slants ~10° against the tile frame; the
-    // massing simplifies to an axis-aligned house (150 × 96 m)
-    // placed inside the outline with margin on every side, its
-    // red roof as three stepped boxes (the ridge primitive takes
-    // no offset, and the house is offset within its block) and
-    // the clock tower at the roof's centre: 27 + 3.5 + 5 + 4.5
-    // + 8 = 48. The 臺北車站 characters over the south entrance
-    // are an abstract glyph band. Placement disclosure (issue
-    // #74): the house sits +11 m east of the outline centre —
-    // at centre, its NW corner clipped the diagonal 承德路一段
-    // roadbed ribbon west of the block (0.52 m² on the house,
-    // 38.8 m² on the eaves); shifted east and with the eaves
-    // trimmed to 154 × 100 it clears the ribbon and stays
-    // inside the outline on every side.
+    // station house is six floors under a tall red hip roof).
+    // The OSM outline (178.5 × 153.7 m) is the whole station
+    // block, and like the district grid it slants ~10° against
+    // the tile frame; the massing simplifies to an axis-aligned
+    // house (150 × 96 m) placed inside the outline with margin
+    // on every side. The 臺北車站 characters over the south
+    // entrance are an abstract glyph band, and two red-capped
+    // entrance porticos stand on the south face (issue #98,
+    // from the south-facade reference photo). Placement
+    // disclosure (issue #74): the house sits +11 m east of the
+    // outline centre — at centre, its NW corner clipped the
+    // diagonal 承德路一段 roadbed ribbon west of the block
+    // (0.52 m² on the house, 38.8 m² on the eaves); shifted
+    // east and with the eaves trimmed to 154 × 100 it clears
+    // the ribbon and stays inside the outline on every side.
+    //
+    // Issue #98 (facing audit; evidence in the PR): the front
+    // was already south — the glyph band's side was right —
+    // but the roof was wrong twice over. The #74 "clock tower"
+    // box does not exist: the south-facade photo and the
+    // satellite both show ONE red hip roof with a central flat
+    // skylight deck and no tower of any kind (the only clock
+    // is a small LED panel on the facade). The tower box is
+    // deleted, and the roof is re-profiled from three chunky
+    // slabs (a ziggurat read) to six fine steps inside the
+    // audited 154 × 100 eaves footprint, rising to the same
+    // skylight deck: 27 + 6 × 3.25 + 1.5 = 48. A true frustum
+    // hip was measured and rejected: the frustum/ridge
+    // primitives are centre-locked, and a centred 148 m roof
+    // clipped the 承德路 ribbon by 19.48 m² (the audit's own
+    // number), so the stepped boxes stay — every step inside
+    // the footprint the audit already clears.
     id: 'taipei-main-station', name: 'Taipei Main Station', nameZh: '臺北車站',
     lat: 25.047652, lon: 121.517046, realHeight: 48, color: 0xcbb694,
     site: { w: 186, d: 162, dx: 0, dz: 0 },
@@ -790,10 +831,17 @@ const LANDMARK_STRUCTURES = [
     sign: { glyphs: 4, w: 30, h: 4, y: 20, dx: 11, dz: 42.4, bg: '#7c3a2c', fg: '#efe6d0' },
     parts: [
       { type: 'box', w: 150, d: 96, h: 27, dx: 11, dz: -6 },
-      { type: 'box', w: 154, d: 100, h: 3.5, y0: 27, dx: 11, dz: -6, flat: 0x9c4a38 },
-      { type: 'box', w: 128, d: 78, h: 5, y0: 30.5, dx: 11, dz: -6, flat: 0x9c4a38 },
-      { type: 'box', w: 92, d: 54, h: 4.5, y0: 35.5, dx: 11, dz: -6, flat: 0x94422f },
-      { type: 'box', w: 20, d: 22, h: 8, y0: 40, dx: 11, dz: -6 },
+      { type: 'box', w: 154, d: 100, h: 3.25, y0: 27, dx: 11, dz: -6, flat: 0x9c4a38 },
+      { type: 'box', w: 139, d: 86, h: 3.25, y0: 30.25, dx: 11, dz: -6, flat: 0x9c4a38 },
+      { type: 'box', w: 125, d: 72, h: 3.25, y0: 33.5, dx: 11, dz: -6, flat: 0x9c4a38 },
+      { type: 'box', w: 110, d: 58, h: 3.25, y0: 36.75, dx: 11, dz: -6, flat: 0x9c4a38 },
+      { type: 'box', w: 95, d: 44, h: 3.25, y0: 40, dx: 11, dz: -6, flat: 0x9c4a38 },
+      { type: 'box', w: 80, d: 30, h: 3.25, y0: 43.25, dx: 11, dz: -6, flat: 0x9c4a38 },
+      { type: 'box', w: 62, d: 12, h: 1.5, y0: 46.5, dx: 11, dz: -6, flat: 0x39434e },
+      { type: 'box', w: 16, d: 5, h: 6, dx: -27, dz: 44.5 },
+      { type: 'box', w: 18, d: 7, h: 1.2, y0: 6, dx: -27, dz: 44.5, flat: 0x9c4a38 },
+      { type: 'box', w: 16, d: 5, h: 6, dx: 49, dz: 44.5 },
+      { type: 'box', w: 18, d: 7, h: 1.2, y0: 6, dx: 49, dz: 44.5, flat: 0x9c4a38 },
     ],
   },
   {
@@ -821,6 +869,68 @@ const LANDMARK_STRUCTURES = [
       { type: 'frustum', wB: 70, dB: 70, wT: 54, dT: 54, h: 12, y0: 40.5, flat: 0x1e4d8c },
       { type: 'frustum', wB: 52, dB: 52, wT: 30, dT: 30, h: 10, y0: 52.5, flat: 0x1e4d8c },
       { type: 'cylinder', r: 3.2, h: 7.5, y0: 62.5, flat: 0xcfa14e },
+      // Issue #98: the front the references show, authored on the
+      // WEST face (the Liberty Square side): a stair climbing the
+      // terrace's west face in three giant treads, then the great
+      // staircase up the hall's west face — five marble steps with
+      // the pale central ramp strips (the carved 御路） — to the
+      // dark arched entrance recess and its red plaque. Before
+      // this fix the structure was perfectly symmetric, with no
+      // front feature on any side.
+      { type: 'box', w: 26, d: 5, h: 4.8, dx: -61.5, flat: 0xb3aa99 },
+      { type: 'box', w: 26, d: 7, h: 9.6, dx: -55.5, flat: 0xb3aa99 },
+      { type: 'box', w: 26, d: 9, h: 14.5, dx: -49.5, flat: 0xb3aa99 },
+      { type: 'box', w: 44, d: 13, h: 1.9, y0: 14.5, dx: -37.5, flat: 0xe3ddd0 },
+      { type: 'box', w: 44, d: 10.4, h: 1.9, y0: 16.4, dx: -36.2, flat: 0xe3ddd0 },
+      { type: 'box', w: 44, d: 7.8, h: 1.9, y0: 18.3, dx: -34.9, flat: 0xe3ddd0 },
+      { type: 'box', w: 44, d: 5.2, h: 1.9, y0: 20.2, dx: -33.6, flat: 0xe3ddd0 },
+      { type: 'box', w: 44, d: 2.6, h: 1.9, y0: 22.1, dx: -32.3, flat: 0xe3ddd0 },
+      { type: 'box', w: 10, d: 2.2, h: 0.32, y0: 16.4, dx: -42.8, flat: 0xefe9db },
+      { type: 'box', w: 10, d: 2.2, h: 0.32, y0: 18.3, dx: -40.1, flat: 0xefe9db },
+      { type: 'box', w: 10, d: 2.2, h: 0.32, y0: 20.2, dx: -37.5, flat: 0xefe9db },
+      { type: 'box', w: 10, d: 2.2, h: 0.32, y0: 22.1, dx: -34.9, flat: 0xefe9db },
+      { type: 'box', w: 10, d: 2.2, h: 0.32, y0: 24, dx: -32.3, flat: 0xefe9db },
+      { type: 'box', w: 11, d: 0.6, h: 8.5, y0: 24, dx: -31.3, flat: 0x17120e },
+      { type: 'box', w: 3.6, d: 0.7, h: 4.8, y0: 33.2, dx: -31.3, flat: 0x7a2e22 },
+      // The perimeter wall (user request, 2026-10-24): the whole
+      // memorial park is enclosed by a thin white ROOFED CORRIDOR
+      // wall — white walls under a blue tile roof, ~1,200 m of it
+      // (taiwanobsessed visitor guide; EN Wikipedia for the gates).
+      // Modelled as white runs (h 3, 0.8 thick) with a blue roof
+      // cap (h 0.55, 1.7 wide) following the 中正紀念公園 polygon's
+      // four corner-to-corner edges, inset 2.5 m, ends pulled 6 m
+      // off the corners (satellite: refs/sat-cks-park-z17-overlay
+      // .jpg). Gate gaps where the real gates are (EN Wikipedia):
+      // the main gate （大中至正 / Liberty Square Arch) WEST on
+      // 中山南路 at the square axis (38 m), 大忠門 NORTH on 信義路
+      // 一段 on the hall's cross-axis (16 m), 大孝門 SOUTH on
+      // 愛國東路 on the cross-axis (16 m); the 杭州南路一段 east
+      // edge runs continuous. Two further 16 m breaks (one each
+      // on the north and south runs) are NOT gates: the
+      // generation map carries a 6.4 m bed named 林森南路車行
+      // 地下道 diagonally across the park (an underpass in the
+      // data — never modelled, per the standing rule), and the
+      // wall yields where that modelled bed crosses it. The
+      // road-overlap audit covers these parts like any other —
+      // they must stay at 0.000 m².
+      { type: 'box', w: 142.9, d: 0.8, h: 3, dx: -385.1, dz: -305.1, rotY: 1.8592, flat: 0xe9e4d4 },
+      { type: 'box', w: 142.9, d: 1.7, h: 0.55, y0: 3, dx: -385.1, dz: -305.1, rotY: 1.8592, flat: 0x2c4a7c },
+      { type: 'box', w: 157.5, d: 0.8, h: 3, dx: -438.7, dz: -124.6, rotY: 1.8592, flat: 0xe9e4d4 },
+      { type: 'box', w: 157.5, d: 1.7, h: 0.55, y0: 3, dx: -438.7, dz: -124.6, rotY: 1.8592, flat: 0x2c4a7c },
+      { type: 'box', w: 260.5, d: 0.8, h: 3, dx: -342.4, dz: 20.4, rotY: 0.4872, flat: 0xe9e4d4 },
+      { type: 'box', w: 260.5, d: 1.7, h: 0.55, y0: 3, dx: -342.4, dz: 20.4, rotY: 0.4872, flat: 0x2c4a7c },
+      { type: 'box', w: 138.7, d: 0.8, h: 3, dx: -151.9, dz: 121.4, rotY: 0.4872, flat: 0xe9e4d4 },
+      { type: 'box', w: 138.7, d: 1.7, h: 0.55, y0: 3, dx: -151.9, dz: 121.4, rotY: 0.4872, flat: 0x2c4a7c },
+      { type: 'box', w: 171.8, d: 0.8, h: 3, dx: -0.6, dz: 201.5, rotY: 0.4872, flat: 0xe9e4d4 },
+      { type: 'box', w: 171.8, d: 1.7, h: 0.55, y0: 3, dx: -0.6, dz: 201.5, rotY: 0.4872, flat: 0x2c4a7c },
+      { type: 'box', w: 336.7, d: 0.8, h: 3, dx: 164.3, dz: 91.6, rotY: -1.0704, flat: 0xe9e4d4 },
+      { type: 'box', w: 336.7, d: 1.7, h: 0.55, y0: 3, dx: 164.3, dz: 91.6, rotY: -1.0704, flat: 0x2c4a7c },
+      { type: 'box', w: 176.3, d: 0.8, h: 3, dx: 164.4, dz: -104.8, rotY: -2.6617, flat: 0xe9e4d4 },
+      { type: 'box', w: 176.3, d: 1.7, h: 0.55, y0: 3, dx: 164.4, dz: -104.8, rotY: -2.6617, flat: 0x2c4a7c },
+      { type: 'box', w: 138.2, d: 0.8, h: 3, dx: 10.7, dz: -184.8, rotY: -2.6617, flat: 0xe9e4d4 },
+      { type: 'box', w: 138.2, d: 1.7, h: 0.55, y0: 3, dx: 10.7, dz: -184.8, rotY: -2.6617, flat: 0x2c4a7c },
+      { type: 'box', w: 330.3, d: 0.8, h: 3, dx: -211.3, dz: -300.3, rotY: -2.6617, flat: 0xe9e4d4 },
+      { type: 'box', w: 330.3, d: 1.7, h: 0.55, y0: 3, dx: -211.3, dz: -300.3, rotY: -2.6617, flat: 0x2c4a7c },
     ],
   },
   {
@@ -828,10 +938,17 @@ const LANDMARK_STRUCTURES = [
     // palace halls flanking Liberty Square (the north hall):
     // cream walls under a golden Chinese hip roof, massed as a
     // plinth, a wall block, a frustum hip and a ridge crest.
-    // Height 37 m is the OSM tag on way 1052759775 (118.5 ×
+    // Height 37 m is the OSM tag on way 1052759776 (118.5 ×
     // 113.7 m outline) — no figure is published anywhere, so
     // the entry is flagged estimated.
-    id: 'national-concert-hall', name: 'National Concert Hall', nameZh: '國家音樂廳',
+    // Issue #98 sweep correction: this entry was LABELLED the
+    // concert hall until this PR, but the north hall is the
+    // National THEATER (EN Wikipedia: the memorial "is flanked
+    // on the north and south by the National Theater and
+    // National Concert Hall"; OSM way 1052759776's outline sits
+    // at this entry's lat/lon, verified against the PBF). The
+    // two entries' names were swapped; geometry never moved.
+    id: 'national-theater', name: 'National Theater', nameZh: '國家戲劇院',
     lat: 25.036985, lon: 121.519262, realHeight: 37, estimated: true, color: 0xdccfa9,
     site: { w: 126, d: 121, dx: 0, dz: 0 },
     facade: { kind: 'prewar', stoneColor: 0xe6d9bc, trimColor: 0xbfae87, windowGlassColor: 0x2a3644, windowWidth: 3.4, floorHeight: 5.0, litProbability: 0.26, warmth: 0.68, seed: 57.30 },
@@ -844,11 +961,13 @@ const LANDMARK_STRUCTURES = [
   },
   {
     // Station district batch (issue #74). The south twin of the
-    // concert hall across Liberty Square — the same palace
-    // recipe at its own OSM outline (way 1052759776, 122.9 ×
-    // 116.0 m), the mirror of the pair. Height 37 m is the OSM
-    // tag (levels 7); unpublished, so flagged estimated.
-    id: 'national-theater', name: 'National Theater', nameZh: '國家戲劇院',
+    // theater across Liberty Square — the same palace recipe at
+    // its own OSM outline (way 1052759775, 122.9 × 116.0 m),
+    // the mirror of the pair. Height 37 m is the OSM tag
+    // (levels 7); unpublished, so flagged estimated. Labelled
+    // the theater until issue #98 — the south hall is the
+    // National CONCERT Hall (see the north entry's note).
+    id: 'national-concert-hall', name: 'National Concert Hall', nameZh: '國家音樂廳',
     lat: 25.035319, lon: 121.518245, realHeight: 37, estimated: true, color: 0xdccfa9,
     site: { w: 130, d: 123, dx: 0, dz: 0 },
     facade: { kind: 'prewar', stoneColor: 0xe6d9bc, trimColor: 0xbfae87, windowGlassColor: 0x2a3644, windowWidth: 3.4, floorHeight: 5.0, litProbability: 0.26, warmth: 0.68, seed: 57.31 },
@@ -2157,6 +2276,11 @@ function landmarkSignMesh(THREE, s) {
     new THREE.MeshBasicNodeMaterial({ map: tex })
   );
   mesh.position.set(s.x + (sign.dx || 0), sign.y, s.z + (sign.dz || 0));
+  // Issue #98: sign.rotY is the plane's own rotation — the plane
+  // faces +z (south) by default, so a band authored on a north
+  // face carries rotY π and one on a west face −π/2, turning it
+  // to face OUTWARD off its wall instead of into it.
+  if (sign.rotY) mesh.rotation.y = sign.rotY;
   mesh.name = 'LandmarkSign';
   return mesh;
 }
