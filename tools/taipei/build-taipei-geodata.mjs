@@ -489,6 +489,36 @@ if (fs.existsSync(path.join(DATA, 'osm_green.json'))) {
 const green = greenRaw.map(({ name, cls, ring }) => ({ name, cls, ring }));
 const greenArea = greenRaw.reduce((s, p) => s + p.area, 0);
 
+// ---- real building heights (issue #128) ----
+// osm_heights.json is built by tools/taipei/build-heights.py from the
+// two OGDL datasets (building permits 151936, door plate points
+// 155472 — both fetched from data.gov.tw / data.taipei by that
+// script) plus OSM footprints carrying height / building:levels tags
+// from the same PBF extract as everything else. Only footprints that
+// carry a signal are in the layer. The planner samples it per lot:
+// permit floors > OSM height / levels at the lot > the median of the
+// door floors on the lot's block face > a neighbourhood field over
+// the real heights > the procedural bands. Doors are plate POINTS
+// (one per address, sampling the whole building), shipped flat
+// [x, z, maxFloors, ...]. An older checkout without the file builds
+// with a null layer and the planner stays fully procedural.
+let heights = null;
+if (fs.existsSync(path.join(DATA, 'osm_heights.json'))) {
+  const hj = load('osm_heights.json');
+  const footprints = [];
+  for (const f of hj.footprints || []) {
+    const ring = flat((f.ring || []).map(([lat, lon]) => toWorld(lon, lat)));
+    if (ring.length < 8) continue;
+    footprints.push({ src: f.src, floors: f.floors ?? null, height: f.height ?? null, ring });
+  }
+  const doors = [];
+  for (const d of hj.doors || []) {
+    const [x, z] = toWorld(d[1], d[0]);
+    doors.push(q(x), q(z), d[2]);
+  }
+  heights = { sources: hj.sources || {}, factors: hj.factors || null, footprints, doors };
+}
+
 // ---- landmarks ----
 const landmarks = {};
 const lmSeen = [];
@@ -599,7 +629,7 @@ blocks.sort((a, b) => b.area - a.area);
 const TAIPEI_GEO = {
   version: 1,
   frame: { origin: 'Taipei 101 (25.0330, 121.5650)', originLatLon: [LAT0, LON0], bearingDeg: 0, units: 'm', bbox: BBOX, boxes: BOXES_WORLD },
-  roads, roadGraph, roadbeds, water, parks, green, landmarks, blocks,
+  roads, roadGraph, roadbeds, water, parks, green, heights, landmarks, blocks,
 };
 
 // ---- elevated decks (issue #61) ----
@@ -657,6 +687,9 @@ console.log('[taipei-geodata] road classes:', Object.entries(roadClassCounts).so
 console.log(`[taipei-geodata] water: ${water.length} polygons, ${(waterArea / 1e6).toFixed(3)} km2`);
 console.log(`[taipei-geodata] parks: ${parks.length} polygons, ${(parksArea / 1e6).toFixed(3)} km2`);
 console.log(`[taipei-geodata] green: ${green.length} polygons, ${(greenArea / 1e6).toFixed(3)} km2 (issue #114)`);
+console.log(heights
+  ? `[taipei-geodata] heights: ${heights.footprints.length} signal footprints, ${heights.doors.length / 3} door points (issue #128)`
+  : '[taipei-geodata] heights: no osm_heights.json — planner stays procedural (issue #128)');
 console.log(`[taipei-geodata] blocks: ${blocks.length} (raster ${RES} m, min 400 m2; bounding rect + centroid + area, no polygon tracing)`);
 console.log(`[taipei-geodata] landmarks found: ${lmSeen.length ? lmSeen.join(' | ') : '(none)'}`);
 console.log(`[taipei-geodata] wrote ${OUT} (${(fs.statSync(OUT).size / 1024).toFixed(0)} KB)`);

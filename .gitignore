@@ -1,1 +1,6 @@
 .DS_Store
+# Issue #128: raw OGDL downloads for build-heights.py (doors CSV ~125 MB, never committed)
+tools/taipei/data/heights-downloads/
+
+# Python bytecode from the tools/taipei pipeline scripts
+__pycache__/
