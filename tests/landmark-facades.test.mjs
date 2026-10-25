@@ -40,6 +40,10 @@ const EXPECTED_FACADES = {
   // hall's concrete grid (the chimney parts are flat-coloured).
   'grand-hotel': 'prewar',
   'beitou-incinerator': 'prewar',
+  // Batch 7 (issue #144): TPAC — the cube's corrugated dark
+  // glass takes the curtain factory; the sphere and theatre
+  // boxes are matte aluminium flat overrides on their parts.
+  'taipei-performing-arts-center': 'curtain',
 };
 
 // The only Latin wordmarks a landmark sign may carry — the ones the
