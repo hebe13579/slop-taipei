@@ -215,15 +215,22 @@ test('ground network unchanged: beds, junctions and caps exactly as before decks
   // this test protects is unchanged: decks do not remove a single
   // bed or cap — the delta is #74's, documented in the
   // generation-map rule and the taipei-junctions census re-pin.
-  assert.equal(TAIPEI_GEO.roadbeds.length, 5770, 'roadbed count unchanged (deck beds are flagged, not removed)');
+  // Census re-pinned for issue #83 (general park service-drive
+  // exclusion): the rule generalized to every park — 62 more
+  // rendered beds dropped (5,770 -> 5,708) and the park webs'
+  // internal junctions dissolved (1,152 -> 1,136; caps 1,145 ->
+  // 1,129). The invariant is unchanged, same reasoning as #74:
+  // the delta is #83's, documented in the generation-map rule and
+  // the taipei-junctions census re-pin.
+  assert.equal(TAIPEI_GEO.roadbeds.length, 5708, 'roadbed count unchanged (deck beds are flagged, not removed)');
   const junctions = detectJunctions(carriageways);
-  assert.equal(junctions.length, 1152, 'ground junction detection unchanged');
+  assert.equal(junctions.length, 1136, 'ground junction detection unchanged');
   const caps = planJunctionCaps(carriageways, junctions);
   // Gate re-pin (PR #78 onto post-#77 main): caps = junctions minus the 7
   // junctions claimed by #77's handcrafted roundabout sites (Renai 4 +
   // Dongmen 3). The invariant this test protects is unchanged: decks do not
   // remove a single cap — the delta is #77's, documented in its audit.
-  assert.equal(caps.length, 1145, 'junction caps still planned over the full bed set, deck beds included (1152 detected − 7 roundabout-claimed, #77)');
+  assert.equal(caps.length, 1129, 'junction caps still planned over the full bed set, deck beds included (1136 detected − 7 roundabout-claimed, #77)');
 });
 
 test('viaduct renderer: synthetic box section with parapets', () => {
