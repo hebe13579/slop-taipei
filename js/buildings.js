@@ -2631,18 +2631,46 @@ function buildCityBlocks(scene, opts = null) {
   // instance from the weathered palette (the awning instance-colour
   // pattern). Filled from blk.rooftopAdds, which only the Taipei gear
   // clamp produces; Manhattan blocks never carry any.
+  // Issue #100: a third instanced mesh, the sloped CAP — a unit
+  // triangular prism (x/z in [-0.5, 0.5], y in [0, 1], top sloping from
+  // y=1 at z=-0.5 down to y=0 at z=+0.5) that fills between the hut
+  // box's flat top and its pitched sheet, so the addition's walls
+  // follow the roof slope the way the real lean-to additions are
+  // built. At the old patch size the void under the sheet's high edge
+  // was invisible; at full-roof size it read as a floating plane.
+  const hutCapGeo = (() => {
+    // A = high-left, B = high-right (z = -0.5, y = 1); C/D = low corners
+    // (z = +0.5, y = 0); E/F = the high back's feet. Triangles are wound
+    // for outward normals (verified against the slope/back/end planes).
+    const A = [-0.5, 1, -0.5], B = [0.5, 1, -0.5], C = [0.5, 0, 0.5], D = [-0.5, 0, 0.5];
+    const E = [-0.5, 0, -0.5], F = [0.5, 0, -0.5];
+    const verts = new Float32Array([
+      ...A, ...C, ...B, ...A, ...D, ...C,   // sloped top
+      ...E, ...B, ...F, ...E, ...A, ...B,   // high back
+      ...E, ...D, ...A,                     // x = -0.5 end
+      ...F, ...B, ...C,                     // x = +0.5 end
+    ]);
+    const g = new THREE.BufferGeometry();
+    g.setAttribute('position', new THREE.BufferAttribute(verts, 3));
+    g.computeVertexNormals();
+    return g;
+  })();
   const MAX_ROOFTOP_ADDS = 512;
   const hutPalette = [0x9e3d34, 0x4a6b52, 0x7d8894, 0x8a4a3a].map((c) => new THREE.Color(c));
-  const hutInst = new THREE.InstancedMesh(unitBox, new THREE.MeshStandardNodeMaterial({ color: 0xffffff, roughness: 0.58, metalness: 0.35 }), MAX_ROOFTOP_ADDS);
+  const hutMat = new THREE.MeshStandardNodeMaterial({ color: 0xffffff, roughness: 0.58, metalness: 0.35 });
+  const hutInst = new THREE.InstancedMesh(unitBox, hutMat, MAX_ROOFTOP_ADDS);
+  const hutCapInst = new THREE.InstancedMesh(hutCapGeo, hutMat, MAX_ROOFTOP_ADDS);
   const hutRoofInst = new THREE.InstancedMesh(unitBox, new THREE.MeshStandardNodeMaterial({ color: 0xffffff, roughness: 0.46, metalness: 0.5 }), MAX_ROOFTOP_ADDS);
   hutInst.castShadow = hutInst.receiveShadow = true;
+  hutCapInst.castShadow = hutCapInst.receiveShadow = true;
   hutRoofInst.castShadow = hutRoofInst.receiveShadow = true;
-  hutInst.frustumCulled = hutRoofInst.frustumCulled = false;
+  hutInst.frustumCulled = hutCapInst.frustumCulled = hutRoofInst.frustumCulled = false;
   for (let i = 0; i < MAX_ROOFTOP_ADDS; i++) {
     hutInst.setColorAt(i, hutPalette[i % hutPalette.length]);
+    hutCapInst.setColorAt(i, hutPalette[i % hutPalette.length]);
     hutRoofInst.setColorAt(i, hutPalette[i % hutPalette.length]);
   }
-  group.add(hutInst, hutRoofInst);
+  group.add(hutInst, hutCapInst, hutRoofInst);
 
   // 6d. Vertical signs （直式招牌， issue #56): thin panels mounted
   // perpendicular to Taiwan-type facades — real instanced boxes whose
@@ -2921,6 +2949,15 @@ function buildCityBlocks(scene, opts = null) {
       // 8. 鐵皮屋 rooftop additions (issue #56): the hut box, then its
       //    single-pitch sheet — a thin box rotated about the hut's ridge
       //    axis, centred so its low edge lands just above the hut's top.
+      //    Issue #100: the sheet's rotation must compose turn-after-
+      //    pitch (pitch about the hut's OWN axis, then the block's
+      //    turn). The default Euler order 'XYZ' applies the pitch
+      //    about the world X axis instead (R = Rx·Ry), skewing the
+      //    sheet off the hut on turned blocks — sub-visible on the old
+      //    5.8 m patch, but at full-roof size it throws a sheet corner
+      //    metres past the roof edge. 'YXZ' gives R = Ry·Rx. The
+      //    shared dummy's order is restored right after the loop.
+      dummy.rotation.order = 'YXZ';
       for (let i = 0; i < (blk.rooftopAdds || []).length && hutCount < MAX_ROOFTOP_ADDS; i++) {
         const a = blk.rooftopAdds[i];
         const ry = blk.ry || 0;
@@ -2934,6 +2971,20 @@ function buildCityBlocks(scene, opts = null) {
         const across = a.axis === 'z' ? a.w : a.d;
         const slopeLen = along / Math.cos(a.pitch) + 0.5;
         const rise = along * Math.tan(a.pitch) * 0.5;
+        // Issue #100: the sloped cap (see 6c) fills the wedge under the
+        // sheet. Its geometry carries the slope — high edge at local
+        // -z — so it takes a pure turn: the yaw offset maps that edge
+        // onto the hut's high side (sheet conventions: axis 'z' is
+        // high at -dir*z, axis 'x' is high at +dir*x).
+        const capYaw = a.axis === 'z'
+          ? (a.dir > 0 ? 0 : Math.PI)
+          : (a.dir > 0 ? -Math.PI / 2 : Math.PI / 2);
+        dummy.rotation.set(0, ry + capYaw, 0);
+        dummy.position.set(a.x, a.y + a.h, a.z);
+        dummy.scale.set(across, rise * 2, along);
+        dummy.updateMatrix();
+        hutCapInst.setMatrixAt(hutCount, dummy.matrix);
+        hutCapInst.setColorAt(hutCount, hutPalette[a.colorIdx % hutPalette.length]);
         if (a.axis === 'z') {
           dummy.rotation.set(a.dir * a.pitch, ry, 0);
           dummy.scale.set(across + 0.6, 0.09, slopeLen);
@@ -2948,6 +2999,7 @@ function buildCityBlocks(scene, opts = null) {
         hutCount++;
         dummy.rotation.set(0, ry, 0);
       }
+      dummy.rotation.order = 'XYZ';
     }
     dummy.rotation.set(0, 0, 0);
 
@@ -2991,8 +3043,10 @@ function buildCityBlocks(scene, opts = null) {
       flagRange(tankTopInst.instanceMatrix, wtCount);
     }
     hutInst.count = hutCount;
+    hutCapInst.count = hutCount;
     hutRoofInst.count = hutCount;
     flagRange(hutInst.instanceMatrix, hutCount);
+    flagRange(hutCapInst.instanceMatrix, hutCount);
     flagRange(hutRoofInst.instanceMatrix, hutCount);
     if (hutInst.instanceColor) flagRange(hutInst.instanceColor, hutCount);
     if (hutRoofInst.instanceColor) flagRange(hutRoofInst.instanceColor, hutCount);
