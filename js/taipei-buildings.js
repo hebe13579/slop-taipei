@@ -1657,7 +1657,7 @@ export const HEIGHT_JOIN = {
 };
 
 export function planTaipeiBuildings(geodata) {
-  const stats = { blocksSeen: 0, blocksSkippedSmall: 0, blocksSkippedParkWater: 0, blocksSkippedGreen: 0, blocksSkippedOutsideUnion: 0, lotsDroppedVacancy: 0, lotsDroppedParkWater: 0, lotsDroppedGreen: 0, lotsDroppedTowerSite: 0, lotsDroppedRoad: 0, lotsDroppedMedian: 0, lotsDroppedOutsideUnion: 0, blocksRotated: 0, lotsRotated: 0, lotsPackedFrontage: 0, lotsTallFrontage: 0, heightsPermit: 0, heightsOsmHeight: 0, heightsOsmLevels: 0, heightsDoor: 0, heightsField: 0, heightsProc: 0 };
+  const stats = { blocksSeen: 0, blocksSkippedSmall: 0, blocksSkippedParkWater: 0, blocksSkippedGreen: 0, blocksSkippedOutsideUnion: 0, lotsDroppedVacancy: 0, lotsDroppedParkWater: 0, lotsDroppedGreen: 0, lotsDroppedTowerSite: 0, lotsDroppedRoad: 0, lotsDroppedMedian: 0, lotsDroppedOutsideUnion: 0, lotsDroppedTrackBed: 0, lotsDroppedTrackPierce: 0, blocksRotated: 0, lotsRotated: 0, lotsPackedFrontage: 0, lotsTallFrontage: 0, heightsPermit: 0, heightsOsmHeight: 0, heightsOsmLevels: 0, heightsDoor: 0, heightsField: 0, heightsProc: 0 };
   // Union-of-boxes tile (issue #60): the geodata frame carries the
   // tile's boxes; ground exists only inside them. Raster blocks are
   // masked to the union by the builder, but a block's bbox can still
@@ -1916,6 +1916,92 @@ export function planTaipeiBuildings(geodata) {
     return false;
   };
 
+  // ---- MRT track clearance (issue #139) ----
+  // No lot may stand on the track bed or pierce the guideway. The
+  // test geometry is the emitted mrtDecks lines themselves (the
+  // pipeline pre-builds the deck lines before the plan, so the
+  // planner tests exactly what the renderer draws, identically in
+  // the pipeline, the boot and the tests): per segment a butt-cap
+  // rect at the line's width, classed at-grade by the renderer's
+  // own low-bed rule. A lot whose margin-grown footprint intersects
+  // an at-grade rect drops outright; against an elevated rect only
+  // a lot tall enough to reach the deck underside (minus a
+  // clearance) drops — low lots under a viaduct are real Taipei
+  // and stay.
+  const TRACK_MARGIN_M = 0.5;      // footprint clearance off the track rect, as for road ribbons
+  const TRACK_CLEARANCE_M = 1.0;   // a kept lot's top stays this far below the underside
+  const TRACK_LOW_BED_MAX = 0.5;   // mirrors LOW_BED_MAX in js/taipei-viaduct.js
+  const trackDepth = (geodata.mrtDecks && geodata.mrtDecks.deckDepth) ?? 1.8;
+  const trackRects = [];
+  for (const line of (geodata.mrtDecks && geodata.mrtDecks.lines) || []) {
+    const half = Math.max((line.width || 6) / 2, 0.75);
+    const pts = line.pts || [];
+    for (let i = 0; i + 3 < pts.length; i += 2) {
+      const ax = pts[i], az = pts[i + 1], bx = pts[i + 2], bz = pts[i + 3];
+      const dx = bx - ax, dz = bz - az, len = Math.hypot(dx, dz);
+      if (len < 0.01) continue;
+      const ux = dx / len, uz = dz / len;
+      const nx = (-dz / len) * half, nz = (dx / len) * half;
+      const xs = [ax + nx, bx + nx, bx - nx, ax - nx];
+      const zs = [az + nz, bz + nz, bz - nz, az - nz];
+      const hA = line.h[i / 2], hB = line.h[i / 2 + 1];
+      trackRects.push({
+        ax, az, bx, bz, ux, uz, hA, hB,
+        atGrade: Math.max(hA, hB) < TRACK_LOW_BED_MAX,
+        minX: Math.min(...xs), maxX: Math.max(...xs),
+        minZ: Math.min(...zs), maxZ: Math.max(...zs),
+        corners: [xs[0], zs[0], xs[1], zs[1], xs[2], zs[2], xs[3], zs[3]],
+      });
+    }
+  }
+  const trackGrid = trackRects.length ? buildRibbonGrid(trackRects) : null;
+  // Verdict for one candidate footprint: { bed, under } — bed when
+  // the margin-grown footprint crosses an at-grade track rect;
+  // under = the lowest deck underside (m) along the elevated rects
+  // it crosses (Infinity when it crosses none). `grown` is the
+  // margin-grown footprint as corner pairs.
+  const trackVerdict = (cx, cz, grown, gMinX, gMaxX, gMinZ, gMaxZ) => {
+    const out = { bed: false, under: Infinity };
+    if (!trackGrid) return out;
+    const seen = new Set();
+    const gx0 = Math.floor(gMinX / RIBBON_GRID_CELL), gx1 = Math.floor(gMaxX / RIBBON_GRID_CELL);
+    const gz0 = Math.floor(gMinZ / RIBBON_GRID_CELL), gz1 = Math.floor(gMaxZ / RIBBON_GRID_CELL);
+    for (let gx = gx0; gx <= gx1; gx++) for (let gz = gz0; gz <= gz1; gz++) {
+      const bucket = trackGrid.grid.get(trackGrid.key(gx, gz));
+      if (!bucket) continue;
+      for (const idx of bucket) {
+        if (seen.has(idx)) continue;
+        seen.add(idx);
+        const r = trackRects[idx];
+        if (r.maxX < gMinX || r.minX > gMaxX || r.maxZ < gMinZ || r.minZ > gMaxZ) continue;
+        const rc = [[r.corners[0], r.corners[1]], [r.corners[2], r.corners[3]], [r.corners[4], r.corners[5]], [r.corners[6], r.corners[7]]];
+        if (!quadsIntersect(grown, rc)) continue;
+        if (r.atGrade) { out.bed = true; continue; }
+        // Lowest underside along the segment's run through the
+        // footprint: sample the AABB-clipped ends plus the point
+        // nearest the lot centre (the slab clip is the build-
+        // elevated.mjs pattern).
+        const dx = r.bx - r.ax, dz = r.bz - r.az;
+        const L2 = dx * dx + dz * dz || 1e-9;
+        let lo = 0, hi = 1, ok = true;
+        for (const [p, qv] of [[-dx, r.ax - gMinX], [dx, gMaxX - r.ax], [-dz, r.az - gMinZ], [dz, gMaxZ - r.az]]) {
+          if (Math.abs(p) < 1e-12) { if (qv < 0) { ok = false; break; } continue; }
+          const t = qv / p;
+          if (p < 0) lo = Math.max(lo, t); else hi = Math.min(hi, t);
+          if (lo > hi) { ok = false; break; }
+        }
+        const ts = ok ? [lo, hi] : [];
+        const tc = ((cx - r.ax) * dx + (cz - r.az) * dz) / L2;
+        ts.push(Math.max(0, Math.min(1, tc)));
+        for (const t of ts) {
+          const u = r.hA + (r.hB - r.hA) * t - trackDepth;
+          if (u < out.under) out.under = u;
+        }
+      }
+    }
+    return out;
+  };
+
   const t101 = (geodata.landmarks || {})['Taipei 101'];
   const towerSite = t101
     ? { minX: t101.x - t101.w / 2, maxX: t101.x + t101.w / 2, minZ: t101.z - t101.d / 2, maxZ: t101.z + t101.d / 2 }
@@ -1939,8 +2025,8 @@ export function planTaipeiBuildings(geodata) {
     // mirrors mrtStationFootprint in js/taipei-mrt-stations.js (this
     // module stays import-free by convention; keep the two in sync).
     const L = s.length || 112;
-    const Wd = s.width || (s.kind === 'jiantan' ? 24 : s.kind === 'beitou' ? 33 : 21.5);
-    const hw = s.kind === 'jiantan' ? (Wd + 2) / 2 : s.kind === 'beitou' ? (Wd + 2.6) / 2 : s.kind === 'xinbeitou' ? (Wd + 1.2) / 2 : (Wd + 1.9) / 2;
+    const Wd = s.width || (s.kind === 'jiantan' ? 24 : s.kind === 'beitou' ? 33 : s.kind === 'at-grade' ? 16.5 : 21.5);
+    const hw = s.kind === 'jiantan' ? (Wd + 2) / 2 : s.kind === 'beitou' ? (Wd + 2.6) / 2 : s.kind === 'xinbeitou' ? (Wd + 1.2) / 2 : s.kind === 'at-grade' ? (Wd + 4.6) / 2 : (Wd + 1.9) / 2;
     const hl = s.kind === 'jiantan' ? 122 : s.kind === 'beitou' ? (L + 4) / 2 : s.kind === 'xinbeitou' ? (L + 2.4) / 2 : L / 2;
     const cy = Math.cos(s.yaw), sy = Math.sin(s.yaw);
     let minX = Infinity, maxX = -Infinity, minZ = Infinity, maxZ = -Infinity;
@@ -1953,6 +2039,37 @@ export function planTaipeiBuildings(geodata) {
     }
     return { minX, maxX, minZ, maxZ };
   });
+  // Beitou depot (issue #139): the site rect the digest fitted over
+  // the yard fan + halls joins the exclusions — but as an exact
+  // rotated-rect test, not an AABB: the rect runs ~1.5 km at the
+  // fan's diagonal yaw, and its AABB would swallow whole
+  // neighbourhood blocks at the corners. The candidate's own
+  // AABB corners are transformed into the site frame (the same
+  // conservative square bound the AABB site test uses).
+  const depotRect = (() => {
+    const dep = geodata.mrtDepot;
+    if (!dep || !dep.site) return null;
+    return {
+      x: dep.x, z: dep.z, cos: Math.cos(dep.yaw), sin: Math.sin(dep.yaw),
+      dAlong: dep.site.dAlong, dAcross: dep.site.dAcross,
+      hAlong: dep.site.along / 2, hAcross: dep.site.across / 2,
+    };
+  })();
+  const depotHit = (cx, cz, hw, hd) => {
+    if (!depotRect) return false;
+    let mnA = Infinity, mxA = -Infinity, mnL = Infinity, mxL = -Infinity;
+    for (const [ox, oz] of [[-hw, -hd], [hw, -hd], [hw, hd], [-hw, hd]]) {
+      const dx = cx + ox - depotRect.x, dz = cz + oz - depotRect.z;
+      const la = dx * depotRect.cos - dz * depotRect.sin;
+      const ll = dx * depotRect.sin + dz * depotRect.cos;
+      if (la < mnA) mnA = la;
+      if (la > mxA) mxA = la;
+      if (ll < mnL) mnL = ll;
+      if (ll > mxL) mxL = ll;
+    }
+    return mxA >= depotRect.dAcross - depotRect.hAcross && mnA <= depotRect.dAcross + depotRect.hAcross &&
+           mxL >= depotRect.dAlong - depotRect.hAlong && mnL <= depotRect.dAlong + depotRect.hAlong;
+  };
   const exclusionSites = towerSite ? [towerSite, ...landmarkSites, ...mrtSites] : [...landmarkSites, ...mrtSites];
 
   const lots = [];
@@ -2126,6 +2243,9 @@ export function planTaipeiBuildings(geodata) {
           stats.lotsDroppedTowerSite++;
           continue;
         }
+        // Issue #139: the Beitou depot site, tested exactly in its
+        // own frame (see depotHit above).
+        if (depotHit(cx, cz, w / 2, d / 2)) { stats.lotsDroppedTowerSite++; continue; }
         if (theta) {
           // The axis test above sees the lot's axis twin; the true
           // footprint is a different quad — test it exactly (SAT)
@@ -2135,6 +2255,7 @@ export function planTaipeiBuildings(geodata) {
             if (cornersAabb.maxX < s.minX || cornersAabb.minX > s.maxX || cornersAabb.maxZ < s.minZ || cornersAabb.minZ > s.maxZ) continue;
             if (quadsIntersect(corners, [[s.minX, s.minZ], [s.maxX, s.minZ], [s.maxX, s.maxZ], [s.minX, s.maxZ]])) { siteHit = true; break; }
           }
+          if (!siteHit && depotHit(cx, cz, (cornersAabb.maxX - cornersAabb.minX) / 2, (cornersAabb.maxZ - cornersAabb.minZ) / 2)) siteHit = true;
           if (siteHit) { stats.lotsDroppedTowerSite++; continue; }
         }
         const verdict = ribbonVerdict(cx, cz, w, d);
@@ -2154,6 +2275,19 @@ export function planTaipeiBuildings(geodata) {
           if (rotatedRoadHit(cx, cz, w, d, cosT, sinT)) { stats.lotsDroppedRoad++; continue; }
           if (ribbonVerdict(cx, cz, cornersAabb.maxX - cornersAabb.minX, cornersAabb.maxZ - cornersAabb.minZ) === 'median') { stats.lotsDroppedMedian++; continue; }
         }
+        // Issue #139: the MRT track corridor. The bed half runs
+        // here (it needs no height); the pierce half runs after
+        // the height pick below, against track.under.
+        const trackGrown = lotCorners(cx, cz, w + 2 * TRACK_MARGIN_M, d + 2 * TRACK_MARGIN_M, cosT, sinT);
+        let tgMinX = Infinity, tgMaxX = -Infinity, tgMinZ = Infinity, tgMaxZ = -Infinity;
+        for (const [px, pz] of trackGrown) {
+          if (px < tgMinX) tgMinX = px;
+          if (px > tgMaxX) tgMaxX = px;
+          if (pz < tgMinZ) tgMinZ = pz;
+          if (pz > tgMaxZ) tgMaxZ = pz;
+        }
+        const track = trackVerdict(cx, cz, trackGrown, tgMinX, tgMaxX, tgMinZ, tgMaxZ);
+        if (track.bed) { stats.lotsDroppedTrackBed++; continue; }
         // The ribbon verdicts say nothing about the tile union
         // (issue #60): no footprint corner may hang over a dropped
         // band, where there is no ground at all.
@@ -2208,6 +2342,10 @@ export function planTaipeiBuildings(geodata) {
             }
           }
         }
+        // Issue #139 (pierce half of the track test): a lot under
+        // the guideway stays only when its top keeps the clearance
+        // below the lowest underside it crosses.
+        if (track.under < Infinity && h > track.under - TRACK_CLEARANCE_M) { stats.lotsDroppedTrackPierce++; continue; }
         const base = PALETTE[Math.floor(hash01(seed ^ 0x9f2c) * PALETTE.length) % PALETTE.length];
         const shade = 0.92 + hash01(seed ^ 0x64d1) * 0.16;
         const color = base.map((c) => Math.max(0, Math.min(255, Math.round(c * shade * 255))));

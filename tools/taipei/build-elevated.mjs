@@ -284,7 +284,7 @@ function buildDeckSet(ways, roadbeds, lots, stats) {
         hs.push(q(p.nodeId != null && w.nodeIds ? (height.get(`n:${p.nodeId}`) ?? heightOnSegment(w, p.x, p.z)) : heightOnSegment(w, p.x, p.z)));
       });
       if (records.length < 2 || len < 1) continue;
-      lines.push({ wayId: w.id, name, highway: w.lineHighway, layer: w.lineLayer, width, pts, h: hs });
+      lines.push({ wayId: w.id, name, highway: w.lineHighway, layer: w.lineLayer, width, pts, h: hs, ...(w.lineTracks ? { tracks: w.lineTracks } : {}) });
       stats.lineKm += len / 1000;
     }
   }

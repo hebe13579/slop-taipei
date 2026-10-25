@@ -51,7 +51,7 @@ test('height layer present, provenanced, factors agree with the planner', () => 
 
 test('join census: every lot labelled, per-source counts pinned', (t) => {
   const lots = plan.lots;
-  assert.equal(lots.length, 34645, 'the join moves heights only — the lot count is the #106 plan as composed with #118');
+  assert.equal(lots.length, 34121, 'the join moves heights only — the lot count is the #106 plan as composed with #118, less the #139 removals');
   for (const lot of lots) assert.ok([...REAL, 'field', 'proc'].includes(lot.hSrc), `lot labelled (${lot.hSrc})`);
   const c = {};
   for (const lot of lots) c[lot.hSrc] = (c[lot.hSrc] || 0) + 1;
@@ -71,18 +71,26 @@ test('join census: every lot labelled, per-source counts pinned', (t) => {
   // pools of 0/1 doors fall through). Interior lots hear the
   // field instead — field + real = 81.4% of lots carry a
   // data-derived height; 18.6% stay purely procedural.
-  assert.equal(c.permit, 3420);
-  assert.equal(c['osm-height'], 920);
-  assert.equal(c['osm-levels'], 3978);
-  assert.equal(c.door, 7049);
-  assert.equal(c.field, 12825);
-  assert.equal(c.proc, 6453);
+  // Issue #139 composition (MRT completion), diffed lot by lot on
+  // this tree: the track-corridor clearance and the Beitou depot
+  // + at-grade station sites removed 524 lots (34,645 -> 34,121;
+  // census in taipei-mrt.test.mjs). The removed lots' height
+  // sources: proc 280, field 139, osm-levels 78, permit 15, door
+  // 8, osm-height 4 — mostly procedural/field stock on the depot
+  // farmland fringe and the at-grade corridor, so every count
+  // below is the #128 census minus exactly those removals.
+  assert.equal(c.permit, 3405);
+  assert.equal(c['osm-height'], 916);
+  assert.equal(c['osm-levels'], 3900);
+  assert.equal(c.door, 7041);
+  assert.equal(c.field, 12677);
+  assert.equal(c.proc, 6182);
   assert.equal(plan.stats.heightsPermit, c.permit, 'stats census agrees (permit)');
   assert.equal(plan.stats.heightsDoor, c.door, 'stats census agrees (door)');
   assert.equal(plan.stats.heightsField, c.field, 'stats census agrees (field)');
   assert.equal(plan.stats.heightsProc, c.proc, 'stats census agrees (proc)');
   const real = REAL.reduce((s, k) => s + c[k], 0);
-  assert.equal(real, 15367, 'real-signal lots');
+  assert.equal(real, 15262, 'real-signal lots');
   assert.ok(real / lots.length > 0.40 && real / lots.length < 0.50, 'real coverage in the measured band');
 });
 
@@ -93,8 +101,10 @@ test('joined skyline: the >=30 m share lands on the study’s real figure', () =
   // 5,500 of 34,645 = 15.9% — the small gap to 16.2% is the door
   // tier's stricter face rule plus the levels factor (3.0 vs the
   // prototype's 3.3 for OSM levels — see build-heights.py FACTORS).
+  // Issue #139: 11 of the >=30 m lots were among the corridor /
+  // depot removals — 5,489 of 34,121 = 16.1%.
   const tall = plan.lots.filter((l) => l.h >= 30).length;
-  assert.equal(tall, 5500);
+  assert.equal(tall, 5489);
   const g60 = plan.lots.filter((l) => l.h >= 60).length;
   assert.equal(g60, 923, 'a >=60 m class exists at all (procedural plan: 5 lots)');
 });
@@ -116,23 +126,39 @@ test('Beitou: the hot-spring towers exist now', () => {
   // MRT corridor) puts 403 data-derived lots there.
   const bei = plan.lots.filter((l) => l.x >= -10193.2 && l.x <= -5550.8 && l.z >= -12960.5 && l.z <= -8861.9);
   const tall = bei.filter((l) => l.h >= 30 && l.hSrc !== 'proc');
-  assert.equal(tall.length, 403);
+  // Issue #139: 11 of these towers were among the corridor /
+  // depot removals (the same 11 as the >=30 m census delta in
+  // taipei.test.mjs): 403 - 11 = 392.
+  assert.equal(tall.length, 392);
 });
 
 test('fallback byte-stability: untouched lots keep their procedural heights exactly', () => {
   const bare = planTaipeiBuildings({ ...TAIPEI_GEO, heights: null });
-  assert.equal(bare.lots.length, plan.lots.length, 'same plan without the layer');
+  // Issue #139 composition: placement itself is height-sensitive
+  // now — the track pierce test drops a lot whose top would reach
+  // the MRT guideway's underside, so the two plans differ by
+  // exactly one lot: the low building under the Beitou guideway
+  // whose REAL height (6.0 m, OSM levels) keeps it under the
+  // 7.2 m underside, but whose procedural height pierces and
+  // drops it. The flip is the clearance rule working as designed
+  // in both regimes; every other lot is placed identically.
+  assert.equal(bare.lots.length, plan.lots.length - 1, 'one height-flipped lot under the guideway');
+  const key = (l) => `${l.x}|${l.z}|${l.w}|${l.d}`;
+  const bareByKey = new Map(bare.lots.map((l) => [key(l), l]));
+  const missing = plan.lots.filter((l) => !bareByKey.has(key(l)));
+  assert.equal(missing.length, 1);
+  assert.equal(missing[0].hSrc, 'osm-levels', 'the flipped lot carries a real height');
+  assert.ok(missing[0].h <= 6.2, 'its real height clears the underside minus the 1 m clearance');
   let procChecked = 0;
-  for (let i = 0; i < plan.lots.length; i++) {
-    const a = plan.lots[i], b = bare.lots[i];
-    assert.equal(a.x, b.x); assert.equal(a.z, b.z);
-    assert.equal(a.w, b.w); assert.equal(a.d, b.d);
+  for (const a of plan.lots) {
+    const b = bareByKey.get(key(a));
+    if (!b) continue;
     if (a.hSrc === 'proc') {
       assert.equal(a.h, b.h, `proc lot at ${a.x},${a.z} keeps its drawn height`);
       procChecked++;
     }
   }
-  assert.equal(procChecked, 6453);
+  assert.equal(procChecked, 6182);
   assert.ok(bare.lots.every((l) => l.hSrc === 'proc'), 'no layer, no labels but proc');
 });
 

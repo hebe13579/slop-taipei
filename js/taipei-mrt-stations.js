@@ -40,6 +40,11 @@ const C = {
   hull: 0xb4b8ae, hullDark: 0x8f948c, roofPale: 0xa9bda6,
   cable: 0x3c4145, mrtRed: 0xa62b25,
   beitouGlass: 0x39505a, beitouRoof: 0x4a6a72, concourse: 0x9a5a44,
+  // Issue #139: at-grade stations + the Beitou depot.
+  platform: 0xa9a49a, platformEdge: 0xd8b93a, canopy: 0xb9bcb4,
+  hallWall: 0xcfc8bb,
+  depotWall: 0xb5aea0, depotRoof: 0x8f9597, depotSkylight: 0x646e75,
+  ballast: 0x6e5136, rail: 0x8f9296,
 };
 const rgb = (hex) => [((hex >> 16) & 255) / 255, ((hex >> 8) & 255) / 255, (hex & 255) / 255];
 
@@ -58,6 +63,8 @@ export function mrtStationFootprint(st) {
     case 'jiantan': return { hw: (Wd + 2) / 2, hl: 122 };
     case 'beitou': return { hw: (Wd + 2.6) / 2, hl: (L + 4) / 2 };
     case 'xinbeitou': return { hw: (Wd + 1.2) / 2, hl: (L + 2.4) / 2 };
+    // at-grade: the bridge hall's roof overhang is the widest part.
+    case 'at-grade': return { hw: (Wd + 4.6) / 2, hl: L / 2 };
     default: return { hw: (Wd + 1.9) / 2, hl: L / 2 };
   }
 }
@@ -65,7 +72,7 @@ export function mrtStationFootprint(st) {
 // Body width when the pipeline measured none (mirrors the digest's
 // clamps in tools/taipei/build-mrt.mjs).
 export const MRT_STATION_DEFAULT_WIDTH = {
-  standard: 21.5, jiantan: 24, beitou: 33, xinbeitou: 21.5,
+  standard: 21.5, jiantan: 24, beitou: 33, xinbeitou: 21.5, 'at-grade': 16.5,
 };
 
 export function buildMrtStationGeometry(stations) {
@@ -203,6 +210,27 @@ export function buildMrtStationGeometry(stations) {
         box(u, 0, seg - 1.2, Wd + 1.2, 12.85, 13.2, C.eaveTrim);
         hip(u, 13.0, seg - 1.2, Wd + 0.8, 3.4, 2.6, 3.4, C.roofTile);
       }
+    } else if (st.kind === 'at-grade') {
+      // Ground-level station (issue #139): two side platforms with
+      // canopies, stair towers, and a bridge hall across the tracks
+      // — the small Fuxinggang / Zhongyi / Guandu structures. The
+      // tracks stay at grade between the platforms.
+      const platIn = Math.min(Math.max(4.7, Wd / 2 - 3.4), 5.4);
+      const platOut = Wd / 2 - 0.3;
+      const platW = Math.max(platOut - platIn, 2.2);
+      const platC = platIn + platW / 2;
+      for (const s of [1, -1]) {
+        box(0, s * platC, L, platW, 0, 0.95, C.platform);
+        box(0, s * (platIn + 0.3), L, 0.6, 0.95, 1.04, C.platformEdge);
+        box(0, s * platC, L * 0.92, platW + 0.5, 4.7, 5.0, C.canopy);
+        for (let u = -L / 2 + 12; u <= L / 2 - 12; u += 24) box(u, s * platC, 0.35, 0.35, 0.95, 4.7, C.concrete);
+        box(7.5, s * platC, 4, 3.2, 0, 4.35, C.hallWall);
+        box(-7.5, s * platC, 4, 3.2, 0, 4.35, C.hallWall);
+      }
+      box(0, 0, 11, Wd + 3.4, 4.35, 7.3, C.hallWall);
+      box(0, 0, 11.4, Wd + 3.8, 5.5, 6.7, C.glass);
+      box(0, 0, 12.4, Wd + 4.6, 7.3, 7.65, C.roofPale);
+      for (const s of [1, -1]) box(0, s * (Wd / 2 + 0.9), 2.0, 1.6, 0, 4.35, C.concrete);
     } else {
       // standard — Yuanshan pattern
       for (const u of [-L / 3, 0, L / 3]) box(u, 0, 2.2, 2.2, 0, 4.6, C.concrete);
@@ -219,5 +247,89 @@ export function buildMrtStationGeometry(stations) {
   return {
     positions: new Float32Array(pos), normals: new Float32Array(nor), colors: new Float32Array(col),
     triCount: pos.length / 9, stationCount: (stations || []).length,
+  };
+}
+
+// ---- Beitou depot (issue #139) ----
+// The 北投機廠 by Fuxinggang: the massive maintenance halls plus
+// the yard track fan, on the same non-registry path as the
+// stations (the digest emits geodata.mrtDepot; the planner keeps
+// lots off its site rect). The yard lines are world polylines and
+// get the running line's track treatment — brown strip + rails —
+// in flat yard proportions (constants mirrored from
+// js/taipei-viaduct.js: BALLAST/RAIL family).
+export function buildMrtDepotGeometry(depot) {
+  const pos = [], nor = [], col = [];
+  const quad = (a, b, c, d, hex) => {
+    const ux = b[0] - a[0], uy = b[1] - a[1], uz = b[2] - a[2];
+    const vx = c[0] - a[0], vy = c[1] - a[1], vz = c[2] - a[2];
+    let nx = uy * vz - uz * vy, ny = uz * vx - ux * vz, nz = ux * vy - uy * vx;
+    const L = Math.hypot(nx, ny, nz) || 1;
+    nx /= L; ny /= L; nz /= L;
+    const [r, g, bl] = rgb(hex);
+    for (const p of [a, b, c, a, c, d]) { pos.push(p[0], p[1], p[2]); nor.push(nx, ny, nz); col.push(r, g, bl); }
+  };
+  if (!depot) {
+    return { positions: new Float32Array(0), normals: new Float32Array(0), colors: new Float32Array(0), triCount: 0 };
+  }
+  // Axis-aligned box in a yaw frame centred (cx, cz): local +z
+  // along, +x across — the station frame convention.
+  const boxAt = (cx, cz, yaw, along, across, sizeAlong, sizeAcross, y0, y1, hex) => {
+    const cy = Math.cos(yaw), sy = Math.sin(yaw);
+    const W = (lx, ly, lz) => [cx + lx * cy + lz * sy, ly, cz - lx * sy + lz * cy];
+    const ha = sizeAlong / 2, hx = sizeAcross / 2;
+    const c000 = W(across - hx, y0, along - ha), c100 = W(across + hx, y0, along - ha);
+    const c110 = W(across + hx, y0, along + ha), c010 = W(across - hx, y0, along + ha);
+    const c001 = W(across - hx, y1, along - ha), c101 = W(across + hx, y1, along - ha);
+    const c111 = W(across + hx, y1, along + ha), c011 = W(across - hx, y1, along + ha);
+    quad(c000, c100, c110, c010, hex);
+    quad(c001, c011, c111, c101, hex);
+    quad(c000, c001, c101, c100, hex);
+    quad(c010, c110, c111, c011, hex);
+    quad(c000, c010, c011, c001, hex);
+    quad(c100, c101, c111, c110, hex);
+  };
+  for (const h of depot.halls || []) {
+    boxAt(h.x, h.z, h.yaw, 0, 0, h.len, h.wid, 0, h.h, C.depotWall);
+    boxAt(h.x, h.z, h.yaw, 0, 0, h.len + 1.2, h.wid + 1.2, h.h, h.h + 0.5, C.depotRoof);
+    // Skylight bands along the long axis — the shed roof's grid
+    // read from the satellite (bands ~18 m apart on the main shed).
+    const n = Math.max(3, Math.round(h.wid / 18));
+    for (let i = 0; i < n; i++) {
+      const off = (i - (n - 1) / 2) * (h.wid / n);
+      boxAt(h.x, h.z, h.yaw, 0, off, h.len - 6, 1.4, h.h + 0.5, h.h + 0.78, C.depotSkylight);
+    }
+  }
+  const YARD_HALF = 1.3, YARD_TOP = 0.18, YARD_RAIL_Y = 0.25;
+  for (const flat of depot.yard || []) {
+    const pts = [];
+    for (let i = 0; i + 1 < flat.length; i += 2) pts.push([flat[i], flat[i + 1]]);
+    if (pts.length < 2) continue;
+    const normals = pts.map((_, i) => {
+      const a = pts[Math.max(0, i - 1)], b = pts[Math.min(pts.length - 1, i + 1)];
+      let dx = b[0] - a[0], dz = b[1] - a[1];
+      const L = Math.hypot(dx, dz) || 1;
+      return [-dz / L, dx / L];
+    });
+    const corner = (p, n, off, y) => [p[0] + n[0] * off, y, p[1] + n[1] * off];
+    for (let i = 0; i + 1 < pts.length; i++) {
+      const pA = pts[i], pB = pts[i + 1], nA = normals[i], nB = normals[i + 1];
+      const aL = corner(pA, nA, YARD_HALF, YARD_TOP), aR = corner(pA, nA, -YARD_HALF, YARD_TOP);
+      const bL = corner(pB, nB, YARD_HALF, YARD_TOP), bR = corner(pB, nB, -YARD_HALF, YARD_TOP);
+      const aLb = corner(pA, nA, YARD_HALF, 0), aRb = corner(pA, nA, -YARD_HALF, 0);
+      const bLb = corner(pB, nB, YARD_HALF, 0), bRb = corner(pB, nB, -YARD_HALF, 0);
+      quad(aL, bL, bR, aR, C.ballast);
+      quad(aL, aLb, bLb, bL, C.ballast);
+      quad(aR, bR, bRb, aRb, C.ballast);
+      for (const s of [-0.72, 0.72]) {
+        const raL = corner(pA, nA, s + 0.07, YARD_RAIL_Y), raR = corner(pA, nA, s - 0.07, YARD_RAIL_Y);
+        const rbL = corner(pB, nB, s + 0.07, YARD_RAIL_Y), rbR = corner(pB, nB, s - 0.07, YARD_RAIL_Y);
+        quad(raL, rbL, rbR, raR, C.rail);
+      }
+    }
+  }
+  return {
+    positions: new Float32Array(pos), normals: new Float32Array(nor), colors: new Float32Array(col),
+    triCount: pos.length / 9,
   };
 }
