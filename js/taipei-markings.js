@@ -53,6 +53,17 @@
 // count). Crosswalks go across every arm ≥ 7 m wide; stop lines and
 // signal units serve the tertiary-or-above arms only.
 //
+// DECK ARMS (issue #88). An arm whose bed is deck-flagged is an
+// elevated carriageway: the viaduct layer draws it and the ground
+// ribbon layer does not, so it is not an at-grade approach and gets
+// no ground furniture — no crosswalk across its ground projection,
+// no stop line, no ground signal unit. The flag, not the surface
+// class, is the predicate: deck-class beds the generator leaves
+// unflagged (the 信義快速道路 at-grade terminus, the 象山隧道
+// mouths) are drawn as ground carriageways and keep theirs. This
+// mirrors the roundabout ring-arm exclusion in the furniture
+// builder: furniture follows the carriageways at grade.
+//
 // RENDER FORM (issue #90): the plan above is unchanged — dashes and
 // stripes are still enumerated exactly as before (the tests pin
 // them) — but the renderer no longer bakes them as solid quads.
@@ -546,7 +557,7 @@ export function buildJunctionFurniture(roadbeds, junctions) {
   const stats = {
     junctions: 0, crosswalks: 0, stopLines: 0, signals: 0, skippedArms: 0,
     mastSignals: 0, poleSignals: 0, clearanceMoved: 0, clearanceUnresolved: 0, clearanceFallback: 0,
-    ringArmsSkipped: 0,
+    ringArmsSkipped: 0, deckArmsSkipped: 0,
   };
   // Roundabout claims (issue #75): at a junction a roundabout site
   // claims, arms running on the site's ring carriageway get NO
@@ -581,6 +592,10 @@ export function buildJunctionFurniture(roadbeds, junctions) {
     for (const arm of j.arms) {
       const bed = roadbeds[arm.bed];
       if (site && site.ringName && bed.name === site.ringName) { stats.ringArmsSkipped++; continue; }
+      // Deck arms (issue #88): the bed is drawn elevated, not at
+      // grade — no crosswalk, stop line or signal for it (see the
+      // DECK ARMS note in the header).
+      if (bed.deck) { stats.deckArmsSkipped++; continue; }
       const half = arm.width / 2;
       // Arc position along the arm's own bed, measured from the
       // junction centre: the bed end sits at signed distance sd from
@@ -800,6 +815,7 @@ export function buildRoadMarkings(roadbeds, medianStrips = null, caps = null, ju
       clearanceFallback: furniture.stats.clearanceFallback,
       skippedArms: furniture.stats.skippedArms,
       ringArmsSkipped: furniture.stats.ringArmsSkipped,
+      deckArmsSkipped: furniture.stats.deckArmsSkipped,
     },
   };
 }
