@@ -1,29 +1,45 @@
 // js/taipei-junctions.js — junction caps for the Taipei tile
-// (issues #66, #75): paved treatment per detected junction, in
-// three classes:
+// (issues #66, #75, #81, #145): paved treatment per detected
+// junction. Since #145 ONE construction serves every junction —
+// the OVERLAP cap: the polygon of the arms' own crossing
+// geometry, nothing beyond it.
 //
-//   MAJOR junctions (any arm arterial/deck class) get a BOX cap
-//   (issue #75): the full junction box, corner to corner — each
-//   arm's cross-section line placed by pure crossHalf arithmetic
-//   (extended to meet a short bed end, and, at signalized
-//   junctions, far enough out that the junction's own crosswalks
-//   and stop lines sit ON the cap), the box corners taken from
-//   adjacent arms' line intersections, the polygon the convex
-//   hull of corners + cross-section ends. One plain asphalt
-//   field, no fitted-hull fans or spikes. The #75 audit measured
-//   the old fitted hulls on major junctions: of 320 major
-//   junctions, 213 failed — 180 left > 1% of the box uncovered,
-//   187 missed at least one box corner, and only 46% of
-//   crosswalk stripe centres sat on a cap. After this change
-//   every major junction's box measures coverage 1.000 with all
-//   corners covered (AUDIT.md in the #75 evidence).
+//   The base is the junction BOX of the #75 audit: each arm's
+//   cross-section line at reach = crossHalf (the widest crossing
+//   arm's half width), corners from adjacent arms' line
+//   intersections (main + edge corners, locality-gated), the
+//   polygon the convex hull of corners + cross-section segment
+//   endpoints + the junction centre. At a main x main crossing
+//   that is exactly the clean rectangle of the two road widths
+//   (a parallelogram at skewed crossings); at a T it is the
+//   strip where the minor arm meets the main road — the minor
+//   ribbon stops at the main road's edge line and the main road
+//   runs straight through (the user's rules, issue #145).
 //
-//   MINOR junctions keep the #66 fitted hull: the CONVEX HULL of
-//   the arms' cross-sections, each placed at reach =
-//   max(crossHalf, bedEnd + 1.5 m) — at a boulevard×lane mouth
-//   (the common minor case) a box/disc spills metres onto the
-//   blocks beside the lane, which is why the fitted shape stays
-//   for the minor class.
+//   On top of the box, MAJOR junctions (any arm arterial/deck
+//   class) and signalized minor junctions add MOUTH SEGMENTS
+//   ONLY: each arm's cross-section endpoints pushed out to the
+//   mouth reach (the bed-end slide, capped at crossHalf +
+//   BOX_MOUTH_SLIDE_MAX_M; on signalized junctions at least the
+//   furniture reach, so the junction's own crosswalks and stop
+//   lines — placed by the same crossHalf arithmetic in
+//   taipei-markings.js — sit on the cap or on the arm's ribbon,
+//   never on bare ground). No corner is ever taken from an
+//   extended line: a corner's distance scales multiplicatively
+//   with the reaches of the two lines that make it (the #81
+//   slab spikes), and the #145 census showed the flares the
+//   extended corners paved are corner-block ground, not
+//   carriageway. What the pre-#145 constructions paved past
+//   the overlap — the #66 fitted hulls over scattered bed ends
+//   (discs to 105 m radius over alley webs), the #75/#81
+//   margin-line corners and displaced-mouth flares (the #134
+//   census's >25 m offenders, worst vertex 38.4 m past its
+//   box) — is gone: total cap area 1,028,652 -> 703,160 m²,
+//   worst vertex past its box 20.1 m (a mouth segment endpoint
+//   on its own arm), corner overshoot at the named offenders
+//   zero. `kind` still records the junction class ('box'
+//   major, 'fitted' minor) for the census and the boot log;
+//   the construction no longer differs by it.
 //
 //   ROUNDABOUTS get neither generic cap (issue #75, user
 //   direction): planRoundabouts below handcrafts each site — a
@@ -50,42 +66,30 @@
 // lands inside one, so no paint crosses a junction core.
 // Crosswalk stripes and stop lines are exempt by design — they
 // are junction furniture placed by the same crossHalf arithmetic;
-// at major junctions the box reach puts them on the cap itself.
+// the mouth segments above keep them on the cap itself or on the
+// arm's own ribbon at the junctions that carry them.
 
 import { surfaceClass, SURFACE_TONES } from './taipei-surfaces.js';
 import { ribbonPoly, buildPolyGrid, pointInAnyPoly, pointInPoly } from './taipei-painted.js';
 
 export const CAP_Y = 0.061;               // between carriageways (0.06) and medians (0.062)
-export const CAP_END_OVERLAP_M = 1.5;     // cap reaches this far past an arm's bed end
-export const CAP_MAX_EXTRA_REACH_M = 30;  // reach extension cap beyond the box edge
+export const CAP_END_OVERLAP_M = 1.5;     // mouth segments reach this far past an arm's bed end
 export const ISLAND_Y = 0.0635;           // roundabout islands: above caps, below painted bands (0.065)
 
-// Box-cap constants (issue #75). BOX_MARGIN_M: box lines sit this
-// far past the nominal crossHalf edge, so corners are covered
-// with slack and cap borders overlap the arm ribbons' mouths (the
-// border treatment — no pale wedge can open between cap and bed).
+// Overlap-cap constants. BOX_MARGIN_M: a mouth cross-section
+// sits this far past its nominal reach and widens by it, so the
+// cap's mouth edge overlaps the arm ribbon's mouth (the border
+// treatment — no pale wedge can open between cap and bed).
 // BOX_FURNITURE_REACH_M mirrors the furniture set-backs in
 // taipei-markings.js (CROSSWALK_GAP 0.8 + CROSSWALK_DEPTH 3.2 +
 // STOP_LINE_GAP 0.9 + STOP_LINE_W 0.4, + 0.4 slack = 5.7); it is
 // kept local because taipei-markings imports THIS module.
 export const BOX_MARGIN_M = 1.0;
 export const BOX_FURNITURE_REACH_M = 5.7;
-// Issue #81: the box cap's mouth (bed-end) slide is capped at
-// crossHalf + this, NOT the fitted cap's crossHalf + 30
-// (CAP_MAX_EXTRA_REACH_M, fitted construction unchanged): a
+// The mouth (bed-end) slide is capped at crossHalf + this: a
 // through bed's far end (a divided boulevard passing a fragment
-// cluster) sits 30+ m out and must not drag the box with it.
+// cluster) sits 30+ m out and must not drag the cap with it.
 export const BOX_MOUTH_SLIDE_MAX_M = 20;
-// Issue #81: a mouth is DISPLACED when its bed end sits more
-// than this far past the box edge (sd − crossHalf). Displaced
-// mouths are genuine second mouth lines (staggered carriageways,
-// spread fragment clusters): their flare corners are collected
-// from the mouth lines themselves. Undisplaced mouths take
-// their corners from the box+margin lines only — corners taken
-// at furniture/slide-inflated reaches were the slab spikes of
-// the #81 report (a corner's distance scales multiplicatively
-// with the reaches of the two lines that make it).
-export const BOX_DISPLACED_MOUTH_M = 12;
 
 const MAJOR_CLS = new Set(['arterial', 'deck']);
 export const isMajorJunction = (j) =>
@@ -348,78 +352,26 @@ function finishSite(s, roadbeds, junctions) {
 // ---------------------------------------------------------------------
 // Caps.
 
-// The fitted #66 cap for one junction (minor class, unchanged).
-function fittedRing(j) {
-  const corners = [];
-  for (const a of j.arms) {
-    const sd = (a.endX - j.x) * a.dirX + (a.endZ - j.z) * a.dirZ;
-    const reach = Math.max(
-      a.crossHalf,
-      Math.min(sd + CAP_END_OVERLAP_M, a.crossHalf + CAP_MAX_EXTRA_REACH_M),
-      0.5,
-    );
-    const nx = -a.dirZ, nz = a.dirX, half = a.width / 2;
-    const cx = j.x + a.dirX * reach, cz = j.z + a.dirZ * reach;
-    corners.push([cx + nx * half, cz + nz * half]);
-    corners.push([cx - nx * half, cz - nz * half]);
-    // The arm's own bed end joins the hull too: on curved or
-    // fragment arms the end sits off the centre->dir axis, and a
-    // cross-section-only hull leaves its butt end on bare ground
-    // at the junction fringe (measured on #66 data: junction #3's
-    // unnamed fragment arm, end 4+ m outside its cap).
-    corners.push([a.endX, a.endZ]);
-  }
-  return convexHull(corners);
-}
-
-// The box cap for one major junction (issue #75): cross-section
-// lines at reach_a (see header), corners from adjacent arms' line
-// intersections, hull of corners + cross-section endpoints. The
-// segment endpoints alone close the polygon where lines are
-// parallel or the angular gap is reflex (T mouths, bends).
-//
-// Issue #81 re-split the collection into three passes. The #75
-// construction ran its corners on the EXTENDED lines (mouth slide
-// to crossHalf + 30, furniture reach on signalized junctions) —
-// and at skewed/multi-arm fragment junctions EVERY hull vertex
-// came from that pass: a corner's distance from the junction
-// scales multiplicatively with the reach of the two lines that
-// make it, so the extended corners (and the +30 slide's segment
-// endpoints) paved rotated slabs up to 4.5× the pure box hull,
-// 30–53 m out over blocks and park corners. Now:
-//   pure    — crossHalf lines, segments + corners (the box);
-//   margin  — crossHalf + BOX_MARGIN_M lines, segments + corners
-//             (the default corner source);
-//   mouth   — SEGMENTS ONLY at the furniture/bed-end reach
-//             (slide capped at crossHalf + BOX_MOUTH_SLIDE_MAX_M):
-//             the cap's edges still meet staggered mouths and
-//             keep the furniture strip along each mouth, but no
-//             segment endpoint is dragged 30 m down a through
-//             boulevard either;
-//   displaced-mouth supplement — for an arm pair where a mouth
-//             is genuinely displaced (bed end > BOX_DISPLACED_
-//             MOUTH_M past the box edge), the pair's corners are
-//             ALSO collected from the mouth lines: the flare
-//             between a far mouth and its neighbour is real
-//             junction ground (基隆路×永吉路's 東興路 mouth),
-//             while undisplaced pairs never see inflated lines.
-function boxRing(j) {
+// The overlap cap for one junction (issue #145): the junction
+// BOX (cross-section lines at crossHalf, corners from adjacent
+// arms' line intersections, segment endpoints where lines are
+// parallel or the angular gap is reflex — T mouths, bends), plus
+// — at major junctions and signalized minors — MOUTH SEGMENTS
+// ONLY at the mouth reach, plus the junction centre. One
+// construction for every junction; this function IS the box the
+// #75 audit spec (mirrored in tests/taipei-junctions.test.mjs)
+// measures coverage against.
+function overlapRing(j) {
   const arms = [...j.arms].sort((a, b) => Math.atan2(a.dirZ, a.dirX) - Math.atan2(b.dirZ, b.dirX));
-  const lineOf = (a, reach) => ({ px: j.x + a.dirX * reach, pz: j.z + a.dirZ * reach, nx: -a.dirZ, nz: a.dirX });
-  const reachOf = (a, slideCap, furniture) => {
-    let reach = a.crossHalf + BOX_MARGIN_M;
-    const sd = (a.endX - j.x) * a.dirX + (a.endZ - j.z) * a.dirZ;
-    if (sd > 0) reach = Math.max(reach, Math.min(sd + CAP_END_OVERLAP_M, a.crossHalf + slideCap));
-    if (furniture && j.signalized) reach = Math.max(reach, a.crossHalf + BOX_FURNITURE_REACH_M);
-    return reach;
-  };
+  const lineOf = (a) => ({ a, px: j.x + a.dirX * a.crossHalf, pz: j.z + a.dirZ * a.crossHalf, nx: -a.dirZ, nz: a.dirX });
+  const lines = arms.map(lineOf);
   const pts = [];
-  const mkLines = (reachFn) => arms.map((a) => {
-    const reach = reachFn(a);
-    return { a, reach, ...lineOf(a, reach) };
-  });
-  const lines = mkLines((a) => reachOf(a, BOX_MOUTH_SLIDE_MAX_M, true));
-  const maxR = Math.max(...lines.map((l) => l.reach + l.a.width / 2));
+  for (const L of lines) {
+    const h = L.a.width / 2;
+    pts.push([L.px + L.nx * h, L.pz + L.nz * h]);
+    pts.push([L.px - L.nx * h, L.pz - L.nz * h]);
+  }
+  const maxR = Math.max(...arms.map((a) => a.crossHalf + a.width / 2));
   // A corner must be LOCAL to the mouth it closes: within
   // (hA+hB)/sin(gap)+6 of one of the two arms' segment ends.
   // Fragment arms otherwise throw line intersections tens of
@@ -427,12 +379,12 @@ function boxRing(j) {
   // cross line 48 m south at 忠孝×中山) and the "box" stops
   // being the junction.
   const local = (p, A, B, gap) => {
-    const bound = (A.a.width / 2 + BOX_MARGIN_M + B.a.width / 2 + BOX_MARGIN_M) / Math.sin(gap) + 6;
+    const bound = (A.a.width / 2 + B.a.width / 2) / Math.sin(gap) + 6;
     const ends = [
-      [A.px + A.nx * (A.a.width / 2 + BOX_MARGIN_M), A.pz + A.nz * (A.a.width / 2 + BOX_MARGIN_M)],
-      [A.px - A.nx * (A.a.width / 2 + BOX_MARGIN_M), A.pz - A.nz * (A.a.width / 2 + BOX_MARGIN_M)],
-      [B.px + B.nx * (B.a.width / 2 + BOX_MARGIN_M), B.pz + B.nz * (B.a.width / 2 + BOX_MARGIN_M)],
-      [B.px - B.nx * (B.a.width / 2 + BOX_MARGIN_M), B.pz - B.nz * (B.a.width / 2 + BOX_MARGIN_M)],
+      [A.px + A.nx * (A.a.width / 2), A.pz + A.nz * (A.a.width / 2)],
+      [A.px - A.nx * (A.a.width / 2), A.pz - A.nz * (A.a.width / 2)],
+      [B.px + B.nx * (B.a.width / 2), B.pz + B.nz * (B.a.width / 2)],
+      [B.px - B.nx * (B.a.width / 2), B.pz - B.nz * (B.a.width / 2)],
     ];
     return Math.min(...ends.map((e) => Math.hypot(p[0] - e[0], p[1] - e[1]))) <= bound;
   };
@@ -442,8 +394,8 @@ function boxRing(j) {
     (p[0] - j.x) * B.a.dirX + (p[1] - j.z) * B.a.dirZ >= B.a.crossHalf - 0.01 &&
     local(p, A, B, gap);
   // The main + edge corners of one adjacent arm pair, from the
-  // pair's line objects (any pass's lines).
-  const collectPair = (A, B, edgeHalf) => {
+  // pair's BOX lines (never an extended line — see the header).
+  const collectPair = (A, B) => {
     {
       let gap = Math.atan2(B.a.dirZ, B.a.dirX) - Math.atan2(A.a.dirZ, A.a.dirX);
       if (gap <= 0) gap += Math.PI * 2;
@@ -459,21 +411,16 @@ function boxRing(j) {
       if (Math.abs(det) >= 1e-6) {
         const t = ((B.px - A.px) * B.nz - (B.pz - A.pz) * B.nx) / det;
         const p = [A.px + A.nx * t, A.pz + A.nz * t];
-        // Acceptance is judged against the arms' crossHalf (the
-        // pure box), not the extended reach: a corner inside the
-        // cap's own reach along one arm still belongs to the
-        // hull when it closes the box along the other.
         if (sane(p, A, B, gap)) pts.push(p);
       }
       // Edge corners: each arm's cross-section EXTENDED to the
-      // box edge (the brief's construction) — the intersection
-      // of one arm's lateral edge line with the other's
-      // cross-section line. Without them the hull chord between
-      // two cross-section ends cuts the mouth corner where the
-      // arm's own edge runs — the #75 audit's missing corners
-      // and off-cap crosswalk stripes at skewed mouths live
-      // exactly there. B is CCW from A, so the shared side is
-      // +n on A and −n on B.
+      // box edge — the intersection of one arm's lateral edge
+      // line with the other's cross-section line. Without them
+      // the hull chord between two cross-section ends cuts the
+      // mouth corner where the arm's own edge runs — the #75
+      // audit's missing corners and off-cap crosswalk stripes
+      // at skewed mouths live exactly there. B is CCW from A,
+      // so the shared side is +n on A and −n on B.
       const edgeCorner = (edge, cross, hEdge, hCross) => {
         // edge: {px, pz (point on the edge line), dx, dz (along
         // the arm)}, cross: {px, pz, nx, nz (cross-section line)}.
@@ -501,7 +448,7 @@ function boxRing(j) {
         if (Math.abs(s) > hCross + 6) return;
         if (sane(p, A, B, gap)) pts.push(p);
       };
-      const hA = edgeHalf(A.a), hB = edgeHalf(B.a);
+      const hA = A.a.width / 2, hB = B.a.width / 2;
       edgeCorner(
         { px: A.px + A.nx * hA, pz: A.pz + A.nz * hA, dx: A.a.dirX, dz: A.a.dirZ },
         { px: B.px, pz: B.pz, nx: B.nx, nz: B.nz },
@@ -514,38 +461,28 @@ function boxRing(j) {
       );
     }
   };
-  // One pass over a line set: segment endpoints (widened by the
-  // margin), plus main/edge corners when `withCorners`. The pure
-  // pass's gates accept everything the audit accepts, so the
-  // cap's input set contains the box's input set and hull
-  // monotonicity gives cap ⊇ box BY CONSTRUCTION — the #75
-  // audit's corner invariant.
-  const collect = (ls, edgeHalf, withCorners) => {
-    for (const L of ls) {
-      const h = L.a.width / 2 + BOX_MARGIN_M;
-      pts.push([L.px + L.nx * h, L.pz + L.nz * h]);
-      pts.push([L.px - L.nx * h, L.pz - L.nz * h]);
+  for (let i = 0; i < lines.length; i++)
+    collectPair(lines[i], lines[(i + 1) % lines.length]);
+  // Mouth segments (major junctions + signalized minors): the
+  // cross-section endpoints pushed out to the mouth reach —
+  // the bed-end slide (a staggered mouth's furniture stands on
+  // its own arm past the box edge), and on signalized junctions
+  // at least the furniture reach — widened by the margin. They
+  // contribute NO corners: the hull edges between a mouth
+  // segment and its neighbouring box corners run along the
+  // arm's own mouth, which is carriageway or kerb corner in
+  // reality, never a diagonal slab across the block.
+  if (isMajorJunction(j) || j.signalized) {
+    for (const a of arms) {
+      let reach = a.crossHalf + BOX_MARGIN_M;
+      const sd = (a.endX - j.x) * a.dirX + (a.endZ - j.z) * a.dirZ;
+      if (sd > 0) reach = Math.max(reach, Math.min(sd + CAP_END_OVERLAP_M, a.crossHalf + BOX_MOUTH_SLIDE_MAX_M));
+      if (j.signalized) reach = Math.max(reach, a.crossHalf + BOX_FURNITURE_REACH_M);
+      const nx = -a.dirZ, nz = a.dirX, half = a.width / 2 + BOX_MARGIN_M;
+      const px = j.x + a.dirX * reach, pz = j.z + a.dirZ * reach;
+      pts.push([px + nx * half, pz + nz * half]);
+      pts.push([px - nx * half, pz - nz * half]);
     }
-    if (withCorners) for (let i = 0; i < ls.length; i++)
-      collectPair(ls[i], ls[(i + 1) % ls.length], edgeHalf);
-  };
-  collect(lines, (a) => a.width / 2 + BOX_MARGIN_M, false);
-  collect(mkLines((a) => a.crossHalf + BOX_MARGIN_M), (a) => a.width / 2 + BOX_MARGIN_M, true);
-  collect(mkLines((a) => a.crossHalf), (a) => a.width / 2, true);
-  // Displaced-mouth supplement (issue #81): where a mouth is
-  // genuinely displaced (its bed end sits > BOX_DISPLACED_MOUTH_M
-  // past the box edge), the flare corner between it and its
-  // neighbour is paved at the mouth lines themselves — the box
-  // lines would leave the far mouth's furniture strip on bare
-  // ground (基隆路一段×永吉路： 東興路's mouth sits 15 m past
-  // the box; its stop line stands in exactly that flare).
-  const displaced = (a) => {
-    const sd = (a.endX - j.x) * a.dirX + (a.endZ - j.z) * a.dirZ;
-    return sd - a.crossHalf > BOX_DISPLACED_MOUTH_M;
-  };
-  for (let i = 0; i < arms.length; i++) {
-    if (!displaced(arms[i]) && !displaced(arms[(i + 1) % arms.length])) continue;
-    collectPair(lines[i], lines[(i + 1) % lines.length], (a) => a.width / 2 + BOX_MARGIN_M);
   }
   // The junction centre itself is junction ground by definition;
   // at fragment clusters it can sit outside the cross-section
@@ -554,9 +491,6 @@ function boxRing(j) {
   return convexHull(pts);
 }
 
-// ---------------------------------------------------------------------
-// Cap tones (issue #91): per-vertex blend of the incident arms.
-//
 // Each cap carries `tones`: { centre, origin, ring } — sRGB
 // [r, g, b] triples in 0..1. `ring` aligns with the cap's ring
 // points; `centre` is the tone at `origin`, the fan centre the
@@ -629,10 +563,13 @@ export function capBlendTones(j, ringPts) {
 // caller detects once and shares the result with the markings
 // builder. One cap per detected junction with >= 2 arms that no
 // roundabout site claims. kind is 'box' for major junctions,
-// 'fitted' for minor ones. ring is a flat [x, z, …] array in hull
-// order; cls is the surfaceClass of the widest incident arm
-// (census/metadata — the rendered tone is `tones`, the per-vertex
-// blend above).
+// 'fitted' for minor ones — the junction class, kept for the
+// census and the boot log; since issue #145 both classes take
+// the same overlapRing construction (the mouth segments apply
+// at major junctions and at signalized minors). ring is a flat
+// [x, z, …] array in hull order; cls is the surfaceClass of the
+// widest incident arm (census/metadata — the rendered tone is
+// `tones`, the per-vertex blend above).
 export function planJunctionCaps(roadbeds, junctions, sitesIn = null) {
   const sites = sitesIn || planRoundabouts(roadbeds, junctions);
   const claimed = new Set(sites.flatMap((s) => s.claimedJunctions));
@@ -641,7 +578,7 @@ export function planJunctionCaps(roadbeds, junctions, sitesIn = null) {
     if (!j.arms || j.arms.length < 2) return;
     if (claimed.has(ji)) return;
     const kind = isMajorJunction(j) ? 'box' : 'fitted';
-    const hull = kind === 'box' ? boxRing(j) : fittedRing(j);
+    const hull = overlapRing(j);
     if (hull.length < 3) return;
     const area = polyArea(hull);
     if (!(area > 1)) return;

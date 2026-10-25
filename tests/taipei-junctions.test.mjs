@@ -148,13 +148,24 @@ test('real tile: exactly one cap per multi-arm junction, centres and arm ends co
   // 887,296 -> 1,028,652 m2 (fitted 431,011 -> 488,109 m2, box
   // 456,285 -> 540,543 m2). Construction unchanged — data growth
   // only, on the airport box's arterial grid and the strip.
+  // Census re-pinned for issue #145 (junction cap refinement —
+  // the user's clean-rectangle rule): ONE overlap construction
+  // for every junction (the #75 audit box + mouth segments at
+  // majors and signalized minors; corners never from extended
+  // lines). Counts and kind split are unchanged (2,701 / 2,694 /
+  // 579 / 2,115); the AREAS fall by construction: total
+  // 1,028,652 -> 703,160 m2, fitted 488,109 -> 182,754 m2 (the
+  // #66 hulls over scattered bed ends — discs to 105 m radius
+  // over alley webs — collapse to box + ribbons), box 540,543 ->
+  // 520,406 m2 (the margin-line corners and displaced-mouth
+  // flares go; the box and its mouth aprons stay).
   assert.equal(junctions.length, 2701, `junctions ${junctions.length}`);
   assert.equal(caps.length, 2694, `caps ${caps.length}`);
   assert.equal(caps.filter((c) => c.kind === 'box').length, 579, 'box caps');
   assert.equal(caps.filter((c) => c.kind === 'fitted').length, 2115, 'fitted caps');
-  assert.equal(Math.round(caps.reduce((s, c) => s + c.area, 0)), 1028652, 'cap area census');
-  assert.equal(Math.round(caps.filter((c) => c.kind === 'fitted').reduce((s, c) => s + c.area, 0)), 488109,
-    'fitted cap area census (construction unchanged since #73)');
+  assert.equal(Math.round(caps.reduce((s, c) => s + c.area, 0)), 703160, 'cap area census');
+  assert.equal(Math.round(caps.filter((c) => c.kind === 'fitted').reduce((s, c) => s + c.area, 0)), 182754,
+    'fitted cap area census (overlap construction since #145)');
   const capByJ = new Map();
   {
     let ci = 0;
@@ -168,15 +179,15 @@ test('real tile: exactly one cap per multi-arm junction, centres and arm ends co
     assert.ok(distToPoly([j.x, j.z], poly) <= 1.0, `junction ${ji} centre covered`);
     const widest = Math.max(...j.arms.map((a) => a.width));
     assert.ok(cap.radius >= widest / 2, `junction ${ji} radius reaches the widest half width`);
-    // Arm ends: the fitted cap hulls contain the raw bed ends by
-    // construction (#73 pin, measured max distance 0.0). The box
-    // cap is axis-true — it covers its junction BOX (pinned by
-    // the #75 test below), and a curved or overshooting bed end
-    // is the ribbon's business, not the box's.
-    if (cap.kind === 'fitted')
-      for (const a of j.arms)
-        assert.ok(distToPoly([a.endX, a.endZ], poly) <= 2.5,
-          `junction ${ji} arm ${a.name} end (${a.endX}, ${a.endZ}) covered by its cap`);
+    // Arm ends: the #66/#73 fitted hulls contained the raw bed
+    // ends by construction — that containment WAS the blob (at
+    // merged clusters the ends scatter across a ~40 m disc, and
+    // hulling them paved the whole web). Since #145 every cap
+    // covers its junction BOX (pinned for majors by the #75
+    // test below, for minors by the #145 test), and a curved or
+    // overshooting bed end is the ribbon's business, not the
+    // cap's — the end stands on its own bed's asphalt either
+    // way.
   });
 });
 
@@ -277,13 +288,19 @@ test('real tile: no painted band, median strip or dash quad centre inside a cap'
   // Bite re-pinned for issue #134: caps 2,354 -> 2,694 on the
   // enlarged tile — 2,758 band, 5,485 edge and 3,814 median quad
   // centres; the clipped builders still put exactly 0 there.
+  // Bite re-pinned for issue #145: the occluder set is now the
+  // overlap caps (703,160 m2 against 1,028,652 m2), so the bite
+  // falls with it — 1,626 band, 3,230 edge and 3,622 median quad
+  // centres; the clipped builders still put exactly 0 there.
+  // (Medians barely move: their quads run along centrelines,
+  // inside the boxes under both constructions.)
   const unclipped = buildPaintedBands(beds);
-  assert.equal(unclipped.band.filter(inOcc).length, 2758,
+  assert.equal(unclipped.band.filter(inOcc).length, 1626,
     `unclipped bands inside occluders: ${unclipped.band.filter(inOcc).length}`);
-  assert.equal(unclipped.edges.filter(inOcc).length, 5485,
+  assert.equal(unclipped.edges.filter(inOcc).length, 3230,
     `unclipped edges inside occluders: ${unclipped.edges.filter(inOcc).length}`);
   const unclippedMedians = buildMedianStrips(beds);
-  assert.equal([...unclippedMedians.plain, ...unclippedMedians.planted].filter(inOcc).length, 3814,
+  assert.equal([...unclippedMedians.plain, ...unclippedMedians.planted].filter(inOcc).length, 3622,
     'unclipped medians inside occluders');
 });
 
@@ -466,11 +483,24 @@ test('issue #75: crosswalk and stop-line centres at major junctions lie on aspha
   // stop line (0.00 m — the boundary-blind class) at 民權東路三段
   // x 敦化北路， a new major in the airport box. Same graze
   // classes, no new failure mode; the 1.5 m ceiling is unchanged.
-  assert.ok(off.length <= 17, `off-asphalt furniture centres at major junctions: ${off.length}`);
+  // Residual set re-audited for issue #145 (overlap caps): 19
+  // centres, worst 1.62 m. The growth (+2 net) and the new worst
+  // both sit at the 關渡 junction （大度路三段 x 中央北路四段）,
+  // whose beds are cut by the tile's west edge — its stripes
+  // stood 0.92–1.37 m past the tile-edge-clipped cap already in
+  // the #102 set (5 centres); with the displaced-mouth corners
+  // gone (the #145 construction) 8 centres graze there, worst
+  // 1.62 m. No cap geometry can pave off-tile, so the distance
+  // ceiling moves 1.5 -> 1.75 m for this boundary class alone;
+  // every other centre keeps the old classes （仁愛 circle flare
+  // x2 at 1.20/0.39 m, 忠孝x敦化 x2, kerb-line 0.00 m centres).
+  // The trade is the offenders: corner throws of 26.7–38.4 m
+  // (see the #81 distribution test) are zero under #145.
+  assert.ok(off.length <= 19, `off-asphalt furniture centres at major junctions: ${off.length}`);
   for (const { ji, c } of off) {
     let best = Infinity;
     for (const poly of asphalt) best = Math.min(best, distToPoly(c, poly));
-    assert.ok(best <= 1.5, `junction ${ji} furniture centre ${best.toFixed(2)} m off asphalt`);
+    assert.ok(best <= 1.75, `junction ${ji} furniture centre ${best.toFixed(2)} m off asphalt`);
   }
 });
 
@@ -597,9 +627,20 @@ test('issue #81: box-cap vertices stay near the box — no slab spikes', () => {
       if (d > maxOver) maxOver = d;
     }
   });
-  assert.ok(over20 <= 41, `cap vertices >20 m past their box: ${over20}`);
-  assert.ok(over25 <= 9, `cap vertices >25 m past their box: ${over25}`);
-  assert.ok(maxOver <= 39, `worst cap vertex overshoot ${maxOver.toFixed(1)} m`);
+  // Distribution re-pinned for issue #145 (overlap caps): no
+  // corner is taken from an extended line any more, so the only
+  // vertices past the box are mouth segment endpoints on their
+  // own arms — 8 vertices past 20 m, NONE past 25 m, worst
+  // 20.1 m (the bed-end slide's crossHalf + 20 cap itself).
+  // The named #134 offenders' corner overshoot is zero:
+  // 塔悠路 x 撫遠街 35.0 -> 0 (cap radius 47.9 -> 22.9 m),
+  // 敦化北路 service mouth 27.3 -> 0 (32.6 -> 24.1 m), 環河南路
+  // x 福德南路 27.2 -> 0 (46.2 -> 27.9 m), 重慶北路三段 x
+  // 敦煌路 26.7 -> 0 (47.3 -> 37.7 m); the tile max was
+  // 中山北路五段's 38.4 m corner throw (radius 65.8 -> 31.8 m).
+  assert.ok(over20 <= 8, `cap vertices >20 m past their box: ${over20}`);
+  assert.ok(over25 <= 0, `cap vertices >25 m past their box: ${over25}`);
+  assert.ok(maxOver <= 21, `worst cap vertex overshoot ${maxOver.toFixed(1)} m`);
 });
 
 test('issue #81: the reported junction 忠孝東路五段×松仁路 keeps a box-hugging cap', () => {
@@ -608,7 +649,10 @@ test('issue #81: the reported junction 忠孝東路五段×松仁路 keeps a box
   // rotated trapezoid slab (1,616 m², radius 33.7 m, spikes NW
   // and SE) over the corner blocks, in a tone lighter than the
   // arterial arms. Under the #81 construction the cap hugs the
-  // box: 1,348 m², radius 24.1 m, no spike vertices.
+  // box: 1,348 m², radius 24.1 m, no spike vertices. Under the
+  // #145 overlap construction: 1,316 m², radius 24.0 m (the
+  // pins below are unchanged — the box was already the shape
+  // here; #145 removes the corners thrown elsewhere).
   const beds = TAIPEI_GEO.roadbeds;
   const junctions = detectJunctions(beds);
   const caps = planJunctionCaps(beds, junctions);
@@ -628,4 +672,57 @@ test('acceptance junction 信義路×松仁路： the formerly bare core is capp
   assert.ok(near.c.radius >= 22, `cap radius ${near.c.radius} spans the bare core`);
   const poly = ringPoints(near.c.ring);
   assert.equal(distToPoly([339.5, 19.4], poly), 0, 'junction centre paved');
+});
+
+test('issue #145: every minor junction box is covered by its overlap cap', () => {
+  // The #75 box audit above binds major junctions since #75.
+  // Minor junctions carried the #66 fitted hull instead, whose
+  // only box guarantee was arm-end containment — the hull over
+  // scattered bed ends that paved alley webs whole (worst cap
+  // radius 105 m, fitted area 488,109 m²). Since #145 the
+  // fitted class takes the same overlap construction, so the
+  // same audit binds it: (a) every box corner inside the cap
+  // (1 m tolerance as at majors; measured worst 0.07 m — the
+  // ring's 0.1 m rounding), (b) the whole box paved to within
+  // that rounding (2 m grid samples within 0.15 m of the cap;
+  // a binary in/out test on small boxes measures the rounding,
+  // not coverage — 127 of 2,115 boxes have a grid point past a
+  // rounded edge, worst corner distance still 0.07 m), and
+  // (c) no vertex thrown past the box beyond the mouth slide's
+  // own cap (measured worst 19.9 m at a signalized minor — the
+  // same crossHalf + 20 bound the #81 distribution pins at
+  // majors).
+  const beds = TAIPEI_GEO.roadbeds;
+  const junctions = detectJunctions(beds);
+  const sites = planRoundabouts(beds, junctions);
+  const claimed = new Set(sites.flatMap((s) => s.claimedJunctions));
+  const caps = planJunctionCaps(beds, junctions, sites);
+  const capByJ = new Map();
+  {
+    let ci = 0;
+    junctions.forEach((j, ji) => { if (j.arms.length >= 2 && !claimed.has(ji)) { capByJ.set(ji, caps[ci]); ci++; } });
+  }
+  let minor = 0;
+  junctions.forEach((j, ji) => {
+    if (j.arms.length < 2 || claimed.has(ji) || isMajorJunction(j)) return;
+    minor++;
+    const cap = capByJ.get(ji);
+    assert.equal(cap.kind, 'fitted', `junction ${ji} is a fitted cap`);
+    const poly = ringPoints(cap.ring);
+    const box = junctionBox(j);
+    assert.ok(box.length >= 3, `junction ${ji} has a box`);
+    for (const p of box)
+      assert.ok(distToPoly(p, poly) <= 1.0,
+        `junction ${ji} box corner (${p[0].toFixed(0)},${p[1].toFixed(0)}) outside its cap by ${distToPoly(p, poly).toFixed(2)} m`);
+    const xs = box.map((p) => p[0]), zs = box.map((p) => p[1]);
+    for (let x = Math.min(...xs) + 1; x < Math.max(...xs); x += 2)
+      for (let z = Math.min(...zs) + 1; z < Math.max(...zs); z += 2) {
+        if (!pointInPoly([x, z], box)) continue;
+        assert.ok(distToPoly([x, z], poly) <= 0.15,
+          `junction ${ji} box sample (${x},${z}) is ${distToPoly([x, z], poly).toFixed(2)} m outside its cap`);
+      }
+    for (const v of poly)
+      assert.ok(distToPoly(v, box) <= 21, `junction ${ji} cap vertex overshoots the box by ${distToPoly(v, box).toFixed(1)} m`);
+  });
+  assert.equal(minor, 2115, `minor junctions audited ${minor}`);
 });

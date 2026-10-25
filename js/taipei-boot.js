@@ -742,12 +742,13 @@ export async function buildTaipeiGround(scene, tile, deps = {}) {
   addLayer(ribbonsGeometry(byClass.collector, 0.06), mat(SURFACE_TONES.collector, 0.9), 'TaipeiRoadsCollector');
   addLayer(ribbonsGeometry(byClass.lane, 0.06), mat(SURFACE_TONES.lane, 0.9), 'TaipeiRoadsLane');
   await completeStage('roads', `${carriageways.length} roadbeds, ${sidewalkBands.quadCount} sidewalk band quads`);
-  // Junction caps (issues #66/#75, js/taipei-junctions.js): one
-  // paved polygon per detected junction at 0.061, in per-vertex
+  // Junction caps (issues #66/#75/#145, js/taipei-junctions.js):
+  // one paved polygon per detected junction at 0.061, in per-vertex
   // blended arm tones (issue #91; the roundabout discs below keep
-  // their widest-arm tone) — a plain junction-BOX cap at major
-  // junctions (arterial/deck arms), the #66 fitted hull at minor
-  // ones — filling the junction box the butt-ended arm ribbons
+  // their widest-arm tone) — the OVERLAP cap since #145: the
+  // junction box of the arms' own crossing geometry plus mouth
+  // segments at majors and signalized minors, filling the
+  // junction box the butt-ended arm ribbons
   // leave bare or fan-overlapped. Roundabouts are handcrafted
   // instead (issue #75): a plain asphalt disc + a defined island
   // at 0.0635 (planted, or plaza paving at 北門）; junctions a
@@ -755,9 +756,9 @@ export async function buildTaipeiGround(scene, tile, deps = {}) {
   // painted layers' occluder for medians and painted bands (lane
   // dashes clip against caps only, so the rings keep their lane
   // lines), so no paint crosses a junction core. (Crosswalks and
-  // stop lines are junction furniture and stay — at major
-  // junctions the box reach puts them ON the cap's asphalt; see
-  // js/taipei-junctions.js.)
+  // stop lines are junction furniture and stay — the mouth
+  // segments keep them on the cap's asphalt or the arm's ribbon;
+  // see js/taipei-junctions.js.)
   // Junctions are detected ONCE here and shared with the markings
   // builder (which used to detect its own copy).
   const junctions = detectJunctions(carriageways);
