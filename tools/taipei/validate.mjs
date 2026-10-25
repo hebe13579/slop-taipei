@@ -26,8 +26,13 @@ const scan = (flatArr) => {
 G.roads.forEach((r) => scan(r.pts));
 G.water.forEach((w) => scan(w.ring));
 G.parks.forEach((p) => scan(p.ring));
+(G.green || []).forEach((p) => scan(p.ring));
 G.blocks.forEach((b) => scan([b.bbox.minX, b.bbox.minZ, b.bbox.maxX, b.bbox.maxZ]));
 check(outOfBounds === 0, 'all coords within frame bbox', `max |coord| ${maxAbs.toFixed(1)} m, bbox x[${bb.minX}, ${bb.maxX}] z[${bb.minZ}, ${bb.maxZ}]`);
+
+// 1b. Green-land layer present (issue #114): farmland / nature /
+// recreation polygons the planner must keep lot-free.
+check(Array.isArray(G.green) && G.green.length > 200, 'green-land layer present', `${(G.green || []).length} polygons`);
 
 // 2. Taipei 101 landmark exists near origin
 const t101 = G.landmarks['Taipei 101'];

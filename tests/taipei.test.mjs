@@ -711,9 +711,9 @@ test('landmark batch 3: two-slab Cathay rebuild, W, Songshan, Eslite, Arena', ()
 // (its massing sits
 // +11 m east inside the slanted OSM outline to clear the 承德路
 // diagonal — see the registry comment); the CKS Hall stacks three
-// terrace steps, the white hall and two blue frustum eaves under a
+// terrace steps, the white hall and two blue eave tiers under a
 // gold finial; the two national halls are the palace pair (plinth,
-// walls, golden frustum hip + ridge) across Liberty Square; the
+// walls, golden hip + ridge) across Liberty Square; the
 // Presidential Office is the red-brick baroque block — long main
 // range, two end pavilions, central tower. The halls' sites only
 // became buildable when the memorial park's internal service
@@ -747,20 +747,28 @@ test('landmark batch 4: station district — crown, hip roof, terrace hall, pala
   assert.ok(cks, 'cks memorial hall registered');
   const terraces = cks.parts.filter((p) => p.type === 'box' && p.flat === 0xa39a8b || (p.type === 'box' && (p.y0 === 4.8 || p.y0 === 9.6)));
   assert.ok(terraces.length >= 2, 'stepped terrace levels present under the hall');
-  const eaves = cks.parts.filter((p) => p.type === 'frustum' && p.flat === 0x1e4d8c);
-  assert.equal(eaves.length, 2, 'blue double-eaved roof as two frustum tiers');
+  // Issue #116 re-pin: the two blue frustum eave tiers are now
+  // six stepped box tiers — frustum parts cannot rotate, and the
+  // hall group turns to the park's measured axis (rotY 0.4924);
+  // step footprints follow the frustum profiles (see registry).
+  const eaves = cks.parts.filter((p) => p.type === 'box' && p.flat === 0x1e4d8c);
+  assert.equal(eaves.length, 6, 'blue double-eaved roof as two stepped box tiers (issue #116)');
+  assert.ok(eaves.every((p) => Math.abs(p.rotY - 0.4924) < 0.001), 'eave tiers turn with the park axis');
   const finial = cks.parts.find((p) => p.type === 'cylinder');
   assert.ok(finial && partTop(finial) === 70, 'gold finial tops out at the published 70 m');
 
-  // The palace pair: same recipe (plinth / walls / frustum / ridge),
+  // The palace pair: same recipe (plinth / walls / hip + ridge),
   // ridge peaks at the OSM-derived 37 m, flagged estimated.
+  // Issue #116 re-pin: frustum + ridge are stepped boxes since
+  // #116 (they cannot rotate; the halls turn to the park axis),
+  // so the recipe is eight boxes and the peak is the top step.
   const concert = byId('national-concert-hall');
   const theater = byId('national-theater');
   assert.ok(concert && theater, 'both national halls registered');
   for (const hall of [concert, theater]) {
-    assert.deepEqual(hall.parts.map((p) => p.type), ['box', 'box', 'frustum', 'ridge'], `${hall.id} = plinth + walls + frustum hip + ridge`);
-    const ridge = hall.parts.find((p) => p.type === 'ridge');
-    assert.equal(partTop(ridge), 37, `${hall.id} ridge peaks at 37 m`);
+    assert.ok(hall.parts.every((p) => p.type === 'box'), `${hall.id} = plinth + walls + stepped hip roof, all boxes (issue #116)`);
+    assert.ok(hall.parts.every((p) => Math.abs(p.rotY - 0.4924) < 0.001), `${hall.id} every part turns with the park axis`);
+    assert.equal(Math.max(...hall.parts.map(partTop)), 37, `${hall.id} roof crest peaks at 37 m`);
     assert.equal(hall.estimated, true, `${hall.id} height is OSM-derived, flagged estimated`);
   }
   // Issue #98: the pairing was challenged in the facing sweep and
@@ -772,8 +780,12 @@ test('landmark batch 4: station district — crown, hip roof, terrace hall, pala
   // Presidential Office: main range + two pavilions + tower at 60 m.
   const office = byId('presidential-office-building');
   assert.ok(office, 'presidential office registered');
-  const pavilions = office.parts.filter((p) => p.type === 'box' && Math.abs(p.dz || 0) === 54);
+  // Issue #116 re-pin: the pavilions' offsets rotated with the
+  // block's measured 5.6° skew (dz ±54 -> (∓5.3, ±53.7)), so they
+  // are pinned by their size, not their axis-aligned offset.
+  const pavilions = office.parts.filter((p) => p.type === 'box' && p.w === 54 && p.d === 22);
   assert.equal(pavilions.length, 2, 'two end pavilions flank the main range');
+  assert.ok(office.parts.every((p) => Math.abs((p.rotY || 0) - 0.0977) < 0.001), 'every part turns with the measured 5.6° skew');
   assert.equal(Math.max(...office.parts.map(partTop)), 60, 'tower cap tops out at the published 60 m');
 
   // Map pins + Chinese names for all six, via the tile landmark list.
@@ -920,45 +932,51 @@ test('taiwan types: family zoning, distribution and rooftop clamp', (t) => {
   // rounded to 0.1 m, so a full-precision-cleared corner could
   // reconstruct ~0.01 m inside a creek polygon — the orientation
   // corner invariant caught one at 石牌）.
-  // Re-pinned for issue #103 (northern landmarks): the two new
-  // registry sites exclude the lots that stood on them — the plan
-  // goes 41,269 -> 41,151 lots (-118: the Grand Hotel's hilltop
-  // site and the incinerator plant site; measured by planning
-  // with and without the two entries). The excluded lots carry
-  // the local mix: glass -4 (all F3), Taiwan-type -25 (F6 -5,
-  // F7 -7, F8 -7, F9 -6), masonry -89 (F0 -20, F1 -29, F2 -40),
-  // re-pinning glass 3,244 -> 3,240, Taiwan 9,049 -> 9,024 and
-  // masonry 28,976 -> 28,887.
-  // Re-pinned for issue #106 (street walls + tall frontages): the
-  // glass RULES are untouched — facadeMatFor still evaluates the
-  // same rolls first — but the plan's heights legitimately change:
-  // 3,185 lots standing in collector-or-better block faces draw
-  // from the tall-frontage bands (24-54 / 18-42 / 15-30 m) instead
-  // of the contextual tiers, and packed frontage rows take no
-  // vacancy holes. Measured on this tree, family by family
-  // (before -> after): the plan goes 41,151 -> 41,319 lots (+168:
-  // +5,392 vacancy candidates flow on from packed rows, -1,825
-  // more fall to the exact ribbon test on the wider packed
-  // footprints, the rest to park/site/union tests); glass 3,240 ->
-  // 4,303 (+1,063: F3 +293, F4 +396, F5 +374 — frontage lots the
-  // new bands lift to >= 40 m are glass by the untouched first
-  // rule, and lots lifted into 22-40 m roll glass at the same
-  // pre-#17 half share); Taiwan 9,024 -> 9,641 (+617: F6 +202,
-  // F7 +143, F8 +147, F9 +125 — frontage lots lifted into the
-  // 15-40 m Taiwan band); masonry 28,887 -> 27,375 (-1,512:
-  // F0 -401, F1 -501, F2 -610). Lane/interior lots are unchanged
+  // Re-pinned for issue #114 (green-land exclusion): the plan drops
+  // 6,597 lots (41,269 -> 34,672) whose centres stood on farmland /
+  // nature / recreation-ground polygons — 421 of them glass. The
+  // glass rolls are unchanged and still evaluate first; the proof
+  // is the counterfactual plan: the same geodata with the green
+  // layer stripped reproduces 3,244 glass / 28,976 masonry exactly,
+  // so the whole delta is the green rule's drops.
+  // Gate composition with issue #103 (merged first): the two new
+  // landmark sites exclude 4 more glass lots, all off green land —
+  // 2,823 - 4 = 2,819, measured on the merged tree at the #114 gate.
+  // Gate composition with issue #106 (street walls + tall
+  // frontages), re-measured on THIS merged tree (the branch was
+  // planned against the pre-#114 base; the numbers below are the
+  // #106 change alone, diffed family by family against
+  // origin/main's plan on the same merged geodata): the plan goes
+  // 34,573 -> 34,707 lots (+134: packed frontage rows take no
+  // vacancy holes, so lotsDroppedVacancy falls 28,475 -> 23,386,
+  // while the wider packed footprints drop +1,646 more on the
+  // exact ribbon test and +115/+20/+23 on the park/green/site
+  // tests — the exclusions still win over packing). Glass 2,819 ->
+  // 3,832 (+1,013: F3 +280, F4 +377, F5 +356 — 3,049 lots stand in
+  // the tall-frontage bands 24-54 / 18-42 / 15-30 m, and lots the
+  // bands lift to >= 40 m are glass by facadeMatFor's untouched
+  // first rule, lots lifted into 22-40 m roll glass at the same
+  // pre-#17 half share); Taiwan 7,629 -> 8,204 (+575: F6 +190,
+  // F7 +135, F8 +131, F9 +119); masonry 24,125 -> 22,671 (-1,454:
+  // F0 -380, F1 -480, F2 -594). Lane/interior lots are unchanged
   // by construction (same gap, vacancy and height rules).
-  assert.equal(glass, 4303, 'glass family counts untouched by the Taiwan-type assignment');
+  assert.equal(glass, 3832, 'glass family counts untouched by the Taiwan-type assignment');
   const masonry = opts.lots.filter((l) => l.mat <= 2).length;
   // Range re-based for issue #65: the exact ribbon exclusion removed
   // ~4,400 masonry lots that stood on ribbons or in medians; masonry
   // is reduced but still the city's majority fabric.
   // Range re-based for issue #102: 28,976 of 41,269 lots — still
-  // the majority fabric of the enlarged tile. Issue #103 takes
-  // it to 28,887 of 41,151 (see the glass re-pin above); issue
-  // #106's tall frontages take it to 27,375 of 41,319 — still the
-  // majority fabric, still inside this range unedited.
-  assert.ok(masonry > 25000 && masonry < 33000, `masonry 0-2 reduced but still present (${masonry})`);
+  // the majority fabric of the enlarged tile.
+  // Range re-based for issue #114: the green-land exclusion removed
+  // 4,778 masonry lots along with the glass above — 24,198 of
+  // 34,672 lots (69.8%), still the majority fabric. On the merged
+  // tree with issue #103 the count is 24,125 of 34,573 (69.8%):
+  // #103 excludes 89 masonry lots by site, 16 of which the green
+  // rule had already dropped (net -73), measured at the #114 gate.
+  // Issue #106 composition: 22,671 of 34,707 (65.3%) on the merged
+  // tree (see the glass re-pin above) — still the majority fabric,
+  // still inside this range unedited.
+  assert.ok(masonry > 20000 && masonry < 30000, `masonry 0-2 reduced but still present (${masonry})`);
   assert.equal(typeof opts.rooftopGearClamp, 'function', 'options carry the rooftop-gear clamp');
 
   const lot = { x0: 0, x1: 9, z0: 0, z1: 14 };
