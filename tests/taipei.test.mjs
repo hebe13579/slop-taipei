@@ -697,7 +697,9 @@ test('landmark batch 3: two-slab Cathay rebuild, W, Songshan, Eslite, Arena', ()
 // Issue #74 batch 4 (west-expansion phase 2): the six station-
 // district landmarks. Shin Kong is the beige tower under its
 // pyramid crown; the Main Station is the long house under stepped
-// red roofs with the clock tower at the centre (its massing sits
+// red hip roof (fine steps to a skylight deck since issue #98 —
+// the #74 clock tower was fictitious; the references show none)
+// (its massing sits
 // +11 m east inside the slanted OSM outline to clear the 承德路
 // diagonal — see the registry comment); the CKS Hall stacks three
 // terrace steps, the white hall and two blue frustum eaves under a
@@ -707,7 +709,7 @@ test('landmark batch 3: two-slab Cathay rebuild, W, Songshan, Eslite, Arena', ()
 // range, two end pavilions, central tower. The halls' sites only
 // became buildable when the memorial park's internal service
 // drives stopped being roadbeds (generation-map rule, issue #74).
-test('landmark batch 4: station district — crown, clock tower, terrace hall, palace pair, brick block', () => {
+test('landmark batch 4: station district — crown, hip roof, terrace hall, palace pair, brick block', () => {
   const plan = planTaipeiBuildings(TAIPEI_GEO);
   const byId = (id) => plan.landmarkTowers.find((s) => s.id === id);
   const partTop = (p) => (p.y0 || 0) + p.h + (p.type === 'ridge' ? p.ridgeH : 0);
@@ -719,11 +721,16 @@ test('landmark batch 4: station district — crown, clock tower, terrace hall, p
   assert.ok(crown && crown.wT < crown.wB, 'pyramid crown steps in from the shaft');
   assert.equal(Math.max(...shinKong.parts.map(partTop)), 244.15, 'cap tops out at the published 244.15 m');
 
-  // Taipei Main Station: stepped red roofs + clock tower at 48 m.
+  // Taipei Main Station: one red hip roof (fine steps) at 48 m.
+  // Issue #98 re-pin: the #74 "clock tower" part (y0 40, top 48)
+  // was fictitious — the south-facade photo and the satellite
+  // show a single hip roof with a flat skylight deck and no
+  // tower — so the height pin moves to the deck topping the roof.
   const station = byId('taipei-main-station');
   assert.ok(station, 'taipei main station registered');
-  const clock = station.parts.find((p) => p.y0 === 40);
-  assert.ok(clock && partTop(clock) === 48, 'clock tower tops out at the published 48 m');
+  const deck = station.parts.find((p) => p.flat === 0x39434e);
+  assert.ok(deck && partTop(deck) === 48, 'skylight deck tops out at the published 48 m');
+  assert.equal(Math.max(...station.parts.map(partTop)), 48, 'no part rises past the published 48 m (no clock tower)');
   assert.ok(station.parts.filter((p) => p.flat === 0x9c4a38).length >= 2, 'red roof steps carry the flat terracotta');
 
   // CKS Memorial Hall: three terrace steps + two blue eaves + finial.
@@ -747,6 +754,10 @@ test('landmark batch 4: station district — crown, clock tower, terrace hall, p
     assert.equal(partTop(ridge), 37, `${hall.id} ridge peaks at 37 m`);
     assert.equal(hall.estimated, true, `${hall.id} height is OSM-derived, flagged estimated`);
   }
+  // Issue #98: the pairing was challenged in the facing sweep and
+  // verified against the ways' own OSM name tags (concert hall =
+  // way 1052759775 at the north position; theatre = way
+  // 1052759776 at the south) — the labels were always correct.
   assert.ok(concert.x > theater.x && concert.z < theater.z, 'concert hall stands NE of the theater across the square');
 
   // Presidential Office: main range + two pavilions + tower at 60 m.
