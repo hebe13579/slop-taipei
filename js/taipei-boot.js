@@ -5,11 +5,11 @@ import { buildSidewalkBands, planStreetTrees, planParkTrees } from './taipei-str
 import { AvatarFigure } from './avatar-figure.js';
 import { buildPaintedBands } from './taipei-painted.js';
 import { SURFACE_TONES, surfaceClass, buildMedianStrips, isPlazaPark, isPodiumBlock, podiumCentresOf } from './taipei-surfaces.js';
-import { buildRoadMarkings, detectJunctions } from './taipei-markings.js';
+import { buildRoadMarkings, detectJunctions, DASH_LEN, DASH_GAP, STRIPE_W, STRIPE_PITCH } from './taipei-markings.js';
 import { planJunctionCaps, planRoundabouts, ringPoints, CAP_Y, ISLAND_Y } from './taipei-junctions.js';
 import { buildDeckGeometry, PIER_W, PIER_D } from './taipei-viaduct.js';
 import { unionExclusionRects, clipRectToBoxes } from './taipei-union.js';
-import { createCurtainWallMaterial, createPreWarBuildingMaterial } from './tsl-materials.js';
+import { createCurtainWallMaterial, createPreWarBuildingMaterial, createTaipeiMarkingMaterial } from './tsl-materials.js';
 import { createBuildProgress, TAIPEI_BUILD_STAGES } from './taipei-progress.js';
 
 // js/taipei-boot.js
@@ -246,6 +246,47 @@ function quadsGeometry(quads, y) {
 function paintedGeometries(carriageways, yBand, yEdge, capPolys = null) {
   const { band, edges } = buildPaintedBands(carriageways, capPolys);
   return { band: quadsGeometry(band, yBand), edges: quadsGeometry(edges, yEdge) };
+}
+
+// Shader-marking geometry (issue #90): the divider strips and
+// crosswalk bands from js/taipei-markings.js as one merged geometry
+// whose `paint` vertex attribute carries (along, period, duty) per
+// vertex — along is the strip's centreline arc for dashes (period
+// DASH_LEN + DASH_GAP) and the lateral distance from the band's low
+// edge for zebras (period STRIPE_PITCH). The pattern itself is
+// evaluated by createTaipeiMarkingMaterial; this only lays out the
+// ribbons. Triangle order mirrors quadsGeometry's strip order so
+// the faces point up exactly like the solid quads they replace.
+function patternGeometry(strips, bands, y) {
+  let verts = 0;
+  for (const s of strips) verts += (s.length - 1) * 6;
+  verts += bands.length * 6;
+  const positions = new Float32Array(verts * 3);
+  const paint = new Float32Array(verts * 3);
+  let o = 0, p = 0;
+  const tri = (ax, az, aAlong, bx, bz, bAlong, cx, cz, cAlong, period, duty) => {
+    positions.set([ax, y, az, bx, y, bz, cx, y, cz], o); o += 9;
+    paint.set([aAlong, period, duty, bAlong, period, duty, cAlong, period, duty], p); p += 9;
+  };
+  const dashPeriod = DASH_LEN + DASH_GAP, dashDuty = DASH_LEN / dashPeriod;
+  for (const s of strips) {
+    for (let i = 0; i + 1 < s.length; i++) {
+      const a = s[i], b = s[i + 1];
+      tri(a.hx, a.hz, a.along, b.hx, b.hz, b.along, b.lx, b.lz, b.along, dashPeriod, dashDuty);
+      tri(a.hx, a.hz, a.along, b.lx, b.lz, b.along, a.lx, a.lz, a.along, dashPeriod, dashDuty);
+    }
+  }
+  const zebraDuty = STRIPE_W / STRIPE_PITCH;
+  for (const b of bands) {
+    const q = b.quad; // corners: (u-, hi) (u+, hi) (u+, lo) (u-, lo); along 0 at the lo edge
+    tri(q[0], q[1], b.width, q[2], q[3], b.width, q[4], q[5], 0, STRIPE_PITCH, zebraDuty);
+    tri(q[0], q[1], b.width, q[4], q[5], 0, q[6], q[7], 0, STRIPE_PITCH, zebraDuty);
+  }
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+  geo.setAttribute('paint', new THREE.BufferAttribute(paint, 3));
+  geo.computeVertexNormals();
+  return geo;
 }
 
 // Street-section band widths beyond the carriageway, by pedestrianLayout
@@ -660,10 +701,20 @@ export async function buildTaipeiGround(scene, tile, deps = {}) {
   // obey them; scooter waiting boxes are out of scope (user cut).
   const markingsStart = performance.now();
   const markings = buildRoadMarkings(carriageways, medians, caps, junctions); // reuses the strips built above as dash occluders
+  // Dashes and zebra stripes render as shader patterns over plain
+  // ribbons/bands (issue #90 — the plan in taipei-markings.js is
+  // unchanged; only the baking moved into the fragment shader).
+  // Stop lines are single solid quads, not periodic, and keep the
+  // solid path.
   addLayer(
-    quadsGeometry([...markings.dashes, ...markings.stripes, ...markings.stopLines], 0.068),
-    mat(0xf2f2f2, 0.9),
+    patternGeometry(markings.dashStrips, markings.bands, 0.068),
+    createTaipeiMarkingMaterial(),
     'TaipeiRoadMarkings'
+  );
+  addLayer(
+    quadsGeometry(markings.stopLines, 0.068),
+    mat(0xf2f2f2, 0.9),
+    'TaipeiRoadStopLines'
   );
   const signalMesh = buildSignalMesh(markings.signals);
   if (signalMesh) group.add(signalMesh);
