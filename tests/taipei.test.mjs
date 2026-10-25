@@ -767,11 +767,16 @@ test('landmark batch 4: station district — crown, hip roof, terrace hall, pala
   const terraces = cks.parts.filter((p) => p.type === 'box' && p.flat === 0xa39a8b || (p.type === 'box' && (p.y0 === 4.8 || p.y0 === 9.6)));
   assert.ok(terraces.length >= 2, 'stepped terrace levels present under the hall');
   // Issue #116 re-pin: the two blue frustum eave tiers are now
-  // six stepped box tiers — frustum parts cannot rotate, and the
+  // stepped box tiers — frustum parts cannot rotate, and the
   // hall group turns to the park's measured axis (rotY 0.4924);
   // step footprints follow the frustum profiles (see registry).
+  // Issue #138 gate revision re-pin: the profile is re-cut from
+  // six steps to nine so the double eave reads — a wide, flatter
+  // lower skirt (4 steps, 80 -> 71 m over 8 m) under a steeper
+  // upper roof (5 steps, 65 -> 43 m over 14 m); total roof
+  // height unchanged (40.5 -> 62.5 under the finial).
   const eaves = cks.parts.filter((p) => p.type === 'box' && p.flat === 0x1e4d8c);
-  assert.equal(eaves.length, 6, 'blue double-eaved roof as two stepped box tiers (issue #116)');
+  assert.equal(eaves.length, 9, 'blue double-eaved roof as stepped box tiers: flat lower skirt + steep upper roof (issues #116/#138)');
   assert.ok(eaves.every((p) => Math.abs(p.rotY - 0.4924) < 0.001), 'eave tiers turn with the park axis');
   const finial = cks.parts.find((p) => p.type === 'cylinder');
   assert.ok(finial && partTop(finial) === 70, 'gold finial tops out at the published 70 m');
