@@ -219,3 +219,47 @@ export function podiumCentresOf(geodata) {
   const lm = geodata?.landmarks || {};
   return PODIUM_LANDMARK_KEYS.map((k) => lm[k]).filter((c) => c && Number.isFinite(c.x) && Number.isFinite(c.z));
 }
+
+// ---------------------------------------------------------------------
+// CKS Memorial grounds paving (issue #98 follow-up; user request
+// 2026-10-24: "中正紀念堂 is a plaza with some floor tile"). The
+// 中正紀念公園 polygon renders as one lawn, but in reality Liberty
+// Square is a paved stone field, the Boulevard of Homage a paved
+// strip between lawn panels, and the memorial terrace stands on a
+// paved apron — all read clearly in the Esri satellite stitch
+// (facing-evidence/refs/sat-cks-park-z17-overlay.jpg: the light
+// tile field between the two halls, its concentric-rectangle
+// pattern, the boulevard strip, the terrace apron; the park's
+// green sub-polygons are exactly the lawns/woods around them).
+// Hand-authored flat rings in the park's own axis frame — the
+// district grid sits ~28° rotated in tile coords — with u along
+// the square→hall axis from the hall centre and v across it. The
+// square also gets a subtle tile grid: 0.4 m strips a tone darker
+// every 15 m (the real pattern is concentric rectangles; a plain
+// grid is the minimal read of "floor tile"). Ground treatment
+// only: the rings stay inside the park polygon, off every roadbed.
+
+export const MEMORIAL_FRAME = { cx: -4388, cz: -201, ax: 0.88354, az: 0.46813, px: -0.46813, pz: 0.88354 };
+export const MEMORIAL_GRID_TONE = 0x8f867a;
+
+function memorialQuad(u0, u1, v0, v1) {
+  const f = MEMORIAL_FRAME;
+  const pt = (u, v) => [f.cx + u * f.ax + v * f.px, f.cz + u * f.az + v * f.pz];
+  const [ax, az] = pt(u0, v0), [bx, bz] = pt(u1, v0), [cx, cz] = pt(u1, v1), [dx, dz] = pt(u0, v1);
+  return [ax, az, bx, bz, cx, cz, dx, dz];
+}
+
+export function memorialPaving() {
+  const rings = [
+    memorialQuad(-405, -148, -102, 102), // Liberty Square tile field
+    memorialQuad(-462, -405, -42, 42),    // forecourt inside the main gate / arch
+    memorialQuad(-148, -52, -15, 15),     // Boulevard of Homage paved strip
+    // Terrace apron — a world-axis rect hugging the terrace (the
+    // terrace itself is axis-aligned, not park-frame).
+    [-4476, -290, -4300, -290, -4300, -112, -4476, -112],
+  ];
+  const gridQuads = [];
+  for (let u = -390; u <= -165; u += 15) gridQuads.push(memorialQuad(u - 0.2, u + 0.2, -102, 102));
+  for (let v = -90; v <= 90; v += 15) gridQuads.push(memorialQuad(-405, -148, v - 0.2, v + 0.2));
+  return { rings, gridQuads };
+}
