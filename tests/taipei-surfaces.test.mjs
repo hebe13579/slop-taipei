@@ -74,7 +74,11 @@ test('geodata: class populations cover every roadbed exactly once', () => {
   // thick elevated layer — deck 141 -> 181, arterial 612 -> 905,
   // collector 579 -> 899, lane 4,376 -> 9,819. Per-box census in
   // the #102 evidence.
-  assert.deepEqual(counts, { deck: 181, arterial: 905, collector: 899, lane: 9819 });
+  // Re-pinned for issue #134: the airport box + corridor strip
+  // take roadbeds 11,804 -> 13,578 — deck 181 -> 207 (the
+  // riverside expressway system), arterial 905 -> 1,130,
+  // collector 899 -> 1,015, lane 9,819 -> 11,226.
+  assert.deepEqual(counts, { deck: 207, arterial: 1130, collector: 1015, lane: 11226 });
 });
 
 test('medianKind: merged + width rule, planted only on wide secondary', () => {
@@ -136,14 +140,20 @@ test('geodata: median bed counts match the regenerated evidence list', () => {
   // km / 72.3 plain km); excludedUnderpass stays 3 — the northern
   // boxes add no wide underpass beds （自強隧道 sits east of the
   // corridor edge, outside the tile).
-  assert.equal(planted, 152);
-  assert.equal(plain, 397);
+  // Re-pinned for issue #134: the airport box's divided grid
+  // （敦化北路， 民權東路， 民族東路） and the strip's 重慶北路 take
+  // planted 152 -> 195 and plain 397 -> 464 (rendered 30.7 planted
+  // km / 87.6 plain km — the km bands below move with them);
+  // excludedUnderpass 3 -> 4: the 復北地下道 (secondary, 16.2 m,
+  // inside the airport box) joins the 象山隧道 x3.
+  assert.equal(planted, 195);
+  assert.equal(plain, 464);
   const { stats } = buildMedianStrips(TAIPEI_GEO.roadbeds);
-  assert.equal(stats.plantedBeds, 152);
-  assert.equal(stats.plainBeds, 397);
-  assert.equal(stats.excludedUnderpass, 3); // 象山隧道 x3
-  assert.ok(stats.plantedKm > 17 && stats.plantedKm < 28, `planted rendered ${stats.plantedKm} km`);
-  assert.ok(stats.plainKm > 60 && stats.plainKm < 85, `plain rendered ${stats.plainKm} km`);
+  assert.equal(stats.plantedBeds, 195);
+  assert.equal(stats.plainBeds, 464);
+  assert.equal(stats.excludedUnderpass, 4); // 象山隧道 x3 + 復北地下道
+  assert.ok(stats.plantedKm > 28 && stats.plantedKm < 36, `planted rendered ${stats.plantedKm} km`);
+  assert.ok(stats.plainKm > 85 && stats.plainKm < 95, `plain rendered ${stats.plainKm} km`);
 });
 
 test('medianStripWidth clamps to 1.2–3.5 m at 8% of bed width', () => {
@@ -196,7 +206,7 @@ test('plaza classification: 廣場 polygons are paving, real parks stay green', 
   const plazas = TAIPEI_GEO.parks.filter(isPlazaPark);
   const greens = TAIPEI_GEO.parks.filter((p) => !isPlazaPark(p));
   assert.equal(plazas.length + greens.length, TAIPEI_GEO.parks.length);
-  assert.equal(plazas.length, 23); // pinned on post-#30 data; re-pinned 2026-10-24 (issue #60: +中山堂/行旅/西本願寺/北門 and other west-side 廣場); re-pinned for issue #102 (+6 measured against the baseline list: 北投3號廣場, 青春82廣場, 微風廣場, 關渡自然公園 x2 賞鳥廣場, and a second 大同16號廣場 piece)
+  assert.equal(plazas.length, 24); // pinned on post-#30 data; re-pinned 2026-10-24 (issue #60: +中山堂/行旅/西本願寺/北門 and other west-side 廣場); re-pinned for issue #102 (+6 measured against the baseline list: 北投3號廣場, 青春82廣場, 微風廣場, 關渡自然公園 x2 賞鳥廣場, and a second 大同16號廣場 piece); re-pinned for issue #134 (+1: a second 厚生廣場 piece on the west bank, recovered by the extractor's two-pass relation stitch — the plaza stands in the corridor's new west strip)
   for (const name of ['台北市民廣場', '松壽廣場', '台北世貿廣場', '信義21號廣場', '忠信廣場']) {
     assert.ok(plazas.some((p) => p.name === name), `${name} classified as plaza paving`);
   }

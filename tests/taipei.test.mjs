@@ -1019,15 +1019,6 @@ test('taiwan types: family zoning, distribution and rooftop clamp', (t) => {
   // 22,631 -> 16,534 (-6,097: F0 -1,741, F1 -2,100, F2 -2,256).
   // Deltas diffed lot by lot against the heights-stripped plan on
   // this tree; the per-source census lives in heights.test.mjs.
-  // Gate composition with issue #139 (MRT completion), measured
-  // on this tree by counterfactual (the plan with the #139
-  // geodata fields stripped reproduces 34,645 exactly): the
-  // track-corridor clearance and the Beitou depot + at-grade
-  // station sites removed 524 lots (34,645 -> 34,121; census in
-  // taipei-mrt.test.mjs — 475 depot site, 21 station sites, 16
-  // on the at-grade bed, 12 piercing the guideway). Of the
-  // removed lots 35 were glass, 83 Taiwan, 406 masonry:
-  // 7,988 - 35 = 7,953.
   // Re-pinned for issue #136 (tall-palette recalibration), measured
   // on this tree: the plan is NOT edited (same 34,645 lots, same
   // heights — the #128 join stands); facadeMatFor's two tall bands
@@ -1044,11 +1035,28 @@ test('taiwan types: family zoning, distribution and rooftop clamp', (t) => {
   // share shrinks). Deltas diffed family by family against the
   // pre-#136 tree; district before/after counts live in
   // palette-evidence/.
-  // Composed at the #139 gate (the #136 draw over the #139 plan,
-  // measured on the merged tree): of the 524 removed lots, under
-  // the recalibrated palette 18 were glass, 99 Taiwan, 407
-  // masonry — glass 3,911 - 18 = 3,893.
-  assert.equal(glass, 3893, 'glass family counts after the #136 recalibration, composed with #139');
+  // Composed with issues #134 + #137 on the merged tree (the
+  // #136 palette above, the enlarged footprint): the plan grows
+  // 34,645 -> 38,857 lots (+4,212 — airport box +3,592 net,
+  // corridor strip +2,427, old ground -1,807 as the recovered
+  // Tamsui/Keelung water, the 30 m riverside band and the
+  // recovered park/green polygons clear the phantom plantings;
+  // in-water lots 740 -> 0). Family census re-measured on the
+  // merged tree: glass 3,911 -> 4,375 (+464: F3 +379, F4 +59,
+  // F5 +26 — the airport box's Dunhua/Minquan office frontage
+  // joins inside the palette's rules); Taiwan 13,714 -> 15,448
+  // (+1,734: F6 +517, F7 +329, F8 +436, F9 +452); masonry
+  // 17,020 -> 19,034 (+2,014: F0 +725, F1 +631, F2 +658).
+  // Gate composition with issue #139 (MRT completion), measured
+  // on this tree by counterfactual (the plan with the #139
+  // geodata fields stripped reproduces 38,857 exactly): the
+  // track-corridor clearance and the Beitou depot + at-grade
+  // station sites removed 461 lots (38,857 -> 38,396; census in
+  // taipei-mrt.test.mjs — 433 depot/station sites, 13 on the
+  // at-grade bed, 15 piercing the guideway). Of the removed
+  // lots 27 were glass, 79 Taiwan, 355 masonry: glass
+  // 4,375 - 27 = 4,348.
+  assert.equal(glass, 4348, 'glass family counts after #136 + #139, composed with #134 + #137');
   const masonry = opts.lots.filter((l) => l.mat <= 2).length;
   // Range re-based for issue #65: the exact ribbon exclusion removed
   // ~4,400 masonry lots that stood on ribbons or in medians; masonry
@@ -1071,14 +1079,10 @@ test('taiwan types: family zoning, distribution and rooftop clamp', (t) => {
   // the majority alone; the local fabric is: masonry + Taiwan
   // types together are 26,657 (76.9%). The range is re-based to
   // hold the new count with headroom for dataset refreshes.
-  // Issue #139 composition (pre-#136 draw): 16,128 of 34,121
-  // (47.3%); masonry + Taiwan together 26,168 (76.7%).
   // Issue #136 composition: the recalibrated mid band returns 486
   // lots to masonry (F0 +264, F1 +222) — 17,020 of 34,645 (49.1%);
   // masonry + Taiwan types together are 30,734 (88.7%). Still
   // inside this range unedited.
-  // Composed (#139 x #136, merged tree): 16,613 of 34,121
-  // (48.7%); masonry + Taiwan together 30,228 (88.6%).
   assert.ok(masonry > 12000 && masonry < 20000, `masonry 0-2 reduced but still present (${masonry})`);
   assert.equal(typeof opts.rooftopGearClamp, 'function', 'options carry the rooftop-gear clamp');
 

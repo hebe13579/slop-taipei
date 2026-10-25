@@ -37,7 +37,8 @@ import { createBuildProgress, TAIPEI_BUILD_STAGES } from './taipei-progress.js';
 //     flat tile at y=0 and pass through buildings for now.
 //
 // Layer heights are a flat-ground visual stack only (land 0, block rects
-// 0.02, podium blocks 0.021, water 0.03, parks 0.04, plaza paving 0.041,
+// 0.02, podium blocks 0.021, airfield site 0.022, airfield hard
+// surfaces 0.024, Tamsui riverside band 0.025, water 0.03, parks 0.04, plaza paving 0.041,
 // street-section bands 0.045, non-carriageway paths 0.05, carriageways
 // 0.06, junction caps 0.061, boulevard median strips 0.062,
 // roundabout islands 0.0635, painted-walkway green band 0.065
@@ -668,6 +669,22 @@ export async function buildTaipeiGround(scene, tile, deps = {}) {
   for (const b of groundBlocks) (isPodiumBlock(b, centres) ? podiumBlocks : ordinaryBlocks).push(b);
   addLayer(rectsGeometry(ordinaryBlocks, 0.02), mat(SURFACE_TONES.block), 'TaipeiBlocks');
   if (podiumBlocks.length) addLayer(rectsGeometry(podiumBlocks, 0.021), mat(SURFACE_TONES.podium), 'TaipeiPodiumBlocks');
+  // Songshan airfield (issue #134): the aerodrome site ground in a
+  // muted field green-grey at 0.022 and its hard surfaces (runway,
+  // taxiways, aprons) in pale concrete at 0.024 — both below water so
+  // nothing here can paint over a channel, both above the block grey
+  // so the raster blocks under the field stay hidden. The planner
+  // keeps the site lot-free; the terminal/parking structures are #135.
+  if (geo.airfield?.site?.length) {
+    addLayer(flatPolygonGeometry(geo.airfield.site.map((s) => s.ring), 0.022), mat(0x7f9673, 0.95), 'TaipeiAirfieldSite');
+    if (geo.airfield.surfaces?.length) addLayer(flatPolygonGeometry(geo.airfield.surfaces, 0.024), mat(0x9d9d97, 0.6), 'TaipeiAirfieldSurfaces');
+  }
+  // Tamsui riverside band (issue #137): bank-offset rings at 0.025 in
+  // the park tone — under the water layer (0.03), so the channel stays
+  // water and only the land-side strip reads green from the air.
+  if (geo.riverside?.polys?.length) {
+    addLayer(flatPolygonGeometry(geo.riverside.polys.map((p) => p.ring), 0.025), mat(SURFACE_TONES.park, 0.9), 'TaipeiRiverside');
+  }
   addLayer(flatPolygonGeometry(geo.water.map((w) => w.ring), 0.03), mat(0x2f6d96, 0.35), 'TaipeiWater');
   // Parks stay lawn-green; polygons named 廣場 are paved civic squares
   // in reality （市民廣場, 松壽廣場, 世貿廣場…) and render in the plaza

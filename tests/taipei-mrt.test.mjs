@@ -468,21 +468,25 @@ test('clearance (issue #139): census by counterfactual, audit exact', (t) => {
   const plan = planTaipeiBuildings(TAIPEI_GEO);
   // Counterfactual: the pre-#139 plan on this same tree — strip
   // the track data, the depot and the at-grade stations, and the
-  // plan reproduces 34,645 lots exactly (the #106+#118 plan).
+  // plan reproduces 38,857 lots exactly (the #134+#137 plan as
+  // composed with #136; on the pre-expansion tree this reproduced
+  // 34,645, the #106+#118 plan).
   const before = planTaipeiBuildings({
     ...TAIPEI_GEO,
     mrtDecks: undefined, mrtDepot: undefined,
     mrtStations: stations.filter((s) => s.kind !== 'at-grade'),
   });
-  assert.equal(before.lots.length, 34645, 'counterfactual plan reproduces the pre-#139 lot count');
-  // 524 lots removed: 475 inside the Beitou depot site, 21 on the
-  // three at-grade station sites, 16 standing on the at-grade
-  // track bed, 12 tall enough to pierce the guideway (measured by
-  // diffing the two plans lot by lot and classifying each removal
-  // with the audit geometry below; mrt2-evidence probe 4).
-  assert.equal(plan.lots.length, 34121, 'shipped plan lot count after the #139 removals');
-  assert.equal(plan.stats.lotsDroppedTrackBed, 16, 'planner bed drops agree with the census');
-  assert.equal(plan.stats.lotsDroppedTrackPierce, 12, 'planner pierce drops agree with the census');
+  assert.equal(before.lots.length, 38857, 'counterfactual plan reproduces the pre-#139 lot count');
+  // 461 lots removed on this tree (524 on the pre-expansion
+  // tree): 433 inside the Beitou depot + at-grade station sites
+  // (398 with centres inside the depot site rect alone; the rest
+  // are margin-grown corner hits at the site edges), 13 standing
+  // on the at-grade track bed, 15 tall enough to pierce the
+  // guideway (planner counters below; classification by lot
+  // centre against the site rects on this tree).
+  assert.equal(plan.lots.length, 38396, 'shipped plan lot count after the #139 removals');
+  assert.equal(plan.stats.lotsDroppedTrackBed, 13, 'planner bed drops agree with the census');
+  assert.equal(plan.stats.lotsDroppedTrackPierce, 15, 'planner pierce drops agree with the census');
   let bed = 0, pierce = 0, keptUnder = 0;
   for (const lot of plan.lots) {
     const c = trackClass(lot);

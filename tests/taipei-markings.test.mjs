@@ -258,7 +258,11 @@ test('geodata: tile-wide marking counts are in the audited bands', () => {
   // Re-pinned for issue #102: exactly 344 (per-box census in the
   // #102 evidence: A 231, B 9, corridor 85, Beitou 18, connector 1
   // — region A's 231 is its live count, untouched).
-  assert.equal(r.stats.signalized, 344, `signalized census ${r.stats.signalized}`);
+  // Re-pinned for issue #134: exactly 392 (+48). Bed-midpoint
+  // subset census attributes 40 signalized junctions to the
+  // airport box and 16 to the corridor strip; seam junctions
+  // account for the difference against the tile-wide delta.
+  assert.equal(r.stats.signalized, 392, `signalized census ${r.stats.signalized}`);
   assert.ok(r.stats.dividerKm > 50, `divider km ${r.stats.dividerKm}`);
   assert.ok(r.stats.crosswalks > 400, `crosswalks ${r.stats.crosswalks}`);
   assert.ok(r.stats.signalUnits >= r.stats.stopLines && r.stats.stopLines > 600,
@@ -348,11 +352,15 @@ test('geodata (issue #64): no signal stands on a carriageway; mast-arms only on 
   // elevated network's deck arms at signalized junctions take
   // deckArmsSkipped 71 -> 127. The 0-inside invariant and the
   // mast<->divided audit below are unchanged and pass tile-wide.
+  // Re-pinned for issue #134: signalized junctions 344 -> 392
+  // take units 1,489 -> 1,686 (mast 506 -> 579, pole 983 ->
+  // 1,107); the airport box's riverside expressway arms take
+  // deckArmsSkipped 127 -> 147. Same invariants, unchanged.
   assert.equal(r.stats.signalMast + r.stats.signalPole, r.stats.signalUnits);
-  assert.equal(r.stats.signalUnits, 1489, `signal units ${r.stats.signalUnits}`);
-  assert.equal(r.stats.signalMast, 506, `mast units ${r.stats.signalMast}`);
-  assert.equal(r.stats.signalPole, 983, `pole units ${r.stats.signalPole}`);
-  assert.equal(r.stats.deckArmsSkipped, 127, `deck arms skipped ${r.stats.deckArmsSkipped}`);
+  assert.equal(r.stats.signalUnits, 1686, `signal units ${r.stats.signalUnits}`);
+  assert.equal(r.stats.signalMast, 579, `mast units ${r.stats.signalMast}`);
+  assert.equal(r.stats.signalPole, 1107, `pole units ${r.stats.signalPole}`);
+  assert.equal(r.stats.deckArmsSkipped, 147, `deck arms skipped ${r.stats.deckArmsSkipped}`);
   // Mast ⟺ divided, recomputed independently of the planner's own
   // helper: the approach bed splits at a drawn median, or a
   // same-name near-parallel twin arm shares its junction.
