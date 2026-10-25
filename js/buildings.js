@@ -2640,14 +2640,21 @@ function buildCityBlocks(scene, opts = null) {
   // follow the roof slope the way the real lean-to additions are
   // built. At the old patch size the void under the sheet's high edge
   // was invisible; at full-roof size it read as a floating plane.
+  // Issue #113: the prism's sloped TOP face is gone. It lay parallel
+  // to the sheet, 0.06 m under it, in a different material, and the
+  // pair read as two overlapping roofs and shimmered against each
+  // other in motion. The cap keeps only its high back and two end
+  // walls — the wedge stays enclosed (body top below, back + ends at
+  // the sides, the sheet above) and no parallel surface pair remains.
   const hutCapGeo = (() => {
     // A = high-left, B = high-right (z = -0.5, y = 1); C/D = low corners
     // (z = +0.5, y = 0); E/F = the high back's feet. Triangles are wound
-    // for outward normals (verified against the slope/back/end planes).
+    // for outward normals (verified against the back/end planes). No
+    // sloped top (issue #113): the end triangles' hypotenuses trace
+    // the slope line, but the lid between them is the sheet's job.
     const A = [-0.5, 1, -0.5], B = [0.5, 1, -0.5], C = [0.5, 0, 0.5], D = [-0.5, 0, 0.5];
     const E = [-0.5, 0, -0.5], F = [0.5, 0, -0.5];
     const verts = new Float32Array([
-      ...A, ...C, ...B, ...A, ...D, ...C,   // sloped top
       ...E, ...B, ...F, ...E, ...A, ...B,   // high back
       ...E, ...D, ...A,                     // x = -0.5 end
       ...F, ...B, ...C,                     // x = +0.5 end
