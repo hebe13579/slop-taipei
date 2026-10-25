@@ -711,9 +711,9 @@ test('landmark batch 3: two-slab Cathay rebuild, W, Songshan, Eslite, Arena', ()
 // (its massing sits
 // +11 m east inside the slanted OSM outline to clear the 承德路
 // diagonal — see the registry comment); the CKS Hall stacks three
-// terrace steps, the white hall and two blue frustum eaves under a
+// terrace steps, the white hall and two blue eave tiers under a
 // gold finial; the two national halls are the palace pair (plinth,
-// walls, golden frustum hip + ridge) across Liberty Square; the
+// walls, golden hip + ridge) across Liberty Square; the
 // Presidential Office is the red-brick baroque block — long main
 // range, two end pavilions, central tower. The halls' sites only
 // became buildable when the memorial park's internal service
@@ -747,20 +747,28 @@ test('landmark batch 4: station district — crown, hip roof, terrace hall, pala
   assert.ok(cks, 'cks memorial hall registered');
   const terraces = cks.parts.filter((p) => p.type === 'box' && p.flat === 0xa39a8b || (p.type === 'box' && (p.y0 === 4.8 || p.y0 === 9.6)));
   assert.ok(terraces.length >= 2, 'stepped terrace levels present under the hall');
-  const eaves = cks.parts.filter((p) => p.type === 'frustum' && p.flat === 0x1e4d8c);
-  assert.equal(eaves.length, 2, 'blue double-eaved roof as two frustum tiers');
+  // Issue #116 re-pin: the two blue frustum eave tiers are now
+  // six stepped box tiers — frustum parts cannot rotate, and the
+  // hall group turns to the park's measured axis (rotY 0.4924);
+  // step footprints follow the frustum profiles (see registry).
+  const eaves = cks.parts.filter((p) => p.type === 'box' && p.flat === 0x1e4d8c);
+  assert.equal(eaves.length, 6, 'blue double-eaved roof as two stepped box tiers (issue #116)');
+  assert.ok(eaves.every((p) => Math.abs(p.rotY - 0.4924) < 0.001), 'eave tiers turn with the park axis');
   const finial = cks.parts.find((p) => p.type === 'cylinder');
   assert.ok(finial && partTop(finial) === 70, 'gold finial tops out at the published 70 m');
 
-  // The palace pair: same recipe (plinth / walls / frustum / ridge),
+  // The palace pair: same recipe (plinth / walls / hip + ridge),
   // ridge peaks at the OSM-derived 37 m, flagged estimated.
+  // Issue #116 re-pin: frustum + ridge are stepped boxes since
+  // #116 (they cannot rotate; the halls turn to the park axis),
+  // so the recipe is eight boxes and the peak is the top step.
   const concert = byId('national-concert-hall');
   const theater = byId('national-theater');
   assert.ok(concert && theater, 'both national halls registered');
   for (const hall of [concert, theater]) {
-    assert.deepEqual(hall.parts.map((p) => p.type), ['box', 'box', 'frustum', 'ridge'], `${hall.id} = plinth + walls + frustum hip + ridge`);
-    const ridge = hall.parts.find((p) => p.type === 'ridge');
-    assert.equal(partTop(ridge), 37, `${hall.id} ridge peaks at 37 m`);
+    assert.ok(hall.parts.every((p) => p.type === 'box'), `${hall.id} = plinth + walls + stepped hip roof, all boxes (issue #116)`);
+    assert.ok(hall.parts.every((p) => Math.abs(p.rotY - 0.4924) < 0.001), `${hall.id} every part turns with the park axis`);
+    assert.equal(Math.max(...hall.parts.map(partTop)), 37, `${hall.id} roof crest peaks at 37 m`);
     assert.equal(hall.estimated, true, `${hall.id} height is OSM-derived, flagged estimated`);
   }
   // Issue #98: the pairing was challenged in the facing sweep and
@@ -772,8 +780,12 @@ test('landmark batch 4: station district — crown, hip roof, terrace hall, pala
   // Presidential Office: main range + two pavilions + tower at 60 m.
   const office = byId('presidential-office-building');
   assert.ok(office, 'presidential office registered');
-  const pavilions = office.parts.filter((p) => p.type === 'box' && Math.abs(p.dz || 0) === 54);
+  // Issue #116 re-pin: the pavilions' offsets rotated with the
+  // block's measured 5.6° skew (dz ±54 -> (∓5.3, ±53.7)), so they
+  // are pinned by their size, not their axis-aligned offset.
+  const pavilions = office.parts.filter((p) => p.type === 'box' && p.w === 54 && p.d === 22);
   assert.equal(pavilions.length, 2, 'two end pavilions flank the main range');
+  assert.ok(office.parts.every((p) => Math.abs((p.rotY || 0) - 0.0977) < 0.001), 'every part turns with the measured 5.6° skew');
   assert.equal(Math.max(...office.parts.map(partTop)), 60, 'tower cap tops out at the published 60 m');
 
   // Map pins + Chinese names for all six, via the tile landmark list.
