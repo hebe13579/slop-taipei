@@ -1600,7 +1600,10 @@ export function clampTaipeiRooftopGear(gear, lot) {
     }
   }
   const adds = taipeiRooftopAdditions(gear, lot, units);
-  return { waterTowers: adds.tanks, hvacUnits: units, rooftopAdds: adds.huts };
+  // Issue #100: a full-roof 鐵皮屋 is built over the roof plane — the
+  // roof's clamped HVAC units are displaced, not dodged: they stood
+  // where the addition now stands.
+  return { waterTowers: adds.tanks, hvacUnits: adds.huts.length ? [] : units, rooftopAdds: adds.huts };
 }
 
 // --- Issue #56 rooftop furniture: stainless tanks & 鐵皮屋 additions ---
@@ -1613,15 +1616,20 @@ export function clampTaipeiRooftopGear(gear, lot) {
 // 12% hut roll over the eligible lots, deterministic by lot hash, off
 // for glass towers (families 3–5) and off for lots whose plan carries
 // no mat/h (defensive — the synthetic lots in the unit tests).
-// Placement: a 3×3 grid of candidate spots (corners included — a hut
-// must be able to dodge a centrally-placed HVAC unit), hash-rotated,
-// first spot that fits inside the roof clear of the clamped HVAC units
-// wins; the hut claims its spot before the tank rolls. Sizes are
-// capped so the additions always fit the roof or are skipped entirely.
+// Placement: the tank picks from a 3×3 grid of candidate spots,
+// hash-rotated — first spot that fits inside the roof clear of the
+// clamped HVAC units wins. The hut is different (issue #100): it spans
+// the host's ENTIRE roof, so it neither picks a spot nor dodges the
+// furniture — it displaces it (the clamp drops the roof's HVAC units,
+// and the tank roll is skipped on hut lots; see below).
 export const TAIPEI_TANK_RATE = 0.14;
 export const TAIPEI_HUT_RATE = 0.12;
 export const TAIPEI_HUT_COLORS = [0x9e3d34, 0x4a6b52, 0x7d8894, 0x8a4a3a]; // weathered red, green, grey-blue, rust
 const TANK_RADIUS = 1.0;
+// Issue #100: cap the hut sheet's centre-to-edge rise (half its total
+// drop) — over a wide host the raw hash pitch would stand the sheet's
+// high edge ~5 m above its centre.
+const HUT_MAX_RISE = 2.2;
 
 function lotPolicySeed(lot, salt) {
   return (Math.imul(Math.round(lot.x0 * 10), 73856093)
@@ -1661,27 +1669,34 @@ export function taipeiRooftopAdditions(gear, lot, units) {
   const huts = [];
   // 鐵皮屋： low/mid lots only (9–27 m — the walk-up and small-slab roofs
   // in the photo), roofs at least 8 m in both dimensions.
+  // Issue #100: the addition spans the host's ENTIRE roof — the classic
+  // full-roof 鐵皮屋 — centred on the roof and inset 0.4 m (the margin
+  // `fits` uses for roof furniture), so it never overhangs the walls.
+  // Same eligibility and the same 12% roll as the #56 patch hut, so the
+  // SAME lots are selected; only the geometry grows. The sheet keeps
+  // its hash pitch, capped so its centre-to-edge rise (half the total
+  // drop) stays under HUT_MAX_RISE.
   if (lot.h >= 9 && lot.h <= 27 && Math.min(w, d) >= 8 && hash01(seed ^ 0x1117) < TAIPEI_HUT_RATE) {
-    const hw = Math.min(w * 0.45, 5.8), hd = Math.min(d * 0.45, 5.0);
-    for (const s of spots) {
-      const r = { x0: s.x - hw / 2, x1: s.x + hw / 2, z0: s.z - hd / 2, z1: s.z + hd / 2 };
-      if (!fits(r, 0.3)) continue;
-      huts.push({
-        x: s.x, y: roofY, z: s.z, w: hw, d: hd,
-        h: 2.5 + hash01(seed ^ 0x2227) * 0.6,
-        pitch: 0.16 + hash01(seed ^ 0x3337) * 0.08,
-        axis: hash01(seed ^ 0x4447) < 0.5 ? 'z' : 'x',
-        dir: hash01(seed ^ 0x5557) < 0.5 ? -1 : 1,
-        colorIdx: Math.floor(hash01(seed ^ 0x6667) * TAIPEI_HUT_COLORS.length) % TAIPEI_HUT_COLORS.length,
-      });
-      occupied.push(r);
-      break;
-    }
+    const hw = w - 0.8, hd = d - 0.8;
+    const axis = hash01(seed ^ 0x4447) < 0.5 ? 'z' : 'x';
+    const along = axis === 'z' ? hd : hw;
+    const pitch = Math.min(
+      0.16 + hash01(seed ^ 0x3337) * 0.08,
+      Math.atan((2 * HUT_MAX_RISE) / along));
+    huts.push({
+      x: lot.x0 + w / 2, y: roofY, z: lot.z0 + d / 2, w: hw, d: hd,
+      h: 2.5 + hash01(seed ^ 0x2227) * 0.6,
+      pitch,
+      axis,
+      dir: hash01(seed ^ 0x5557) < 0.5 ? -1 : 1,
+      colorIdx: Math.floor(hash01(seed ^ 0x6667) * TAIPEI_HUT_COLORS.length) % TAIPEI_HUT_COLORS.length,
+    });
   }
   const tanks = [];
   // Stainless tanks: nearly any non-glass roof of 8–34 m with 5.5 m of
   // room — in the photo they sit on walk-ups and mid slabs alike.
-  if (lot.h >= 8 && lot.h <= 34 && Math.min(w, d) >= 5.5 && hash01(seed ^ 0x7777) < TAIPEI_TANK_RATE) {
+  // Skipped on hut lots (issue #100): every spot is under the addition.
+  if (huts.length === 0 && lot.h >= 8 && lot.h <= 34 && Math.min(w, d) >= 5.5 && hash01(seed ^ 0x7777) < TAIPEI_TANK_RATE) {
     for (const s of spots) {
       const r = { x0: s.x - TANK_RADIUS, x1: s.x + TANK_RADIUS, z0: s.z - TANK_RADIUS, z1: s.z + TANK_RADIUS };
       if (!fits(r, 0.35)) continue;
