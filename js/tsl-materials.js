@@ -2261,6 +2261,29 @@ function createRoadPaintMaterial() {
 }
 
 /**
+ * Taipei road markings (issue #90): lane-divider strips and crosswalk
+ * bands whose `paint` vertex attribute holds (metres along the pattern
+ * axis, period, duty cycle) — the same attribute convention as
+ * createRoadPaintMaterial above. The pattern is evaluated here, in the
+ * fragment shader: paint is on while fract(along / period) < duty, and
+ * alphaTest discards the gaps, so a dash or a zebra stripe costs no
+ * geometry and its phase is continuous wherever the planner's `along`
+ * is (dash phase = the bed's centreline arc, zebra phase = distance
+ * from the band's own low edge — see js/taipei-markings.js). Deliberately
+ * plainer than the NYC paint: no wear, wetness or screen-width widening —
+ * Taipei markings were flat opaque white quads (0xf2f2f2, roughness 0.9)
+ * and keep that exact look; only the pattern moved into the shader.
+ */
+function createTaipeiMarkingMaterial() {
+  const mat = new THREE.MeshStandardNodeMaterial({ color: 0xf2f2f2, roughness: 0.9, metalness: 0.0 });
+  mat.alphaTest = 0.5;
+  const paint = attribute('paint', 'vec3');
+  const phase = fract(paint.x.div(paint.y));
+  mat.opacityNode = step(phase, paint.z);
+  return mat;
+}
+
+/**
  * NYC Concrete Sidewalk Flagstones with Filter-Width Anti-Aliased 1.5m Scored Expansion Joints,
  * -12mm `bumpNormal` Groove Relief, Per-Flag Tone Variation & Post-Rain Damp Patches
  * that follow cityUniforms.uRoadWetness like the roadway (better drained: fewer, smaller pools)
@@ -3486,6 +3509,7 @@ export {
   createTreeGrateMaterial,
   createRoadSurfaceMaterial,
   createRoadPaintMaterial,
+  createTaipeiMarkingMaterial,
   createSidewalkMaterial,
   createCurbMaterial,
   createBillboardMaterial,
