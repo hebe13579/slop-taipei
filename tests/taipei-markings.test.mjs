@@ -156,6 +156,36 @@ test('furniture: 4-way gets a crosswalk, stop line and signal per approach', () 
   assert.ok(east && east.x < 0 && east.z < 0, `east signal at ${east?.x},${east?.z}`);
 });
 
+test('furniture (issue #88): a deck-flagged arm gets no ground furniture', () => {
+  // The 4-way, but the NS road is an elevated carriageway (deck-
+  // flagged, the generator's flag for beds the viaduct layer
+  // draws instead of the ground ribbons): its two approaches are
+  // not at grade, so they get no crosswalk, stop line or signal.
+  // The ground EW approaches keep theirs, and the junction stays
+  // signalized (detection is untouched by the rule).
+  const beds = fourWay();
+  for (const b of beds) if (b.name === 'NS Ave') b.deck = true;
+  const js = detectJunctions(beds);
+  assert.equal(js.length, 1);
+  assert.equal(js[0].signalized, true);
+  const f = buildJunctionFurniture(beds, js);
+  assert.equal(f.stats.deckArmsSkipped, 2);
+  assert.equal(f.stats.crosswalks, 2);
+  assert.equal(f.stats.stopLines, 2);
+  assert.equal(f.stats.signals, 2);
+  // No stripe centre on the deck (z-axis) approaches.
+  const centres = f.stripes.map(quadCentre);
+  assert.ok(!centres.some(([x, z]) => Math.abs(x) < 13 && Math.abs(z) > 15), 'no zebra on the deck approaches');
+  // A deck-CLASS bed without the flag is drawn at grade and keeps
+  // its furniture (the flag, not the class, is the predicate).
+  const beds2 = fourWay();
+  for (const b of beds2) if (b.name === 'NS Ave') b.highway = 'trunk';
+  const f2 = buildJunctionFurniture(beds2, detectJunctions(beds2));
+  assert.equal(f2.stats.deckArmsSkipped, 0);
+  assert.equal(f2.stats.crosswalks, 4);
+  assert.equal(f2.stats.signals, 4);
+});
+
 test('signals (issue #64): every unit stands on a corner, outside every carriageway', () => {
   const beds = fourWay();
   const f = buildJunctionFurniture(beds, detectJunctions(beds));
@@ -296,10 +326,20 @@ test('geodata (issue #64): no signal stands on a carriageway; mast-arms only on 
   // from the pole split (810 -> 776); mast-arm units are
   // unaffected (386). stats.ringArmsSkipped = 34 records the
   // suppressed arms.
+  // Re-pinned for issue #88 (ramp-weave re-evaluation): deck-flagged
+  // arms are elevated carriageways, not at-grade approaches, and no
+  // longer receive ground furniture — 71 deck arms at signalized
+  // junctions (stats.deckArmsSkipped) each lose their unit: 1,162 ->
+  // 1,091 units, split 27 mast (386 -> 359) / 44 pole (776 -> 732).
+  // The same suppression takes out 30 crosswalks (843 -> 813) and
+  // 71 stop lines (1,162 -> 1,091) that were painted for roads not
+  // drawn at ground level. Detection, caps and every ground arm's
+  // furniture are unchanged.
   assert.equal(r.stats.signalMast + r.stats.signalPole, r.stats.signalUnits);
-  assert.equal(r.stats.signalUnits, 1162, `signal units ${r.stats.signalUnits}`);
-  assert.equal(r.stats.signalMast, 386, `mast units ${r.stats.signalMast}`);
-  assert.equal(r.stats.signalPole, 776, `pole units ${r.stats.signalPole}`);
+  assert.equal(r.stats.signalUnits, 1091, `signal units ${r.stats.signalUnits}`);
+  assert.equal(r.stats.signalMast, 359, `mast units ${r.stats.signalMast}`);
+  assert.equal(r.stats.signalPole, 732, `pole units ${r.stats.signalPole}`);
+  assert.equal(r.stats.deckArmsSkipped, 71, `deck arms skipped ${r.stats.deckArmsSkipped}`);
   // Mast ⟺ divided, recomputed independently of the planner's own
   // helper: the approach bed splits at a drawn median, or a
   // same-name near-parallel twin arm shares its junction.
