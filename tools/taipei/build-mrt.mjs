@@ -39,8 +39,12 @@ export const MRT_ELEVATED_STATIONS = [
   '圓山', '劍潭', '士林', '芝山', '明德', '石牌', '唭哩岸', '奇岩',
   '北投', '新北投',
 ];
+// Issue #139: the at-grade stations north of Beitou join the defs
+// with kind 'at-grade' (platforms + small hall, no guideway box).
+export const MRT_ATGRADE_STATIONS = ['復興崗', '忠義', '關渡'];
 export const MRT_STATION_KINDS = {
   劍潭: 'jiantan', 北投: 'beitou', 新北投: 'xinbeitou',
+  復興崗: 'at-grade', 忠義: 'at-grade', 關渡: 'at-grade',
 };
 const SEGMENT_FORM_DEFAULTS = {
   '民權西路>圓山': 'elevated',
@@ -48,14 +52,34 @@ const SEGMENT_FORM_DEFAULTS = {
   '復興崗>忠義': 'at-grade',
   '忠義>關渡': 'at-grade',
 };
-const DEFAULT_LENGTH = { standard: 112, jiantan: 150, beitou: 150, xinbeitou: 105 };
+const DEFAULT_LENGTH = { standard: 112, jiantan: 150, beitou: 150, xinbeitou: 105, 'at-grade': 112 };
 // Body-width clamps per kind when the digest measures the station's
 // track span: [min, max] metres.
 export const MRT_STATION_WIDTH_LIMITS = {
   standard: [21.5, 27], jiantan: [24, 29], beitou: [33, 40], xinbeitou: [21.5, 27],
+  'at-grade': [14, 20],
 };
+// Margin added to the measured track span to size a station body:
+// elevated boxes cover the span plus one girder width; at-grade
+// stations also carry a side platform on each side.
+const STATION_WIDTH_MARGIN = { 'at-grade': 9.5 };
+const DEFAULT_WIDTH_MARGIN = 6.8;
 export const MRT_DECK_TOP = 9.0;
 const TWIN_WIDTH = 5.6, SINGLE_WIDTH = 10.4;
+
+// Issue #139: the Beitou depot （北投機廠） halls, hand-authored from
+// the OSM building outlines (the railways extract carries no
+// buildings, so — like the segment-form table — the measured facts
+// live here as a table). Corners are [lat, lon] quads ordered
+// SW, NW, NE, SE from OSM ways 87530097 (the main shed,
+// building=depot / building:levels=1), 87530145 and 87530147 (the
+// secondary halls). Heights are estimates for single-storey
+// maintenance halls of these spans; the footprints are measured.
+const DEPOT_HALLS = [
+  { way: 87530097, h: 13, corners: [[25.133948, 121.480618], [25.135520, 121.479848], [25.136745, 121.482771], [25.135113, 121.483565]] },
+  { way: 87530145, h: 11, corners: [[25.133441, 121.481663], [25.134223, 121.481273], [25.134834, 121.482897], [25.134099, 121.483256]] },
+  { way: 87530147, h: 9, corners: [[25.135522, 121.484896], [25.135921, 121.484701], [25.136475, 121.486247], [25.136155, 121.486408]] },
+];
 
 function formOfTags(t) {
   const layer = parseInt(t.layer || '0', 10);
@@ -424,6 +448,7 @@ export function digestRedLine(elements, project) {
     const pairSet = lineWays.get(w.id);
     const branch = [...pairSet].some((p) => p === '北投>新北投');
     const sib = nearestSibling(w);
+    const twin = sib >= 2.5 && sib <= 10;
     records.push({
       id: w.id,
       nodeIds: w.nodes || [],
@@ -435,14 +460,22 @@ export function digestRedLine(elements, project) {
       lineName: branch ? '新北投支線' : '淡水信義線',
       lineHighway: 'subway',
       lineLayer: parseInt(w.tags.layer || '1', 10) || 1,
-      lineWidth: sib >= 2.5 && sib <= 10 ? TWIN_WIDTH : SINGLE_WIDTH,
+      lineWidth: twin ? TWIN_WIDTH : SINGLE_WIDTH,
+      // Issue #139: where this way's tracks sit across its width —
+      // a twin way carries one track on its centreline; a single
+      // (shared-formation) way carries both, at the ~6 m track
+      // spacing the twin ways measure. The viaduct renderer draws
+      // the brown track strips at these offsets.
+      lineTracks: twin ? [0] : [-3, 3],
     });
   }
 
-  // station defs (elevated stations only)
+  // station defs (the ten elevated stations + the three at-grade
+  // stations north of Beitou, issue #139)
   const stations = [];
-  for (const name of MRT_ELEVATED_STATIONS) {
+  for (const name of [...MRT_ELEVATED_STATIONS, ...MRT_ATGRADE_STATIONS]) {
     const a = anchor.get(name);
+    const kind = MRT_STATION_KINDS[name] || 'standard';
     // yaw: length-weighted track direction near the anchor (double
     // angle so opposing directions don't cancel)
     let sx = 0, sz = 0;
@@ -459,11 +492,44 @@ export function digestRedLine(elements, project) {
         sz += Math.sin(2 * th) * l;
       }
     }
-    const yaw = 0.5 * Math.atan2(sz, sx);
-    const dirx = Math.sin(yaw), dirz = Math.cos(yaw);
-    // length: extent of nearby station/platform ways along the yaw
+    let yaw = 0.5 * Math.atan2(sz, sx);
+    let dirx = Math.sin(yaw), dirz = Math.cos(yaw);
+    // Issue #139: at-grade stations take their frame from the
+    // platform ways, not the line cloud. At Fuxinggang the line
+    // cloud includes the Beitou depot's throat leads (mapped as
+    // running-line ways), which drag the yaw and the across-centre
+    // off the served pair; the platforms flank that pair by
+    // definition. (Zhongyi / Guandu measure the same either way —
+    // no leads there.)
+    const platWays = kind === 'at-grade'
+      ? stationWays.filter((w) => (w.tags || {}).railway === 'platform' &&
+          (w.pts || []).some((p) => Math.hypot(p[0] - a.x, p[1] - a.z) < 170))
+      : [];
+    if (platWays.length) {
+      let psx = 0, psz = 0;
+      for (const w of platWays) {
+        for (let i = 1; i < w.pts.length; i++) {
+          const dx = w.pts[i][0] - w.pts[i - 1][0];
+          const dz = w.pts[i][1] - w.pts[i - 1][1];
+          const th = Math.atan2(dx, dz);
+          const l = Math.hypot(dx, dz);
+          psx += Math.cos(2 * th) * l;
+          psz += Math.sin(2 * th) * l;
+        }
+      }
+      if (psx || psz) {
+        yaw = 0.5 * Math.atan2(psz, psx);
+        dirx = Math.sin(yaw);
+        dirz = Math.cos(yaw);
+      }
+    }
+    // length: extent of nearby station/platform ways along the yaw.
+    // At-grade stations measure from their PLATFORM ways only —
+    // Fuxinggang's station-building way traces 146 m of entrances
+    // and would inflate the platform structure past its platforms.
     let lo = Infinity, hi = -Infinity;
     for (const w of stationWays) {
+      if (kind === 'at-grade' && (w.tags || {}).railway !== 'platform') continue;
       const g = w.pts || [];
       let near = false;
       for (const p of g) if (Math.hypot(p[0] - a.x, p[1] - a.z) < 170) { near = true; break; }
@@ -474,7 +540,6 @@ export function digestRedLine(elements, project) {
         if (t > hi) hi = t;
       }
     }
-    const kind = MRT_STATION_KINDS[name] || 'standard';
     let length = hi > lo ? hi - lo : 0;
     if (!(length >= 60 && length <= 200)) length = DEFAULT_LENGTH[kind];
     length = Math.round(Math.max(80, Math.min(190, length)));
@@ -531,9 +596,56 @@ export function digestRedLine(elements, project) {
       const centre = (lo + hi) / 2;
       snapX += dirC[0] * centre;
       snapZ += dirC[1] * centre;
-      const need = (hi - lo) + 6.8; // span + one girder width of margin
+      const need = (hi - lo) + (STATION_WIDTH_MARGIN[kind] ?? DEFAULT_WIDTH_MARGIN); // span + margin (see the table)
       const lim = MRT_STATION_WIDTH_LIMITS[kind];
       width = Math.round(Math.max(lim[0], Math.min(lim[1], need)) * 10) / 10;
+    }
+    if (platWays.length) {
+      // Issue #139 (see the frame note above): re-centre on the
+      // platform cloud's middle, and size the width to the served
+      // pair only — track samples within 12 m across of the
+      // platform centre (the throat leads run 20+ m out).
+      const dirC2 = [Math.cos(yaw), -Math.sin(yaw)];
+      const dirA2 = [Math.sin(yaw), Math.cos(yaw)];
+      let loA = Infinity, hiA = -Infinity, loC = Infinity, hiC = -Infinity;
+      for (const w of platWays) for (const p of w.pts) {
+        const dx = p[0] - a.x, dz = p[1] - a.z;
+        const al = dx * dirA2[0] + dz * dirA2[1];
+        const ac = dx * dirC2[0] + dz * dirC2[1];
+        if (al < loA) loA = al;
+        if (al > hiA) hiA = al;
+        if (ac < loC) loC = ac;
+        if (ac > hiC) hiC = ac;
+      }
+      snapX = a.x + dirA2[0] * ((loA + hiA) / 2) + dirC2[0] * ((loC + hiC) / 2);
+      snapZ = a.z + dirA2[1] * ((loA + hiA) / 2) + dirC2[1] * ((loC + hiC) / 2);
+      const pair = [];
+      for (const w of lineList) {
+        for (let i = 1; i < w.pts.length; i++) {
+          const ax2 = w.pts[i - 1][0], az2 = w.pts[i - 1][1];
+          const bx2 = w.pts[i][0], bz2 = w.pts[i][1];
+          const steps = Math.max(1, Math.ceil(Math.hypot(bx2 - ax2, bz2 - az2) / 5));
+          for (let s = 0; s < steps; s++) {
+            const px = ax2 + (bx2 - ax2) * (s / steps), pz = az2 + (bz2 - az2) * (s / steps);
+            const dx = px - snapX, dz = pz - snapZ;
+            const al = dx * dirA2[0] + dz * dirA2[1];
+            const ac = dx * dirC2[0] + dz * dirC2[1];
+            if (Math.abs(al) <= 35 && Math.abs(ac) <= 12) pair.push(ac);
+          }
+        }
+      }
+      if (pair.length >= 4) {
+        // Centre on the pair itself: the platform cloud's middle
+        // can sit a metre off the tracks (one platform wider, a
+        // footbridge landing in the outline), and the slabs must
+        // flank the rails symmetrically.
+        const mid = (Math.max(...pair) + Math.min(...pair)) / 2;
+        snapX += dirC2[0] * mid;
+        snapZ += dirC2[1] * mid;
+        const need = (Math.max(...pair) - Math.min(...pair)) + (STATION_WIDTH_MARGIN[kind] ?? DEFAULT_WIDTH_MARGIN);
+        const lim = MRT_STATION_WIDTH_LIMITS[kind];
+        width = Math.round(Math.max(lim[0], Math.min(lim[1], need)) * 10) / 10;
+      }
     }
     const slug = (a.nameEn || name).toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
     stations.push({
@@ -541,6 +653,93 @@ export function digestRedLine(elements, project) {
       x: Math.round(snapX * 10) / 10, z: Math.round(snapZ * 10) / 10,
       yaw, kind, length, ...(width ? { width } : {}),
     });
+  }
+
+  // ---- Beitou depot (issue #139) ----
+  // The depot fan: subway ways tagged service=yard/siding/spur that
+  // no station path used, clustered on the Fuxinggang anchor. The
+  // radii are measured (mrt2-evidence probe 5b): the depot's own
+  // ways form a clean cluster — 57 centroids within 1.2 km, then a
+  // gap to the next depot's ways at 3.5 km — and 700/900 keeps the
+  // whole fan while dropping the two longest through-leads
+  // (1.3-1.5 km) that run out toward Beitou and Guandu: those are
+  // main-line throats, and the running-line renderer already draws
+  // the line there. The fan plus the hand-authored halls form one
+  // special structure on the stations' non-registry path.
+  const fxg = anchor.get('復興崗');
+  const yardWays = [];
+  let yardKm = 0;
+  if (fxg) {
+    for (const w of trackWays) {
+      if (!['yard', 'siding', 'spur'].includes(w.tags.service || '')) continue;
+      if (lineWays.has(w.id) || !w.pts.length) continue;
+      let cx = 0, cz = 0, maxd = 0;
+      for (const p of w.pts) {
+        cx += p[0]; cz += p[1];
+        const d = Math.hypot(p[0] - fxg.x, p[1] - fxg.z);
+        if (d > maxd) maxd = d;
+      }
+      cx /= w.pts.length; cz /= w.pts.length;
+      if (Math.hypot(cx - fxg.x, cz - fxg.z) <= 700 && maxd <= 900) {
+        yardWays.push(w);
+        yardKm += w.len / 1000;
+      }
+    }
+  }
+  let depot = null;
+  if (yardWays.length) {
+    const rectOf = (corners) => {
+      const cs = corners.map(([la, lo]) => project(la, lo));
+      const mid = (i, j) => [(cs[i][0] + cs[j][0]) / 2, (cs[i][1] + cs[j][1]) / 2];
+      const mW = mid(0, 1), mE = mid(2, 3), mN = mid(1, 2), mS = mid(0, 3);
+      const along = [mE[0] - mW[0], mE[1] - mW[1]];
+      const len = Math.hypot(along[0], along[1]);
+      return {
+        x: (cs[0][0] + cs[2][0]) / 2, z: (cs[0][1] + cs[2][1]) / 2,
+        yaw: Math.atan2(along[0], along[1]),
+        len, wid: Math.hypot(mN[0] - mS[0], mN[1] - mS[1]),
+        corners: cs,
+      };
+    };
+    const halls = DEPOT_HALLS.map((hd) => {
+      const r = rectOf(hd.corners);
+      return {
+        x: Math.round(r.x * 10) / 10, z: Math.round(r.z * 10) / 10,
+        yaw: Math.round(r.yaw * 10000) / 10000,
+        len: Math.round(r.len), wid: Math.round(r.wid), h: hd.h, way: hd.way,
+        corners: r.corners,
+      };
+    });
+    // Site frame: origin at the main shed centre, +along on its
+    // long axis. The site rect covers the yard point cloud and the
+    // hall footprints, padded — the fenced depot ground.
+    const main = halls[0];
+    const dirA = [Math.sin(main.yaw), Math.cos(main.yaw)];
+    const dirC = [Math.cos(main.yaw), -Math.sin(main.yaw)];
+    let aLo = Infinity, aHi = -Infinity, cLo = Infinity, cHi = -Infinity;
+    const eat = (x, z) => {
+      const rx = x - main.x, rz = z - main.z;
+      const al = rx * dirA[0] + rz * dirA[1];
+      const ac = rx * dirC[0] + rz * dirC[1];
+      if (al < aLo) aLo = al;
+      if (al > aHi) aHi = al;
+      if (ac < cLo) cLo = ac;
+      if (ac > cHi) cHi = ac;
+    };
+    for (const w of yardWays) for (const p of w.pts) eat(p[0], p[1]);
+    for (const h of halls) for (const c of h.corners) eat(c[0], c[1]);
+    const PAD = 6;
+    depot = {
+      x: main.x, z: main.z, yaw: main.yaw,
+      site: {
+        dAlong: Math.round(((aLo + aHi) / 2) * 10) / 10,
+        dAcross: Math.round(((cLo + cHi) / 2) * 10) / 10,
+        along: Math.round(aHi - aLo + 2 * PAD),
+        across: Math.round(cHi - cLo + 2 * PAD),
+      },
+      halls: halls.map(({ corners, ...h }) => h),
+      yard: yardWays.map((w) => w.pts.flatMap((p) => [Math.round(p[0] * 10) / 10, Math.round(p[1] * 10) / 10])),
+    };
   }
 
   const stats = {
@@ -552,6 +751,9 @@ export function digestRedLine(elements, project) {
     tunnelMates,
     byFormKm: Object.fromEntries(Object.entries(byForm).map(([k, v]) => [k, +(v / 1000).toFixed(2)])),
     stationsFound: stations.length,
+    yardWays: yardWays.length,
+    yardKm: +yardKm.toFixed(1),
+    depotHalls: depot ? depot.halls.length : 0,
   };
-  return { records, stations, stats };
+  return { records, stations, depot, stats };
 }
