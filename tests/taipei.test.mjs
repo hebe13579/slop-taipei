@@ -942,7 +942,25 @@ test('taiwan types: family zoning, distribution and rooftop clamp', (t) => {
   // Gate composition with issue #103 (merged first): the two new
   // landmark sites exclude 4 more glass lots, all off green land —
   // 2,823 - 4 = 2,819, measured on the merged tree at the #114 gate.
-  assert.equal(glass, 2819, 'glass family counts untouched by the Taiwan-type assignment');
+  // Gate composition with issue #106 (street walls + tall
+  // frontages), re-measured on THIS merged tree (the branch was
+  // planned against the pre-#114 base; the numbers below are the
+  // #106 change alone, diffed family by family against
+  // origin/main's plan on the same merged geodata): the plan goes
+  // 34,573 -> 34,707 lots (+134: packed frontage rows take no
+  // vacancy holes, so lotsDroppedVacancy falls 28,475 -> 23,386,
+  // while the wider packed footprints drop +1,646 more on the
+  // exact ribbon test and +115/+20/+23 on the park/green/site
+  // tests — the exclusions still win over packing). Glass 2,819 ->
+  // 3,832 (+1,013: F3 +280, F4 +377, F5 +356 — 3,049 lots stand in
+  // the tall-frontage bands 24-54 / 18-42 / 15-30 m, and lots the
+  // bands lift to >= 40 m are glass by facadeMatFor's untouched
+  // first rule, lots lifted into 22-40 m roll glass at the same
+  // pre-#17 half share); Taiwan 7,629 -> 8,204 (+575: F6 +190,
+  // F7 +135, F8 +131, F9 +119); masonry 24,125 -> 22,671 (-1,454:
+  // F0 -380, F1 -480, F2 -594). Lane/interior lots are unchanged
+  // by construction (same gap, vacancy and height rules).
+  assert.equal(glass, 3832, 'glass family counts untouched by the Taiwan-type assignment');
   const masonry = opts.lots.filter((l) => l.mat <= 2).length;
   // Range re-based for issue #65: the exact ribbon exclusion removed
   // ~4,400 masonry lots that stood on ribbons or in medians; masonry
@@ -955,6 +973,9 @@ test('taiwan types: family zoning, distribution and rooftop clamp', (t) => {
   // tree with issue #103 the count is 24,125 of 34,573 (69.8%):
   // #103 excludes 89 masonry lots by site, 16 of which the green
   // rule had already dropped (net -73), measured at the #114 gate.
+  // Issue #106 composition: 22,671 of 34,707 (65.3%) on the merged
+  // tree (see the glass re-pin above) — still the majority fabric,
+  // still inside this range unedited.
   assert.ok(masonry > 20000 && masonry < 30000, `masonry 0-2 reduced but still present (${masonry})`);
   assert.equal(typeof opts.rooftopGearClamp, 'function', 'options carry the rooftop-gear clamp');
 
