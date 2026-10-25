@@ -366,17 +366,89 @@ function collectPolys(file, minArea) {
 // polygon), so derive a surface by buffering the centreline. Default width 160 m
 // (no width tag in OSM for these ways) — flagged derived:'centreline-buffer'.
 const riverPolys = [];
+// Issue #102: the flat 160 m default folds any stream whose meanders
+// run closer together than the ribbon is wide — every Beitou/Tianmu
+// creek （磺溪， 磺港溪， 貴子坑溪， 水磨坑溪， …) shipped as a
+// self-intersecting blob (30 rings). A ribbon wider than the
+// centreline's own local clearance overlaps itself by construction,
+// so each vertex's half-width is clamped to 0.45x ITS distance to the
+// non-adjacent centreline (floor 1.5 m): the ribbon pinches only at
+// the tight spot — a meander neck, a confluence jog, an island tip —
+// and keeps full width elsewhere. (A single global cap per river was
+// measured and rejected: the Keelung's tightest jog is 13.6 m, which
+// would have shrunk the whole river to a 12 m ribbon.) A piece that
+// still folds after clamping retries at half width; a piece still
+// invalid at the floor is dropped and booked in the log line below —
+// invalid geometry never ships.
+const segPtDist = (p, a, b) => {
+  const dx = b[0] - a[0], dz = b[1] - a[1];
+  const L2 = dx * dx + dz * dz;
+  const t = L2 ? Math.max(0, Math.min(1, ((p[0] - a[0]) * dx + (p[1] - a[1]) * dz) / L2)) : 0;
+  return Math.hypot(p[0] - (a[0] + dx * t), p[1] - (a[1] + dz * t));
+};
+const vertexClearances = (pts) => pts.map((p, i) => {
+  let m = Infinity;
+  for (let j = 0; j + 1 < pts.length; j++) {
+    if (j === i - 1 || j === i) continue; // segments touching vertex i
+    m = Math.min(m, segPtDist(p, pts[j], pts[j + 1]));
+  }
+  return m;
+});
+const bufferLineVar = (pts, halfArr) => {
+  const n = pts.length;
+  if (n < 2) return null;
+  const left = [], right = [];
+  for (let i = 0; i < n; i++) {
+    const a = pts[Math.max(0, i - 1)], b = pts[Math.min(n - 1, i + 1)];
+    let dx = b[0] - a[0], dz = b[1] - a[1];
+    const L = Math.hypot(dx, dz) || 1;
+    const nx = -dz / L, nz = dx / L;
+    left.push([pts[i][0] + nx * halfArr[i], pts[i][1] + nz * halfArr[i]]);
+    right.push([pts[i][0] - nx * halfArr[i], pts[i][1] - nz * halfArr[i]]);
+  }
+  return [...left, ...right.reverse(), left[0]];
+};
+const ringSelfIntersects = (pts) => {
+  const cross = (p1, p2, p3, p4) => {
+    const d = (p2[0] - p1[0]) * (p4[1] - p3[1]) - (p2[1] - p1[1]) * (p4[0] - p3[0]);
+    if (!d) return false;
+    const t = ((p3[0] - p1[0]) * (p4[1] - p3[1]) - (p3[1] - p1[1]) * (p4[0] - p3[0])) / d;
+    const u = ((p3[0] - p1[0]) * (p2[1] - p1[1]) - (p3[1] - p1[1]) * (p2[0] - p1[0])) / d;
+    return t > 0 && t < 1 && u > 0 && u < 1;
+  };
+  for (let i = 0; i + 1 < pts.length; i++)
+    for (let j = i + 2; j + 1 < pts.length; j++) {
+      if (i === 0 && j === pts.length - 2) continue;
+      if (cross(pts[i], pts[i + 1], pts[j], pts[j + 1])) return true;
+    }
+  return false;
+};
+const riverBooked = { capped: [], dropped: [] };
 for (const el of load('osm_water.json').elements) {
   if (el.type !== 'way' || el.tags?.waterway !== 'river' || !el.geometry) continue;
   const all = geomPts(el);
   const near = all.filter(([x, z]) => x >= BBOX.minX - 300 && x <= BBOX.maxX + 300 && z >= BBOX.minZ - 300 && z <= BBOX.maxZ + 300);
   if (near.length < 2) continue;
   const wtag = parseFloat(el.tags.width || '');
-  const raw = bufferLine(near, (Number.isFinite(wtag) ? wtag : 160) / 2);
-  for (const ring of raw ? clipRingUnion(raw, BOXES_WORLD) : []) {
+  const baseHalf = (Number.isFinite(wtag) ? wtag : 160) / 2;
+  const clear = vertexClearances(near);
+  const halfArr = clear.map((c) => Math.max(1.5, Math.min(baseHalf, 0.45 * c)));
+  const minHalf = Math.min(...halfArr);
+  if (minHalf < baseHalf) riverBooked.capped.push(`${el.tags.name || el.id}: min half-width ${minHalf.toFixed(1)} m at the tight vertex (base ${baseHalf.toFixed(0)})`);
+  let pieces = null;
+  for (const f of [1, 0.5, 0.25]) {
+    const raw = bufferLineVar(near, halfArr.map((h) => h * f));
+    if (!raw) break;
+    const clipped = clipRingUnion(raw, BOXES_WORLD);
+    if (clipped.every((ring) => !ringSelfIntersects(ring))) { pieces = clipped; break; }
+  }
+  if (!pieces) { riverBooked.dropped.push(el.tags.name || String(el.id)); continue; }
+  for (const ring of pieces) {
     riverPolys.push({ name: el.tags.name || el.tags['name:en'] || '', ring: flat(ring), area: Math.abs(ringArea(ring)), derived: 'centreline-buffer' });
   }
 }
+if (riverBooked.capped.length) console.log(`[taipei-geodata] river buffers width-capped by centreline clearance: ${riverBooked.capped.join('; ')}`);
+if (riverBooked.dropped.length) console.log(`[taipei-geodata] river buffers dropped (self-intersecting at every width): ${riverBooked.dropped.join('; ')}`);
 const waterRaw = [...collectPolys('osm_water.json', 50), ...riverPolys];
 const parksRaw = collectPolys('osm_parks.json', 100);
 const water = waterRaw.map(({ name, ring, derived }) => (derived ? { name, ring, derived } : { name, ring }));

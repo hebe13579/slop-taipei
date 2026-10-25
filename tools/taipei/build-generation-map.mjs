@@ -824,11 +824,29 @@ for (const g of groups) {
     pedestrianLayout: mergedLayout,
     sourceWayIds: g.members.map((m) => m.seg.wayId),
     merged: true, constituentWidths: g.members.map((m) => m.seg.width),
-    // A merged bed is a deck bed when ANY member is an elevated deck
-    // carriageway (the mixed cases are genuinely elevated structures
-    // with incomplete OSM layer tagging on one carriageway — 麥帥一橋，
-    // 環河快速道路）; its deck geometry comes from the member ways.
-    ...(g.members.some((m) => isDeckSegment(m.seg)) ? { deck: true } : {}),
+    // A merged bed is a deck bed when its elevated members carry a
+    // real share of the group's claimed length. The original rule
+    // (ANY member) covered the genuine structures with incomplete
+    // OSM layer tagging on one carriageway （麥帥一橋， 環河快速道
+    // 路： the tagged twin spans the full group, ~50% of claimed
+    // length) — but issue #102's north exposed the dual case: a
+    // ground boulevard whose chain includes one short bridge
+    // segment （大度路一段 over the Guandu drainage, ~40 m of a
+    // 574 m group, ~4% share) inherited the flag with no deck
+    // geometry under most of its length, failing the coverage
+    // invariant. Threshold 35%: below every full-length twin
+    // structure, above every local bridge hop; the short bridge
+    // segment then simply renders as part of the ground bed, like
+    // every other at-grade stream crossing.
+    ...((() => {
+      let deckLen = 0, totLen = 0;
+      for (const m of g.members) {
+        const L = m.range[1] - m.range[0];
+        totLen += L;
+        if (isDeckSegment(m.seg)) deckLen += L;
+      }
+      return totLen > 0 && deckLen / totLen >= 0.35 ? { deck: true } : {};
+    })()),
   });
   mergedLength += geo.length;
   mergedReport.push({

@@ -376,16 +376,20 @@ test('taipei speedScale wiring (source contract)', () => {
 // --- excludeRects (issue #60): the union's dropped bands have no
 // ground; ground modes are pushed out, the helicopter is not. ---
 
-test('taipei world: the NE notch pushes ground modes out to its nearest edge', async () => {
+test('taipei world: an exclusion rect pushes ground modes out to its nearest edge', async () => {
   const Class = loadManagerClass();
   const { geodata, opts } = await taipeiWorldOpts();
-  assert.equal(opts.excludeRects.length, 1, 'the A+B union has exactly one exclusion rect');
+  // Issue #102: the five-box union leaves five exclusion rects
+  // (was one NE notch for the A+B base). The scenario below runs on
+  // the first — the north strip east of Beitou — whose south edge
+  // is the corridor's north edge (lat 25.133).
+  assert.equal(opts.excludeRects.length, 5, 'the five-box union has exactly five exclusion rects');
   const notch = opts.excludeRects[0];
   const taipei = bareManager(Class, opts);
   taipei.activeMode = 'person';
 
-  // A point in the notch (old tile's Songshan fringe) nearer its
-  // southern edge (lat 25.055) is pushed out through that edge.
+  // A point in the rect nearer its southern edge (the corridor's
+  // north edge, lat 25.133) is pushed out through that edge.
   const pos = { x: 0, y: 0, z: notch.maxZ - 100 };
   taipei.resolveHorizontalCollision(pos, 0.48, 1);
   assert.ok(!(pos.x > notch.minX && pos.x < notch.maxX && pos.z > notch.minZ && pos.z < notch.maxZ),

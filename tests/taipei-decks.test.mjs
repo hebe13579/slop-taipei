@@ -45,7 +45,22 @@ test('elevated data present at corridor scale', () => {
 
 test('every deck-flagged roadbed is covered by deck geometry', () => {
   const deckBeds = TAIPEI_GEO.roadbeds.filter((b) => b.deck);
-  assert.equal(deckBeds.length, 132, 'deck-flagged bed count');
+  // Re-pinned for issue #102 (northern phase 1): the added boxes
+  // carry the northern elevated network （洲美快速道路， 環河快速，
+  // 汐止五股高架， 中山高/台北交流道 ramps) — deck-flagged beds
+  // 132 -> 275, deck lines 152 -> 329 (45.9 -> 93.1 km). Per-box
+  // census in the #102 evidence.
+  // The count is 275, not the 278 the raw regen first produced:
+  // the merged-bed deck rule in build-generation-map now requires
+  // the elevated members to carry >= 35% of a group's claimed
+  // length (was: ANY member). Three 大度路 groups at Guandu are
+  // ground boulevards whose chains include one short bridge
+  // segment each (~4% share); under ANY-member they inherited the
+  // flag with deck geometry under only 15% of their length — the
+  // failure this test caught. Full-length twin structures with
+  // one untagged carriageway （麥帥一橋， 環河快速道路， ~50% share)
+  // keep the flag; the flag diff at #102 is exactly those 3 beds.
+  assert.equal(deckBeds.length, 275, 'deck-flagged bed count');
   for (const b of deckBeds) {
     let samples = 0, covered = 0;
     for (let i = 0; i + 3 < b.pts.length; i += 2) {
@@ -222,15 +237,22 @@ test('ground network unchanged: beds, junctions and caps exactly as before decks
   // 1,129). The invariant is unchanged, same reasoning as #74:
   // the delta is #83's, documented in the generation-map rule and
   // the taipei-junctions census re-pin.
-  assert.equal(TAIPEI_GEO.roadbeds.length, 5708, 'roadbed count unchanged (deck beds are flagged, not removed)');
+  // Census re-pinned for issue #102 (northern phase 1): the tile
+  // grew by the Red Line corridor, the Beitou box and the
+  // incinerator connector — roadbeds 5,708 -> 11,804, junctions
+  // 1,136 -> 2,361, caps 1,129 -> 2,354, each measured per box in
+  // the #102 evidence census. The invariant is unchanged: the deck
+  // layer removes nothing from the ground network; the delta is
+  // #102's data growth, not the deck pass.
+  assert.equal(TAIPEI_GEO.roadbeds.length, 11804, 'roadbed count unchanged (deck beds are flagged, not removed)');
   const junctions = detectJunctions(carriageways);
-  assert.equal(junctions.length, 1136, 'ground junction detection unchanged');
+  assert.equal(junctions.length, 2361, 'ground junction detection unchanged');
   const caps = planJunctionCaps(carriageways, junctions);
   // Gate re-pin (PR #78 onto post-#77 main): caps = junctions minus the 7
   // junctions claimed by #77's handcrafted roundabout sites (Renai 4 +
   // Dongmen 3). The invariant this test protects is unchanged: decks do not
   // remove a single cap — the delta is #77's, documented in its audit.
-  assert.equal(caps.length, 1129, 'junction caps still planned over the full bed set, deck beds included (1136 detected − 7 roundabout-claimed, #77)');
+  assert.equal(caps.length, 2354, 'junction caps still planned over the full bed set, deck beds included (2361 detected − 7 roundabout-claimed, #77)');
 });
 
 test('viaduct renderer: synthetic box section with parapets', () => {
