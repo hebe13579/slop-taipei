@@ -528,8 +528,8 @@ test('landmark structures: true positions and heights, sites kept clear', (t) =>
     'shin-kong-life-tower': { h: 244.15, x: -5016.4, z: -1458.4 },
     'taipei-main-station': { h: 48, x: -4839.7, z: -1623.1 },
     'chiang-kai-shek-memorial-hall': { h: 70, x: -4388.2, z: -200.6 },
-    'national-concert-hall': { h: 37, x: -4616.0, z: -441.4 },
-    'national-theater': { h: 37, x: -4718.7, z: -256.9 },
+    'national-concert-hall': { h: 37, x: -4718.7, z: -256.9 },
+    'national-theater': { h: 37, x: -4616.0, z: -441.4 },
     'presidential-office-building': { h: 60, x: -5351.6, z: -774.7 },
     // Batch 5 (issue #86): Beimen on its #77 junction island.
     // The 19 m is the accepted overall estimate (no published
@@ -697,7 +697,9 @@ test('landmark batch 3: two-slab Cathay rebuild, W, Songshan, Eslite, Arena', ()
 // Issue #74 batch 4 (west-expansion phase 2): the six station-
 // district landmarks. Shin Kong is the beige tower under its
 // pyramid crown; the Main Station is the long house under stepped
-// red roofs with the clock tower at the centre (its massing sits
+// red hip roof (fine steps to a skylight deck since issue #98 —
+// the #74 clock tower was fictitious; the references show none)
+// (its massing sits
 // +11 m east inside the slanted OSM outline to clear the 承德路
 // diagonal — see the registry comment); the CKS Hall stacks three
 // terrace steps, the white hall and two blue frustum eaves under a
@@ -707,7 +709,7 @@ test('landmark batch 3: two-slab Cathay rebuild, W, Songshan, Eslite, Arena', ()
 // range, two end pavilions, central tower. The halls' sites only
 // became buildable when the memorial park's internal service
 // drives stopped being roadbeds (generation-map rule, issue #74).
-test('landmark batch 4: station district — crown, clock tower, terrace hall, palace pair, brick block', () => {
+test('landmark batch 4: station district — crown, hip roof, terrace hall, palace pair, brick block', () => {
   const plan = planTaipeiBuildings(TAIPEI_GEO);
   const byId = (id) => plan.landmarkTowers.find((s) => s.id === id);
   const partTop = (p) => (p.y0 || 0) + p.h + (p.type === 'ridge' ? p.ridgeH : 0);
@@ -719,11 +721,16 @@ test('landmark batch 4: station district — crown, clock tower, terrace hall, p
   assert.ok(crown && crown.wT < crown.wB, 'pyramid crown steps in from the shaft');
   assert.equal(Math.max(...shinKong.parts.map(partTop)), 244.15, 'cap tops out at the published 244.15 m');
 
-  // Taipei Main Station: stepped red roofs + clock tower at 48 m.
+  // Taipei Main Station: one red hip roof (fine steps) at 48 m.
+  // Issue #98 re-pin: the #74 "clock tower" part (y0 40, top 48)
+  // was fictitious — the south-facade photo and the satellite
+  // show a single hip roof with a flat skylight deck and no
+  // tower — so the height pin moves to the deck topping the roof.
   const station = byId('taipei-main-station');
   assert.ok(station, 'taipei main station registered');
-  const clock = station.parts.find((p) => p.y0 === 40);
-  assert.ok(clock && partTop(clock) === 48, 'clock tower tops out at the published 48 m');
+  const deck = station.parts.find((p) => p.flat === 0x39434e);
+  assert.ok(deck && partTop(deck) === 48, 'skylight deck tops out at the published 48 m');
+  assert.equal(Math.max(...station.parts.map(partTop)), 48, 'no part rises past the published 48 m (no clock tower)');
   assert.ok(station.parts.filter((p) => p.flat === 0x9c4a38).length >= 2, 'red roof steps carry the flat terracotta');
 
   // CKS Memorial Hall: three terrace steps + two blue eaves + finial.
@@ -747,7 +754,11 @@ test('landmark batch 4: station district — crown, clock tower, terrace hall, p
     assert.equal(partTop(ridge), 37, `${hall.id} ridge peaks at 37 m`);
     assert.equal(hall.estimated, true, `${hall.id} height is OSM-derived, flagged estimated`);
   }
-  assert.ok(concert.x > theater.x && concert.z < theater.z, 'concert hall stands NE of the theater across the square');
+  // Issue #98 label swap: the north hall is the THEATER, the south
+  // hall the CONCERT hall (EN Wikipedia's north/south sentence;
+  // OSM ways 1052759776 north / 1052759775 south) — the entries
+  // carried each other's names until this PR.
+  assert.ok(theater.x > concert.x && theater.z < concert.z, 'theater stands NE of the concert hall across the square');
 
   // Presidential Office: main range + two pavilions + tower at 60 m.
   const office = byId('presidential-office-building');
