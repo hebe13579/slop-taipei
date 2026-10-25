@@ -911,7 +911,12 @@ test('taiwan types: family zoning, distribution and rooftop clamp', (t) => {
   // rounded to 0.1 m, so a full-precision-cleared corner could
   // reconstruct ~0.01 m inside a creek polygon — the orientation
   // corner invariant caught one at 石牌）.
-  assert.equal(glass, 3244, 'glass family counts untouched by the Taiwan-type assignment');
+  // Re-pinned for issue #118: the ten MRT elevated-station
+  // footprints joined the planner's exclusion sites (no generic
+  // lot is planned through a station), dropping exactly 62 lots
+  // (41,269 -> 41,207), 5 of them glass — measured on the merged
+  // plan; the MRT test file pins the exclusion itself.
+  assert.equal(glass, 3239, 'glass family counts untouched by the Taiwan-type assignment');
   const masonry = opts.lots.filter((l) => l.mat <= 2).length;
   // Range re-based for issue #65: the exact ribbon exclusion removed
   // ~4,400 masonry lots that stood on ribbons or in medians; masonry

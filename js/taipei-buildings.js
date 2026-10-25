@@ -1408,7 +1408,32 @@ export function planTaipeiBuildings(geodata) {
   const originLatLon = (geodata.frame && geodata.frame.originLatLon) || [25.033, 121.565];
   const landmarkTowers = LANDMARK_STRUCTURES.map((def) => resolveLandmark(def, originLatLon));
   const landmarkSites = landmarkTowers.flatMap((s) => s.sites);
-  const exclusionSites = towerSite ? [towerSite, ...landmarkSites] : landmarkSites;
+  // MRT elevated stations (issue #118): the structures straddle the
+  // guideway corridor, so their footprint bounding boxes join the
+  // exclusion sites — no generic lot is planned through a station.
+  // (Stations are deliberately NOT landmark-registry entries: a
+  // straddling footprint cannot satisfy the registry's plan-view
+  // no-road-overlap invariant.)
+  const mrtSites = (geodata.mrtStations || []).map((s) => {
+    // Footprint half extents of the rendered station structures —
+    // mirrors mrtStationFootprint in js/taipei-mrt-stations.js (this
+    // module stays import-free by convention; keep the two in sync).
+    const L = s.length || 112;
+    const Wd = s.width || (s.kind === 'jiantan' ? 24 : s.kind === 'beitou' ? 33 : 21.5);
+    const hw = s.kind === 'jiantan' ? (Wd + 2) / 2 : s.kind === 'beitou' ? (Wd + 2.6) / 2 : s.kind === 'xinbeitou' ? (Wd + 1.2) / 2 : (Wd + 1.9) / 2;
+    const hl = s.kind === 'jiantan' ? 122 : s.kind === 'beitou' ? (L + 4) / 2 : s.kind === 'xinbeitou' ? (L + 2.4) / 2 : L / 2;
+    const cy = Math.cos(s.yaw), sy = Math.sin(s.yaw);
+    let minX = Infinity, maxX = -Infinity, minZ = Infinity, maxZ = -Infinity;
+    for (const [lx, lz] of [[-hw, -hl], [hw, -hl], [hw, hl], [-hw, hl]]) {
+      const px = s.x + lx * cy + lz * sy, pz = s.z - lx * sy + lz * cy;
+      if (px < minX) minX = px;
+      if (px > maxX) maxX = px;
+      if (pz < minZ) minZ = pz;
+      if (pz > maxZ) maxZ = pz;
+    }
+    return { minX, maxX, minZ, maxZ };
+  });
+  const exclusionSites = towerSite ? [towerSite, ...landmarkSites, ...mrtSites] : [...landmarkSites, ...mrtSites];
 
   const lots = [];
   const blocks = geodata.blocks || [];

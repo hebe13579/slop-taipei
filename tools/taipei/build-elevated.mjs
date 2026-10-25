@@ -188,28 +188,20 @@ function makeHeap() {
   };
 }
 
-// buildElevated(elements, roadbeds, lots) -> { lines, piers, deckDepth, stats }
-//   elements: raw osm_roads.json elements (ways with tags/nodes/geometry)
+// buildDeckSet(records, roadbeds, lots, stats) -> { lines, piers, deckDepth, stats }
+// The shared deck machinery: height Dijkstra over the records'
+// shared-node graph (seeded at portals — nodes a set record shares
+// with a non-set record), clipped line emission, pier placement.
+// A record is one source way digested by a caller:
+//   { id, nodeIds, pts (world), inSet, targetTop, emit,
+//     lineName, lineHighway, lineLayer, lineWidth }
+// buildElevated (roads) and buildMrtDecks (issue #118, rail records
+// digested by tools/taipei/build-mrt.mjs) are the two callers; the
+// road path's records reproduce the pre-#118 behaviour exactly.
 //   roadbeds: the geodata roadbeds (runtime shape: pts flat, width, deck flag)
 //   lots:     planTaipeiBuildings output lots ({x, z, w, d} axis-aligned)
-export function buildElevated(elements, roadbeds, lots) {
-  const stats = {
-    waysSelected: 0, lines: 0, lineKm: 0, portals: 0, graphNodes: 0, unreachedNodes: 0,
-    pierCandidates: 0, piersMerged: 0, piersSlid: 0, piersRejectedRoad: 0, piersRejectedLot: 0, piers: 0,
-  };
-  // ---- way table (carriageway ways only) ----
-  const ways = [];
-  for (const el of elements) {
-    if (el.type !== 'way' || !el.tags?.highway || !el.geometry || el.geometry.length < 2) continue;
-    if (NON_CARRIAGEWAY.has(el.tags.highway)) continue;
-    const nodeIds = Array.isArray(el.nodes) && el.nodes.length === el.geometry.length ? el.nodes : null;
-    ways.push({
-      id: el.id, tags: el.tags, nodeIds,
-      pts: el.geometry.map((g) => toWorld(g.lon, g.lat)),
-      inSet: DECK_CLASSES.has(el.tags.highway) && isElevatedTags(el.tags),
-    });
-  }
-  const selected = ways.filter((w) => w.inSet);
+function buildDeckSet(ways, roadbeds, lots, stats) {
+  const selected = ways.filter((w) => w.emit);
   stats.waysSelected = selected.length;
 
   // Node keys mirror buildRoadGraph's keyOf: OSM id when the source
@@ -232,7 +224,7 @@ export function buildElevated(elements, roadbeds, lots) {
       if (!nodePos.has(k)) nodePos.set(k, w.pts[i]);
       (w.inSet ? inSetNode : inGroundNode).add(k);
       if (w.inSet) {
-        const top = deckTopForLayer(effectiveLayer(w.tags));
+        const top = w.targetTop;
         if (top > (target.get(k) ?? -Infinity)) target.set(k, top);
       }
       if (i > 0) {
@@ -280,8 +272,8 @@ export function buildElevated(elements, roadbeds, lots) {
   // ---- lines (clipped runs of the selected ways) ----
   const lines = [];
   for (const w of selected) {
-    const name = w.tags.name || '';
-    const width = Object.hasOwn(WIDTH_OVERRIDES, name) ? WIDTH_OVERRIDES[name] : q(roadWidth(w.tags) + SHOULDER_M);
+    const name = w.lineName;
+    const width = w.lineWidth;
     const runs = clipRuns(w.pts, BOXES_WORLD, w.nodeIds);
     for (const records of runs) {
       const pts = [], hs = [];
@@ -292,7 +284,7 @@ export function buildElevated(elements, roadbeds, lots) {
         hs.push(q(p.nodeId != null && w.nodeIds ? (height.get(`n:${p.nodeId}`) ?? heightOnSegment(w, p.x, p.z)) : heightOnSegment(w, p.x, p.z)));
       });
       if (records.length < 2 || len < 1) continue;
-      lines.push({ wayId: w.id, name, highway: w.tags.highway, layer: effectiveLayer(w.tags), width, pts, h: hs });
+      lines.push({ wayId: w.id, name, highway: w.lineHighway, layer: w.lineLayer, width, pts, h: hs });
       stats.lineKm += len / 1000;
     }
   }
@@ -485,4 +477,49 @@ export function buildElevated(elements, roadbeds, lots) {
   stats.piers = piers.length;
 
   return { lines, piers, deckDepth: DECK_DEPTH, stats };
+}
+
+// buildElevated(elements, roadbeds, lots): the road deck pass —
+// carriageway ways from osm_roads.json, digested into records whose
+// set membership / targets / widths are the rules this file has
+// always applied (deck classes + elevated tags, layer tops, the
+// road width inference + shoulders + the 建國 override).
+export function buildElevated(elements, roadbeds, lots) {
+  const stats = {
+    waysSelected: 0, lines: 0, lineKm: 0, portals: 0, graphNodes: 0, unreachedNodes: 0,
+    pierCandidates: 0, piersMerged: 0, piersSlid: 0, piersRejectedRoad: 0, piersRejectedLot: 0, piers: 0,
+  };
+  const records = [];
+  for (const el of elements) {
+    if (el.type !== 'way' || !el.tags?.highway || !el.geometry || el.geometry.length < 2) continue;
+    if (NON_CARRIAGEWAY.has(el.tags.highway)) continue;
+    const nodeIds = Array.isArray(el.nodes) && el.nodes.length === el.geometry.length ? el.nodes : null;
+    const inSet = DECK_CLASSES.has(el.tags.highway) && isElevatedTags(el.tags);
+    const name = el.tags.name || '';
+    records.push({
+      id: el.id, tags: el.tags, nodeIds,
+      pts: el.geometry.map((g) => toWorld(g.lon, g.lat)),
+      inSet, emit: inSet,
+      targetTop: deckTopForLayer(effectiveLayer(el.tags)),
+      lineName: name, lineHighway: el.tags.highway, lineLayer: effectiveLayer(el.tags),
+      lineWidth: Object.hasOwn(WIDTH_OVERRIDES, name) ? WIDTH_OVERRIDES[name] : q(roadWidth(el.tags) + SHOULDER_M),
+    });
+  }
+  return buildDeckSet(records, roadbeds, lots, stats);
+}
+
+// buildMrtDecks(records, roadbeds, lots): the MRT deck pass
+// (issue #118) — records digested by tools/taipei/build-mrt.mjs from
+// osm_railways.json: elevated records are the set (target = the MRT
+// guideway datum), tunnel records only seed portals, at-grade
+// records emit with target 0 and render as the renderer's low bed.
+// The output lands in geodata.mrtDecks, a sibling of elevatedRoads:
+// validate.mjs's deck provenance audit is defined over road ways,
+// so the rail lines keep their own field and their own test file.
+export function buildMrtDecks(records, roadbeds, lots) {
+  const stats = {
+    waysSelected: 0, lines: 0, lineKm: 0, portals: 0, graphNodes: 0, unreachedNodes: 0,
+    pierCandidates: 0, piersMerged: 0, piersSlid: 0, piersRejectedRoad: 0, piersRejectedLot: 0, piers: 0,
+  };
+  return buildDeckSet(records, roadbeds, lots, stats);
 }
