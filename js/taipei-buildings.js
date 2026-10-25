@@ -1072,6 +1072,135 @@ const LANDMARK_STRUCTURES = [
       { type: 'box', w: 13, d: 3.2, h: 1.2, y0: 17.8, rotY: -2.5821, flat: 0x5d6058 },
     ],
   },
+  {
+    // Batch 6 (issue #103, northern phase 2): 圓山大飯店 — the
+    // 1973 palace hotel on the Jiantan hill in the Red Line
+    // corridor. 87 m PUBLISHED (EN/ZH Wikipedia: the main
+    // building is 87 m, 14 storeys, Yang Cho-cheng; Taiwan's
+    // tallest 1973-81). The front faces SOUTH over the basin
+    // (the entrance porch, ceremonial steps and reflecting pond
+    // are all on the south side). Form from the reference
+    // photos: a tall slab in a full-height vermilion column /
+    // balcony lattice, muted teal bracket bands between the
+    // floors and under the eaves, and a double-eaved golden
+    // glazed-tile hip roof (a wide lower eave wrapping the top
+    // floor, the main roof above a pale railed gallery band).
+    // Footprint from the Esri satellite stitch: the golden roof
+    // plan measures ~125 x 66 m, its long axis rotated -12.4°
+    // from east along the hill contour — so, like Beimen, the
+    // massing is stacked rotated boxes (frustum/ridge parts
+    // cannot rotate), every part at rotY = -0.216.
+    // Position: the phase-1 terrain report's footprint point.
+    // (The OSM POIs inside the main building — 大會廳/松鶴廳/
+    // 圓苑餐廳/圓山牛排館 — cluster ~25 m NE of it, inside the
+    // same footprint, and the satellite roof centroid reads SW
+    // of both: an 87 m roof relief-displaced in off-nadir
+    // imagery.)
+    // PLAN TRIM (disclosed): the satellite roof plan measures
+    // ~125 x 66 m, but the OSM drive ring as drawn hugs the
+    // building — the rear service drive's ribbon runs within a
+    // few metres of the north wall — so at the true plan the
+    // rotated corners cross the ring's ribbons and the issue-#42
+    // invariant cannot hold. The modelled plan is trimmed to a
+    // 105 x 53 m lower eave over a 98 x 40 m shaft (the same
+    // palace proportions, the same -12.4° axis), and the terrace
+    // is shaped to the plateau inside the ring: two under-
+    // building steps plus a shallow south forecourt apron.
+    // Audited (issue #42): every part at 0.000 m² against every
+    // roadbed ribbon; the tightest clearances are the lower
+    // eave's north-east corner, 0.1 m from the rear drive's
+    // ribbon, and the plinth's west corner at 0.3 m — the real
+    // roof likewise overhangs close over the rear drive.
+    // TERRAIN COMPROMISE (phase-1 report §6, option ii): the
+    // hotel stands at SRTM ~39 m (crest ~48 m) over a basin
+    // floor at ~11 m, and the world is flat — so the published
+    // 87 m is spent as an 11 m two-step terrace plinth + 76 m
+    // of building, keeping the total silhouette at the true
+    // height with part of the hill's lift restored. The plinth
+    // is modelled mass and is audited like every other part:
+    // the hotel's own forecourt drives are roadbeds (nearest
+    // centreline 46 m from the structure centre), and the
+    // plinth steps are sized to the terrace inside that ring.
+    // Decomposition: 11 (plinth) + 8 (podium) + 40 (shaft)
+    // + 2.2 (teal band) + 3.4 (lower eave) + 4.6 (gallery)
+    // + 2.0 (teal band) + 6.5 + 5.5 (roof steps) + 3.8
+    // (ridge) = 87.
+    id: 'grand-hotel', name: 'The Grand Hotel', nameZh: '圓山大飯店',
+    lat: 25.0788, lon: 121.5263, realHeight: 87, color: 0xa83c26,
+    site: { w: 190, d: 175, dx: 2, dz: 14 },
+    facade: { kind: 'prewar', stoneColor: 0xa63c26, trimColor: 0x5f7a6a, windowGlassColor: 0x2a3540, windowWidth: 3.0, floorHeight: 4.0, litProbability: 0.3, warmth: 0.66, seed: 57.35 },
+    parts: [
+      { type: 'box', w: 105, d: 54, h: 5.5, dx: 1.9, dz: -0.4, rotY: -0.216, flat: 0x98917d },
+      { type: 'box', w: 102, d: 47, h: 5.5, y0: 5.5, rotY: -0.216, flat: 0xa39a86 },
+      // The south forecourt terrace (local (0, +33)): a
+      // single-height apron in front of the entrance steps.
+      { type: 'box', w: 66, d: 12, h: 5.5, dx: 7.1, dz: 32.2, rotY: -0.216, flat: 0xa39a86 },
+      { type: 'box', w: 100, d: 45, h: 8, y0: 11, rotY: -0.216 },
+      { type: 'box', w: 98, d: 40, h: 40, y0: 19, rotY: -0.216, facade: { kind: 'prewar', stoneColor: 0xa63c26, trimColor: 0x5f7a6a, windowGlassColor: 0x232d38, windowWidth: 2.6, floorHeight: 4.2, litProbability: 0.34, warmth: 0.62, seed: 57.36 } },
+      { type: 'box', w: 102, d: 44, h: 2.2, y0: 59, rotY: -0.216, flat: 0x52796a },
+      { type: 'box', w: 105, d: 53, h: 3.4, y0: 61.2, rotY: -0.216, flat: 0xc99636 },
+      { type: 'box', w: 100, d: 42, h: 4.6, y0: 64.6, rotY: -0.216, flat: 0xdfd8c4 },
+      { type: 'box', w: 102, d: 44, h: 2.0, y0: 69.2, rotY: -0.216, flat: 0x52796a },
+      { type: 'box', w: 100, d: 45, h: 6.5, y0: 71.2, rotY: -0.216, flat: 0xc99636 },
+      { type: 'box', w: 92, d: 38, h: 5.5, y0: 77.7, rotY: -0.216, flat: 0xc99636 },
+      { type: 'box', w: 66, d: 20, h: 3.8, y0: 83.2, rotY: -0.216, flat: 0xbd8a2e },
+      // The entrance porch on the south face (local (0, +29)
+      // in the building frame, rotated into tile offsets) with
+      // its own small golden roof slab.
+      { type: 'box', w: 30, d: 12, h: 6.5, y0: 11, dx: 6.2, dz: 28.3, rotY: -0.216 },
+      { type: 'box', w: 34, d: 15, h: 1.8, y0: 17.5, dx: 6.2, dz: 28.3, rotY: -0.216, flat: 0xc99636 },
+    ],
+  },
+  {
+    // Batch 6 (issue #103, northern phase 2): 北投焚化爐 —
+    // the Beitou Refuse Incineration Plant's chimney in the
+    // connector box, completed 1999. Chimney height 150 m
+    // PUBLISHED (ZH Wikipedia incinerator list). Position is
+    // the OSM restaurant node (7775187071, 摘星樓星月360度旋轉
+    // 景觀餐廳, height tag 120) — it sits on the chimney.
+    // Form from the reference photos: a straight, gently
+    // tapered white concrete shaft painted with a bold
+    // blue/grey/orange geometric mural; at ~116-120 m a wide
+    // DARK CIRCULAR drum — the observation deck (116 m,
+    // Taipei DEP visitor material) and the revolving
+    // restaurant (120 m, Wikivoyage; one revolution per
+    // 90 min, the world's first on a chimney) — with a teal
+    // glass band and a railed rim; above it a slimmer shaft
+    // to a smaller top collar and cap at 150 m. (The drum is
+    // circular: "star" is the restaurant's name, 摘星樓/星月,
+    // not its plan.) The renderer has no tapered cylinder, so
+    // the shaft is stepped cylinders; the diagonal mural is
+    // beyond the part idiom — one blue-grey segment stands in
+    // for its dominant blue (recorded simplification). The
+    // low plant hall east of the chimney (satellite: main
+    // block ~135 x 96 m) takes the entry's concrete prewar
+    // grid. Flat siting is correct — the phase-1 terrain
+    // report puts the plant on the genuinely flat Guandu
+    // plain edge. Audited (issue #42): every part at
+    // 0.000 m²; nearest clearance 5.5 m (the south annex to
+    // the plant's loop drive).
+    // Decomposition: 10 (base flare) + 34 + 30 + 36 (shaft)
+    // + 9.5 (drum) + 1.8 (rim) + 21.7 (upper shaft) + 3.6
+    // (collar) + 3.4 (cap) = 150.
+    id: 'beitou-incinerator', name: 'Beitou Incinerator', nameZh: '北投焚化爐',
+    lat: 25.10804, lon: 121.49940, realHeight: 150, color: 0x87a0b4,
+    site: { w: 265, d: 205, dx: 58, dz: -2 },
+    facade: { kind: 'prewar', stoneColor: 0xcac2b0, trimColor: 0x8d8471, windowGlassColor: 0x27333f, windowWidth: 4.2, floorHeight: 5.0, litProbability: 0.22, warmth: 0.55, seed: 57.37 },
+    parts: [
+      { type: 'box', w: 134, d: 96, h: 30, dx: 70, dz: -8 },
+      { type: 'box', w: 120, d: 80, h: 3, y0: 30, dx: 70, dz: -8, flat: 0x8f8a80 },
+      { type: 'box', w: 64, d: 44, h: 15, dx: 58, dz: 42 },
+      { type: 'cylinder', r: 7.6, h: 10, flat: 0xdcd8ce },
+      { type: 'cylinder', r: 6.6, h: 34, y0: 10, flat: 0xe9e6dd },
+      { type: 'cylinder', r: 6.1, h: 30, y0: 44, flat: 0x6d90ad },
+      { type: 'cylinder', r: 5.6, h: 36, y0: 74, flat: 0xe9e6dd },
+      { type: 'cylinder', r: 11.2, h: 9.5, y0: 110, flat: { color: 0x274b57, roughness: 0.3, metalness: 0.15 } },
+      { type: 'cylinder', r: 12.0, h: 1.8, y0: 119.5, flat: 0x3c4147 },
+      { type: 'cylinder', r: 4.7, h: 21.7, y0: 121.3, flat: 0xdcd8ce },
+      { type: 'cylinder', r: 7.8, h: 3.6, y0: 143, flat: 0x4a5058 },
+      { type: 'cylinder', r: 4.9, h: 3.4, y0: 146.6, flat: 0xb9b4a8 },
+    ],
+  },
 ];
 
 // Resolve a structure definition into plan data: true tile-frame
