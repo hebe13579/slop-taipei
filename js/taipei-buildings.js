@@ -938,17 +938,18 @@ const LANDMARK_STRUCTURES = [
     // palace halls flanking Liberty Square (the north hall):
     // cream walls under a golden Chinese hip roof, massed as a
     // plinth, a wall block, a frustum hip and a ridge crest.
-    // Height 37 m is the OSM tag on way 1052759776 (118.5 ×
+    // Height 37 m is the OSM tag on way 1052759775 (118.5 ×
     // 113.7 m outline) — no figure is published anywhere, so
     // the entry is flagged estimated.
-    // Issue #98 sweep correction: this entry was LABELLED the
-    // concert hall until this PR, but the north hall is the
-    // National THEATER (EN Wikipedia: the memorial "is flanked
-    // on the north and south by the National Theater and
-    // National Concert Hall"; OSM way 1052759776's outline sits
-    // at this entry's lat/lon, verified against the PBF). The
-    // two entries' names were swapped; geometry never moved.
-    id: 'national-theater', name: 'National Theater', nameZh: '國家戲劇院',
+    // Issue #98 due diligence: the name was challenged during
+    // the facing sweep and VERIFIED correct — way 1052759775's
+    // own OSM tags (name 國家音樂廳, addr 中山南路) sit at this
+    // entry's lat/lon (one-pass locations read of the PBF; the
+    // south way 1052759776 is likewise the theatre by its tags).
+    // A crossed two-pass probe + an unordered Wikipedia list
+    // phrase briefly suggested a swap; the tags govern — do not
+    // "fix" this again. See facing-evidence FACTS.md §6.
+    id: 'national-concert-hall', name: 'National Concert Hall', nameZh: '國家音樂廳',
     lat: 25.036985, lon: 121.519262, realHeight: 37, estimated: true, color: 0xdccfa9,
     site: { w: 126, d: 121, dx: 0, dz: 0 },
     facade: { kind: 'prewar', stoneColor: 0xe6d9bc, trimColor: 0xbfae87, windowGlassColor: 0x2a3644, windowWidth: 3.4, floorHeight: 5.0, litProbability: 0.26, warmth: 0.68, seed: 57.30 },
@@ -961,13 +962,12 @@ const LANDMARK_STRUCTURES = [
   },
   {
     // Station district batch (issue #74). The south twin of the
-    // theater across Liberty Square — the same palace recipe at
-    // its own OSM outline (way 1052759775, 122.9 × 116.0 m),
-    // the mirror of the pair. Height 37 m is the OSM tag
-    // (levels 7); unpublished, so flagged estimated. Labelled
-    // the theater until issue #98 — the south hall is the
-    // National CONCERT Hall (see the north entry's note).
-    id: 'national-concert-hall', name: 'National Concert Hall', nameZh: '國家音樂廳',
+    // concert hall across Liberty Square — the same palace
+    // recipe at its own OSM outline (way 1052759776, 122.9 ×
+    // 116.0 m), the mirror of the pair. Height 37 m is the OSM
+    // tag (levels 7); unpublished, so flagged estimated.
+    // Name verified at issue #98 (see the north entry's note).
+    id: 'national-theater', name: 'National Theater', nameZh: '國家戲劇院',
     lat: 25.035319, lon: 121.518245, realHeight: 37, estimated: true, color: 0xdccfa9,
     site: { w: 130, d: 123, dx: 0, dz: 0 },
     facade: { kind: 'prewar', stoneColor: 0xe6d9bc, trimColor: 0xbfae87, windowGlassColor: 0x2a3644, windowWidth: 3.4, floorHeight: 5.0, litProbability: 0.26, warmth: 0.68, seed: 57.31 },
