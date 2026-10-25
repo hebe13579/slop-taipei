@@ -457,6 +457,38 @@ const parks = parksRaw.map(({ name, ring }) => ({ name, ring }));
 const waterArea = waterRaw.reduce((s, w) => s + w.area, 0);
 const parksArea = parksRaw.reduce((s, p) => s + p.area, 0);
 
+// ---- green land (issue #114) ----
+// Open land that carries no city buildings: farmland / meadow / nature /
+// recreation ground, extracted to osm_green.json by extract-from-pbf.py
+// (its green_class() owns the tag set). Each polygon keeps its class
+// ('landuse:farmland', 'natural:wood', ...) for the census; the planner
+// drops urban lots on these exactly as on parks/water. An older extract
+// without osm_green.json builds with an empty layer, as before.
+function greenClassOf(t) {
+  if (!t) return null;
+  if (['farmland', 'meadow', 'orchard', 'vineyard', 'grassland'].includes(t.landuse)) return 'landuse:' + t.landuse;
+  if (['nature_reserve', 'recreation_ground'].includes(t.leisure)) return 'leisure:' + t.leisure;
+  if (['wood', 'scrub', 'wetland', 'grassland'].includes(t.natural)) return 'natural:' + t.natural;
+  return null;
+}
+const greenRaw = [];
+if (fs.existsSync(path.join(DATA, 'osm_green.json'))) {
+  for (const el of load('osm_green.json').elements) {
+    const cls = greenClassOf(el.tags);
+    if (!cls) continue;
+    for (const rawRing of elRings(el)) {
+      if (rawRing.length < 4) continue;
+      for (const ring of clipRingUnion(rawRing, BOXES_WORLD)) {
+        const area = Math.abs(ringArea(ring));
+        if (area < 100) continue;
+        greenRaw.push({ name: el.tags?.name || el.tags?.['name:en'] || '', cls, ring: flat(ring), area });
+      }
+    }
+  }
+}
+const green = greenRaw.map(({ name, cls, ring }) => ({ name, cls, ring }));
+const greenArea = greenRaw.reduce((s, p) => s + p.area, 0);
+
 // ---- landmarks ----
 const landmarks = {};
 const lmSeen = [];
@@ -567,7 +599,7 @@ blocks.sort((a, b) => b.area - a.area);
 const TAIPEI_GEO = {
   version: 1,
   frame: { origin: 'Taipei 101 (25.0330, 121.5650)', originLatLon: [LAT0, LON0], bearingDeg: 0, units: 'm', bbox: BBOX, boxes: BOXES_WORLD },
-  roads, roadGraph, roadbeds, water, parks, landmarks, blocks,
+  roads, roadGraph, roadbeds, water, parks, green, landmarks, blocks,
 };
 
 // ---- elevated decks (issue #61) ----
@@ -624,6 +656,7 @@ console.log('[taipei-geodata] pedestrian layouts:', Object.entries(roads.reduce(
 console.log('[taipei-geodata] road classes:', Object.entries(roadClassCounts).sort((a, b) => b[1] - a[1]).map(([k, v]) => `${k}=${v}`).join(' '));
 console.log(`[taipei-geodata] water: ${water.length} polygons, ${(waterArea / 1e6).toFixed(3)} km2`);
 console.log(`[taipei-geodata] parks: ${parks.length} polygons, ${(parksArea / 1e6).toFixed(3)} km2`);
+console.log(`[taipei-geodata] green: ${green.length} polygons, ${(greenArea / 1e6).toFixed(3)} km2 (issue #114)`);
 console.log(`[taipei-geodata] blocks: ${blocks.length} (raster ${RES} m, min 400 m2; bounding rect + centroid + area, no polygon tracing)`);
 console.log(`[taipei-geodata] landmarks found: ${lmSeen.length ? lmSeen.join(' | ') : '(none)'}`);
 console.log(`[taipei-geodata] wrote ${OUT} (${(fs.statSync(OUT).size / 1024).toFixed(0)} KB)`);

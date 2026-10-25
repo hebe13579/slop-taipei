@@ -35,6 +35,11 @@ const EXPECTED_FACADES = {
   'presidential-office-building': 'prewar', // red-brick baroque block
   // Batch 5 (issue #86): Beimen — red-brick gatehouse walls.
   'beimen': 'prewar',
+  // Batch 6 (issue #103): the Grand Hotel — vermilion palace
+  // lattice on the masonry grid; the incinerator — the plant
+  // hall's concrete grid (the chimney parts are flat-coloured).
+  'grand-hotel': 'prewar',
+  'beitou-incinerator': 'prewar',
 };
 
 // The only Latin wordmarks a landmark sign may carry — the ones the

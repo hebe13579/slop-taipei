@@ -19,19 +19,27 @@
 // Placement rules (all deterministic — a hash of block/lot index, never
 // Math.random, so plans are byte-stable across runs and machines):
 //   - Blocks under 150 m² are skipped, and so is any block whose
-//     centroid falls inside a park or water polygon.
+//     centroid falls inside a park, water or green-land polygon
+//     (issue #114: farmland / nature / recreation ground, e.g. the
+//     Guandu plain and the riverside bands, carry no city lots).
 //   - A block's bbox is inset by 3 m (the street-section band the ground
 //     builder draws around each roadbed lives in that margin), then cut
 //     into a lot grid: frontage 15–25 m, depth 15–22 m per lot, with a
 //     1.2–3 m gap between neighbouring footprints. Very large blocks
 //     (> 40,000 m² — campuses, depots, riverside tracts) use a coarser
 //     pitch and a higher vacancy rate so they don't read as carpet.
+//   - Issue #106: a block face that fronts a collector-or-better road
+//     (tertiary rank ≥ 2, measured per block edge — see the frontage
+//     section in the planner) packs its row to ZERO side gap with no
+//     vacancy holes: Taipei's main streets are continuous party-wall
+//     frontages, not detached slabs. Faces on lanes/alleys keep the
+//     gapped subdivision above.
 //   - The tile is a union of boxes (issue #60): a block whose centroid
 //     is outside every box is skipped, and a lot whose centre or any
 //     footprint corner leaves the union is dropped — nothing is
 //     planned over a dropped band.
-//   - A lot is dropped when its centre falls inside a park/water
-//     polygon (exact point-in-polygon, so a park that merely overlaps a
+//   - A lot is dropped when its centre falls inside a park/water or
+//     green-land polygon (exact point-in-polygon, so a park that merely overlaps a
 //     block's bbox still stays empty — Da'an Forest Park above all),
 //     when its footprint intersects the Taipei 101 landmark site, or
 //     when it fails the exact ribbon tests of issue #65 (below):
@@ -49,6 +57,14 @@
 //       < 650 m from origin (Xinyi core)      → 25–60 m
 //       next to a secondary-or-better road    → 12–30 m
 //       everything else (residential lanes)   →  8–18 m
+//     Issue #106 adds the frontage regime on top: a lot standing in a
+//     block face that fronts a main road draws its height from that
+//     face's class instead (the Xinyi core band still wins there):
+//       primary-or-better face (rank ≥ 4)     → 24–54 m
+//       secondary face (rank 3)               → 18–42 m
+//       tertiary/collector face (rank 2)      → 15–30 m
+//     — the Taipei pattern of tall continuous walls on the big roads
+//     with the low walk-up fabric behind them in the lanes.
 //   - Colours come from a Taipei-plausible palette (concrete greys,
 //     tile beige, brick) with a small per-lot brightness jitter.
 //
@@ -806,9 +822,14 @@ const LANDMARK_STRUCTURES = [
     // station house is six floors under a tall red hip roof).
     // The OSM outline (178.5 × 153.7 m) is the whole station
     // block, and like the district grid it slants ~10° against
-    // the tile frame; the massing simplifies to an axis-aligned
-    // house (150 × 96 m) placed inside the outline with margin
-    // on every side. The 臺北車站 characters over the south
+    // the tile frame; the massing is a house (150 × 96 m)
+    // placed inside the outline with margin on every side.
+    // Issue #116: the house now carries the outline's measured
+    // slant — min-rect long-axis azimuth 100.65° on way
+    // 23641610 (edge family 100.6/10.6) — so every part is
+    // rotated by rotY 0.1859 rad (10.65°) about the pin, offsets
+    // rotated with it; the front (south face, sign, porticos)
+    // now faces azimuth 190.65°, as built. The 臺北車站 characters over the south
     // entrance are an abstract glyph band, and two red-capped
     // entrance porticos stand on the south face (issue #98,
     // from the south-facade reference photo). Placement
@@ -839,20 +860,20 @@ const LANDMARK_STRUCTURES = [
     lat: 25.047652, lon: 121.517046, realHeight: 48, color: 0xcbb694,
     site: { w: 186, d: 162, dx: 0, dz: 0 },
     facade: { kind: 'prewar', stoneColor: 0xd6c8ac, trimColor: 0xa08b6a, windowGlassColor: 0x2a3540, windowWidth: 3.2, floorHeight: 4.2, litProbability: 0.34, warmth: 0.62, seed: 57.28 },
-    sign: { glyphs: 4, w: 30, h: 4, y: 20, dx: 11, dz: 42.4, bg: '#7c3a2c', fg: '#efe6d0' },
+    sign: { glyphs: 4, w: 30, h: 4, y: 20, dx: 3.0, dz: 43.7, rotY: -0.1859, bg: '#7c3a2c', fg: '#efe6d0' },
     parts: [
-      { type: 'box', w: 150, d: 96, h: 27, dx: 11, dz: -6 },
-      { type: 'box', w: 154, d: 100, h: 3.25, y0: 27, dx: 11, dz: -6, flat: 0x9c4a38 },
-      { type: 'box', w: 139, d: 86, h: 3.25, y0: 30.25, dx: 11, dz: -6, flat: 0x9c4a38 },
-      { type: 'box', w: 125, d: 72, h: 3.25, y0: 33.5, dx: 11, dz: -6, flat: 0x9c4a38 },
-      { type: 'box', w: 110, d: 58, h: 3.25, y0: 36.75, dx: 11, dz: -6, flat: 0x9c4a38 },
-      { type: 'box', w: 95, d: 44, h: 3.25, y0: 40, dx: 11, dz: -6, flat: 0x9c4a38 },
-      { type: 'box', w: 80, d: 30, h: 3.25, y0: 43.25, dx: 11, dz: -6, flat: 0x9c4a38 },
-      { type: 'box', w: 62, d: 12, h: 1.5, y0: 46.5, dx: 11, dz: -6, flat: 0x39434e },
-      { type: 'box', w: 16, d: 5, h: 6, dx: -27, dz: 44.5 },
-      { type: 'box', w: 18, d: 7, h: 1.2, y0: 6, dx: -27, dz: 44.5, flat: 0x9c4a38 },
-      { type: 'box', w: 16, d: 5, h: 6, dx: 49, dz: 44.5 },
-      { type: 'box', w: 18, d: 7, h: 1.2, y0: 6, dx: 49, dz: 44.5, flat: 0x9c4a38 },
+      { type: 'box', w: 150, d: 96, h: 27, dx: 11.9, dz: -3.9, rotY: 0.1859 },
+      { type: 'box', w: 154, d: 100, h: 3.25, y0: 27, dx: 11.9, dz: -3.9, rotY: 0.1859, flat: 0x9c4a38 },
+      { type: 'box', w: 139, d: 86, h: 3.25, y0: 30.25, dx: 11.9, dz: -3.9, rotY: 0.1859, flat: 0x9c4a38 },
+      { type: 'box', w: 125, d: 72, h: 3.25, y0: 33.5, dx: 11.9, dz: -3.9, rotY: 0.1859, flat: 0x9c4a38 },
+      { type: 'box', w: 110, d: 58, h: 3.25, y0: 36.75, dx: 11.9, dz: -3.9, rotY: 0.1859, flat: 0x9c4a38 },
+      { type: 'box', w: 95, d: 44, h: 3.25, y0: 40, dx: 11.9, dz: -3.9, rotY: 0.1859, flat: 0x9c4a38 },
+      { type: 'box', w: 80, d: 30, h: 3.25, y0: 43.25, dx: 11.9, dz: -3.9, rotY: 0.1859, flat: 0x9c4a38 },
+      { type: 'box', w: 62, d: 12, h: 1.5, y0: 46.5, dx: 11.9, dz: -3.9, rotY: 0.1859, flat: 0x39434e },
+      { type: 'box', w: 16, d: 5, h: 6, dx: -34.7, dz: 38.7, rotY: 0.1859 },
+      { type: 'box', w: 18, d: 7, h: 1.2, y0: 6, dx: -34.7, dz: 38.7, rotY: 0.1859, flat: 0x9c4a38 },
+      { type: 'box', w: 16, d: 5, h: 6, dx: 39.9, dz: 52.8, rotY: 0.1859 },
+      { type: 'box', w: 18, d: 7, h: 1.2, y0: 6, dx: 39.9, dz: 52.8, rotY: 0.1859, flat: 0x9c4a38 },
     ],
   },
   {
@@ -863,22 +884,47 @@ const LANDMARK_STRUCTURES = [
     // is a loose trace of the ~120 m-square platform, rotated
     // against the frame with the park's own diagonal paths; the
     // massing keeps the platform's true scale as three clean
-    // axis-aligned steps (the SYS Hall stylization precedent),
-    // the hall's walls in white stone, and the octagonal roof
-    // read as two stepped square frustum eaves under a gold
-    // finial: 14.5 (terrace) + 26 (hall) + 12 + 10 (eaves) + 7.5
-    // (finial) = 70.
+    // steps (the SYS Hall stylization precedent), the hall's
+    // walls in white stone, and the octagonal roof read as two
+    // stepped square eave tiers under a gold finial: 14.5
+    // (terrace) + 26 (hall) + 12 + 10 (eaves) + 7.5 (finial)
+    // = 70.
+    // Issue #116: the whole hall group now sits on the park's
+    // measured axis — min-rect on the terrace way gives axis
+    // azimuths 118.21/28.21°, so every centre part carries
+    // rotY 0.4924 rad (28.21°) with its offset rotated about
+    // the pin, and the authored WEST front (issue #98) now
+    // faces azimuth 298.21°, toward Liberty Square as built.
+    // The two roof frustums become stepped box tiers (the
+    // Main Station / Beimen precedent: frustum parts cannot
+    // rotate in the renderer or the issue-#42 audit, boxes
+    // can), each step's footprint taken from the frustum
+    // profile at the step's base. The perimeter wall runs
+    // further down are NOT rotated with the group: they were
+    // fitted to the park polygon's own edges (verified in
+    // #116: run families 117.9/28.7/117.5° track the polygon
+    // edges 117.9/28.7/117.3°, and the west chord runs 16.5°
+    // because the 中山南路 boundary itself is not parallel
+    // to the park axis — the park is not a parallelogram).
     id: 'chiang-kai-shek-memorial-hall', name: 'Chiang Kai-shek Memorial Hall', nameZh: '中正紀念堂',
     lat: 25.034811, lon: 121.521519, realHeight: 70, color: 0xdfd9cc,
     site: { w: 150, d: 150, dx: 0, dz: 0 },
     facade: { kind: 'prewar', stoneColor: 0xe9e5db, trimColor: 0xcac4b4, windowGlassColor: 0x2e3a46, windowWidth: 3.4, floorHeight: 5.2, litProbability: 0.22, warmth: 0.6, seed: 57.29 },
     parts: [
-      { type: 'box', w: 118, d: 118, h: 4.8, flat: 0xa39a8b },
-      { type: 'box', w: 104, d: 104, h: 4.8, y0: 4.8, flat: 0xa39a8b },
-      { type: 'box', w: 90, d: 90, h: 4.9, y0: 9.6, flat: 0xaca294 },
-      { type: 'box', w: 62, d: 62, h: 26, y0: 14.5 },
-      { type: 'frustum', wB: 70, dB: 70, wT: 54, dT: 54, h: 12, y0: 40.5, flat: 0x1e4d8c },
-      { type: 'frustum', wB: 52, dB: 52, wT: 30, dT: 30, h: 10, y0: 52.5, flat: 0x1e4d8c },
+      { type: 'box', w: 118, d: 118, h: 4.8, rotY: 0.4924, flat: 0xa39a8b },
+      { type: 'box', w: 104, d: 104, h: 4.8, y0: 4.8, rotY: 0.4924, flat: 0xa39a8b },
+      { type: 'box', w: 90, d: 90, h: 4.9, y0: 9.6, rotY: 0.4924, flat: 0xaca294 },
+      { type: 'box', w: 62, d: 62, h: 26, y0: 14.5, rotY: 0.4924 },
+      // Issue #116: the two blue eave frustums as stepped box
+      // tiers (see the entry note) — same profile, same total
+      // heights (12 + 10), footprints from each frustum's
+      // profile at the step base.
+      { type: 'box', w: 70, d: 70, h: 4, y0: 40.5, rotY: 0.4924, flat: 0x1e4d8c },
+      { type: 'box', w: 64, d: 64, h: 4, y0: 44.5, rotY: 0.4924, flat: 0x1e4d8c },
+      { type: 'box', w: 58, d: 58, h: 4, y0: 48.5, rotY: 0.4924, flat: 0x1e4d8c },
+      { type: 'box', w: 52, d: 52, h: 3.33, y0: 52.5, rotY: 0.4924, flat: 0x1e4d8c },
+      { type: 'box', w: 45, d: 45, h: 3.33, y0: 55.83, rotY: 0.4924, flat: 0x1e4d8c },
+      { type: 'box', w: 38, d: 38, h: 3.34, y0: 59.17, rotY: 0.4924, flat: 0x1e4d8c },
       { type: 'cylinder', r: 3.2, h: 7.5, y0: 62.5, flat: 0xcfa14e },
       // Issue #98: the front the references show, authored on the
       // WEST face (the Liberty Square side): a stair climbing the
@@ -888,21 +934,21 @@ const LANDMARK_STRUCTURES = [
       // dark arched entrance recess and its red plaque. Before
       // this fix the structure was perfectly symmetric, with no
       // front feature on any side.
-      { type: 'box', w: 26, d: 5, h: 4.8, dx: -61.5, flat: 0xb3aa99 },
-      { type: 'box', w: 26, d: 7, h: 9.6, dx: -55.5, flat: 0xb3aa99 },
-      { type: 'box', w: 26, d: 9, h: 14.5, dx: -49.5, flat: 0xb3aa99 },
-      { type: 'box', w: 44, d: 13, h: 1.9, y0: 14.5, dx: -37.5, flat: 0xe3ddd0 },
-      { type: 'box', w: 44, d: 10.4, h: 1.9, y0: 16.4, dx: -36.2, flat: 0xe3ddd0 },
-      { type: 'box', w: 44, d: 7.8, h: 1.9, y0: 18.3, dx: -34.9, flat: 0xe3ddd0 },
-      { type: 'box', w: 44, d: 5.2, h: 1.9, y0: 20.2, dx: -33.6, flat: 0xe3ddd0 },
-      { type: 'box', w: 44, d: 2.6, h: 1.9, y0: 22.1, dx: -32.3, flat: 0xe3ddd0 },
-      { type: 'box', w: 10, d: 2.2, h: 0.32, y0: 16.4, dx: -42.8, flat: 0xefe9db },
-      { type: 'box', w: 10, d: 2.2, h: 0.32, y0: 18.3, dx: -40.1, flat: 0xefe9db },
-      { type: 'box', w: 10, d: 2.2, h: 0.32, y0: 20.2, dx: -37.5, flat: 0xefe9db },
-      { type: 'box', w: 10, d: 2.2, h: 0.32, y0: 22.1, dx: -34.9, flat: 0xefe9db },
-      { type: 'box', w: 10, d: 2.2, h: 0.32, y0: 24, dx: -32.3, flat: 0xefe9db },
-      { type: 'box', w: 11, d: 0.6, h: 8.5, y0: 24, dx: -31.3, flat: 0x17120e },
-      { type: 'box', w: 3.6, d: 0.7, h: 4.8, y0: 33.2, dx: -31.3, flat: 0x7a2e22 },
+      { type: 'box', w: 26, d: 5, h: 4.8, dx: -54.3, dz: -28.9, rotY: 0.4924, flat: 0xb3aa99 },
+      { type: 'box', w: 26, d: 7, h: 9.6, dx: -49.0, dz: -26.1, rotY: 0.4924, flat: 0xb3aa99 },
+      { type: 'box', w: 26, d: 9, h: 14.5, dx: -43.7, dz: -23.3, rotY: 0.4924, flat: 0xb3aa99 },
+      { type: 'box', w: 44, d: 13, h: 1.9, y0: 14.5, dx: -33.1, dz: -17.6, rotY: 0.4924, flat: 0xe3ddd0 },
+      { type: 'box', w: 44, d: 10.4, h: 1.9, y0: 16.4, dx: -31.9, dz: -17.0, rotY: 0.4924, flat: 0xe3ddd0 },
+      { type: 'box', w: 44, d: 7.8, h: 1.9, y0: 18.3, dx: -30.8, dz: -16.4, rotY: 0.4924, flat: 0xe3ddd0 },
+      { type: 'box', w: 44, d: 5.2, h: 1.9, y0: 20.2, dx: -29.7, dz: -15.8, rotY: 0.4924, flat: 0xe3ddd0 },
+      { type: 'box', w: 44, d: 2.6, h: 1.9, y0: 22.1, dx: -28.5, dz: -15.2, rotY: 0.4924, flat: 0xe3ddd0 },
+      { type: 'box', w: 10, d: 2.2, h: 0.32, y0: 16.4, dx: -37.8, dz: -20.1, rotY: 0.4924, flat: 0xefe9db },
+      { type: 'box', w: 10, d: 2.2, h: 0.32, y0: 18.3, dx: -35.4, dz: -18.9, rotY: 0.4924, flat: 0xefe9db },
+      { type: 'box', w: 10, d: 2.2, h: 0.32, y0: 20.2, dx: -33.1, dz: -17.6, rotY: 0.4924, flat: 0xefe9db },
+      { type: 'box', w: 10, d: 2.2, h: 0.32, y0: 22.1, dx: -30.8, dz: -16.4, rotY: 0.4924, flat: 0xefe9db },
+      { type: 'box', w: 10, d: 2.2, h: 0.32, y0: 24, dx: -28.5, dz: -15.2, rotY: 0.4924, flat: 0xefe9db },
+      { type: 'box', w: 11, d: 0.6, h: 8.5, y0: 24, dx: -27.6, dz: -14.7, rotY: 0.4924, flat: 0x17120e },
+      { type: 'box', w: 3.6, d: 0.7, h: 4.8, y0: 33.2, dx: -27.6, dz: -14.7, rotY: 0.4924, flat: 0x7a2e22 },
       // The perimeter wall (user request, 2026-10-24): the whole
       // memorial park is enclosed by a thin white ROOFED CORRIDOR
       // wall — white walls under a blue tile roof, ~1,200 m of it
@@ -960,15 +1006,26 @@ const LANDMARK_STRUCTURES = [
     // A crossed two-pass probe + an unordered Wikipedia list
     // phrase briefly suggested a swap; the tags govern — do not
     // "fix" this again. See facing-evidence FACTS.md §6.
+    // Issue #116: this hall's own way measures the park axis
+    // family (longest edges at azimuth 118.2/28.5°), so the
+    // hall carries rotY 0.4924 (28.21°, the ONE park axis from
+    // the terrace way) like the memorial hall; the frustum +
+    // ridge roof becomes stepped boxes (they cannot rotate —
+    // see the memorial hall's note), profiles matched at each
+    // step's base, ridge crest along the rotated local x.
     id: 'national-concert-hall', name: 'National Concert Hall', nameZh: '國家音樂廳',
     lat: 25.036985, lon: 121.519262, realHeight: 37, estimated: true, color: 0xdccfa9,
     site: { w: 126, d: 121, dx: 0, dz: 0 },
     facade: { kind: 'prewar', stoneColor: 0xe6d9bc, trimColor: 0xbfae87, windowGlassColor: 0x2a3644, windowWidth: 3.4, floorHeight: 5.0, litProbability: 0.26, warmth: 0.68, seed: 57.30 },
     parts: [
-      { type: 'box', w: 110, d: 105, h: 5, flat: 0xa89c80 },
-      { type: 'box', w: 94, d: 90, h: 15, y0: 5 },
-      { type: 'frustum', wB: 112, dB: 108, wT: 84, dT: 80, h: 9, y0: 20, flat: 0xc79a3f },
-      { type: 'ridge', w: 84, d: 80, h: 0, ridgeH: 8, y0: 29, flat: 0xc79a3f },
+      { type: 'box', w: 110, d: 105, h: 5, rotY: 0.4924, flat: 0xa89c80 },
+      { type: 'box', w: 94, d: 90, h: 15, y0: 5, rotY: 0.4924 },
+      { type: 'box', w: 112, d: 108, h: 3, y0: 20, rotY: 0.4924, flat: 0xc79a3f },
+      { type: 'box', w: 103, d: 99, h: 3, y0: 23, rotY: 0.4924, flat: 0xc79a3f },
+      { type: 'box', w: 94, d: 90, h: 3, y0: 26, rotY: 0.4924, flat: 0xc79a3f },
+      { type: 'box', w: 84, d: 80, h: 2.67, y0: 29, rotY: 0.4924, flat: 0xc79a3f },
+      { type: 'box', w: 84, d: 53, h: 2.67, y0: 31.67, rotY: 0.4924, flat: 0xc79a3f },
+      { type: 'box', w: 84, d: 27, h: 2.67, y0: 34.33, rotY: 0.4924, flat: 0xc79a3f },
     ],
   },
   {
@@ -978,15 +1035,22 @@ const LANDMARK_STRUCTURES = [
     // 116.0 m), the mirror of the pair. Height 37 m is the OSM
     // tag (levels 7); unpublished, so flagged estimated.
     // Name verified at issue #98 (see the north entry's note).
+    // Issue #116: rotated to the park axis with the north hall
+    // (its own way 1052759776 measures the same 118.2/28.5°
+    // edge family); roof as stepped boxes, profiles matched.
     id: 'national-theater', name: 'National Theater', nameZh: '國家戲劇院',
     lat: 25.035319, lon: 121.518245, realHeight: 37, estimated: true, color: 0xdccfa9,
     site: { w: 130, d: 123, dx: 0, dz: 0 },
     facade: { kind: 'prewar', stoneColor: 0xe6d9bc, trimColor: 0xbfae87, windowGlassColor: 0x2a3644, windowWidth: 3.4, floorHeight: 5.0, litProbability: 0.26, warmth: 0.68, seed: 57.31 },
     parts: [
-      { type: 'box', w: 114, d: 107, h: 5, flat: 0xa89c80 },
-      { type: 'box', w: 98, d: 92, h: 15, y0: 5 },
-      { type: 'frustum', wB: 116, dB: 110, wT: 88, dT: 82, h: 9, y0: 20, flat: 0xc79a3f },
-      { type: 'ridge', w: 88, d: 82, h: 0, ridgeH: 8, y0: 29, flat: 0xc79a3f },
+      { type: 'box', w: 114, d: 107, h: 5, rotY: 0.4924, flat: 0xa89c80 },
+      { type: 'box', w: 98, d: 92, h: 15, y0: 5, rotY: 0.4924 },
+      { type: 'box', w: 116, d: 110, h: 3, y0: 20, rotY: 0.4924, flat: 0xc79a3f },
+      { type: 'box', w: 107, d: 101, h: 3, y0: 23, rotY: 0.4924, flat: 0xc79a3f },
+      { type: 'box', w: 97, d: 92, h: 3, y0: 26, rotY: 0.4924, flat: 0xc79a3f },
+      { type: 'box', w: 88, d: 82, h: 2.67, y0: 29, rotY: 0.4924, flat: 0xc79a3f },
+      { type: 'box', w: 88, d: 55, h: 2.67, y0: 31.67, rotY: 0.4924, flat: 0xc79a3f },
+      { type: 'box', w: 88, d: 28, h: 2.67, y0: 34.33, rotY: 0.4924, flat: 0xc79a3f },
     ],
   },
   {
@@ -999,16 +1063,24 @@ const LANDMARK_STRUCTURES = [
     // small frustum cap: 27 + 30 + 3 = 60. The prewar factory
     // in brick red with pale trim reads as the brick-and-band
     // facade.
+    // Issue #116: the block is skewed ~5.6° off cardinal — the
+    // relation's main way (39239021) measures min-rect long
+    // axis azimuth 6.03° with its long edges at 95.1/96.2° and
+    // 5.0–5.8° — so the slab, pavilions and tower carry rotY
+    // 0.0977 (5.6°) with offsets rotated about the pin; the
+    // square frustum cap becomes two stepped boxes so it can
+    // rotate with them (frustum parts cannot rotate).
     id: 'presidential-office-building', name: 'Presidential Office Building', nameZh: '總統府',
     lat: 25.039994, lon: 121.511973, realHeight: 60, color: 0x9c5a41,
     site: { w: 110, d: 145, dx: 0, dz: 0 },
     facade: { kind: 'prewar', stoneColor: 0xa9603f, trimColor: 0xd9d0bd, windowGlassColor: 0x27313d, windowWidth: 2.6, floorHeight: 4.6, litProbability: 0.27, warmth: 0.58, seed: 57.32 },
     parts: [
-      { type: 'box', w: 44, d: 130, h: 27 },
-      { type: 'box', w: 54, d: 22, h: 27, dz: -54 },
-      { type: 'box', w: 54, d: 22, h: 27, dz: 54 },
-      { type: 'box', w: 26, d: 26, h: 30, y0: 27 },
-      { type: 'frustum', wB: 26, dB: 26, wT: 13, dT: 13, h: 3, y0: 57, flat: 0x4a4440 },
+      { type: 'box', w: 44, d: 130, h: 27, rotY: 0.0977 },
+      { type: 'box', w: 54, d: 22, h: 27, dx: 5.3, dz: -53.7, rotY: 0.0977 },
+      { type: 'box', w: 54, d: 22, h: 27, dx: -5.3, dz: 53.7, rotY: 0.0977 },
+      { type: 'box', w: 26, d: 26, h: 30, y0: 27, rotY: 0.0977 },
+      { type: 'box', w: 26, d: 26, h: 1.5, y0: 57, rotY: 0.0977, flat: 0x4a4440 },
+      { type: 'box', w: 19, d: 19, h: 1.5, y0: 58.5, rotY: 0.0977, flat: 0x4a4440 },
     ],
   },
   {
@@ -1070,6 +1142,135 @@ const LANDMARK_STRUCTURES = [
       { type: 'box', w: 19.5, d: 13, h: 1.8, y0: 14.3, rotY: -2.5821, flat: 0x50544e },
       { type: 'box', w: 16.5, d: 10.5, h: 1.7, y0: 16.1, rotY: -2.5821, flat: 0x50544e },
       { type: 'box', w: 13, d: 3.2, h: 1.2, y0: 17.8, rotY: -2.5821, flat: 0x5d6058 },
+    ],
+  },
+  {
+    // Batch 6 (issue #103, northern phase 2): 圓山大飯店 — the
+    // 1973 palace hotel on the Jiantan hill in the Red Line
+    // corridor. 87 m PUBLISHED (EN/ZH Wikipedia: the main
+    // building is 87 m, 14 storeys, Yang Cho-cheng; Taiwan's
+    // tallest 1973-81). The front faces SOUTH over the basin
+    // (the entrance porch, ceremonial steps and reflecting pond
+    // are all on the south side). Form from the reference
+    // photos: a tall slab in a full-height vermilion column /
+    // balcony lattice, muted teal bracket bands between the
+    // floors and under the eaves, and a double-eaved golden
+    // glazed-tile hip roof (a wide lower eave wrapping the top
+    // floor, the main roof above a pale railed gallery band).
+    // Footprint from the Esri satellite stitch: the golden roof
+    // plan measures ~125 x 66 m, its long axis rotated -12.4°
+    // from east along the hill contour — so, like Beimen, the
+    // massing is stacked rotated boxes (frustum/ridge parts
+    // cannot rotate), every part at rotY = -0.216.
+    // Position: the phase-1 terrain report's footprint point.
+    // (The OSM POIs inside the main building — 大會廳/松鶴廳/
+    // 圓苑餐廳/圓山牛排館 — cluster ~25 m NE of it, inside the
+    // same footprint, and the satellite roof centroid reads SW
+    // of both: an 87 m roof relief-displaced in off-nadir
+    // imagery.)
+    // PLAN TRIM (disclosed): the satellite roof plan measures
+    // ~125 x 66 m, but the OSM drive ring as drawn hugs the
+    // building — the rear service drive's ribbon runs within a
+    // few metres of the north wall — so at the true plan the
+    // rotated corners cross the ring's ribbons and the issue-#42
+    // invariant cannot hold. The modelled plan is trimmed to a
+    // 105 x 53 m lower eave over a 98 x 40 m shaft (the same
+    // palace proportions, the same -12.4° axis), and the terrace
+    // is shaped to the plateau inside the ring: two under-
+    // building steps plus a shallow south forecourt apron.
+    // Audited (issue #42): every part at 0.000 m² against every
+    // roadbed ribbon; the tightest clearances are the lower
+    // eave's north-east corner, 0.1 m from the rear drive's
+    // ribbon, and the plinth's west corner at 0.3 m — the real
+    // roof likewise overhangs close over the rear drive.
+    // TERRAIN COMPROMISE (phase-1 report §6, option ii): the
+    // hotel stands at SRTM ~39 m (crest ~48 m) over a basin
+    // floor at ~11 m, and the world is flat — so the published
+    // 87 m is spent as an 11 m two-step terrace plinth + 76 m
+    // of building, keeping the total silhouette at the true
+    // height with part of the hill's lift restored. The plinth
+    // is modelled mass and is audited like every other part:
+    // the hotel's own forecourt drives are roadbeds (nearest
+    // centreline 46 m from the structure centre), and the
+    // plinth steps are sized to the terrace inside that ring.
+    // Decomposition: 11 (plinth) + 8 (podium) + 40 (shaft)
+    // + 2.2 (teal band) + 3.4 (lower eave) + 4.6 (gallery)
+    // + 2.0 (teal band) + 6.5 + 5.5 (roof steps) + 3.8
+    // (ridge) = 87.
+    id: 'grand-hotel', name: 'The Grand Hotel', nameZh: '圓山大飯店',
+    lat: 25.0788, lon: 121.5263, realHeight: 87, color: 0xa83c26,
+    site: { w: 190, d: 175, dx: 2, dz: 14 },
+    facade: { kind: 'prewar', stoneColor: 0xa63c26, trimColor: 0x5f7a6a, windowGlassColor: 0x2a3540, windowWidth: 3.0, floorHeight: 4.0, litProbability: 0.3, warmth: 0.66, seed: 57.35 },
+    parts: [
+      { type: 'box', w: 105, d: 54, h: 5.5, dx: 1.9, dz: -0.4, rotY: -0.216, flat: 0x98917d },
+      { type: 'box', w: 102, d: 47, h: 5.5, y0: 5.5, rotY: -0.216, flat: 0xa39a86 },
+      // The south forecourt terrace (local (0, +33)): a
+      // single-height apron in front of the entrance steps.
+      { type: 'box', w: 66, d: 12, h: 5.5, dx: 7.1, dz: 32.2, rotY: -0.216, flat: 0xa39a86 },
+      { type: 'box', w: 100, d: 45, h: 8, y0: 11, rotY: -0.216 },
+      { type: 'box', w: 98, d: 40, h: 40, y0: 19, rotY: -0.216, facade: { kind: 'prewar', stoneColor: 0xa63c26, trimColor: 0x5f7a6a, windowGlassColor: 0x232d38, windowWidth: 2.6, floorHeight: 4.2, litProbability: 0.34, warmth: 0.62, seed: 57.36 } },
+      { type: 'box', w: 102, d: 44, h: 2.2, y0: 59, rotY: -0.216, flat: 0x52796a },
+      { type: 'box', w: 105, d: 53, h: 3.4, y0: 61.2, rotY: -0.216, flat: 0xc99636 },
+      { type: 'box', w: 100, d: 42, h: 4.6, y0: 64.6, rotY: -0.216, flat: 0xdfd8c4 },
+      { type: 'box', w: 102, d: 44, h: 2.0, y0: 69.2, rotY: -0.216, flat: 0x52796a },
+      { type: 'box', w: 100, d: 45, h: 6.5, y0: 71.2, rotY: -0.216, flat: 0xc99636 },
+      { type: 'box', w: 92, d: 38, h: 5.5, y0: 77.7, rotY: -0.216, flat: 0xc99636 },
+      { type: 'box', w: 66, d: 20, h: 3.8, y0: 83.2, rotY: -0.216, flat: 0xbd8a2e },
+      // The entrance porch on the south face (local (0, +29)
+      // in the building frame, rotated into tile offsets) with
+      // its own small golden roof slab.
+      { type: 'box', w: 30, d: 12, h: 6.5, y0: 11, dx: 6.2, dz: 28.3, rotY: -0.216 },
+      { type: 'box', w: 34, d: 15, h: 1.8, y0: 17.5, dx: 6.2, dz: 28.3, rotY: -0.216, flat: 0xc99636 },
+    ],
+  },
+  {
+    // Batch 6 (issue #103, northern phase 2): 北投焚化爐 —
+    // the Beitou Refuse Incineration Plant's chimney in the
+    // connector box, completed 1999. Chimney height 150 m
+    // PUBLISHED (ZH Wikipedia incinerator list). Position is
+    // the OSM restaurant node (7775187071, 摘星樓星月360度旋轉
+    // 景觀餐廳, height tag 120) — it sits on the chimney.
+    // Form from the reference photos: a straight, gently
+    // tapered white concrete shaft painted with a bold
+    // blue/grey/orange geometric mural; at ~116-120 m a wide
+    // DARK CIRCULAR drum — the observation deck (116 m,
+    // Taipei DEP visitor material) and the revolving
+    // restaurant (120 m, Wikivoyage; one revolution per
+    // 90 min, the world's first on a chimney) — with a teal
+    // glass band and a railed rim; above it a slimmer shaft
+    // to a smaller top collar and cap at 150 m. (The drum is
+    // circular: "star" is the restaurant's name, 摘星樓/星月,
+    // not its plan.) The renderer has no tapered cylinder, so
+    // the shaft is stepped cylinders; the diagonal mural is
+    // beyond the part idiom — one blue-grey segment stands in
+    // for its dominant blue (recorded simplification). The
+    // low plant hall east of the chimney (satellite: main
+    // block ~135 x 96 m) takes the entry's concrete prewar
+    // grid. Flat siting is correct — the phase-1 terrain
+    // report puts the plant on the genuinely flat Guandu
+    // plain edge. Audited (issue #42): every part at
+    // 0.000 m²; nearest clearance 5.5 m (the south annex to
+    // the plant's loop drive).
+    // Decomposition: 10 (base flare) + 34 + 30 + 36 (shaft)
+    // + 9.5 (drum) + 1.8 (rim) + 21.7 (upper shaft) + 3.6
+    // (collar) + 3.4 (cap) = 150.
+    id: 'beitou-incinerator', name: 'Beitou Incinerator', nameZh: '北投焚化爐',
+    lat: 25.10804, lon: 121.49940, realHeight: 150, color: 0x87a0b4,
+    site: { w: 265, d: 205, dx: 58, dz: -2 },
+    facade: { kind: 'prewar', stoneColor: 0xcac2b0, trimColor: 0x8d8471, windowGlassColor: 0x27333f, windowWidth: 4.2, floorHeight: 5.0, litProbability: 0.22, warmth: 0.55, seed: 57.37 },
+    parts: [
+      { type: 'box', w: 134, d: 96, h: 30, dx: 70, dz: -8 },
+      { type: 'box', w: 120, d: 80, h: 3, y0: 30, dx: 70, dz: -8, flat: 0x8f8a80 },
+      { type: 'box', w: 64, d: 44, h: 15, dx: 58, dz: 42 },
+      { type: 'cylinder', r: 7.6, h: 10, flat: 0xdcd8ce },
+      { type: 'cylinder', r: 6.6, h: 34, y0: 10, flat: 0xe9e6dd },
+      { type: 'cylinder', r: 6.1, h: 30, y0: 44, flat: 0x6d90ad },
+      { type: 'cylinder', r: 5.6, h: 36, y0: 74, flat: 0xe9e6dd },
+      { type: 'cylinder', r: 11.2, h: 9.5, y0: 110, flat: { color: 0x274b57, roughness: 0.3, metalness: 0.15 } },
+      { type: 'cylinder', r: 12.0, h: 1.8, y0: 119.5, flat: 0x3c4147 },
+      { type: 'cylinder', r: 4.7, h: 21.7, y0: 121.3, flat: 0xdcd8ce },
+      { type: 'cylinder', r: 7.8, h: 3.6, y0: 143, flat: 0x4a5058 },
+      { type: 'cylinder', r: 4.9, h: 3.4, y0: 146.6, flat: 0xb9b4a8 },
     ],
   },
 ];
@@ -1243,7 +1444,7 @@ function quadsIntersect(a, b) {
 }
 
 export function planTaipeiBuildings(geodata) {
-  const stats = { blocksSeen: 0, blocksSkippedSmall: 0, blocksSkippedParkWater: 0, blocksSkippedOutsideUnion: 0, lotsDroppedVacancy: 0, lotsDroppedParkWater: 0, lotsDroppedTowerSite: 0, lotsDroppedRoad: 0, lotsDroppedMedian: 0, lotsDroppedOutsideUnion: 0, blocksRotated: 0, lotsRotated: 0 };
+  const stats = { blocksSeen: 0, blocksSkippedSmall: 0, blocksSkippedParkWater: 0, blocksSkippedGreen: 0, blocksSkippedOutsideUnion: 0, lotsDroppedVacancy: 0, lotsDroppedParkWater: 0, lotsDroppedGreen: 0, lotsDroppedTowerSite: 0, lotsDroppedRoad: 0, lotsDroppedMedian: 0, lotsDroppedOutsideUnion: 0, blocksRotated: 0, lotsRotated: 0, lotsPackedFrontage: 0, lotsTallFrontage: 0 };
   // Union-of-boxes tile (issue #60): the geodata frame carries the
   // tile's boxes; ground exists only inside them. Raster blocks are
   // masked to the union by the builder, but a block's bbox can still
@@ -1281,6 +1482,28 @@ export function planTaipeiBuildings(geodata) {
     }
     return false;
   };
+  // Issue #114: green land (geodata.green — farmland, nature and
+  // recreation ground from the same PBF extract) excludes urban lots
+  // by the same two verdicts as park/water, counted separately so the
+  // park/water numbers stay comparable across the change.
+  const greenPolys = [];
+  for (const p of geodata.green || []) greenPolys.push({ ring: p.ring, bb: ringBbox(p.ring) });
+  const inGreen = (x, z) => {
+    for (const p of greenPolys) {
+      if (x < p.bb.minX || x > p.bb.maxX || z < p.bb.minZ || z > p.bb.maxZ) continue;
+      if (pointInRing(x, z, p.ring)) return true;
+    }
+    return false;
+  };
+  const nearGreen = (x, z) => {
+    for (const p of greenPolys) {
+      if (x < p.bb.minX - CORNER_CLEARANCE || x > p.bb.maxX + CORNER_CLEARANCE ||
+          z < p.bb.minZ - CORNER_CLEARANCE || z > p.bb.maxZ + CORNER_CLEARANCE) continue;
+      if (pointInRing(x, z, p.ring)) return true;
+      if (distToRing(x, z, p.ring) < CORNER_CLEARANCE) return true;
+    }
+    return false;
+  };
 
   // Road ribbons the lots must keep off: merged roadbeds for carriageways
   // (raw carriageway ways as fallback), plus the non-carriageway paths.
@@ -1300,6 +1523,20 @@ export function planTaipeiBuildings(geodata) {
       }
     }
     return { clearance, rank };
+  };
+  // Issue #106: the best road class whose ribbon edge actually comes
+  // within `reach` of a point (roadInfoAt's rank windows a flat 34 m,
+  // which lets a crossing arterial claim faces it never fronts). Used
+  // to classify each block face by the road that fronts IT.
+  const frontageRankAt = (x, z, reach) => {
+    const bucket = grid.get(key(Math.floor(x / GRID_CELL), Math.floor(z / GRID_CELL)));
+    let rank = 0;
+    if (bucket) {
+      for (const s of bucket) {
+        if (distToSegment(x, z, s.ax, s.az, s.bx, s.bz) - s.half <= reach && s.rank > rank) rank = s.rank;
+      }
+    }
+    return rank;
   };
 
   // Exact ribbon verdicts (issue #65), over the same carriageway +
@@ -1442,6 +1679,7 @@ export function planTaipeiBuildings(geodata) {
     stats.blocksSeen++;
     if (!(block.area >= 150)) { stats.blocksSkippedSmall++; continue; }
     if (inPoly(block.cx, block.cz)) { stats.blocksSkippedParkWater++; continue; }
+    if (inGreen(block.cx, block.cz)) { stats.blocksSkippedGreen++; continue; }
     if (!inUnion(block.cx, block.cz)) { stats.blocksSkippedOutsideUnion++; continue; }
     const inset = 3.0; // street-section band margin (see header)
     const minX = block.bbox.minX + inset, maxX = block.bbox.maxX - inset;
@@ -1476,10 +1714,53 @@ export function planTaipeiBuildings(geodata) {
       cellD = innerD / rows;
     }
     const ocx = (minX + maxX) / 2, ocz = (minZ + maxZ) / 2;
+    // Issue #106: classify the block's four faces by the road that
+    // fronts each — three samples per face, pushed 7 m out from the
+    // inset edge (past the block's own bbox edge, into the street
+    // section), best class whose ribbon edge comes within 16 m of a
+    // sample. Faces are named by the frame axis they cap: vLow/vHigh
+    // are the row ends (row 0 / row rows-1), uLow/uHigh the column
+    // ends. A face at rank ≥ 2 (tertiary/collector or better) packs
+    // its row wall-to-wall and skips vacancy; rank ≥ 2 faces also
+    // carry the tall-frontage height regime (see the height pick).
+    const halfU = (cols * cellW) / 2, halfV = (rows * cellD) / 2;
+    const edgeRankAt = (cu, cv, ou, ov) => {
+      // Sample the face whose centre is (cu, cv) in frame coords and
+      // whose outward normal is (ou, ov): points at ±30% and centre
+      // along the face, pushed 7 m outward.
+      let rank = 0;
+      const alongU = ou === 0; // face runs along u when its normal is v
+      const span = alongU ? halfU : halfV;
+      for (const f of [-0.3, 0, 0.3]) {
+        const fu = cu + (alongU ? f * 2 * span : 0) + ou * 7;
+        const fv = cv + (alongU ? 0 : f * 2 * span) + ov * 7;
+        const r = frontageRankAt(ocx + fu * cosT - fv * sinT, ocz + fu * sinT + fv * cosT, 16);
+        if (r > rank) rank = r;
+      }
+      return rank;
+    };
+    const edgeRankVLow = edgeRankAt(0, -halfV, 0, -1);
+    const edgeRankVHigh = edgeRankAt(0, halfV, 0, 1);
+    const edgeRankULow = edgeRankAt(-halfU, 0, -1, 0);
+    const edgeRankUHigh = edgeRankAt(halfU, 0, 1, 0);
     for (let col = 0; col < cols; col++) {
       for (let row = 0; row < rows; row++) {
         const seed = Math.imul(bi + 1, 73856093) ^ Math.imul(col + 1, 19349663) ^ Math.imul(row + 1, 83492791);
-        if (hash01(seed ^ 0x51ab) < vacancy) { stats.lotsDroppedVacancy++; continue; }
+        // Issue #106: which of the block's faces does this lot stand
+        // in, and how are they classed? packU/packV: the lot's row
+        // runs along a collector-or-better face, so its side gap
+        // along that row closes to zero; frontRank is the best face
+        // class the lot stands in (drives the tall regime below).
+        const packU = (row === 0 && edgeRankVLow >= 2) || (row === rows - 1 && edgeRankVHigh >= 2);
+        const packV = (col === 0 && edgeRankULow >= 2) || (col === cols - 1 && edgeRankUHigh >= 2);
+        let frontRank = 0;
+        if (row === 0) frontRank = Math.max(frontRank, edgeRankVLow);
+        if (row === rows - 1) frontRank = Math.max(frontRank, edgeRankVHigh);
+        if (col === 0) frontRank = Math.max(frontRank, edgeRankULow);
+        if (col === cols - 1) frontRank = Math.max(frontRank, edgeRankUHigh);
+        // A packed frontage row takes no vacancy holes — a missing
+        // tooth is exactly what the continuous street wall is not.
+        if (hash01(seed ^ 0x51ab) < (packU || packV ? 0 : vacancy)) { stats.lotsDroppedVacancy++; continue; }
         // The emitted lot centre is rounded to 0.1 m (see the push
         // below); run every exclusion test at THAT point, not the raw
         // grid centre. The two can straddle a polygon edge — the west
@@ -1498,7 +1779,10 @@ export function planTaipeiBuildings(geodata) {
           cz = Math.round((minZ + (row + 0.5) * cellD) * 10) / 10;
         }
         const gap = 1.2 + hash01(seed ^ 0x77c3) * 1.8;
-        const w = cellW - gap, d = cellD - gap;
+        // Issue #106: packed rows share party walls — no gap is
+        // subtracted along the packed direction, so neighbouring
+        // footprints meet at the cell boundary exactly.
+        const w = cellW - (packU ? 0 : gap), d = cellD - (packV ? 0 : gap);
         if (w < 7 || d < 7) continue;
         // Issue #62: a turned lot's true footprint, from its
         // emitted (rounded) centre and the frame angle. The lot must
@@ -1518,6 +1802,8 @@ export function planTaipeiBuildings(geodata) {
         }
         if (inPoly(cx, cz)) { stats.lotsDroppedParkWater++; continue; }
         if (theta && corners.some(([px, pz]) => nearPoly(px, pz))) { stats.lotsDroppedParkWater++; continue; }
+        if (inGreen(cx, cz)) { stats.lotsDroppedGreen++; continue; }
+        if (theta && corners.some(([px, pz]) => nearGreen(px, pz))) { stats.lotsDroppedGreen++; continue; }
         if (!inUnion(cx, cz)) { stats.lotsDroppedOutsideUnion++; continue; }
         let onLandmarkSite = false;
         for (const s of exclusionSites) {
@@ -1570,12 +1856,25 @@ export function planTaipeiBuildings(geodata) {
         if (dOrigin < 650) { lo = 25; hi = 60; }        // Xinyi commercial core
         else if (rank >= 3) { lo = 12; hi = 30; }       // boulevard / arterial frontage
         else { lo = 8; hi = 18; }                        // residential interiors
+        // Issue #106: the tall-frontage regime — a lot standing in a
+        // main-road face draws from that face's band instead of the
+        // contextual tiers (the Xinyi core band already out-talls
+        // every frontage band, so it keeps its own).
+        let tallFrontage = false;
+        if (dOrigin >= 650 && frontRank >= 2) {
+          tallFrontage = true;
+          if (frontRank >= 4) { lo = 24; hi = 54; }      // primary-or-better face
+          else if (frontRank === 3) { lo = 18; hi = 42; } // secondary face
+          else { lo = 15; hi = 30; }                      // tertiary / collector face
+        }
         const h = Math.round((lo + hash01(seed ^ 0x3d9a) * (hi - lo)) * 2) / 2;
         const base = PALETTE[Math.floor(hash01(seed ^ 0x9f2c) * PALETTE.length) % PALETTE.length];
         const shade = 0.92 + hash01(seed ^ 0x64d1) * 0.16;
         const color = base.map((c) => Math.max(0, Math.min(255, Math.round(c * shade * 255))));
         const lot = { x: Math.round(cx * 10) / 10, z: Math.round(cz * 10) / 10, w: Math.round(w * 10) / 10, d: Math.round(d * 10) / 10, h, color };
         if (theta) { lot.rot = Math.round(theta * 10000) / 10000; stats.lotsRotated++; }
+        if (packU || packV) stats.lotsPackedFrontage++;
+        if (tallFrontage) stats.lotsTallFrontage++;
         lots.push(lot);
       }
     }

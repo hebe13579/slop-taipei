@@ -28,6 +28,24 @@ M = 0.004  # margin degrees, so boundary-crossing ways/relations resolve fully
 def in_bbox(lat, lon, m=0.0):
     return any(s - m <= lat <= n + m and w - m <= lon <= e + m for (s, w, n, e) in BOXES)
 
+# Green land (issue #114): open land that must carry NO city buildings —
+# farmland, nature and recreation ground. The parks extract only carries
+# leisure=park (+ landuse grass/forest/meadow), so the Guandu plain
+# (landuse=farmland), the riverside bands (recreation_ground / meadow)
+# and wooded slopes (natural=wood) were subdivided and planted. This
+# classifier is the single source of the green tag set; the builder
+# (build-taipei-geodata.mjs) derives each polygon's class from the same
+# tags, carried through in osm_green.json.
+def green_class(t):
+    lu, le, na = t.get('landuse'), t.get('leisure'), t.get('natural')
+    if lu in ('farmland', 'meadow', 'orchard', 'vineyard', 'grassland'):
+        return 'landuse:' + lu
+    if le in ('nature_reserve', 'recreation_ground'):
+        return 'leisure:' + le
+    if na in ('wood', 'scrub', 'wetland', 'grassland'):
+        return 'natural:' + na
+    return None
+
 class Collector(osmium.SimpleHandler):
     def __init__(self):
         super().__init__()
@@ -43,13 +61,16 @@ class Collector(osmium.SimpleHandler):
             if in_bbox(n.location.lat, n.location.lon, M):
                 self.nodes[n.id] = {'tags': dict(n.tags), 'lat': n.location.lat, 'lon': n.location.lon}
     def way(self, w):
-        geom = [{'lat': nd.location.lat, 'lon': nd.location.lon} for nd in w.nodes]
-        if any(in_bbox(g['lat'], g['lon'], M) for g in geom):
+        # Cheap bbox gate first: geometry dicts are built only for ways
+        # touching the tile (same collected set as building them all).
+        if any(in_bbox(nd.location.lat, nd.location.lon, M) for nd in w.nodes):
+            geom = [{'lat': nd.location.lat, 'lon': nd.location.lon} for nd in w.nodes]
             self.ways[w.id] = {'tags': dict(w.tags), 'nodes': [nd.ref for nd in w.nodes], 'geometry': geom}
     def relation(self, r):
         tags = dict(r.tags)
         interesting = (tags.get('natural') == 'water' or tags.get('waterway') == 'riverbank'
                        or tags.get('leisure') == 'park' or tags.get('landuse') in ('grass', 'forest', 'meadow')
+                       or green_class(tags) is not None
                        or tags.get('name:en') in ('Taipei 101',) or tags.get('name') == '台北101'
                        or tags.get('name:en', '').startswith(('Sun Yat-Sen', 'Taipei City Hall')))
         if interesting:
@@ -103,6 +124,8 @@ def main():
              for wid, w in c.ways.items() if is_water(w['tags']) or w['tags'].get('waterway') == 'river']
     parks = [{'type': 'way', 'id': wid, 'tags': w['tags'], 'geometry': w['geometry']}
              for wid, w in c.ways.items() if is_park(t := w['tags'])]
+    green = [{'type': 'way', 'id': wid, 'tags': w['tags'], 'geometry': w['geometry']}
+             for wid, w in c.ways.items() if green_class(w['tags']) is not None]
     landmarks = [{'type': 'way', 'id': wid, 'tags': w['tags'], 'geometry': w['geometry']}
                  for wid, w in c.ways.items() if is_lm(w['tags'])]
     landmarks += [{'type': 'node', 'id': nid, 'tags': n['tags'], 'lat': n['lat'], 'lon': n['lon']}
@@ -127,11 +150,13 @@ def main():
             water.append(el)
         if is_park(rel['tags']):
             parks.append(el)
+        if green_class(rel['tags']) is not None:
+            green.append(el)
         if is_lm(rel['tags']):
             landmarks.append(el)
 
     import os
-    for name, els in [('osm_roads', roads), ('osm_water', water), ('osm_parks', parks), ('osm_landmarks', landmarks), ('osm_railways', railways)]:
+    for name, els in [('osm_roads', roads), ('osm_water', water), ('osm_parks', parks), ('osm_landmarks', landmarks), ('osm_green', green), ('osm_railways', railways)]:
         path = os.path.join(outdir, name + '.json')
         with open(path, 'w') as f:
             json.dump({'version': 0.6, 'generator': 'extract-from-pbf.py (Geofabrik Taiwan extract)', 'elements': els}, f)
