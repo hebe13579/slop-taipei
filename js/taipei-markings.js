@@ -52,6 +52,21 @@
 // at 35–145° (a continuation at ~180° or a merge at ~0° does not
 // count). Crosswalks go across every arm ≥ 7 m wide; stop lines and
 // signal units serve the tertiary-or-above arms only.
+//
+// RENDER FORM (issue #90): the plan above is unchanged — dashes and
+// stripes are still enumerated exactly as before (the tests pin
+// them) — but the renderer no longer bakes them as solid quads.
+// Alongside the plan, the builders emit the SHADER form: dashStrips
+// (one ribbon per maximal unoccluded run of a divider line, carrying
+// the centreline arc as a continuous `along`) and crosswalk bands
+// (one quad per crossing, `along` = lateral distance from the band's
+// low edge). A TSL material (createTaipeiMarkingMaterial in
+// tsl-materials.js) evaluates the dash / stripe pattern from `along`
+// in the fragment shader, so the pattern phase is the planner's own
+// phase — dash rhythm is continuous along each bed (arc never
+// restarts mid-bed) and a crossing's stripes share one band, one
+// phase. Stop lines are single solid quads (not periodic) and stay
+// on the solid path.
 
 import { ribbonPoly, pointInPoly, buildPolyGrid, pointInAnyPoly } from './taipei-painted.js';
 import { medianKind, medianStripWidth, buildMedianStrips } from './taipei-surfaces.js';
@@ -140,14 +155,27 @@ export const dividersFor = (bed) =>
 
 // Densify a centreline to points at most stepM apart (vertices kept).
 function densify(pts, stepM) {
+  return densifyPts(pts, stepM).pts;
+}
+
+// densifyPts: densify + a vertex flag per point (true where the
+// point is an original polyline vertex). The dash-strip builder
+// (issue #90) sections its ribbons at vertex points only — between
+// vertices the offset line is straight and its arc is linear, so
+// no section is lost.
+function densifyPts(pts, stepM) {
   const out = [pts[0]];
+  const vertex = [true];
   for (let i = 0; i + 1 < pts.length; i++) {
     const [ax, az] = pts[i], [bx, bz] = pts[i + 1];
     const len = Math.hypot(bx - ax, bz - az);
     const steps = Math.max(1, Math.ceil(len / stepM));
-    for (let s = 1; s <= steps; s++) out.push([ax + ((bx - ax) * s) / steps, az + ((bz - az) * s) / steps]);
+    for (let s = 1; s <= steps; s++) {
+      out.push([ax + ((bx - ax) * s) / steps, az + ((bz - az) * s) / steps]);
+      vertex.push(s === steps);
+    }
   }
-  return out;
+  return { pts: out, vertex };
 }
 
 // Walk a bed from one end: point + heading at arc distance s from
@@ -188,7 +216,7 @@ export const bedLength = (bed) => {
 // Lane dividers.
 
 // buildLaneDividers(roadbeds, suppress, medianStrips?, capPolys?)
-// -> { dashes, stats }
+// -> { dashes, dashStrips, stats }
 // suppress: Map `${bedIndex}:${end}` -> arc metres from that bed end
 // where dashes stay off (the stop-line zone at signalized junctions,
 // passed in by buildRoadMarkings). medianStrips: an optional
@@ -198,6 +226,14 @@ export const bedLength = (bed) => {
 // as point arrays — a dash sample inside any cap is blocked, so no
 // lane line crosses a junction core. dashes are quads [x1,z1,…] in
 // the strip order taipei-painted's quadsGeometry consumes.
+// dashStrips (issue #90) are the shader render form of the same
+// plan: per divider line, the maximal runs of consecutive
+// UNBLOCKED sample intervals (dash phase NOT applied — the shader
+// does that), each run a list of cross-sections { hx, hz, lx, lz,
+// along } at the run's end frames, at every bed-polyline vertex
+// inside it, and at the frames flanking those vertices. along is
+// the centreline arc the dash phase already keys on, so shader
+// paint lands where the plan's dashes are.
 export function buildLaneDividers(roadbeds, suppress = new Map(), medianStrips = null, capPolys = null) {
   const capGrid = capPolys ? buildPolyGrid(capPolys) : null;
   const capBlocked = (p) => pointInAnyPoly(capGrid, capPolys, p);
@@ -250,12 +286,14 @@ export function buildLaneDividers(roadbeds, suppress = new Map(), medianStrips =
   };
 
   const dashes = [];
+  const dashStrips = [];
   const stats = { beds: 0, dashQuads: 0, dividerKm: 0, medianBlockedSamples: 0 };
   roadbeds.forEach((bed, selfIdx) => {
     if (!dividersFor(bed)) return;
     const { boundaries } = laneLayout(bed);
     const selfWays = new Set(bed.sourceWayIds || []);
-    const pts = densify(ptsOf(bed), SAMPLE_STEP_M);
+    const densified = densifyPts(ptsOf(bed), SAMPLE_STEP_M);
+    const pts = densified.pts;
     // Arc distance of every sample from both bed ends.
     const arc = [0];
     for (let i = 1; i < pts.length; i++) arc.push(arc[i - 1] + Math.hypot(pts[i][0] - pts[i - 1][0], pts[i][1] - pts[i - 1][1]));
@@ -266,7 +304,7 @@ export function buildLaneDividers(roadbeds, suppress = new Map(), medianStrips =
       const a = pts[Math.max(0, i - 1)], c = pts[Math.min(pts.length - 1, i + 1)];
       let dx = c[0] - a[0], dz = c[1] - a[1];
       const n = Math.hypot(dx, dz) || 1; dx /= n; dz /= n;
-      return { p, nx: -dz, nz: dx, arc: arc[i], suppressed: arc[i] < supStart || totalLen - arc[i] < supEnd };
+      return { p, nx: -dz, nz: dx, arc: arc[i], vertex: densified.vertex[i], suppressed: arc[i] < supStart || totalLen - arc[i] < supEnd };
     });
     stats.beds++;
     for (const off of boundaries) {
@@ -297,9 +335,42 @@ export function buildLaneDividers(roadbeds, suppress = new Map(), medianStrips =
         stats.dashQuads++;
         stats.dividerKm += Math.hypot(f1.p[0] - f0.p[0], f1.p[1] - f0.p[1]) / 1000;
       }
+      // Shader strips (issue #90): group the same flags into runs
+      // of consecutive unblocked intervals. Sections sit at the
+      // run's end frames, at bed-polyline vertices inside the run,
+      // and at the frames flanking each vertex — a frame's normal
+      // blends its neighbours, so the offset edge eases around a
+      // vertex over one sample on each side and the flanking
+      // sections keep the ribbon on that ease (measured: dash
+      // centres up to ~0.12 m off the chorded ribbon without them,
+      // ~0.06 m worst-case residual at the sharpest bends with
+      // them). Between vertices the offset edge is straight and
+      // the arc linear in position, so the shader's interpolated
+      // `along` stays the planner's arc (dash phase identical).
+      let runStart = -1;
+      const flushRun = (endFrame) => {
+        const secs = [];
+        for (let j = runStart; j <= endFrame; j++) {
+          if (j !== runStart && j !== endFrame && !frames[j].vertex
+            && !(j > 0 && frames[j - 1].vertex) && !(j + 1 < frames.length && frames[j + 1].vertex)) continue;
+          const f = frames[j];
+          secs.push({
+            hx: f.p[0] + f.nx * hi, hz: f.p[1] + f.nz * hi,
+            lx: f.p[0] + f.nx * lo, lz: f.p[1] + f.nz * lo,
+            along: f.arc,
+          });
+        }
+        if (secs.length >= 2) dashStrips.push(secs);
+        runStart = -1;
+      };
+      for (let i = 0; i + 1 < frames.length; i++) {
+        if (!flags[i]) { if (runStart < 0) runStart = i; }
+        else if (runStart >= 0) flushRun(i);
+      }
+      if (runStart >= 0) flushRun(frames.length - 1);
     }
   });
-  return { dashes, stats };
+  return { dashes, dashStrips, stats };
 }
 
 // ---------------------------------------------------------------------
@@ -444,8 +515,11 @@ export function junctionArmDivided(junction, arm, roadbeds) {
 }
 
 // buildJunctionFurniture(roadbeds, junctions) ->
-// { stripes, stopLines, signals, suppress, stats }
+// { stripes, stopLines, signals, suppress, stats, bands, bandJunction }
 // stripes / stopLines are quads for the renderer's quadsGeometry.
+// bands are the shader render form of the stripes (issue #90): one
+// band per crosswalk, bandJunction aligned with bands like
+// stripeJunction is with stripes.
 // signals: { x, z, faceX, faceZ, kind, armLen, bed } — a static unit
 // per tertiary-or-above approach, standing on the far right-hand
 // CORNER of the approach (issue #64): anchored on the approach's
@@ -462,6 +536,12 @@ export function buildJunctionFurniture(roadbeds, junctions) {
   // generated each stripe / stop-line quad, aligned with the
   // stripes / stopLines arrays.
   const stripeJunction = [], stopLineJunction = [];
+  // Shader render form (issue #90): one band per crosswalk,
+  // spanning exactly the union of its stripe quads across the road
+  // ({ quad in stripe-corner order, width = the band's extent
+  // across the road }); the material stripes it from the band's
+  // own low edge, so the stripe phase is the plan's phase.
+  const bands = [], bandJunction = [];
   const suppress = new Map();
   const stats = {
     junctions: 0, crosswalks: 0, stopLines: 0, signals: 0, skippedArms: 0,
@@ -513,9 +593,10 @@ export function buildJunctionFurniture(roadbeds, junctions) {
         if (sCross > 0.5) {
           const c = pointAlongBed(bed, arm.end, sCross);
           const ux = c.dx, uz = c.dz, vx = -uz, vz = ux; // v = left of travel away from junction
+          const d = CROSSWALK_DEPTH / 2;
+          let firstO = null, lastO = null;
           for (let o = -half + 0.35 + STRIPE_W / 2; o <= half - 0.35 - STRIPE_W / 2 + 1e-6; o += STRIPE_PITCH) {
             const oHi = o + STRIPE_W / 2, oLo = o - STRIPE_W / 2;
-            const d = CROSSWALK_DEPTH / 2;
             stripes.push([
               c.x - ux * d + vx * oHi, c.z - uz * d + vz * oHi,
               c.x + ux * d + vx * oHi, c.z + uz * d + vz * oHi,
@@ -523,6 +604,24 @@ export function buildJunctionFurniture(roadbeds, junctions) {
               c.x - ux * d + vx * oLo, c.z - uz * d + vz * oLo,
             ]);
             stripeJunction.push(ji);
+            if (firstO === null) firstO = o;
+            lastO = o;
+          }
+          // The band (issue #90): same corners as the union of the
+          // stripe quads above — high edge = last stripe's high
+          // edge, low edge = first stripe's low edge.
+          if (firstO !== null) {
+            const bHi = lastO + STRIPE_W / 2, bLo = firstO - STRIPE_W / 2;
+            bands.push({
+              quad: [
+                c.x - ux * d + vx * bHi, c.z - uz * d + vz * bHi,
+                c.x + ux * d + vx * bHi, c.z + uz * d + vz * bHi,
+                c.x + ux * d + vx * bLo, c.z + uz * d + vz * bLo,
+                c.x - ux * d + vx * bLo, c.z - uz * d + vz * bLo,
+              ],
+              width: bHi - bLo,
+            });
+            bandJunction.push(ji);
           }
           stats.crosswalks++;
         } else stats.skippedArms++;
@@ -648,7 +747,7 @@ export function buildJunctionFurniture(roadbeds, junctions) {
       }
     }
   });
-  return { stripes, stopLines, signals, suppress, stats, stripeJunction, stopLineJunction };
+  return { stripes, stopLines, signals, suppress, stats, stripeJunction, stopLineJunction, bands, bandJunction };
 }
 
 // buildRoadMarkings(roadbeds, medianStrips?, caps?, junctions?)
@@ -676,7 +775,10 @@ export function buildRoadMarkings(roadbeds, medianStrips = null, caps = null, ju
     junctions,
     caps,
     dashes: dividers.dashes,
+    dashStrips: dividers.dashStrips,
     stripes: furniture.stripes,
+    bands: furniture.bands,
+    bandJunction: furniture.bandJunction,
     stopLines: furniture.stopLines,
     stripeJunction: furniture.stripeJunction,
     stopLineJunction: furniture.stopLineJunction,
