@@ -4,7 +4,7 @@ import { planTaipeiBuildings, taipeiCityBlocksOptions, createTaipei101, createTa
 import { buildSidewalkBands, planStreetTrees, planParkTrees } from './taipei-streetscape.js';
 import { AvatarFigure } from './avatar-figure.js';
 import { buildPaintedBands } from './taipei-painted.js';
-import { SURFACE_TONES, surfaceClass, buildMedianStrips, isPlazaPark, isPodiumBlock, podiumCentresOf } from './taipei-surfaces.js';
+import { SURFACE_TONES, surfaceClass, buildMedianStrips, isPlazaPark, isPodiumBlock, podiumCentresOf, memorialPaving, MEMORIAL_GRID_TONE } from './taipei-surfaces.js';
 import { buildRoadMarkings, detectJunctions, DASH_LEN, DASH_GAP, STRIPE_W, STRIPE_PITCH } from './taipei-markings.js';
 import { planJunctionCaps, planRoundabouts, ringPoints, CAP_Y, ISLAND_Y } from './taipei-junctions.js';
 import { buildDeckGeometry, PIER_W, PIER_D } from './taipei-viaduct.js';
@@ -601,6 +601,14 @@ export async function buildTaipeiGround(scene, tile, deps = {}) {
   const plazaParks = geo.parks.filter(isPlazaPark);
   addLayer(flatPolygonGeometry(lawnParks.map((p) => p.ring), 0.04), mat(SURFACE_TONES.park, 0.9), 'TaipeiParks');
   if (plazaParks.length) addLayer(flatPolygonGeometry(plazaParks.map((p) => p.ring), 0.041), mat(SURFACE_TONES.plaza, 0.95), 'TaipeiPlazas');
+  // CKS Memorial grounds (issue #98 follow-up): Liberty Square, its
+  // forecourt, the Boulevard of Homage strip and the terrace apron
+  // are paved stone inside the lawn-green memorial park — flat plaza
+  // paving at 0.042 with the square's subtle tile grid at 0.043
+  // (js/taipei-surfaces.js memorialPaving, satellite-authored).
+  const memorial = memorialPaving();
+  addLayer(flatPolygonGeometry(memorial.rings, 0.042), mat(SURFACE_TONES.plaza, 0.95), 'TaipeiMemorialPaving');
+  addLayer(flatPolygonGeometry(memorial.gridQuads, 0.043), mat(MEMORIAL_GRID_TONE, 0.95), 'TaipeiMemorialPavingGrid');
   await completeStage('ground', `${landRects.length} land boxes, ${groundBlocks.length} blocks, ${geo.water.length} water polygons, ${geo.parks.length} parks`);
   // Carriageways render from the generation map's roadbeds when the geodata
   // carries them (issue #6: divided boulevards merged into one roadbed,
