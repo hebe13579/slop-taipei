@@ -19,7 +19,9 @@
 // Placement rules (all deterministic — a hash of block/lot index, never
 // Math.random, so plans are byte-stable across runs and machines):
 //   - Blocks under 150 m² are skipped, and so is any block whose
-//     centroid falls inside a park or water polygon.
+//     centroid falls inside a park, water or green-land polygon
+//     (issue #114: farmland / nature / recreation ground, e.g. the
+//     Guandu plain and the riverside bands, carry no city lots).
 //   - A block's bbox is inset by 3 m (the street-section band the ground
 //     builder draws around each roadbed lives in that margin), then cut
 //     into a lot grid: frontage 15–25 m, depth 15–22 m per lot, with a
@@ -30,8 +32,8 @@
 //     is outside every box is skipped, and a lot whose centre or any
 //     footprint corner leaves the union is dropped — nothing is
 //     planned over a dropped band.
-//   - A lot is dropped when its centre falls inside a park/water
-//     polygon (exact point-in-polygon, so a park that merely overlaps a
+//   - A lot is dropped when its centre falls inside a park/water or
+//     green-land polygon (exact point-in-polygon, so a park that merely overlaps a
 //     block's bbox still stays empty — Da'an Forest Park above all),
 //     when its footprint intersects the Taipei 101 landmark site, or
 //     when it fails the exact ribbon tests of issue #65 (below):
@@ -1243,7 +1245,7 @@ function quadsIntersect(a, b) {
 }
 
 export function planTaipeiBuildings(geodata) {
-  const stats = { blocksSeen: 0, blocksSkippedSmall: 0, blocksSkippedParkWater: 0, blocksSkippedOutsideUnion: 0, lotsDroppedVacancy: 0, lotsDroppedParkWater: 0, lotsDroppedTowerSite: 0, lotsDroppedRoad: 0, lotsDroppedMedian: 0, lotsDroppedOutsideUnion: 0, blocksRotated: 0, lotsRotated: 0 };
+  const stats = { blocksSeen: 0, blocksSkippedSmall: 0, blocksSkippedParkWater: 0, blocksSkippedGreen: 0, blocksSkippedOutsideUnion: 0, lotsDroppedVacancy: 0, lotsDroppedParkWater: 0, lotsDroppedGreen: 0, lotsDroppedTowerSite: 0, lotsDroppedRoad: 0, lotsDroppedMedian: 0, lotsDroppedOutsideUnion: 0, blocksRotated: 0, lotsRotated: 0 };
   // Union-of-boxes tile (issue #60): the geodata frame carries the
   // tile's boxes; ground exists only inside them. Raster blocks are
   // masked to the union by the builder, but a block's bbox can still
@@ -1274,6 +1276,28 @@ export function planTaipeiBuildings(geodata) {
   const CORNER_CLEARANCE = 0.08;
   const nearPoly = (x, z) => {
     for (const p of polys) {
+      if (x < p.bb.minX - CORNER_CLEARANCE || x > p.bb.maxX + CORNER_CLEARANCE ||
+          z < p.bb.minZ - CORNER_CLEARANCE || z > p.bb.maxZ + CORNER_CLEARANCE) continue;
+      if (pointInRing(x, z, p.ring)) return true;
+      if (distToRing(x, z, p.ring) < CORNER_CLEARANCE) return true;
+    }
+    return false;
+  };
+  // Issue #114: green land (geodata.green — farmland, nature and
+  // recreation ground from the same PBF extract) excludes urban lots
+  // by the same two verdicts as park/water, counted separately so the
+  // park/water numbers stay comparable across the change.
+  const greenPolys = [];
+  for (const p of geodata.green || []) greenPolys.push({ ring: p.ring, bb: ringBbox(p.ring) });
+  const inGreen = (x, z) => {
+    for (const p of greenPolys) {
+      if (x < p.bb.minX || x > p.bb.maxX || z < p.bb.minZ || z > p.bb.maxZ) continue;
+      if (pointInRing(x, z, p.ring)) return true;
+    }
+    return false;
+  };
+  const nearGreen = (x, z) => {
+    for (const p of greenPolys) {
       if (x < p.bb.minX - CORNER_CLEARANCE || x > p.bb.maxX + CORNER_CLEARANCE ||
           z < p.bb.minZ - CORNER_CLEARANCE || z > p.bb.maxZ + CORNER_CLEARANCE) continue;
       if (pointInRing(x, z, p.ring)) return true;
@@ -1417,6 +1441,7 @@ export function planTaipeiBuildings(geodata) {
     stats.blocksSeen++;
     if (!(block.area >= 150)) { stats.blocksSkippedSmall++; continue; }
     if (inPoly(block.cx, block.cz)) { stats.blocksSkippedParkWater++; continue; }
+    if (inGreen(block.cx, block.cz)) { stats.blocksSkippedGreen++; continue; }
     if (!inUnion(block.cx, block.cz)) { stats.blocksSkippedOutsideUnion++; continue; }
     const inset = 3.0; // street-section band margin (see header)
     const minX = block.bbox.minX + inset, maxX = block.bbox.maxX - inset;
@@ -1493,6 +1518,8 @@ export function planTaipeiBuildings(geodata) {
         }
         if (inPoly(cx, cz)) { stats.lotsDroppedParkWater++; continue; }
         if (theta && corners.some(([px, pz]) => nearPoly(px, pz))) { stats.lotsDroppedParkWater++; continue; }
+        if (inGreen(cx, cz)) { stats.lotsDroppedGreen++; continue; }
+        if (theta && corners.some(([px, pz]) => nearGreen(px, pz))) { stats.lotsDroppedGreen++; continue; }
         if (!inUnion(cx, cz)) { stats.lotsDroppedOutsideUnion++; continue; }
         let onLandmarkSite = false;
         for (const s of exclusionSites) {
