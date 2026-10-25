@@ -254,9 +254,12 @@ export function memorialPaving() {
     memorialQuad(-405, -148, -102, 102), // Liberty Square tile field
     memorialQuad(-462, -405, -42, 42),    // forecourt inside the main gate / arch
     memorialQuad(-148, -52, -15, 15),     // Boulevard of Homage paved strip
-    // Terrace apron — a world-axis rect hugging the terrace (the
-    // terrace itself is axis-aligned, not park-frame).
-    [-4476, -290, -4300, -290, -4300, -112, -4476, -112],
+    // Terrace apron — a park-frame quad hugging the terrace
+    // (issue #116: the terrace now sits on the park axis like
+    // everything else in the grounds, so the apron follows
+    // the same frame; before #116 the terrace was axis-aligned
+    // and the apron was a world-axis rect).
+    memorialQuad(-89, 89, -88, 88),
   ];
   const gridQuads = [];
   for (let u = -390; u <= -165; u += 15) gridQuads.push(memorialQuad(u - 0.2, u + 0.2, -102, 102));
