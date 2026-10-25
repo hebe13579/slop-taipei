@@ -368,6 +368,7 @@ test('taipei speedScale wiring (source contract)', () => {
   assert.match(boot, /speedScale: 2/);
   assert.match(boot, /heliCeiling: 750/, 'tile boot raises the helicopter ceiling to 750 m');
   assert.match(boot, /heliVerticalScale: 5/, 'tile boot multiplies helicopter ascend/descend by 5');
+  assert.match(boot, /heliSpeedScale: 3/, 'tile boot multiplies helicopter horizontal speed by 3');
   const main = readFileSync(join(__dirname, '../js/main.js'), 'utf8');
   assert.match(main, /controllerManager\.worldOpts\?\.speedScale/, 'HUD meter full scale follows the controller speedScale');
 });
@@ -436,4 +437,76 @@ test('taipei-boot wires the tile world into main.js (source contract)', () => {
   const main = readFileSync(join(__dirname, '../js/main.js'), 'utf8');
   assert.match(main, /tileBoot\.controllerOptions\(activeTile, \{ webglFallback: renderer\.backend\?\.isWebGLBackend === true \}\)/);
   assert.match(main, /: undefined/);
+});
+
+// --- heliSpeedScale (issue #101, user request 2026-10-24) --------------
+// Helicopter horizontal speed x3 from current in Taipei: the tile boot
+// passes heliSpeedScale 3 on top of speedScale 2, so cruise is
+// 32 x 2 x 3 = 192 m/s and boost 52 x 2 x 3 = 312 m/s. The vertical cap
+// is NOT this knob — it stays at heliVerticalScale's 160 m/s — and no
+// other mode's caps move. NYC (no option) keeps 32/52 exactly.
+
+test('heliSpeedScale: derived horizontal caps triple, vertical and other modes untouched', () => {
+  const Class = loadManagerClass();
+  const taipei = speedHarness(Class, { speedScale: 2, heliVerticalScale: 5, heliCeiling: 750, heliSpeedScale: 3 });
+  assert.deepEqual({ ...taipei.heliSpeed }, { cruise: 192, boost: 312, vertical: 160 },
+    'horizontal scale touches cruise/boost only; vertical stays at the heliVerticalScale value');
+  assert.equal(taipei._heliCeiling(), 750, 'ceiling unchanged');
+  assert.equal(taipei.carDrive.speed, 47, 'car caps unchanged');
+  assert.equal(taipei.bicycleDrive.speed, 25.6, 'bicycle caps unchanged');
+  assert.deepEqual({ ...taipei.personSpeed }, { walk: 8.8, run: 16.4 }, 'person caps unchanged');
+  const hOnly = speedHarness(Class, { heliSpeedScale: 3 });
+  assert.deepEqual({ ...hOnly.heliSpeed }, { cruise: 96, boost: 156, vertical: 16 },
+    'heliSpeedScale alone: 32x3 / 52x3, vertical stays upstream 16');
+  const vAndH = speedHarness(Class, { heliVerticalScale: 5, heliSpeedScale: 3 });
+  assert.deepEqual({ ...vAndH.heliSpeed }, { cruise: 96, boost: 156, vertical: 80 },
+    'the two heli scales compose independently');
+  for (const worldOpts of [{}, { heliSpeedScale: 1 }, { heliSpeedScale: 0 }, { heliSpeedScale: NaN }, { heliSpeedScale: -3 }]) {
+    const nyc = speedHarness(Class, worldOpts);
+    assert.deepEqual({ ...nyc.heliSpeed }, { cruise: 32, boost: 52, vertical: 16 },
+      'no valid heliSpeedScale: upstream heli caps');
+  }
+});
+
+test('heliSpeedScale in the loop: Taipei heli flies at 192/312 m/s, vertical cap stays 160', async () => {
+  const Class = loadManagerClass();
+  const { opts } = await taipeiWorldOpts();
+  const taipeiOpts = { ...opts, speedScale: 2, heliVerticalScale: 5, heliCeiling: 750, heliSpeedScale: 3 };
+  const heliRun = (worldOpts, keys, steps = 3600) => {
+    const controller = speedHarness(Class, worldOpts);
+    const helicopter = {
+      position: { x: 0, y: 100, z: 0 }, heading: 0, speed: 0, verticalSpeed: 0,
+      pitchAngle: 0, rollAngle: 0,
+      tiltPivot: { rotation: { x: 0, z: 0 }, position: { y: 0 } }
+    };
+    controller.entities = { helicopter };
+    Object.assign(controller.keys, keys);
+    for (let i = 0; i < steps; i++) controller.updateHelicopter(1 / 60, 0);
+    return helicopter;
+  };
+  const boosted = heliRun(taipeiOpts, { forward: true, boost: true, up: true });
+  assert.ok(Math.abs(boosted.speed - 312) < 1e-6, 'Taipei heli boost cap 312 m/s');
+  assert.ok(Math.abs(boosted.verticalSpeed - 160) < 1e-6, 'vertical cap stays 160 m/s');
+  const cruiser = heliRun(taipeiOpts, { forward: true });
+  assert.ok(Math.abs(cruiser.speed - 192) < 1e-6, 'Taipei heli cruise cap 192 m/s');
+  const reverser = heliRun(taipeiOpts, { backward: true });
+  assert.ok(Math.abs(reverser.speed + 192 * 0.6) < 1e-6, 'reverse stays capped at 0.6x the (tripled) cruise cap (no boost held)');
+  const nyc = heliRun({ ...opts }, { forward: true, boost: true });
+  assert.ok(Math.abs(nyc.speed - 52) < 1e-6, 'no option: heli boost cap stays 52 m/s');
+});
+
+test('taipei boot options: the full shipped option set derives the shipped heli caps', async () => {
+  // The real tile boot's option values are pinned by the source-contract
+  // test above (speedScale 2, heliVerticalScale 5, heliSpeedScale 3);
+  // here the whole shipped set (the real bounds/exclusions frame plus
+  // those values) is normalized and derived as the game constructs it.
+  const Class = loadManagerClass();
+  const { opts } = await taipeiWorldOpts();
+  const taipei = bareManager(Class, {
+    ...opts, speedScale: 2, heliVerticalScale: 5, heliCeiling: 750, heliSpeedScale: 3
+  });
+  taipei._deriveSpeedTables();
+  assert.deepEqual({ ...taipei.heliSpeed }, { cruise: 192, boost: 312, vertical: 160 },
+    'Taipei effective heli caps: cruise 192, boost 312, vertical 160 m/s');
+  assert.equal(taipei._heliCeiling(), 750);
 });

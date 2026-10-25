@@ -184,6 +184,12 @@ class ThirdPersonControllerManager {
   //     speedScale-derived table; vertical acceleration is a feel
   //     parameter and does not scale. Taipei passes 5 (cap 16 × 2 × 5
   //     = 160 m/s, 5× the in-Taipei 32 m/s). NYC passes neither option.
+  //   heliSpeedScale: number > 0 — extra multiplier on the helicopter
+  //     HORIZONTAL caps (cruise + boost) ONLY, applied on top of the
+  //     speedScale-derived table; the vertical cap is untouched (that
+  //     is heliVerticalScale's job). Taipei passes 3 (user request
+  //     2026-10-24: heli movement speed ×3 — cruise 64 → 192 m/s,
+  //     boost 104 → 312 m/s). NYC never passes it.
   constructor(scene, colliders = [], opts = {}) {
     this.scene = scene;
     this.worldOpts = {
@@ -201,6 +207,9 @@ class ThirdPersonControllerManager {
         : HELI_CEILING,
       heliVerticalScale: (typeof opts.heliVerticalScale === 'number' && Number.isFinite(opts.heliVerticalScale) && opts.heliVerticalScale > 0)
         ? opts.heliVerticalScale
+        : 1,
+      heliSpeedScale: (typeof opts.heliSpeedScale === 'number' && Number.isFinite(opts.heliSpeedScale) && opts.heliSpeedScale > 0)
+        ? opts.heliSpeedScale
         : 1,
       idleWalkZ: opts.idleWalkZ || (opts.bounds
         ? { min: opts.bounds.minZ + 30, max: opts.bounds.maxZ - 30 }
@@ -330,6 +339,14 @@ class ThirdPersonControllerManager {
     const vScale = (typeof vRaw === 'number' && Number.isFinite(vRaw) && vRaw > 0) ? vRaw : 1;
     if (vScale !== 1) {
       this.heliSpeed = { ...this.heliSpeed, vertical: this.heliSpeed.vertical * vScale };
+    }
+    // heliSpeedScale (tile option): a further multiplier on the
+    // horizontal caps (cruise + boost) only, on top of speedScale. At
+    // 1 the table above is kept as-is.
+    const hRaw = this.worldOpts?.heliSpeedScale;
+    const hScale = (typeof hRaw === 'number' && Number.isFinite(hRaw) && hRaw > 0) ? hRaw : 1;
+    if (hScale !== 1) {
+      this.heliSpeed = { ...this.heliSpeed, cruise: this.heliSpeed.cruise * hScale, boost: this.heliSpeed.boost * hScale };
     }
   }
 
