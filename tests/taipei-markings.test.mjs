@@ -71,6 +71,43 @@ test('dividersFor: class gate — tertiary and above only', () => {
   assert.ok(!dividersFor(bed('x', 'residential', 30, [1, 2])), 'a wide lane-class bed gets no dividers');
   assert.ok(!dividersFor(bed('x', 'secondary', 11, [7])), 'too few lanes per direction');
   assert.ok(!dividersFor(null));
+  // Issue #162: the deck flag is a hard gate at any class — an
+  // elevated bed's lane lines are never ground markings. An
+  // unflagged trunk bed is drawn at grade and keeps its dividers:
+  // the flag, not the class, is the predicate (as for furniture,
+  // issue #88).
+  assert.ok(!dividersFor({ ...bed('x', 'trunk', 30, [1, 2]), deck: true }), 'deck-flagged bed gets no dividers');
+  assert.ok(dividersFor(bed('x', 'trunk', 30, [1, 2])), 'unflagged trunk bed keeps dividers');
+});
+
+test('dividers (issue #162): a deck-flagged bed paints nothing on the ground under it', () => {
+  // A ground boulevard crossed by an elevated expressway (one
+  // deck-flagged bed). The expressway's own lane lines used to be
+  // planned at ground Y along its whole corridor.
+  const ew = bed('EW Blvd', 'secondary', 30, [1, 2], [-100, 0, 100, 0]);
+  const nsDeck = { ...bed('NS Expy', 'trunk', 24, [3], [0, -100, 0, 100]), deck: true };
+  const { dashes, dashStrips, stats } = buildLaneDividers([ew, nsDeck]);
+  assert.equal(stats.beds, 1, 'only the ground bed is planned');
+  assert.equal(stats.deckBedsSkipped, 1, 'the qualifying deck bed is counted as skipped');
+  assert.ok(dashes.length > 0, 'the ground boulevard keeps its dividers');
+  const nsPoly = ribbonPoly(nsDeck);
+  for (const q of dashes) assert.ok(!pointInPoly(quadCentre(q), nsPoly), `dash centre ${quadCentre(q)} under the elevated road`);
+  // Strips: the system's crossing invariant (span midpoints stay
+  // out of the crossed ribbon — a boundary frame may sit on the
+  // ribbon edge, as at every ground crossing).
+  for (const s of dashStrips) {
+    for (let i = 0; i + 1 < s.length; i++) {
+      const mid = [(s[i].hx + s[i + 1].hx) / 2, (s[i].hz + s[i + 1].hz) / 2];
+      assert.ok(!pointInPoly(mid, nsPoly), `strip span midpoint ${mid} under the elevated road`);
+    }
+  }
+  // The same bed WITHOUT the flag is an at-grade carriageway and
+  // is planned normally.
+  const nsGround = bed('NS Expy', 'trunk', 24, [3], [0, -100, 0, 100]);
+  const r2 = buildLaneDividers([ew, nsGround]);
+  assert.equal(r2.stats.beds, 2);
+  assert.equal(r2.stats.deckBedsSkipped, 0);
+  assert.ok(r2.dashes.some((q) => pointInPoly(quadCentre(q), nsPoly)), 'unflagged bed paints its dividers');
 });
 
 test('dividers: dashes break at a crossing carriageway and resume past it', () => {
@@ -264,6 +301,23 @@ test('geodata: tile-wide marking counts are in the audited bands', () => {
   // account for the difference against the tile-wide delta.
   assert.equal(r.stats.signalized, 392, `signalized census ${r.stats.signalized}`);
   assert.ok(r.stats.dividerKm > 50, `divider km ${r.stats.dividerKm}`);
+  // Issue #162 re-pin: lane dividers are no longer planned for
+  // deck-flagged beds (they painted at ground Y under their own
+  // viaducts). Measured on the pre-fix tree by a per-bed
+  // instrumented census of this pipeline: 91 deck beds passed the
+  // class + lane gates, carrying 23,378 dash quads / 34.88 km of
+  // paint — the same deck delta on this default path (181,812 ->
+  // 158,434 quads, dividerKm 270.65 -> 235.77, beds 1,101 ->
+  // 1,010) and on the boot's cap-clipped path (181,402 -> 158,024,
+  // 270.06 -> 235.19). Ground-bed output proven byte-identical on
+  // both paths: the post-fix dash and strip arrays equal the
+  // pre-fix arrays with the deck beds' own entries removed, order
+  // preserved; stripes / stop lines / signals identical (furniture
+  // untouched — deck arms were already skipped, issue #88).
+  assert.equal(r.stats.dashQuads, 158434, `dash quads ${r.stats.dashQuads}`);
+  assert.equal(r.stats.dividerBeds, 1010, `divider beds ${r.stats.dividerBeds}`);
+  assert.equal(r.stats.deckDividerBedsSkipped, 91, `deck divider beds skipped ${r.stats.deckDividerBedsSkipped}`);
+  assert.ok(Math.abs(r.stats.dividerKm - 235.77) < 0.05, `divider km ${r.stats.dividerKm}`);
   assert.ok(r.stats.crosswalks > 400, `crosswalks ${r.stats.crosswalks}`);
   assert.ok(r.stats.signalUnits >= r.stats.stopLines && r.stats.stopLines > 600,
     `signals ${r.stats.signalUnits} / stop lines ${r.stats.stopLines}`);
