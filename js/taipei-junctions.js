@@ -611,13 +611,13 @@ const toneRGB = (cls) => {
 };
 const round4 = (v) => Math.round(v * 10000) / 10000;
 
-export function capBlendTones(j, ringPts) {
+export function capBlendTones(j, ringPts, adoptCentre = null) {
   const arms = j.arms.map((a) => ({
     width: a.width,
     rgb: toneRGB(surfaceClass({ highway: a.highway })),
   }));
   const totW = arms.reduce((s, a) => s + a.width, 0) || 1;
-  const centre = [0, 1, 2].map((k) => round4(arms.reduce((s, a) => s + a.width * a.rgb[k], 0) / totW));
+  const centre = adoptCentre || [0, 1, 2].map((k) => round4(arms.reduce((s, a) => s + a.width * a.rgb[k], 0) / totW));
   const origin = pointInPoly([j.x, j.z], ringPts)
     ? [j.x, j.z]
     : [
@@ -625,6 +625,42 @@ export function capBlendTones(j, ringPts) {
         ringPts.reduce((s, p) => s + p[1], 0) / ringPts.length,
       ];
   return { centre, origin, ring: ringPts.map(() => centre) };
+}
+
+// Issue #178 (ji1595): the through-road tone adoption. A fitted
+// cap whose centre AND every ring vertex lie on the carriageway
+// of a NON-ARM road of a single class adopts that road's tone
+// for the whole cap (ring, pieces and strips). The specimen:
+// four 5 m service lanes end mid-carriageway on 重慶南路一段
+// (a 19.2 m tertiary) — the through road contributes no arm, so
+// the arm blend painted the collector's asphalt with the lanes'
+// pale tone, spike tails and all, and the sweep's frame reads
+// it as a foreign patch. The conditions are strict by
+// construction: the centre must be covered by foreign ribbons
+// of exactly one class, every ring vertex must be covered by a
+// foreign ribbon of that class, and no ring vertex may touch a
+// foreign ribbon of any other class — so an ordinary T-junction
+// (whose hull vertices sit on its own arms' ribbons, which do
+// not count) can never adopt, and neither can a cap straddling
+// two through roads. Deck beds never adopt (candidates carry
+// ground ribbons only). candidates: [{ bedIdx, bed, ribbon }]
+// for the beds near the junction, ribbons as point arrays.
+export function throughRoadTone(j, ringPts, candidates) {
+  const armBeds = new Set(j.arms.map((a) => a.bed));
+  const foreign = candidates.filter((c) => c.ribbon && !c.bed.deck && !armBeds.has(c.bedIdx));
+  const classesAt = (p) => {
+    const s = new Set();
+    for (const c of foreign) if (pointInPoly(p, c.ribbon)) s.add(surfaceClass({ highway: c.bed.highway }));
+    return s;
+  };
+  const centreClasses = classesAt([j.x, j.z]);
+  if (centreClasses.size !== 1) return null;
+  const cls = [...centreClasses][0];
+  for (const p of ringPts) {
+    const s = classesAt(p);
+    if (!s.has(cls) || s.size !== 1) return null;
+  }
+  return toneRGB(cls);
 }
 
 // ---------------------------------------------------------------------
@@ -712,9 +748,51 @@ export function armExtension(j, a, roadbeds, kerbCtx = null) {
   if (along < 0.3) return null;
   // Inward run: from the bed end toward the centre until the
   // strip's far edge sits at axis crossHalf - EXT_PAST_BOX_M.
-  const tIn = (gap + EXT_PAST_BOX_M) / along;
+  let tIn = (gap + EXT_PAST_BOX_M) / along;
   const w2 = a.width / 2 + EXT_JOIN_M;
   const px = -dir[1], pz = dir[0];
+  // Issue #178 (ORPHAN): the plane stop assumes the ring meets
+  // the strip at the arm's cross-section, but the fitted ring is
+  // the convex hull of every arm's cross-section — across a wide
+  // angular gap its chords run metres inside the planes, and a
+  // bed end scattered laterally walks its strip in beside the
+  // mouth segment. The roadsweep-2 census counted 43 fitted
+  // rings touching neither a ribbon nor their own strips (worst
+  // 7.1 m adrift). So when the bed end lies OUTSIDE the hull,
+  // the strip runs to the ring itself: the first contact of the
+  // strip's inward-sweeping inner edge with the hull, plus the
+  // same EXT_PAST_BOX_M tuck. The strip is a rectangle, so the
+  // contact is measured against its whole slab (half-width w2
+  // around the chord line), not just the centre ray — a chord
+  // angled a few degrees off the arm axis misses a small hull
+  // with its centreline but reaches it with a corner. Candidate
+  // contacts: hull vertices inside the slab, and hull edges
+  // crossing the slab's boundary lines. The max() keeps the
+  // plane stop whenever it already reaches deeper (the common
+  // case — ji562's avenue strips among them, whose hull
+  // vertices sit on their own cross-section line), so attached
+  // strips only ever grow, and only toward their own ring.
+  if (kerbCtx && kerbCtx.ringPts && kerbCtx.ringPts.length >= 3) {
+    const hull = kerbCtx.ringPts;
+    const lat = (vx, vz) => (vx - a.endX) * px + (vz - a.endZ) * pz; // signed lateral offset from the chord line
+    const fwd = (vx, vz) => (a.endX - vx) * dir[0] + (a.endZ - vz) * dir[1]; // inward distance along the chord
+    let tHit = Infinity;
+    const consider = (vx, vz) => {
+      if (Math.abs(lat(vx, vz)) <= w2 + 1e-9) tHit = Math.min(tHit, fwd(vx, vz));
+    };
+    for (let i = 0; i < hull.length; i++) {
+      const [ax, az] = hull[i], [bx, bz] = hull[(i + 1) % hull.length];
+      consider(ax, az);
+      const la = lat(ax, az), lb = lat(bx, bz);
+      for (const s of [w2, -w2]) {
+        if ((la - s) * (lb - s) < 0) {
+          const t = (s - la) / (lb - la);
+          consider(ax + (bx - ax) * t, az + (bz - az) * t);
+        }
+      }
+    }
+    if (Number.isFinite(tHit) && tHit > 0) tIn = Math.max(tIn, tHit + EXT_PAST_BOX_M);
+  }
   const x0 = a.endX + dir[0] * EXT_JOIN_M, z0 = a.endZ + dir[1] * EXT_JOIN_M;
   const x1 = a.endX - dir[0] * tIn, z1 = a.endZ - dir[1] * tIn;
   let pts = [
@@ -1427,12 +1505,23 @@ export function planJunctionCaps(roadbeds, junctions, sitesIn = null, clipPolysI
     }
     // Ring surface: unclipped (the pre-#171 path, byte-identical)
     // or the clipped pieces (largest = the ring, rest in pieces).
+    // Issue #178: fitted caps may adopt a through road's tone
+    // (throughRoadTone) — computed once from the final ring and
+    // shared by ring, pieces and strips alike.
     let ring, ringTones, capPieces = [], ringArea = area;
+    let adoptTone = null;
+    const adoptFor = (rPts) => {
+      if (kind !== 'fitted') return null;
+      const near = nearRibbons(j, radius + 25);
+      const cands = near.bedOf.map((bi, k) => ({ bedIdx: bi, bed: roadbeds[bi], ribbon: near.polys[k] }));
+      return throughRoadTone(j, rPts, cands);
+    };
     if (!effClips) {
       ring = ringOf(hull);
       const ringPts = [];
       for (let i = 0; i + 1 < ring.length; i += 2) ringPts.push([ring[i], ring[i + 1]]);
-      ringTones = capBlendTones(j, ringPts);
+      adoptTone = adoptFor(ringPts);
+      ringTones = capBlendTones(j, ringPts, adoptTone);
     } else {
       let pieces = fanPieces(j, subtractPolys(hull, effClips)).sort((p, q) => q.area - p.area);
       if (!pieces.length) {
@@ -1450,13 +1539,14 @@ export function planJunctionCaps(roadbeds, junctions, sitesIn = null, clipPolysI
       }
       const main = pieces[0];
       ring = flatRing(main.pts);
-      const t = capBlendTones(j, main.pts);
+      adoptTone = adoptFor(ringPoints(ring));
+      const t = capBlendTones(j, main.pts, adoptTone);
       ringTones = { centre: t.centre, origin: main.origin, ring: t.ring };
       ringArea = 0;
       for (const p of pieces) {
         ringArea += p.area;
         if (p === main) continue;
-        const tp = capBlendTones(j, p.pts);
+        const tp = capBlendTones(j, p.pts, adoptTone);
         capPieces.push({ ring: flatRing(p.pts), tones: { centre: tp.centre, origin: p.origin, ring: tp.ring }, area: Math.round(p.area) });
       }
     }
@@ -1484,7 +1574,7 @@ export function planJunctionCaps(roadbeds, junctions, sitesIn = null, clipPolysI
       for (const a of j.arms) {
         const ext = armExtension(j, a, roadbeds, kerbCtx);
         if (!ext) continue;
-        const t = capBlendTones(j, ext.pts);
+        const t = capBlendTones(j, ext.pts, adoptTone);
         // The strip's own green overlaps (it reaches past the
         // hull): erode them by the same corridor union.
         let sEff = effClips;
@@ -1513,7 +1603,7 @@ export function planJunctionCaps(roadbeds, junctions, sitesIn = null, clipPolysI
           extraArea += ext.area;
         } else {
           for (const p of fanPieces(j, subtractPolys(ext.pts, sEff))) {
-            const tp = capBlendTones(j, p.pts);
+            const tp = capBlendTones(j, p.pts, adoptTone);
             extras.push({
               ring: flatRing(p.pts),
               tones: { centre: tp.centre, origin: p.origin, ring: tp.ring },
@@ -1539,6 +1629,131 @@ export function planJunctionCaps(roadbeds, junctions, sitesIn = null, clipPolysI
       pieces: capPieces,
     });
   });
+  // Issue #178 (ORPHAN, drop half): after the #163/#171
+  // construction and the armExtension attach rule above, a
+  // surface polygon that still touches neither a ground ribbon
+  // nor any other surface polygon is a plate floating over
+  // non-road ground — the fitted ring of a bed-end cluster whose
+  // arms' chords point away from the centre (ji2429's warren:
+  // the ring hangs 7.1 m from the nearest ribbon), or a strip
+  // remnant the green clip stranded mid-corridor (ji1660).
+  // Touch = polygon distance <= ORPHAN_TOUCH_M (the census
+  // threshold; the 0.005–0.05 m band under it is rounding —
+  // ringOf writes a 0.1 m grid, flatRing 1 mm). Connectivity is
+  // transitive through siblings: a ring held by a strip that
+  // reaches a ribbon is attached. A polygon whose component
+  // holds no ribbon is dropped; if the RING drops, the whole
+  // cap goes with it (its strips and pieces are that junction's
+  // surface, and a ring-less cap breaks the renderer's fan and
+  // occlusion invariants).
+  {
+    const ORPHAN_TOUCH_M = 0.05;
+    const distPtSeg = (p, a, b) => {
+      const ex = b[0] - a[0], ez = b[1] - a[1];
+      const L2 = ex * ex + ez * ez;
+      let t = L2 > 0 ? ((p[0] - a[0]) * ex + (p[1] - a[1]) * ez) / L2 : 0;
+      t = Math.max(0, Math.min(1, t));
+      return Math.hypot(p[0] - (a[0] + ex * t), p[1] - (a[1] + ez * t));
+    };
+    const segCross = (a, b, c, d) => {
+      const o = (p, q, r) => (q[0] - p[0]) * (r[1] - p[1]) - (q[1] - p[1]) * (r[0] - p[0]);
+      const o1 = o(a, b, c), o2 = o(a, b, d), o3 = o(c, d, a), o4 = o(c, d, b);
+      return ((o1 > 0 && o2 < 0) || (o1 < 0 && o2 > 0)) && ((o3 > 0 && o4 < 0) || (o3 < 0 && o4 > 0));
+    };
+    const polyDist = (A, B) => {
+      // 0 when the polygons intersect or one contains the other.
+      if (pointInPoly(A[0], B) || pointInPoly(B[0], A)) return 0;
+      let best = Infinity;
+      for (let i = 0; i < A.length; i++) {
+        const a = A[i], a2 = A[(i + 1) % A.length];
+        for (let j = 0; j < B.length; j++) {
+          const b = B[j], b2 = B[(j + 1) % B.length];
+          if (segCross(a, a2, b, b2)) return 0;
+          best = Math.min(best, distPtSeg(a, b, b2), distPtSeg(b, a, a2));
+          if (best <= ORPHAN_TOUCH_M) return best;
+        }
+      }
+      return best;
+    };
+    // Nodes: every surface polygon of every cap.
+    const nodes = []; // { cap, which: 'ring'|'extra'|'piece', idx, pts, bbox }
+    const bboxOf = (pts) => {
+      let x0 = 1e18, z0 = 1e18, x1 = -1e18, z1 = -1e18;
+      for (const p of pts) { x0 = Math.min(x0, p[0]); x1 = Math.max(x1, p[0]); z0 = Math.min(z0, p[1]); z1 = Math.max(z1, p[1]); }
+      return [x0, z0, x1, z1];
+    };
+    caps.forEach((c, ci) => {
+      const push = (which, idx, ring) => { const pts = ringPoints(ring); nodes.push({ cap: ci, which, idx, pts, bbox: bboxOf(pts) }); };
+      push('ring', 0, c.ring);
+      (c.extras || []).forEach((e, ei) => push('extra', ei, e.ring));
+      (c.pieces || []).forEach((p, pi) => push('piece', pi, p.ring));
+    });
+    const CELL = 30;
+    const cellsOf = (bbox) => {
+      const out = [];
+      for (let gx = Math.floor((bbox[0] - ORPHAN_TOUCH_M) / CELL); gx <= Math.floor((bbox[2] + ORPHAN_TOUCH_M) / CELL); gx++)
+        for (let gz = Math.floor((bbox[1] - ORPHAN_TOUCH_M) / CELL); gz <= Math.floor((bbox[3] + ORPHAN_TOUCH_M) / CELL); gz++)
+          out.push(`${gx},${gz}`);
+      return out;
+    };
+    const indexByCells = (list, ptsOf) => {
+      const grid = new Map();
+      list.forEach((item, ii) => {
+        for (const k of cellsOf(bboxOf(ptsOf(item)))) {
+          if (!grid.has(k)) grid.set(k, []);
+          grid.get(k).push(ii);
+        }
+      });
+      return grid;
+    };
+    // Ribbon contact: a node is grounded when it touches any
+    // ground ribbon (deck beds have none, as everywhere here).
+    const ribbons = [];
+    roadbeds.forEach((b, bi) => { const rp = ribbonOf(bi); if (rp) ribbons.push(rp); });
+    const ribGrid = indexByCells(ribbons, (r) => r);
+    const grounded = new Array(nodes.length).fill(false);
+    nodes.forEach((n, ni) => {
+      const cand = new Set();
+      for (const k of cellsOf(n.bbox)) for (const ii of ribGrid.get(k) || []) cand.add(ii);
+      for (const ri of cand) if (polyDist(n.pts, ribbons[ri]) <= ORPHAN_TOUCH_M) { grounded[ni] = true; break; }
+    });
+    // Sibling contact: union-find over near pairs.
+    const parent = nodes.map((_, i) => i);
+    const find = (i) => { while (parent[i] !== i) { parent[i] = parent[parent[i]]; i = parent[i]; } return i; };
+    const nodeGrid = indexByCells(nodes, (n) => n.pts);
+    nodes.forEach((n, ni) => {
+      const cand = new Set();
+      for (const k of cellsOf(n.bbox)) for (const ii of nodeGrid.get(k) || []) if (ii > ni) cand.add(ii);
+      for (const nj of cand) {
+        if (find(nj) === find(ni)) continue;
+        if (polyDist(n.pts, nodes[nj].pts) <= ORPHAN_TOUCH_M) parent[find(nj)] = find(ni);
+      }
+    });
+    const compGrounded = new Map();
+    nodes.forEach((n, ni) => { if (grounded[ni]) compGrounded.set(find(ni), true); });
+    const keepNode = nodes.map((n, ni) => !!compGrounded.get(find(ni)));
+    // Apply: a dropped ring removes the whole cap; dropped
+    // extras/pieces leave their lists (areas recomputed).
+    const dropCaps = new Set();
+    nodes.forEach((n, ni) => { if (!keepNode[ni] && n.which === 'ring') dropCaps.add(n.cap); });
+    for (let ci = caps.length - 1; ci >= 0; ci--) {
+      if (dropCaps.has(ci)) { caps.splice(ci, 1); continue; }
+      const c = caps[ci];
+      const keptE = [], keptP = [];
+      nodes.forEach((n, ni) => {
+        if (n.cap !== ci || !keepNode[ni]) return;
+        if (n.which === 'extra') keptE[n.idx] = c.extras[n.idx];
+        if (n.which === 'piece') keptP[n.idx] = c.pieces[n.idx];
+      });
+      const newE = keptE.filter(Boolean), newP = keptP.filter(Boolean);
+      if (newE.length !== (c.extras || []).length || newP.length !== (c.pieces || []).length) {
+        c.extras = newE;
+        c.pieces = newP;
+        c.extraArea = Math.round(newE.reduce((s, e) => s + polyArea(ringPoints(e.ring)), 0));
+        c.area = Math.round(polyArea(ringPoints(c.ring)) + newP.reduce((s, p) => s + polyArea(ringPoints(p.ring)), 0));
+      }
+    }
+  }
   return caps;
 }
 
