@@ -4,6 +4,7 @@ import { planTaipeiBuildings, taipeiCityBlocksOptions, createTaipei101, createTa
 import { buildSidewalkBands, planStreetTrees, planParkTrees } from './taipei-streetscape.js';
 import { AvatarFigure } from './avatar-figure.js';
 import { buildPaintedBands } from './taipei-painted.js';
+import { buildAirfieldPaint } from './taipei-airfield.js';
 import { SURFACE_TONES, surfaceClass, buildMedianStrips, isPlazaPark, isPodiumBlock, podiumCentresOf, memorialPaving, MEMORIAL_GRID_TONE } from './taipei-surfaces.js';
 import { buildRoadMarkings, detectJunctions, DASH_LEN, DASH_GAP, STRIPE_W, STRIPE_PITCH } from './taipei-markings.js';
 import { planJunctionCaps, planRoundabouts, ringPoints, CAP_Y, ISLAND_Y } from './taipei-junctions.js';
@@ -38,7 +39,8 @@ import { createBuildProgress, TAIPEI_BUILD_STAGES } from './taipei-progress.js';
 //
 // Layer heights are a flat-ground visual stack only (land 0, block rects
 // 0.02, podium blocks 0.021, airfield site 0.022, airfield hard
-// surfaces 0.024, Tamsui riverside band 0.025, water 0.03, parks 0.04, plaza paving 0.041,
+// surfaces 0.024, Tamsui riverside band 0.025, airfield car-park
+// pads 0.0255, airfield paint 0.026-0.028, water 0.03, parks 0.04, plaza paving 0.041,
 // street-section bands 0.045, non-carriageway paths 0.05, carriageways
 // 0.06, junction caps 0.061, boulevard median strips 0.062,
 // roundabout islands 0.0635, painted-walkway green band 0.065
@@ -678,6 +680,18 @@ export async function buildTaipeiGround(scene, tile, deps = {}) {
   if (geo.airfield?.site?.length) {
     addLayer(flatPolygonGeometry(geo.airfield.site.map((s) => s.ring), 0.022), mat(0x7f9673, 0.95), 'TaipeiAirfieldSite');
     if (geo.airfield.surfaces?.length) addLayer(flatPolygonGeometry(geo.airfield.surfaces, 0.024), mat(0x9d9d97, 0.6), 'TaipeiAirfieldSurfaces');
+    // Airfield detail (issue #135): the terminal car-park pads in
+    // asphalt at 0.0255 and the paint layer (js/taipei-airfield.js)
+    // — taxiway edge lines 0.026, centrelines + stand lead-ins
+    // 0.027, runway white 0.028 — all flat paint on the site in
+    // the markings stack's manner, below water so nothing here
+    // can paint over the Keelung River channel at the field's
+    // east end.
+    const paint = buildAirfieldPaint(geo.airfield);
+    if (paint.pads.length) addLayer(flatPolygonGeometry(paint.pads, 0.0255), mat(0x8f8f8b, 0.97), 'TaipeiAirfieldParking');
+    if (paint.yellowEdge.length) addLayer(quadsGeometry(paint.yellowEdge, 0.026), mat(0xd9a514, 0.9), 'TaipeiAirfieldTaxiwayEdges');
+    if (paint.yellowCentre.length) addLayer(quadsGeometry(paint.yellowCentre, 0.027), mat(0xd9a514, 0.9), 'TaipeiAirfieldTaxiwayCentres');
+    if (paint.white.length) addLayer(quadsGeometry(paint.white, 0.028), mat(0xe9e9e2, 0.9), 'TaipeiAirfieldRunwayPaint');
   }
   // Tamsui riverside band (issue #137): bank-offset rings at 0.025 in
   // the park tone — under the water layer (0.03), so the channel stays
@@ -928,6 +942,14 @@ export async function buildTaipeiGround(scene, tile, deps = {}) {
   if (tower) group.add(tower);
   const landmarkTowers = createTaipeiLandmarkTowers(THREE, plan, landmarkFactories);
   if (landmarkTowers) group.add(landmarkTowers);
+  // Songshan Airport site structures (issue #135): the terminal
+  // complex, rendered with the landmark massing path but kept
+  // off the registry (no pins/search) — see
+  // AIRPORT_SITE_STRUCTURES in js/taipei-buildings.js.
+  if (plan.siteStructures?.length) {
+    const siteStructures = createTaipeiLandmarkTowers(THREE, { landmarkTowers: plan.siteStructures }, landmarkFactories);
+    if (siteStructures) { siteStructures.name = 'TaipeiAirportSiteStructures'; group.add(siteStructures); }
+  }
   console.info(`[taipei-buildings] ${plan.lots.length} buildings via upstream building system + Taipei 101 massing (508 m) + ${plan.landmarkTowers.length} landmark structures planned in ${Math.round(performance.now() - buildingsStart)}ms`);
   await completeStage('buildings', `${plan.lots.length} buildings, ${plan.landmarkTowers.length} landmark structures + Taipei 101`);
 

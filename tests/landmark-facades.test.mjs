@@ -40,6 +40,8 @@ const EXPECTED_FACADES = {
   // hall's concrete grid (the chimney parts are flat-coloured).
   'grand-hotel': 'prewar',
   'beitou-incinerator': 'prewar',
+  // Issue #135: the Twin Towers — blue-glass curtain pair.
+  'taipei-twin-towers': 'curtain',
   // Batch 7 (issue #144): TPAC — the cube's corrugated dark
   // glass takes the curtain factory; the sphere and theatre
   // boxes are matte aluminium flat overrides on their parts.

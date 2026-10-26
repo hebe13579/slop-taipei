@@ -541,6 +541,10 @@ test('landmark structures: true positions and heights, sites kept clear', (t) =>
     // estimated in the registry (see the batch-4 test).
     'shin-kong-life-tower': { h: 244.15, x: -5016.4, z: -1458.4 },
     'taipei-main-station': { h: 48, x: -4839.7, z: -1623.1 },
+    // Issue #135: the completed Taipei Twin Towers on the C1/D1
+    // parcels — 369 m overall (SOM project page; D1 369 m /
+    // 73F per Kumagai Gumi; C1 steps to 289 in the same entry).
+    'taipei-twin-towers': { h: 369, x: -5231.9, z: -1746.9 },
     'chiang-kai-shek-memorial-hall': { h: 70, x: -4388.2, z: -200.6 },
     'national-concert-hall': { h: 37, x: -4616.0, z: -441.4 },
     'national-theater': { h: 37, x: -4718.7, z: -256.9 },
@@ -1076,7 +1080,18 @@ test('taiwan types: family zoning, distribution and rooftop clamp', (t) => {
   // F4 -3, F5 -2 — two neighbours also change family as their
   // face-statistic heights move), masonry -1, Taiwan -2:
   // glass 4,348 - 4 = 4,344.
-  assert.equal(glass, 4344, 'glass family counts after #136 + #139, composed with #134 + #137 and #144');
+  // Gate composition with issue #135 (Taipei Twin Towers),
+  // measured on this tree by lot-by-lot diff against the
+  // pre-#135 plan: the C1 site + D1 plaza rects exclude exactly
+  // 47 lots (38,396 -> 38,349), ALL of them glass — the parcels
+  // stand in the station-front office core, where the frontage
+  // stock is glass by the core rule — and 8 kept lots on the
+  // parcels' blocks re-roll their family (5 glass -> masonry,
+  // 1 glass -> Taiwan, 2 masonry -> masonry): glass
+  // 4,348 - 47 - 6 = 4,295.
+  // Merged tree (#135 composed with #144): the two sites are
+  // independent — glass 4,344 - 53 = 4,291.
+  assert.equal(glass, 4291, 'glass family counts after #136 + #139 + #135, composed with #134 + #137 and #144');
   const masonry = opts.lots.filter((l) => l.mat <= 2).length;
   // Range re-based for issue #65: the exact ribbon exclusion removed
   // ~4,400 masonry lots that stood on ribbons or in medians; masonry
