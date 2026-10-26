@@ -368,15 +368,38 @@ test('real tile: no painted band, median strip or dash quad centre inside a cap'
   // T18 median rule shortens unclipped medians at minor
   // through-crossings — band and edge bites are unchanged
   // (1,533 / 3,026: painted centres never fell in the phantom
-  // rings), the median bite falls 3,568 -> 3,311; the clipped
+  // rings), the median bite falls 3,568 -> 3,362; the clipped
   // builders still put exactly 0 there.
+  // Pin correction (gate send-back, 2026-10-26): the first
+  // #178 pin read 3,311, but that number was measured BEFORE
+  // the T18 under-deck guard landed in buildMedianStrips
+  // (minorCrossBlocked's underDeck exemption). Provenance,
+  // re-derived on the pushed tree (7db5a6a): with the guard
+  // disabled the bite reproduces 3,311 EXACTLY in this test's
+  // own occluder form; with the guard as shipped it is 3,362
+  // (deterministic, repeated runs). The guard restores 375
+  // unclipped median quads tile-wide (58,797 -> 59,172);
+  // exactly 51 of them bite, and the 51 are a pure superset
+  // (the guard removes no biting quad). All 51 quad centres
+  // lie inside BOTH a deck ribbon and a cap ring (0 inside
+  // roundabout discs/aprons); attributed by nearest median
+  // bed they belong to 市民大道高架道路 (31), 建國快速道路
+  // (10), 重陽橋 (4), 麥帥一橋 (4), 社子大橋 (1) and
+  // 民族東路 (1, at a deck crossing). They are correctly
+  // biting, not a regression: at a deck crossing the median
+  // is the deck's own divider / pier island, which a minor
+  // ground lane passing underneath must not break — that is
+  // the guard's stated design — and the shipped clipped
+  // builders still put exactly 0 median quads inside the
+  // occluders (asserted above), so rendered output is
+  // unchanged by the correction; only the census pin moves.
   const unclipped = buildPaintedBands(beds);
   assert.equal(unclipped.band.filter(inOcc).length, 1533,
     `unclipped bands inside occluders: ${unclipped.band.filter(inOcc).length}`);
   assert.equal(unclipped.edges.filter(inOcc).length, 3026,
     `unclipped edges inside occluders: ${unclipped.edges.filter(inOcc).length}`);
   const unclippedMedians = buildMedianStrips(beds);
-  assert.equal([...unclippedMedians.plain, ...unclippedMedians.planted].filter(inOcc).length, 3311,
+  assert.equal([...unclippedMedians.plain, ...unclippedMedians.planted].filter(inOcc).length, 3362,
     'unclipped medians inside occluders');
 });
 
