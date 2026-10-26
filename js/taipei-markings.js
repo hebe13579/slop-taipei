@@ -64,6 +64,16 @@
 // mirrors the roundabout ring-arm exclusion in the furniture
 // builder: furniture follows the carriageways at grade.
 //
+// DECK BEDS AND DIVIDERS (issue #162). The same flag predicate
+// governs lane dividers, which are planned per bed, not per arm:
+// a deck-flagged bed gets NO dividers. Until this fix the divider
+// builder had no deck check, so every qualifying elevated bed
+// (91 beds tile-wide) painted its lane lines at ground Y 0.068
+// under its own viaduct — 23,378 dash quads, 34.9 km of paint on
+// the surface below the decks (measured census in the tests).
+// The ground beds under a deck (the at-grade street in the same
+// corridor) are different beds and keep their dividers.
+//
 // RENDER FORM (issue #90): the plan above is unchanged — dashes and
 // stripes are still enumerated exactly as before (the tests pin
 // them) — but the renderer no longer bakes them as solid quads.
@@ -162,7 +172,7 @@ export function laneLayout(bed) {
 }
 
 export const dividersFor = (bed) =>
-  !!bed && classRank(bed.highway) >= DIVIDER_MIN_RANK && laneLayout(bed).boundaries.length > 0;
+  !!bed && !bed.deck && classRank(bed.highway) >= DIVIDER_MIN_RANK && laneLayout(bed).boundaries.length > 0;
 
 // Densify a centreline to points at most stepM apart (vertices kept).
 function densify(pts, stepM) {
@@ -298,9 +308,15 @@ export function buildLaneDividers(roadbeds, suppress = new Map(), medianStrips =
 
   const dashes = [];
   const dashStrips = [];
-  const stats = { beds: 0, dashQuads: 0, dividerKm: 0, medianBlockedSamples: 0 };
+  const stats = { beds: 0, dashQuads: 0, dividerKm: 0, medianBlockedSamples: 0, deckBedsSkipped: 0 };
   roadbeds.forEach((bed, selfIdx) => {
-    if (!dividersFor(bed)) return;
+    if (!dividersFor(bed)) {
+      // Census only (issue #162): a deck-flagged bed that passes
+      // the class + lane gates is counted, so the tile-wide count
+      // re-pin is a measured deck delta, not a guess.
+      if (bed && bed.deck && classRank(bed.highway) >= DIVIDER_MIN_RANK && laneLayout(bed).boundaries.length > 0) stats.deckBedsSkipped++;
+      return;
+    }
     const { boundaries } = laneLayout(bed);
     const selfWays = new Set(bed.sourceWayIds || []);
     const densified = densifyPts(ptsOf(bed), SAMPLE_STEP_M);
@@ -802,6 +818,7 @@ export function buildRoadMarkings(roadbeds, medianStrips = null, caps = null, ju
       junctions: junctions.length,
       signalized: furniture.stats.junctions,
       dividerBeds: dividers.stats.beds,
+      deckDividerBedsSkipped: dividers.stats.deckBedsSkipped,
       dashQuads: dividers.stats.dashQuads,
       dividerKm: dividers.stats.dividerKm,
       medianBlockedSamples: dividers.stats.medianBlockedSamples,
