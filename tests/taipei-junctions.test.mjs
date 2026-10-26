@@ -398,8 +398,20 @@ test('real tile: no painted band, median strip or dash quad centre inside a cap'
     `unclipped bands inside occluders: ${unclipped.band.filter(inOcc).length}`);
   assert.equal(unclipped.edges.filter(inOcc).length, 3026,
     `unclipped edges inside occluders: ${unclipped.edges.filter(inOcc).length}`);
+  // Bite re-pinned for issue #167: deck-flagged beds' strips no
+  // longer join the ground lists this census reads (they route to
+  // deckBands, the pier-exemption set), and 522 of the 3,362
+  // unclipped biting quads were the deck beds' OWN quads (their
+  // centrelines cross a cap ring at every interchange — the
+  // 市民大道高架/建國/新生高架 expressway beds and the bridge
+  // decks; tagged per-bed census in the #167 PR). The ground bite
+  // falls 3,362 -> 2,840 by exactly the deck-attributed share;
+  // the remaining 2,840 are the same ground quads as before
+  // (ground emission is byte-identical), and the clipped builders
+  // still put exactly 0 inside the occluders (asserted above).
+  // The band/edge bites are untouched.
   const unclippedMedians = buildMedianStrips(beds);
-  assert.equal([...unclippedMedians.plain, ...unclippedMedians.planted].filter(inOcc).length, 3362,
+  assert.equal([...unclippedMedians.plain, ...unclippedMedians.planted].filter(inOcc).length, 2840,
     'unclipped medians inside occluders');
 });
 

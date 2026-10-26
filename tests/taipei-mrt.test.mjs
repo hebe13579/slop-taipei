@@ -327,7 +327,8 @@ test('piers: never in a lot, never in a crossing street (same rule as road decks
   const ribbons = groundBeds.map((b) => ribbonPoly(b));
   const ribbonGrid = buildPolyGrid(ribbons);
   const med = buildMedianStrips(TAIPEI_GEO.roadbeds, null);
-  const medPolys = [...med.plain, ...med.planted].map((quad) => [[quad[0], quad[1]], [quad[2], quad[3]], [quad[4], quad[5]], [quad[6], quad[7]]]);
+  // Median bands at any level (issue #167), as in the decks test.
+  const medPolys = [...med.plain, ...med.planted, ...med.deckBands].map((quad) => [[quad[0], quad[1]], [quad[2], quad[3]], [quad[4], quad[5]], [quad[6], quad[7]]]);
   const medGrid = buildPolyGrid(medPolys);
   const bedParallelNear = (bed, p) => {
     const pts = bed.pts || [];

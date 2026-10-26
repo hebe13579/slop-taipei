@@ -256,7 +256,9 @@ check(roadbedM < preMergeM, 'rendered carriageway is shorter than pre-merge (mer
     const groundRibbons = groundBedsV.map((b) => ribbonPoly(b));
     const ribbonGrid = buildPolyGrid(groundRibbons);
     const med = buildMedianStrips(G.roadbeds || [], null);
-    const medPolys = [...med.plain, ...med.planted].map((quad) => [[quad[0], quad[1]], [quad[2], quad[3]], [quad[4], quad[5]], [quad[6], quad[7]]]);
+    // Median bands at ANY level (issue #167): ground strips plus
+    // deck bands — the pier-island exemption (see build-elevated).
+    const medPolys = [...med.plain, ...med.planted, ...med.deckBands].map((quad) => [[quad[0], quad[1]], [quad[2], quad[3]], [quad[4], quad[5]], [quad[6], quad[7]]]);
     const medGrid = buildPolyGrid(medPolys);
     const lots = planTaipeiBuildings(G).lots;
     const bedParallelNear = (bed, p) => {

@@ -149,11 +149,27 @@ test('geodata: median bed counts match the regenerated evidence list', () => {
   assert.equal(planted, 195);
   assert.equal(plain, 464);
   const { stats } = buildMedianStrips(TAIPEI_GEO.roadbeds);
-  assert.equal(stats.plantedBeds, 195);
-  assert.equal(stats.plainBeds, 464);
+  // Issue #167: the builder routes deck-flagged beds' strips out
+  // of the ground lists (into deckBands, the pier-exemption set) —
+  // a deck bed's carriageway is the elevated deck, so its
+  // centreline strip painted a pale band on the ground beneath
+  // the viaduct (the median sibling of the #162 dash fix). 68 of the eligible
+  // beds above are deck-flagged (6 planted + 62 plain: the
+  // expressway beds 建國/市民大道/新生高架/洲美/新北環河 and the
+  // river-bridge beds), so the BUILT bed counts fall 195 -> 189
+  // planted and 464 -> 402 plain, and the no-cap rendered lengths
+  // fall by exactly the measured deck share (planted 30.302 ->
+  // 29.026 km, plain 86.837 -> 69.218 km; tagged per-bed census in
+  // the #167 PR). The medianKind eligibility census above is
+  // unchanged — the rule still describes which beds WOULD carry a
+  // median (taipei-markings' laneLayout reads it), and ground
+  // beds' emitted quads are byte-identical to the pre-fix build.
+  assert.equal(stats.plantedBeds, 189);
+  assert.equal(stats.plainBeds, 402);
+  assert.equal(stats.deckBedsSkipped, 68);
   assert.equal(stats.excludedUnderpass, 4); // 象山隧道 x3 + 復北地下道
-  assert.ok(stats.plantedKm > 28 && stats.plantedKm < 36, `planted rendered ${stats.plantedKm} km`);
-  assert.ok(stats.plainKm > 85 && stats.plainKm < 95, `plain rendered ${stats.plainKm} km`);
+  assert.ok(stats.plantedKm > 28 && stats.plantedKm < 30, `planted rendered ${stats.plantedKm} km`);
+  assert.ok(stats.plainKm > 68 && stats.plainKm < 71, `plain rendered ${stats.plainKm} km`);
 });
 
 test('medianStripWidth clamps to 1.2–3.5 m at 8% of bed width', () => {
@@ -234,6 +250,29 @@ test('an underpass bed emits no strip quads at all', () => {
   const { planted, plain, stats } = buildMedianStrips([up]);
   assert.equal(planted.length + plain.length, 0);
   assert.equal(stats.excludedUnderpass, 1);
+});
+
+test('issue #167: a deck-flagged bed emits no ground strip; ground strips are untouched', () => {
+  const deckBed = bed('市民大道高架道路', 'trunk', 20, [1, 2], [-100, 0, 100, 0]);
+  deckBed.deck = true;
+  const only = buildMedianStrips([deckBed]);
+  assert.equal(only.planted.length + only.plain.length, 0, 'a deck bed paints no strip on the ground under its deck');
+  assert.ok(only.deckBands.length > 0, 'its strip is routed to deckBands (the pier-exemption set), not dropped');
+  assert.equal(only.stats.deckBedsSkipped, 1);
+  assert.equal(only.stats.plainBeds, 0);
+  // Eligibility is unchanged: medianKind still calls the bed
+  // 'plain' — the suppression is the build-time deck rule, not a
+  // kind change (taipei-markings' laneLayout reads medianKind).
+  assert.equal(medianKind(deckBed), 'plain');
+  // The same bed without the flag emits; and a ground boulevard
+  // running beside a deck bed emits byte-identical quads with or
+  // without the deck bed in the set (it only stops occluding
+  // nothing it used to emit — its ribbon never reaches the strip).
+  const ground = bed('市民大道', 'primary', 20, [3, 4], [-100, 30, 100, 30]);
+  const alone = buildMedianStrips([ground]);
+  const withDeck = buildMedianStrips([ground, deckBed]);
+  assert.ok(alone.plain.length > 0, 'the ground boulevard keeps its strip');
+  assert.deepEqual(withDeck.plain, alone.plain, 'ground strip quads unchanged by the deck bed overhead');
 });
 
 test('plaza classification: 廣場 polygons are paving, real parks stay green', () => {
@@ -330,12 +369,16 @@ test('medtip (issue #173): boot-path census — median overlap of junction surfa
     for (let i = 0; i < 8; i += 2) if (pointInAnyPoly(grid, capPolys, [q[i], q[i + 1]])) cornersIn++;
   }
   assert.equal(cornersIn, 0, 'no median quad corner inside a junction surface');
-  assert.ok(stats.plantedKm > 28 && stats.plantedKm < 29, `planted ${stats.plantedKm} km on the boot path`);
-  // Re-pinned for issue #178 (the T18 through-crossing rule):
-  // plain 81.512 -> 81.045 km on this wiring (planted 28.367 ->
-  // 28.125, still inside its band) — the through-crossing breaks
-  // remove 1.216 km of median at minor lanes crossing a divided
-  // road outright, and the under-deck guard restores 0.749 km of
-  // it where an elevated deck crosses overhead (pier islands).
-  assert.ok(stats.plainKm > 81 && stats.plainKm < 82, `plain ${stats.plainKm} km on the boot path`);
+  // Re-pinned for issue #167 (deck suppression): the boot wiring
+  // loses the deck beds' own strips — planted 28.125 -> 26.906 km
+  // and plain 81.045 -> 64.514 km (the deck share on this wiring:
+  // 611 planted quads / 1.219 km + 8,332 plain quads / 16.531 km,
+  // tagged census in the #167 PR). The corner discipline above is
+  // unchanged: ground medians still terminate at surfaces.
+  assert.ok(stats.plantedKm > 26 && stats.plantedKm < 27, `planted ${stats.plantedKm} km on the boot path`);
+  // (Previous value: plain 81.512 -> 81.045 for issue #178 — the
+  // T18 through-crossing breaks removed 1.216 km at minor lanes
+  // crossing a divided road outright, and its under-deck guard
+  // restored 0.749 km where a deck crosses overhead.)
+  assert.ok(stats.plainKm > 64 && stats.plainKm < 65, `plain ${stats.plainKm} km on the boot path`);
 });

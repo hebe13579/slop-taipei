@@ -68,8 +68,10 @@ export function surfaceClass(bed) {
 // strip, and the trunk tunnels grow none either. The name is the only
 // honest signal at this layer — the generated roadbeds carry no layer
 // or tunnel tags (same reasoning as taipei-streetscape.js's tree
-// exclusion). Elevated corridors need no name rule here: they render
-// as simple boulevards, plain concrete divider included.
+// exclusion). Elevated corridors need no name rule either, but they
+// DO need the deck rule at build time (issue #167): a deck-flagged
+// bed's carriageway is the elevated deck itself, so its strip must
+// never join the GROUND layers — see deckBands in buildMedianStrips.
 
 export const UNDERPASS_NAME = /地下道|隧道|車行地下道/;
 export const isUnderpassName = (name) => UNDERPASS_NAME.test(name || '');
@@ -132,14 +134,34 @@ const ptsOf = (b) => {
   return p;
 };
 
-// buildMedianStrips(roadbeds, capPolys = null) -> { planted, plain, stats }
+// buildMedianStrips(roadbeds, capPolys = null) -> { planted, plain, deckBands, stats }
 // roadbeds: ALL carriageway roadbeds (every bed is a potential junction
 // occluder, as in buildPaintedBands). planted/plain are arrays of quads
 // [x1,z1, x2,z2, x3,z3, x4,z4] in the same strip order the renderer's
 // quadsGeometry consumes (a+hi, b+hi, b+lo, a+lo). capPolys (issue
 // #66): junction-cap polygons as point arrays — a strip sample inside
 // any cap is blocked, so no median strip crosses a junction core the
-// bed-ribbon clip alone left open at the corners.
+// bed-ribbon clip alone left open at the corners. Deck-flagged beds
+// route their strips to a separate deckBands array, NEVER to the
+// ground lists (issue #167, the median sibling of the #162 dash
+// fix): the strip lists are flat ground geometry, and a deck bed's
+// carriageway is the elevated deck — its centreline strip painted a
+// pale band on the ground beneath the viaduct (68 eligible deck beds
+// tile-wide, 17.8 km of strip on the boot wiring). The predicate is
+// the bed.deck FLAG, not the road class — the same discipline as
+// dividersFor in taipei-markings.js. deckBands is NOT ground
+// geometry: nothing renders it and it occludes no dashes. It exists
+// for the pier-exemption queries (build-elevated, validate, the
+// decks/MRT tests), which ask whether a median band exists at a
+// point at ANY level — an expressway pier stands in its own deck's
+// median band (the pier island), including where a minor street
+// passes underneath, and 7 baked piers tile-wide rely on exactly
+// that reading. medianKind is deliberately NOT changed: it stays
+// the eligibility rule taipei-markings' laneLayout reads for dash
+// layout. A deck bed still OCCLUDES other beds' strips exactly as
+// before (the foreign/minor/deck grids are built from all beds,
+// untouched); only its ground emission stops, so every ground bed's
+// quads are byte-identical to the pre-fix build.
 export function buildMedianStrips(roadbeds, capPolys = null) {
   const capGrid = capPolys ? buildPolyGrid(capPolys) : null;
   const capBlocked = (p) => pointInAnyPoly(capGrid, capPolys, p);
@@ -220,15 +242,23 @@ export function buildMedianStrips(roadbeds, capPolys = null) {
   };
 
   const out = { planted: [], plain: [] };
+  const deckBands = [];
   const stats = {
-    plantedBeds: 0, plainBeds: 0, excludedUnderpass: 0,
+    plantedBeds: 0, plainBeds: 0, excludedUnderpass: 0, deckBedsSkipped: 0,
     plantedQuads: 0, plainQuads: 0, plantedKm: 0, plainKm: 0,
   };
   roadbeds.forEach((r, selfIdx) => {
     if (isUnderpassName(r.name) && Array.isArray(r.sourceWayIds) && r.sourceWayIds.length > 1 && (r.width || 0) >= MEDIAN_MIN_WIDTH) stats.excludedUnderpass++;
     const kind = medianKind(r);
     if (!kind) return;
-    stats[kind === 'planted' ? 'plantedBeds' : 'plainBeds']++;
+    // Issue #167: a deck-flagged bed's strip is routed to
+    // deckBands, never to the ground lists (see the header note).
+    // Counted like the #162 dash census (deckBedsSkipped) so the
+    // tile-wide delta is a measured number, not a guess: 68
+    // eligible deck beds on the current tile.
+    const isDeck = !!r.deck;
+    if (isDeck) stats.deckBedsSkipped++;
+    else stats[kind === 'planted' ? 'plantedBeds' : 'plainBeds']++;
     const half = medianStripWidth(r) / 2;
     const selfWays = new Set(r.sourceWayIds);
     const pts = densify(ptsOf(r));
@@ -255,7 +285,7 @@ export function buildMedianStrips(roadbeds, capPolys = null) {
         capBlocked([p[0] - nx * half, p[1] - nz * half]);
       return { p, nx, nz, blocked };
     });
-    const sink = out[kind];
+    const sink = isDeck ? deckBands : out[kind];
     for (let i = 0; i + 1 < frames.length; i++) {
       const f0 = frames[i], f1 = frames[i + 1];
       if (f0.blocked || f1.blocked) continue;
@@ -272,11 +302,13 @@ export function buildMedianStrips(roadbeds, capPolys = null) {
         f1.p[0] - f1.nx * half, f1.p[1] - f1.nz * half,
         f0.p[0] - f0.nx * half, f0.p[1] - f0.nz * half,
       ]);
-      stats[kind === 'planted' ? 'plantedQuads' : 'plainQuads']++;
-      stats[kind === 'planted' ? 'plantedKm' : 'plainKm'] += Math.hypot(f1.p[0] - f0.p[0], f1.p[1] - f0.p[1]) / 1000;
+      if (!isDeck) {
+        stats[kind === 'planted' ? 'plantedQuads' : 'plainQuads']++;
+        stats[kind === 'planted' ? 'plantedKm' : 'plainKm'] += Math.hypot(f1.p[0] - f0.p[0], f1.p[1] - f0.p[1]) / 1000;
+      }
     }
   });
-  return { planted: out.planted, plain: out.plain, stats };
+  return { planted: out.planted, plain: out.plain, deckBands, stats };
 }
 
 // ---------------------------------------------------------------------
