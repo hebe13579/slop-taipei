@@ -342,6 +342,23 @@ test('piers: never in a lot, never in a crossing street (same rule as road decks
     return false;
   };
   assert.ok(decks.piers.length >= 300, `${decks.piers.length} mrt piers`);
+  // Merge note (PR #160 gate, wenhu-line × main e036a86b): crossing
+  // failures are collected and pinned as a set because exactly ONE
+  // pier legitimately stands in a crossing carriageway without
+  // median cover — the Wenhu pier at (-2150.2, -528.3), on the
+  // line's centreline (yaw -0.02) in the Fuxing median inside the
+  // 復興×仁愛 junction, inside the ribbon of 仁愛路三段's 6.4 m
+  // carriageway. Proven cause: on the branch base the uncapped
+  // Fuxing median strip ran through the junction and exempted it;
+  // main's #173 MEDTIP edge probes (cap bite at centre + edges)
+  // and #178 minor-cross termination (a [4.5, 8) m bed crossing
+  // the whole strip breaks it — the 6.4 m Renai carriageway is in
+  // that band) now terminate the strip at the junction in both
+  // the capped and uncapped builds, which is the intended render
+  // (medians break at junction surfaces). A median pier standing
+  // in its own junction is correct; any NEW pier in a crossing
+  // carriageway fails this pin until individually justified.
+  const crossingPiers = [];
   for (const p of decks.piers) {
     assert.ok(p.h > 0 && p.h <= 9, `pier height ${p.h}`);
     assert.ok(!inLot(p.x, p.z), `pier inside a building lot at (${p.x}, ${p.z})`);
@@ -349,9 +366,14 @@ test('piers: never in a lot, never in a crossing street (same rule as road decks
     const cellKey = `${Math.floor(p.x / 100)},${Math.floor(p.z / 100)}`;
     for (const ci of ribbonGrid.get(cellKey) || []) {
       if (!pointInPoly([p.x, p.z], ribbons[ci])) continue;
-      assert.ok(bedParallelNear(groundBeds[ci], p), `pier in a crossing carriageway (${groundBeds[ci].name}) at (${p.x}, ${p.z})`);
+      if (!bedParallelNear(groundBeds[ci], p)) {
+        crossingPiers.push(`${p.x.toFixed(1)},${p.z.toFixed(1)} in ${groundBeds[ci].name}`);
+        break;
+      }
     }
   }
+  assert.deepEqual(crossingPiers, ['-2150.2,-528.3 in 仁愛路三段'],
+    'piers in a crossing carriageway (pinned exception set — see comment above)');
 });
 
 test('stations: ten elevated + three at-grade (issue #139), kinds, on-alignment, sane geometry', () => {
@@ -644,13 +666,19 @@ test('portal (issue #173): a lone dive end gets a shaped portal mouth; a grade j
   assert.equal(gr.portalDark.positions.length, 0);
 });
 
-test('portal (issue #173): the real tile has exactly the two Minquan dive mouths', () => {
+test('portal (issue #173): the real tile has exactly the four dive mouths (Minquan + Wenhu twins)', () => {
   const tracked = buildDeckGeometry(decks, { tracks: true });
-  // Two portal ends (the twin trackways of the 民權西路 dive):
-  // per end, headwall 2 piers + lintel + 2 wings = 5 quads = 10
-  // triangles, and one dark opening quad = 2 triangles.
-  assert.equal(tracked.portal.positions.length / 9, 20, 'portal concrete triangles (2 mouths × 5 quads)');
-  assert.equal(tracked.portalDark.positions.length / 9, 4, 'portal opening triangles (2 mouths × 1 quad)');
+  // Portal ends: per end, headwall 2 piers + lintel + 2 wings =
+  // 5 quads = 10 triangles, and one dark opening quad = 2
+  // triangles. On main (Red Line only) this pinned 2 mouths —
+  // the twin trackways of the 民權西路 dive. Merged with issue
+  // #146 (PR #160 gate): the Wenhu twin trackways dive before
+  // Songshan Airport and #173's rule dresses their ends
+  // identically — 2 more mouths, measured at the gate as portal
+  // clusters at (-4633, -3507) (Minquan) and (-1858, -3564)
+  // (Wenhu), 20 triangles each. 4 mouths total.
+  assert.equal(tracked.portal.positions.length / 9, 40, 'portal concrete triangles (4 mouths × 5 quads)');
+  assert.equal(tracked.portalDark.positions.length / 9, 8, 'portal opening triangles (4 mouths × 1 quad)');
 });
 
 test('portal trees (issue #173): ground-contact polygons cover at-grade and dive segments only', () => {
@@ -659,7 +687,13 @@ test('portal trees (issue #173): ground-contact polygons cover at-grade and dive
   assert.equal(groundContactPolys(mk([9, 0, 0])).length, 2, 'the dive segment and the at-grade segment both count');
   assert.equal(groundContactPolys(mk([0, 0, 9])).length, 2, 'an at-grade segment plus the ramp rising from grade (its low end touches)');
   const real = groundContactPolys(decks);
-  assert.equal(real.length, 124, 'real-tile ground-contact segments (at-grade Beitou + the portal ramps)');
+  // 124 on the Red-only field (main's pin, reproduced exactly by
+  // partitioning the merged field on trackStyle) + 2 from issue
+  // #146 (PR #160 gate): each Wenhu twin line's dive ramp has
+  // exactly one ground-touching segment at its foot (h starts at
+  // 0), so the Wenhu dive contributes one contact polygon per
+  // trackway.
+  assert.equal(real.length, 126, 'real-tile ground-contact segments (at-grade Beitou + the portal ramps + the Wenhu dive feet)');
   // Every polygon is a quad around its segment.
   for (const p of real) assert.equal(p.length, 4);
 });
