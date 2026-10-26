@@ -398,7 +398,10 @@ function buildDeckSet(ways, roadbeds, lots, stats) {
   const ribbons = groundBeds.map((b) => ribbonPoly(b));
   const ribbonGrid = buildPolyGrid(ribbons);
   const medians = buildMedianStrips(roadbeds || [], null);
-  const medianPolys = [...medians.plain, ...medians.planted].map((quad) => [[quad[0], quad[1]], [quad[2], quad[3]], [quad[4], quad[5]], [quad[6], quad[7]]]);
+  // Median bands at ANY level (issue #167): the ground strips plus
+  // the deck bands — a pier stands in its own deck's median band
+  // (the pier island) where a minor street passes underneath.
+  const medianPolys = [...medians.plain, ...medians.planted, ...medians.deckBands].map((quad) => [[quad[0], quad[1]], [quad[2], quad[3]], [quad[4], quad[5]], [quad[6], quad[7]]]);
   const medianGrid = buildPolyGrid(medianPolys);
   const lotGrid = new Map();
   for (const lot of lots || []) {
