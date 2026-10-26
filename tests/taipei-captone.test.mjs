@@ -5,16 +5,24 @@ import { TAIPEI_GEO } from '../js/taipei-geodata.js';
 import { pointInPoly } from '../js/taipei-painted.js';
 import { SURFACE_TONES, surfaceClass } from '../js/taipei-surfaces.js';
 import { detectJunctions } from '../js/taipei-markings.js';
-import { planJunctionCaps, planRoundabouts, ringPoints, capBlendTones, CAP_BLEND_KERNEL } from '../js/taipei-junctions.js';
+import { planJunctionCaps, planRoundabouts, ringPoints, capBlendTones, capClipPolys } from '../js/taipei-junctions.js';
 
-// Issue #91 — cap tones. The rendered cap tone is a per-vertex
-// blend of the incident arms' surface tones (capBlendTones in
-// js/taipei-junctions.js): a vertex at an arm's mouth takes that
-// arm's tone, the centre mixes all arms by width, and every
-// component stays inside the arms' tone envelope (convex
-// combination). Cap GEOMETRY is untouched by the tone rule — the
+// Cap tones — issue #172 (supersedes #91). The rendered cap
+// tone is ONE tone per junction: the width-weighted mean of the
+// incident arms' surface tones (capBlendTones in
+// js/taipei-junctions.js), carried flat by every vertex of the
+// ring, the #171 clipped pieces and the #163 strips. #91's
+// angular-kernel blend (mouths taking their arm's tone) fanned
+// differently through each piece's triangulation and rendered
+// mixed junctions as 3-5 stepped plates (the #169 sweep's SEAM
+// class; seam172-evidence probes: 14-90 distinct tones and up to
+// the full arterial<->lane luminance spread inside one surface
+// before, exactly 1 tone and zero spread after). The mouth
+// assertions below were therefore RE-PINNED by #172: mouths no
+// longer take their arm's tone — every vertex takes the junction
+// tone. Cap GEOMETRY is untouched by the tone rule — the
 // geometry pins live in taipei-junctions.test.mjs and pass
-// unedited; these tests pin the tone field the renderer draws.
+// unedited; these tests pin the tone the renderer draws.
 
 const bed = (name, highway, width, ways = [1], pts = [0, 0, 100, 0]) => ({
   name, highway, width, pedestrianLayout: 'sidewalk', pts, sourceWayIds: ways,
@@ -36,7 +44,7 @@ function distToPoly(p, poly) {
   return best;
 }
 
-test('synthetic mixed 4-way: mouths take their arm tones, centre is the width mix', () => {
+test('synthetic mixed 4-way: one junction tone everywhere, the width mix', () => {
   const beds = [
     bed('EW Blvd', 'secondary', 30, [1, 2], [-100, 0, 0, 0]),
     bed('EW Blvd', 'secondary', 30, [1, 2], [0, 0, 100, 0]),
@@ -55,21 +63,12 @@ test('synthetic mixed 4-way: mouths take their arm tones, centre is the width mi
   // arterial metres, 6 lane metres).
   const expectCentre = art.map((v, k) => (108 * v + 6 * lane[k]) / 114);
   assert.ok(dist(cap.tones.centre, expectCentre) < 0.01, `centre ${cap.tones.centre} ≈ ${expectCentre}`);
-  // The eastmost vertex sits at the wide EW arterial mouth:
-  // its tone is the arterial tone, not a mix.
-  const east = pts.reduce((m, p) => (p[0] > m[0] ? p : m));
-  const eastTone = cap.tones.ring[pts.indexOf(east)];
-  assert.ok(dist(eastTone, art) < 0.03, `east mouth tone ${eastTone} ≈ arterial ${art}`);
-  // The vertex nearest the lane arm's axis (its mouth, ~13° off
-  // axis at the cross-section end) is owned by the lane despite
-  // the 5x width disadvantage: strictly closer to the lane tone
-  // than to the arterial tone.
-  const laneArm = junctions[0].arms.find((a) => a.name === 'Lane');
-  const laneAng = Math.atan2(laneArm.dirZ, laneArm.dirX);
-  const angDiff = (p) => Math.abs(((Math.atan2(p[1] - cap.z, p[0] - cap.x) - laneAng + Math.PI * 3) % (Math.PI * 2)) - Math.PI);
-  const mouth = pts.reduce((m, p) => (angDiff(p) < angDiff(m) ? p : m));
-  const mouthTone = cap.tones.ring[pts.indexOf(mouth)];
-  assert.ok(dist(mouthTone, lane) < dist(mouthTone, art), `lane mouth tone ${mouthTone} leans lane`);
+  // RE-PINNED by #172 (was #91: 'mouths take their arm tones').
+  // Every ring vertex — the east arterial mouth and the lane
+  // mouth alike — carries the single junction tone exactly, so
+  // no fan triangulation can step plate-to-plate.
+  for (const t of cap.tones.ring)
+    assert.ok(dist(t, cap.tones.centre) < 1e-9, `vertex tone ${t} is the junction tone ${cap.tones.centre}`);
   // The fan origin is the junction centre, inside the ring.
   assert.deepEqual(cap.tones.origin, [cap.x, cap.z]);
   assert.ok(distToPoly(cap.tones.origin, pts) <= 0.75, 'origin inside the cap');
@@ -89,14 +88,29 @@ test('monochromatic junction: every tone is exactly the one arm tone', () => {
   for (const t of caps[0].tones.ring) assert.ok(dist(t, art) < 1e-3, `vertex tone ${t} is the arm tone`);
 });
 
-test('blend is deterministic and kernel-shaped', () => {
+test('tone rule is deterministic and flat across every piece of every junction', () => {
   const beds = TAIPEI_GEO.roadbeds;
   const junctions = detectJunctions(beds);
   const sites = planRoundabouts(beds, junctions);
-  const a = planJunctionCaps(beds, junctions, sites);
-  const b = planJunctionCaps(beds, junctions, sites);
+  // Production path (with the #171 green clip) so the clipped
+  // pieces are exercised, not just rings and strips.
+  const clip = capClipPolys(TAIPEI_GEO);
+  const a = planJunctionCaps(beds, junctions, sites, clip);
+  const b = planJunctionCaps(beds, junctions, sites, clip);
   assert.deepEqual(a.map((c) => c.tones), b.map((c) => c.tones), 'same plan, same tones');
-  assert.ok(CAP_BLEND_KERNEL >= 4, 'kernel falls off fast enough to keep mouths pure');
+  assert.ok(a.some((c) => (c.pieces || []).length > 0), 'the clip produced pieces to pin');
+  // Issue #172: ring, clipped pieces and strips of a junction
+  // all share the junction's single tone (the #169 SEAM class
+  // was pieces disagreeing). This replaces #91's kernel pin
+  // (CAP_BLEND_KERNEL >= 4, 'mouths pure') — the kernel field is
+  // gone; flatness is the property the renderer now relies on.
+  for (const c of a) {
+    for (const t of c.tones.ring) assert.deepEqual(t, c.tones.centre, `cap at ${c.x},${c.z}: ring vertex is the junction tone`);
+    for (const piece of [...(c.pieces || []), ...(c.extras || [])]) {
+      assert.deepEqual(piece.tones.centre, c.tones.centre, `cap at ${c.x},${c.z}: piece shares the junction tone`);
+      for (const t of piece.tones.ring) assert.deepEqual(t, c.tones.centre, `cap at ${c.x},${c.z}: piece vertex is the junction tone`);
+    }
+  }
   // capBlendTones is a pure function of junction + ring.
   const j = junctions.find((jj) => jj.arms.length >= 4);
   const cap = a.find((c) => c.x === j.x && c.z === j.z);
