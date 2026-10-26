@@ -11,6 +11,7 @@ import { planJunctionCaps, planRoundabouts, ringPoints, CAP_Y, ISLAND_Y } from '
 import { buildDeckGeometry, PIER_W, PIER_D } from './taipei-viaduct.js';
 import { buildMrtStationGeometry, buildMrtDepotGeometry } from './taipei-mrt-stations.js';
 import { buildTerrainSkinGeometry } from './taipei-terrain.js';
+import { buildGreenTintLayers, GREEN_TINT_Y } from './taipei-green.js';
 import { unionExclusionRects, clipRectToBoxes } from './taipei-union.js';
 import { createCurtainWallMaterial, createPreWarBuildingMaterial, createTaipeiMarkingMaterial, setTaipeiSignAtlases } from './tsl-materials.js';
 import { drawBandAtlas, drawBladeAtlas, BAND_ATLAS, BLADE_ATLAS, TAIPEI_BAND_SIGNS, TAIPEI_BLADE_SIGNS } from './taipei-signs.js';
@@ -671,6 +672,24 @@ export async function buildTaipeiGround(scene, tile, deps = {}) {
   for (const b of groundBlocks) (isPodiumBlock(b, centres) ? podiumBlocks : ordinaryBlocks).push(b);
   addLayer(rectsGeometry(ordinaryBlocks, 0.02), mat(SURFACE_TONES.block), 'TaipeiBlocks');
   if (podiumBlocks.length) addLayer(rectsGeometry(podiumBlocks, 0.021), mat(SURFACE_TONES.podium), 'TaipeiPodiumBlocks');
+  // Green-layer ground tint (issue #141, js/taipei-green.js): the
+  // #114 green land (farmland, wood, wetland, reserves) finally
+  // renders its own colours instead of the block grey — the Guandu
+  // plain reads green from the air. One layer per sampled tone at
+  // GREEN_TINT_Y (0.0235): above the block/podium greys, below the
+  // airfield surfaces, the riverside band (0.025), water (0.03) and
+  // parks (0.04), so every measured overlap keeps its existing
+  // winner — wetland channels stay water, park interiors stay lawn.
+  // Visual-only: the planner never reads this (its byte-identity is
+  // pinned in tests/green-tint.test.mjs).
+  const greenTint = buildGreenTintLayers(geo.green);
+  for (const layer of greenTint) {
+    addLayer(flatPolygonGeometry(layer.rings, GREEN_TINT_Y), mat(layer.tone, 0.95), 'TaipeiGreenTint');
+  }
+  if (greenTint.length) {
+    const ringCount = greenTint.reduce((s, l) => s + l.rings.length, 0);
+    console.info(`[taipei-green] ground tint: ${ringCount} rings in ${greenTint.length} tone layers at y=${GREEN_TINT_Y} (issue #141)`);
+  }
   // Songshan airfield (issue #134): the aerodrome site ground in a
   // muted field green-grey at 0.022 and its hard surfaces (runway,
   // taxiways, aprons) in pale concrete at 0.024 — both below water so
