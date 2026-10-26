@@ -122,7 +122,7 @@
 
 import { ribbonPoly, pointInPoly, buildPolyGrid, pointInAnyPoly } from './taipei-painted.js';
 import { medianKind, medianStripWidth, buildMedianStrips } from './taipei-surfaces.js';
-import { planJunctionCaps, planRoundabouts, ringPoints, capSurfacePolys } from './taipei-junctions.js';
+import { planJunctionCaps, planRoundabouts, ringPoints, capSurfacePolys, roundaboutDashOccluders } from './taipei-junctions.js';
 
 export const LANE_W = 3.2;               // generator's width-per-lane conversion
 export const DASH_LEN = 3;               // m of paint per dash
@@ -351,9 +351,12 @@ export function buildLaneDividers(roadbeds, suppress = new Map(), medianStrips =
     return false;
   };
 
-  const dashes = [];
-  const dashStrips = [];
-  const stats = { beds: 0, dashQuads: 0, dividerKm: 0, medianBlockedSamples: 0, deckBedsSkipped: 0 };
+  const stats = { beds: 0, dashQuads: 0, dividerKm: 0, medianBlockedSamples: 0, deckBedsSkipped: 0, crossPairs: 0, crossBlockedSamples: 0 };
+
+  // Pass 1: per divider bed, the densified frames and the base
+  // occlusion flags per boundary offset (everything the pre-#173
+  // inline loop computed, unchanged).
+  const planned = [];
   roadbeds.forEach((bed, selfIdx) => {
     if (!dividersFor(bed)) {
       // Census only (issue #162): a deck-flagged bed that passes
@@ -379,7 +382,7 @@ export function buildLaneDividers(roadbeds, suppress = new Map(), medianStrips =
       return { p, nx: -dz, nz: dx, arc: arc[i], vertex: densified.vertex[i], suppressed: arc[i] < supStart || totalLen - arc[i] < supEnd };
     });
     stats.beds++;
-    for (const off of boundaries) {
+    const flagsByOff = boundaries.map((off) => {
       const lo = off - DIVIDER_W / 2, hi = off + DIVIDER_W / 2;
       const blockedAt = (f) => {
         const pc = [f.p[0] + f.nx * off, f.p[1] + f.nz * off];
@@ -389,7 +392,78 @@ export function buildLaneDividers(roadbeds, suppress = new Map(), medianStrips =
         if (capBlocked(pc)) return true;
         return f.suppressed || foreignBlocked(pc, selfIdx, selfWays) || foreignBlocked(pl, selfIdx, selfWays) || foreignBlocked(ph, selfIdx, selfWays);
       };
-      const flags = frames.map(blockedAt);
+      return { off, lo, hi, flags: frames.map(blockedAt) };
+    });
+    planned.push({ bed, selfIdx, frames, flagsByOff });
+  });
+
+  // Pass 2 (issue #173, DASH class): the X-pair cull. Divider
+  // centrelines are polylines offset from kinked centrelines; at a
+  // sharp vertex the inner offsets overshoot and two emittable
+  // intervals PROPERLY CROSS — the X-pairs the #169 sweep counted at
+  // junction mouths (7 at one 光復南路 mouth) and at the 敦化北路
+  // merge kink south of 民權東路 (ji147). No real lane line crosses
+  // another: both intervals of a crossing pair are blocked at the
+  // sample level, so the quad plan and the shader strips break at
+  // the same place and the lines end at the gore, as painted lines
+  // do. Only intervals that pass every other occlusion test take
+  // part — crossings inside caps or foreign ribbons are already
+  // dead and don't count.
+  {
+    const chains = [];
+    for (const pl of planned) {
+      for (const fo of pl.flagsByOff) {
+        const pts = pl.frames.map((f) => [f.p[0] + f.nx * fo.off, f.p[1] + f.nz * fo.off]);
+        const live = [];
+        for (let i = 0; i + 1 < pts.length; i++) if (!fo.flags[i] && !fo.flags[i + 1]) live.push(i);
+        if (live.length) chains.push({ fo, pts, live });
+      }
+    }
+    const CELL = 8;
+    const segGrid = new Map();
+    chains.forEach((ch, ci) => {
+      for (const i of ch.live) {
+        const [ax, az] = ch.pts[i], [bx, bz] = ch.pts[i + 1];
+        for (let gx = Math.floor(Math.min(ax, bx) / CELL); gx <= Math.floor(Math.max(ax, bx) / CELL); gx++)
+          for (let gz = Math.floor(Math.min(az, bz) / CELL); gz <= Math.floor(Math.max(az, bz) / CELL); gz++) {
+            const k = `${gx},${gz}`;
+            if (!segGrid.has(k)) segGrid.set(k, []);
+            segGrid.get(k).push([ci, i]);
+          }
+      }
+    });
+    const orient = (a, b, p) => (b[0] - a[0]) * (p[1] - a[1]) - (b[1] - a[1]) * (p[0] - a[0]);
+    const properCross = (a, b, p, q) => {
+      const d1 = orient(a, b, p), d2 = orient(a, b, q), d3 = orient(p, q, a), d4 = orient(p, q, b);
+      return ((d1 > 0 && d2 < 0) || (d1 < 0 && d2 > 0)) && ((d3 > 0 && d4 < 0) || (d3 < 0 && d4 > 0));
+    };
+    const seenPair = new Set();
+    for (const list of segGrid.values()) {
+      for (let x = 0; x < list.length; x++) for (let y = x + 1; y < list.length; y++) {
+        const [ci, i] = list[x], [cj, j] = list[y];
+        if (ci === cj && Math.abs(i - j) <= 1) continue;
+        const pk = ci < cj || (ci === cj && i < j) ? `${ci}:${i}|${cj}:${j}` : `${cj}:${j}|${ci}:${i}`;
+        if (seenPair.has(pk)) continue;
+        seenPair.add(pk);
+        const A = chains[ci], B = chains[cj];
+        if (!properCross(A.pts[i], A.pts[i + 1], B.pts[j], B.pts[j + 1])) continue;
+        stats.crossPairs++;
+        for (const [ch, si] of [[A, i], [B, j]]) {
+          for (const fi of [si, si + 1]) {
+            if (!ch.fo.flags[fi]) { ch.fo.flags[fi] = true; stats.crossBlockedSamples++; }
+          }
+        }
+      }
+    }
+  }
+
+  // Pass 3: emission — the dash phase, the interval mid tests and
+  // the shader strip runs, exactly as before, over the final flags.
+  const dashes = [];
+  const dashStrips = [];
+  for (const { bed, selfIdx, frames, flagsByOff } of planned) {
+    const selfWays = new Set(bed.sourceWayIds || []);
+    for (const { off, lo, hi, flags } of flagsByOff) {
       for (let i = 0; i + 1 < frames.length; i++) {
         const f0 = frames[i], f1 = frames[i + 1];
         if (flags[i] || flags[i + 1]) continue;
@@ -441,7 +515,7 @@ export function buildLaneDividers(roadbeds, suppress = new Map(), medianStrips =
       }
       if (runStart >= 0) flushRun(frames.length - 1);
     }
-  });
+  }
   return { dashes, dashStrips, stats };
 }
 
@@ -1178,12 +1252,17 @@ export function buildJunctionFurniture(roadbeds, junctions, capsIn = null) {
 // At roundabout-claimed junctions, ring-carriageway arms get no
 // furniture at all (see buildJunctionFurniture): the crossings
 // stand on the ring entries only.
-export function buildRoadMarkings(roadbeds, medianStrips = null, caps = null, junctionsIn = null) {
+export function buildRoadMarkings(roadbeds, medianStrips = null, caps = null, junctionsIn = null, greenPolys = []) {
   const junctions = junctionsIn || detectJunctions(roadbeds);
   if (!caps) caps = planJunctionCaps(roadbeds, junctions);
   // Issue #163: dashes clip against the caps' full paved
   // surface (ring + arm extension strips), not the ring alone.
-  const capPolys = caps.flatMap((c) => capSurfacePolys(c));
+  // Issue #173: plus the roundabout occluders (islands, aprons and
+  // the disc-clipped wedge greens) — claimed roundabout junctions
+  // have no cap, so without these the entry lane lines fanned
+  // across the planted wedges at the Renai circle.
+  const sites = planRoundabouts(roadbeds, junctions);
+  const capPolys = [...caps.flatMap((c) => capSurfacePolys(c)), ...roundaboutDashOccluders(sites, greenPolys)];
   const furniture = buildJunctionFurniture(roadbeds, junctions, caps);
   const dividers = buildLaneDividers(roadbeds, furniture.suppress, medianStrips, capPolys);
   return {
@@ -1205,6 +1284,8 @@ export function buildRoadMarkings(roadbeds, medianStrips = null, caps = null, ju
       deckDividerBedsSkipped: dividers.stats.deckBedsSkipped,
       dashQuads: dividers.stats.dashQuads,
       dividerKm: dividers.stats.dividerKm,
+      crossPairs: dividers.stats.crossPairs,
+      crossBlockedSamples: dividers.stats.crossBlockedSamples,
       medianBlockedSamples: dividers.stats.medianBlockedSamples,
       crosswalks: furniture.stats.crosswalks,
       stopLines: furniture.stats.stopLines,

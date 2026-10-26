@@ -167,11 +167,21 @@ export function buildMedianStrips(roadbeds, capPolys = null) {
       let dx = c[0] - a[0], dz = c[1] - a[1];
       const n = Math.hypot(dx, dz) || 1; dx /= n; dz /= n;
       const nx = -dz, nz = dx;
+      // Issue #173 (MEDTIP): the cap test joins the foreign test at
+      // centre + both edges — it used to probe the centre point
+      // only, so a strip whose centre cleared a junction surface
+      // still dragged a corner across it (66 quads / 25.6 m² of
+      // median over cap tile-wide in the #169 sweep census). The
+      // painted bands (js/taipei-painted.js) have always tested
+      // their corners this way; the median now terminates with the
+      // same discipline.
       const blocked =
         foreignBlocked(p, selfIdx, selfWays) ||
         foreignBlocked([p[0] + nx * half, p[1] + nz * half], selfIdx, selfWays) ||
         foreignBlocked([p[0] - nx * half, p[1] - nz * half], selfIdx, selfWays) ||
-        capBlocked(p);
+        capBlocked(p) ||
+        capBlocked([p[0] + nx * half, p[1] + nz * half]) ||
+        capBlocked([p[0] - nx * half, p[1] - nz * half]);
       return { p, nx, nz, blocked };
     });
     const sink = out[kind];
@@ -179,7 +189,11 @@ export function buildMedianStrips(roadbeds, capPolys = null) {
       const f0 = frames[i], f1 = frames[i + 1];
       if (f0.blocked || f1.blocked) continue;
       const mid = [(f0.p[0] + f1.p[0]) / 2, (f0.p[1] + f1.p[1]) / 2];
-      if (foreignBlocked(mid, selfIdx, selfWays) || capBlocked(mid)) continue;
+      const mnx = f0.nx + f1.nx, mnz = f0.nz + f1.nz;
+      const mnl = Math.hypot(mnx, mnz) || 1;
+      if (foreignBlocked(mid, selfIdx, selfWays) || capBlocked(mid)
+        || capBlocked([mid[0] + (mnx / mnl) * half, mid[1] + (mnz / mnl) * half])
+        || capBlocked([mid[0] - (mnx / mnl) * half, mid[1] - (mnz / mnl) * half])) continue;
       sink.push([
         f0.p[0] + f0.nx * half, f0.p[1] + f0.nz * half,
         f1.p[0] + f1.nx * half, f1.p[1] + f1.nz * half,

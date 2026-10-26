@@ -344,3 +344,39 @@ test('issue #81: with boot-style exclusions, no tree stands on junction asphalt'
   for (const t of [...street.trees, ...park.trees])
     assert.ok(!pointInAnyPoly(grid, polys, [t.x, t.z]), `tree at ${t.x},${t.z} inside a junction cap/disc`);
 });
+
+test('issue #173: with the MRT ground-contact exclusions, no tree stands on the MRT ballast', async () => {
+  // The MRT corridors are not roadbeds, so neither the bed grid
+  // nor the cap exclusions covered them, and the #169 sweep frame
+  // at the s09 dive showed a tree standing on the ballast at the
+  // portal. The boot now adds the MRT beds' ground-contact
+  // polygons (at-grade stretches + the dive ramps) to the tree
+  // exclusions. Measured before: exactly 2 planned trees inside
+  // those polygons, both on the 民權西路 dive — one 2 m from the
+  // portal end.
+  const { groundContactPolys } = await import('../js/taipei-viaduct.js');
+  const geo = TAIPEI_GEO;
+  const plan = planTaipeiBuildings(geo);
+  const beds = geo.roadbeds;
+  const junctions = detectJunctions(beds);
+  const sites = planRoundabouts(beds, junctions);
+  const caps = planJunctionCaps(beds, junctions, sites);
+  const baseExclusions = [
+    ...caps.flatMap((c) => [c.ring, ...(c.extras || []).map((ex) => ex.ring)]),
+    ...sites.flatMap((s) => [s.disc.ring, ...s.aprons.map((a) => a.ring)]),
+  ];
+  const mrtPolys = groundContactPolys(geo.mrtDecks);
+  const mrtGrid = buildPolyGrid(mrtPolys);
+  const inside = (trees) => trees.filter((t) => pointInAnyPoly(mrtGrid, mrtPolys, [t.x, t.z]));
+  const before = [...inside(planStreetTrees(geo, plan, { exclusions: baseExclusions }).trees),
+    ...inside(planParkTrees(geo, plan, { exclusions: baseExclusions }).trees)];
+  assert.equal(before.length, 2, `trees on MRT ground beds before the exclusion: ${before.map((t) => `${t.x},${t.z}`)}`);
+  const exclusions = [...baseExclusions, ...mrtPolys.map((p) => p.flatMap((pt) => pt))];
+  const street = planStreetTrees(geo, plan, { exclusions });
+  const park = planParkTrees(geo, plan, { exclusions });
+  assert.equal(inside(street.trees).length + inside(park.trees).length, 0, 'no tree on an MRT ground bed');
+  // The corridor planting beside the beds is untouched: both
+  // planners still fill their caps.
+  assert.equal(street.trees.length, 3000, 'street trees still at cap');
+  assert.equal(park.trees.length, 7500, 'park trees still at cap');
+});

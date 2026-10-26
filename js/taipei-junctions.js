@@ -1567,3 +1567,44 @@ export const capSurfacePolys = (cap) => {
   for (const p of cap.pieces || []) polys.push(ringPoints(p.ring));
   return polys;
 };
+
+// Issue #173 (DASH class): the roundabout dash occluders. Claimed
+// roundabout junctions get NO cap, so the cap occlusion set never
+// covered their ground, and entry lane lines fanned across the
+// planted gore wedges between the disc rim and the island (the
+// ji161 fan in the #169 sweep). The occluders are placement
+// semantics, not more surface area: each site's ISLAND ring, its
+// apron rings, and the parts of the caller's park/green polygons
+// that fall inside the disc (the wedge parcels — clipped exactly
+// with subtractPolys: green − (green − disc)). Dashes on the
+// circulatory carriageway itself stay untouched: the annulus
+// between island and rim is not in any occluder.
+export function roundaboutDashOccluders(sites, greenPolys = []) {
+  const bboxOf = (pts) => {
+    let minX = Infinity, minZ = Infinity, maxX = -Infinity, maxZ = -Infinity;
+    for (const p of pts) {
+      if (p[0] < minX) minX = p[0];
+      if (p[0] > maxX) maxX = p[0];
+      if (p[1] < minZ) minZ = p[1];
+      if (p[1] > maxZ) maxZ = p[1];
+    }
+    return [minX, minZ, maxX, maxZ];
+  };
+  const out = [];
+  for (const s of sites || []) {
+    if (s.island?.ring) out.push(ringPoints(s.island.ring));
+    for (const a of s.aprons || []) out.push(ringPoints(a.ring));
+    if (!s.disc?.ring || !greenPolys.length) continue;
+    const disc = ringPoints(s.disc.ring);
+    const db = bboxOf(disc);
+    for (const g of greenPolys) {
+      if (!g || g.length < 3) continue;
+      const gb = bboxOf(g);
+      if (gb[0] > db[2] || gb[2] < db[0] || gb[1] > db[3] || gb[3] < db[1]) continue;
+      const outside = subtractPolys(g, [disc]);
+      if (!outside.length) { out.push(g); continue; }
+      out.push(...subtractPolys(g, outside));
+    }
+  }
+  return out;
+}
