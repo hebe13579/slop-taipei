@@ -565,6 +565,11 @@ test('landmark structures: true positions and heights, sites kept clear', (t) =>
     // the chimney.
     'grand-hotel': { h: 87, x: -3905.7, z: -5073.4 },
     'beitou-incinerator': { h: 150, x: -6620.6, z: -8312.4 },
+    // Batch 7 (issue #144): the Performing Arts Center by
+    // Jiantan. The 55 m is the published built height (ASCE,
+    // Jan 2023); the position is the fitted centre of the cube
+    // in the OSM building relation 13913132 (see registry).
+    'taipei-performing-arts-center': { h: 55, x: -4115.4, z: -5777.2 },
   };
   assert.equal(plan.landmarkTowers.length, Object.keys(expected).length, 'all verified structures present');
   const partTop = (p) => (p.y0 || 0) + p.h + (p.type === 'ridge' ? p.ridgeH : 0);
@@ -766,11 +771,16 @@ test('landmark batch 4: station district — crown, hip roof, terrace hall, pala
   const terraces = cks.parts.filter((p) => p.type === 'box' && p.flat === 0xa39a8b || (p.type === 'box' && (p.y0 === 4.8 || p.y0 === 9.6)));
   assert.ok(terraces.length >= 2, 'stepped terrace levels present under the hall');
   // Issue #116 re-pin: the two blue frustum eave tiers are now
-  // six stepped box tiers — frustum parts cannot rotate, and the
+  // stepped box tiers — frustum parts cannot rotate, and the
   // hall group turns to the park's measured axis (rotY 0.4924);
   // step footprints follow the frustum profiles (see registry).
+  // Issue #138 gate revision re-pin: the profile is re-cut from
+  // six steps to nine so the double eave reads — a wide, flatter
+  // lower skirt (4 steps, 80 -> 71 m over 8 m) under a steeper
+  // upper roof (5 steps, 65 -> 43 m over 14 m); total roof
+  // height unchanged (40.5 -> 62.5 under the finial).
   const eaves = cks.parts.filter((p) => p.type === 'box' && p.flat === 0x1e4d8c);
-  assert.equal(eaves.length, 6, 'blue double-eaved roof as two stepped box tiers (issue #116)');
+  assert.equal(eaves.length, 9, 'blue double-eaved roof as stepped box tiers: flat lower skirt + steep upper roof (issues #116/#138)');
   assert.ok(eaves.every((p) => Math.abs(p.rotY - 0.4924) < 0.001), 'eave tiers turn with the park axis');
   const finial = cks.parts.find((p) => p.type === 'cylinder');
   assert.ok(finial && partTop(finial) === 70, 'gold finial tops out at the published 70 m');
@@ -1060,6 +1070,16 @@ test('taiwan types: family zoning, distribution and rooftop clamp', (t) => {
   // at-grade bed, 15 piercing the guideway). Of the removed
   // lots 27 were glass, 79 Taiwan, 355 masonry: glass
   // 4,375 - 27 = 4,348.
+  // Composed with issue #144 (TPAC landmark) at the #144 gate,
+  // diffed lot by lot on this merged tree against the
+  // #134+#137+#139 tree (38,396 / 4,348): the site exclusion
+  // removes the 7 lots that stand on the parcel on this tree
+  // (38,396 -> 38,389; the #134 data refresh re-packed the
+  // parcel's block, so the parcel holds 7 lots here where the
+  // pre-expansion tree held 4). Families: glass -4 (F3 +1,
+  // F4 -3, F5 -2 — two neighbours also change family as their
+  // face-statistic heights move), masonry -1, Taiwan -2:
+  // glass 4,348 - 4 = 4,344.
   // Gate composition with issue #135 (Taipei Twin Towers),
   // measured on this tree by lot-by-lot diff against the
   // pre-#135 plan: the C1 site + D1 plaza rects exclude exactly
@@ -1069,7 +1089,9 @@ test('taiwan types: family zoning, distribution and rooftop clamp', (t) => {
   // parcels' blocks re-roll their family (5 glass -> masonry,
   // 1 glass -> Taiwan, 2 masonry -> masonry): glass
   // 4,348 - 47 - 6 = 4,295.
-  assert.equal(glass, 4295, 'glass family counts after #136 + #139 + #135, composed with #134 + #137');
+  // Merged tree (#135 composed with #144): the two sites are
+  // independent — glass 4,344 - 53 = 4,291.
+  assert.equal(glass, 4291, 'glass family counts after #136 + #139 + #135, composed with #134 + #137 and #144');
   const masonry = opts.lots.filter((l) => l.mat <= 2).length;
   // Range re-based for issue #65: the exact ribbon exclusion removed
   // ~4,400 masonry lots that stood on ribbons or in medians; masonry

@@ -983,6 +983,28 @@ const LANDMARK_STRUCTURES = [
     // edges 117.9/28.7/117.3°, and the west chord runs 16.5°
     // because the 中山南路 boundary itself is not parallel
     // to the park axis — the park is not a parallelogram).
+    // Issue #138 (detail pass): the hall's walls are now BLANK
+    // white stone (flat) — the cited photos (facing-evidence/
+    // refs/photo-cks-1/2) show no openings but the great arch
+    // and the red plaque, so the prewar window grid the block
+    // used to carry is gone (the #131 gate folded into #138).
+    // The #98 hall-face staircase came out: in the photos the
+    // 89 steps climb the TERRACE only (84 granite + 5 hall
+    // steps, zh-Wikipedia) and the arch's sill is the terrace
+    // top — the old stair mass hid the lower wall and squeezed
+    // the arch into a slit at y0 24. The arch is rebuilt at the
+    // terrace top at the bronze doors' published scale (the
+    // doors are 16 m tall): stepped dark opening, bronze door
+    // leaf, pale surround, plaque above. The terrace treads
+    // widen 26 -> 40 m (photo: twin stairs + the carved 御路
+    // span most of the front) and gain their ramp strips. The
+    // Liberty Square Arch （自由廣場牌樓， 30 m tall x 80 m wide,
+    // 五間六柱， zh-Wikipedia) is added below at the west wall's
+    // 38 m gate gap, its centre 7 m inside the wall line so its
+    // 80 m span clears the wall ends; published distance from
+    // the hall's centre line is 470 m (the modelled gap centre
+    // sits at 465 m on the same axis). Finial slims 3.2 -> 2.4
+    // (the audit's oversized-finial note).
     id: 'chiang-kai-shek-memorial-hall', name: 'Chiang Kai-shek Memorial Hall', nameZh: '中正紀念堂',
     lat: 25.034811, lon: 121.521519, realHeight: 70, color: 0xdfd9cc,
     site: { w: 150, d: 150, dx: 0, dz: 0 },
@@ -991,41 +1013,68 @@ const LANDMARK_STRUCTURES = [
       { type: 'box', w: 118, d: 118, h: 4.8, rotY: 0.4924, flat: 0xa39a8b },
       { type: 'box', w: 104, d: 104, h: 4.8, y0: 4.8, rotY: 0.4924, flat: 0xa39a8b },
       { type: 'box', w: 90, d: 90, h: 4.9, y0: 9.6, rotY: 0.4924, flat: 0xaca294 },
-      { type: 'box', w: 62, d: 62, h: 26, y0: 14.5, rotY: 0.4924 },
+      // Issue #138 gate revision: the hall body BATTERS — the
+      // photos show walls visibly wider at the base than at the
+      // top. The straight 62 m box becomes six stepped tiers,
+      // plan 66 -> 59 m over the 26 m wall height. The tiers are
+      // offset along the local x so the WEST face stays on the
+      // plane the #138 arch assembly is seated on (arch, plaque
+      // and stairs untouched); the taper reads on the other
+      // three faces and in the front silhouette's width.
+      { type: 'box', w: 66, d: 66, h: 4.33, y0: 14.5, dx: 1.8, dz: 0.9, rotY: 0.4924, flat: 0xe9e5db },
+      { type: 'box', w: 64.6, d: 64.6, h: 4.33, y0: 18.83, dx: 1.1, dz: 0.6, rotY: 0.4924, flat: 0xe9e5db },
+      { type: 'box', w: 63.2, d: 63.2, h: 4.33, y0: 23.17, dx: 0.5, dz: 0.3, rotY: 0.4924, flat: 0xe9e5db },
+      { type: 'box', w: 61.8, d: 61.8, h: 4.33, y0: 27.5, dx: -0.1, dz: 0, rotY: 0.4924, flat: 0xe9e5db },
+      { type: 'box', w: 60.4, d: 60.4, h: 4.33, y0: 31.83, dx: -0.7, dz: -0.4, rotY: 0.4924, flat: 0xe9e5db },
+      { type: 'box', w: 59, d: 59, h: 4.33, y0: 36.17, dx: -1.3, dz: -0.7, rotY: 0.4924, flat: 0xe9e5db },
+      // Issue #138: moulded base + cornice bands on the blank
+      // hall block, a pale fascia under the first eave tier and
+      // a lighter-blue ridge cap under the finial. The base and
+      // cornice bands follow the battered tiers they wrap (the
+      // base band rides tier 1's offset, the cornice tier 6's).
+      { type: 'box', w: 67.2, d: 67.2, h: 1.8, y0: 14.5, dx: 1.8, dz: 0.9, rotY: 0.4924, flat: 0xd9d3c3 },
+      { type: 'box', w: 60.4, d: 60.4, h: 1.5, y0: 39.0, dx: -1.3, dz: -0.7, rotY: 0.4924, flat: 0xf0ebdf },
+      { type: 'box', w: 71, d: 71, h: 0.8, y0: 39.9, rotY: 0.4924, flat: 0xe9e5db },
+      { type: 'box', w: 20, d: 4.5, h: 1.2, y0: 62.2, rotY: 0.4924, flat: 0x2a5a9e },
       // Issue #116: the two blue eave frustums as stepped box
-      // tiers (see the entry note) — same profile, same total
-      // heights (12 + 10), footprints from each frustum's
-      // profile at the step base.
-      { type: 'box', w: 70, d: 70, h: 4, y0: 40.5, rotY: 0.4924, flat: 0x1e4d8c },
-      { type: 'box', w: 64, d: 64, h: 4, y0: 44.5, rotY: 0.4924, flat: 0x1e4d8c },
-      { type: 'box', w: 58, d: 58, h: 4, y0: 48.5, rotY: 0.4924, flat: 0x1e4d8c },
-      { type: 'box', w: 52, d: 52, h: 3.33, y0: 52.5, rotY: 0.4924, flat: 0x1e4d8c },
-      { type: 'box', w: 45, d: 45, h: 3.33, y0: 55.83, rotY: 0.4924, flat: 0x1e4d8c },
-      { type: 'box', w: 38, d: 38, h: 3.34, y0: 59.17, rotY: 0.4924, flat: 0x1e4d8c },
-      { type: 'cylinder', r: 3.2, h: 7.5, y0: 62.5, flat: 0xcfa14e },
-      // Issue #98: the front the references show, authored on the
-      // WEST face (the Liberty Square side): a stair climbing the
-      // terrace's west face in three giant treads, then the great
-      // staircase up the hall's west face — five marble steps with
-      // the pale central ramp strips (the carved 御路） — to the
-      // dark arched entrance recess and its red plaque. Before
-      // this fix the structure was perfectly symmetric, with no
-      // front feature on any side.
-      { type: 'box', w: 26, d: 5, h: 4.8, dx: -54.3, dz: -28.9, rotY: 0.4924, flat: 0xb3aa99 },
-      { type: 'box', w: 26, d: 7, h: 9.6, dx: -49.0, dz: -26.1, rotY: 0.4924, flat: 0xb3aa99 },
-      { type: 'box', w: 26, d: 9, h: 14.5, dx: -43.7, dz: -23.3, rotY: 0.4924, flat: 0xb3aa99 },
-      { type: 'box', w: 44, d: 13, h: 1.9, y0: 14.5, dx: -33.1, dz: -17.6, rotY: 0.4924, flat: 0xe3ddd0 },
-      { type: 'box', w: 44, d: 10.4, h: 1.9, y0: 16.4, dx: -31.9, dz: -17.0, rotY: 0.4924, flat: 0xe3ddd0 },
-      { type: 'box', w: 44, d: 7.8, h: 1.9, y0: 18.3, dx: -30.8, dz: -16.4, rotY: 0.4924, flat: 0xe3ddd0 },
-      { type: 'box', w: 44, d: 5.2, h: 1.9, y0: 20.2, dx: -29.7, dz: -15.8, rotY: 0.4924, flat: 0xe3ddd0 },
-      { type: 'box', w: 44, d: 2.6, h: 1.9, y0: 22.1, dx: -28.5, dz: -15.2, rotY: 0.4924, flat: 0xe3ddd0 },
-      { type: 'box', w: 10, d: 2.2, h: 0.32, y0: 16.4, dx: -37.8, dz: -20.1, rotY: 0.4924, flat: 0xefe9db },
-      { type: 'box', w: 10, d: 2.2, h: 0.32, y0: 18.3, dx: -35.4, dz: -18.9, rotY: 0.4924, flat: 0xefe9db },
-      { type: 'box', w: 10, d: 2.2, h: 0.32, y0: 20.2, dx: -33.1, dz: -17.6, rotY: 0.4924, flat: 0xefe9db },
-      { type: 'box', w: 10, d: 2.2, h: 0.32, y0: 22.1, dx: -30.8, dz: -16.4, rotY: 0.4924, flat: 0xefe9db },
-      { type: 'box', w: 10, d: 2.2, h: 0.32, y0: 24, dx: -28.5, dz: -15.2, rotY: 0.4924, flat: 0xefe9db },
-      { type: 'box', w: 11, d: 0.6, h: 8.5, y0: 24, dx: -27.6, dz: -14.7, rotY: 0.4924, flat: 0x17120e },
-      { type: 'box', w: 3.6, d: 0.7, h: 4.8, y0: 33.2, dx: -27.6, dz: -14.7, rotY: 0.4924, flat: 0x7a2e22 },
+      // tiers (see the entry note). Issue #138 gate revision:
+      // the profile is re-cut so the DOUBLE EAVE reads — a wide,
+      // flatter lower skirt (80 -> 71 m over 8 m, flaring past
+      // the battered body) under a steeper upper roof (65 ->
+      // 43 m over 14 m). Same total roof height (40.5 -> 62.5).
+      { type: 'box', w: 80, d: 80, h: 2, y0: 40.5, rotY: 0.4924, flat: 0x1e4d8c },
+      { type: 'box', w: 77, d: 77, h: 2, y0: 42.5, rotY: 0.4924, flat: 0x1e4d8c },
+      { type: 'box', w: 74, d: 74, h: 2, y0: 44.5, rotY: 0.4924, flat: 0x1e4d8c },
+      { type: 'box', w: 71, d: 71, h: 2, y0: 46.5, rotY: 0.4924, flat: 0x1e4d8c },
+      { type: 'box', w: 65, d: 65, h: 2.8, y0: 48.5, rotY: 0.4924, flat: 0x1e4d8c },
+      { type: 'box', w: 59.5, d: 59.5, h: 2.8, y0: 51.3, rotY: 0.4924, flat: 0x1e4d8c },
+      { type: 'box', w: 54, d: 54, h: 2.8, y0: 54.1, rotY: 0.4924, flat: 0x1e4d8c },
+      { type: 'box', w: 48.5, d: 48.5, h: 2.8, y0: 56.9, rotY: 0.4924, flat: 0x1e4d8c },
+      { type: 'box', w: 43, d: 43, h: 2.8, y0: 59.7, rotY: 0.4924, flat: 0x1e4d8c },
+      { type: 'cylinder', r: 2.4, h: 7.5, y0: 62.5, flat: 0xcfa14e },
+      // Issue #98: the front the references show, authored on
+      // the WEST face (the Liberty Square side): the stair
+      // climbs the terrace's west face in three giant treads.
+      // Issue #138: treads widened to the photos' span and
+      // given the pale central 御路 ramp strips; the arch now
+      // sits at the terrace top — pale surround proudest, the
+      // stepped dark opening behind it, the bronze door leaf
+      // (16 m doors, zh-Wikipedia) inset at its base, the red
+      // plaque above the surround.
+      { type: 'box', w: 40, d: 5, h: 4.8, dx: -54.3, dz: -28.9, rotY: 0.4924, flat: 0xb3aa99 },
+      { type: 'box', w: 40, d: 7, h: 9.6, dx: -49.0, dz: -26.1, rotY: 0.4924, flat: 0xb3aa99 },
+      { type: 'box', w: 40, d: 9, h: 14.5, dx: -43.7, dz: -23.3, rotY: 0.4924, flat: 0xb3aa99 },
+      { type: 'box', w: 5, d: 11, h: 0.32, y0: 4.8, dx: -54.2, dz: -29.1, rotY: 0.4924, flat: 0xefe9db },
+      { type: 'box', w: 7, d: 11, h: 0.32, y0: 9.6, dx: -48.9, dz: -26.2, rotY: 0.4924, flat: 0xefe9db },
+      { type: 'box', w: 9, d: 11, h: 0.32, y0: 14.5, dx: -43.6, dz: -23.4, rotY: 0.4924, flat: 0xefe9db },
+      { type: 'box', w: 1.8, d: 2.4, h: 18.6, y0: 14.5, dx: -24.4, dz: -21.5, rotY: 0.4924, flat: 0xf2ecdd },
+      { type: 'box', w: 1.8, d: 2.4, h: 18.6, y0: 14.5, dx: -31.4, dz: -8.5, rotY: 0.4924, flat: 0xf2ecdd },
+      { type: 'box', w: 1.8, d: 17.2, h: 1.7, y0: 33.2, dx: -27.9, dz: -15.0, rotY: 0.4924, flat: 0xf2ecdd },
+      { type: 'box', w: 0.8, d: 12.4, h: 15.0, y0: 14.5, dx: -28.1, dz: -15.1, rotY: 0.4924, flat: 0x16110c },
+      { type: 'box', w: 0.8, d: 9.6, h: 1.9, y0: 29.5, dx: -28.1, dz: -15.1, rotY: 0.4924, flat: 0x16110c },
+      { type: 'box', w: 0.8, d: 6.2, h: 1.7, y0: 31.4, dx: -28.1, dz: -15.1, rotY: 0.4924, flat: 0x16110c },
+      { type: 'box', w: 0.5, d: 8.6, h: 8.0, y0: 14.5, dx: -28.4, dz: -15.2, rotY: 0.4924, flat: { color: 0x6b4f2e, roughness: 0.5, metalness: 0.6 } },
+      { type: 'box', w: 0.7, d: 3.6, h: 4.6, y0: 35.4, dx: -27.8, dz: -14.9, rotY: 0.4924, flat: 0x7a2e22 },
       // The perimeter wall (user request, 2026-10-24): the whole
       // memorial park is enclosed by a thin white ROOFED CORRIDOR
       // wall — white walls under a blue tile roof, ~1,200 m of it
@@ -1065,6 +1114,62 @@ const LANDMARK_STRUCTURES = [
       { type: 'box', w: 138.2, d: 1.7, h: 0.55, y0: 3, dx: 10.7, dz: -184.8, rotY: -2.6617, flat: 0x2c4a7c },
       { type: 'box', w: 330.3, d: 0.8, h: 3, dx: -211.3, dz: -300.3, rotY: -2.6617, flat: 0xe9e4d4 },
       { type: 'box', w: 330.3, d: 1.7, h: 0.55, y0: 3, dx: -211.3, dz: -300.3, rotY: -2.6617, flat: 0x2c4a7c },
+      // Issue #138: the Liberty Square Arch at the west
+      // wall's gate gap (published 30 m tall x 80 m wide,
+      // five bays / six pillars, blue tile roofs — zh-
+      // Wikipedia). Six pillars with plinth bases, stepped
+      // arch heads, a stepped frieze, dark plaque panels and
+      // stepped blue roofs (centre 30.4 m, mid 24.5, ends
+      // 21.9); the roofs use 0x26548f, a shade off the hall
+      // eaves' 0x1e4d8c, so the test's six-eave pin stands.
+      { type: 'box', w: 5.6, d: 6.4, h: 1.2, dx: -393.9, dz: -251.5, rotY: 1.8592, flat: 0xdfd9c8 },
+      { type: 'box', w: 4, d: 5, h: 15.8, dx: -393.9, dz: -251.5, rotY: 1.8592, flat: 0xe9e4d4 },
+      { type: 'box', w: 5.6, d: 6.4, h: 1.2, dx: -397.3, dz: -240.0, rotY: 1.8592, flat: 0xdfd9c8 },
+      { type: 'box', w: 4, d: 5, h: 15.8, dx: -397.3, dz: -240.0, rotY: 1.8592, flat: 0xe9e4d4 },
+      { type: 'box', w: 6.6, d: 6.4, h: 1.2, dx: -401.7, dz: -225.2, rotY: 1.8592, flat: 0xdfd9c8 },
+      { type: 'box', w: 5, d: 5, h: 18, dx: -401.7, dz: -225.2, rotY: 1.8592, flat: 0xe9e4d4 },
+      { type: 'box', w: 6.6, d: 6.4, h: 1.2, dx: -407.7, dz: -205.0, rotY: 1.8592, flat: 0xdfd9c8 },
+      { type: 'box', w: 5, d: 5, h: 18, dx: -407.7, dz: -205.0, rotY: 1.8592, flat: 0xe9e4d4 },
+      { type: 'box', w: 5.6, d: 6.4, h: 1.2, dx: -412.1, dz: -190.2, rotY: 1.8592, flat: 0xdfd9c8 },
+      { type: 'box', w: 4, d: 5, h: 15.8, dx: -412.1, dz: -190.2, rotY: 1.8592, flat: 0xe9e4d4 },
+      { type: 'box', w: 5.6, d: 6.4, h: 1.2, dx: -415.5, dz: -178.7, rotY: 1.8592, flat: 0xdfd9c8 },
+      { type: 'box', w: 4, d: 5, h: 15.8, dx: -415.5, dz: -178.7, rotY: 1.8592, flat: 0xe9e4d4 },
+      { type: 'box', w: 15, d: 5, h: 1.6, y0: 15.5, dx: -404.7, dz: -215.1, rotY: 1.8592, flat: 0xe9e4d4 },
+      { type: 'box', w: 11, d: 5, h: 1.5, y0: 17.1, dx: -404.7, dz: -215.1, rotY: 1.8592, flat: 0xe9e4d4 },
+      { type: 'box', w: 6.5, d: 5, h: 1.4, y0: 18.6, dx: -404.7, dz: -215.1, rotY: 1.8592, flat: 0xe9e4d4 },
+      { type: 'box', w: 10.5, d: 5, h: 1.5, y0: 12.8, dx: -399.4, dz: -232.8, rotY: 1.8592, flat: 0xe9e4d4 },
+      { type: 'box', w: 7.5, d: 5, h: 1.4, y0: 14.3, dx: -399.4, dz: -232.8, rotY: 1.8592, flat: 0xe9e4d4 },
+      { type: 'box', w: 4, d: 5, h: 1.3, y0: 15.7, dx: -399.4, dz: -232.8, rotY: 1.8592, flat: 0xe9e4d4 },
+      { type: 'box', w: 10.5, d: 5, h: 1.5, y0: 12.8, dx: -410.0, dz: -197.4, rotY: 1.8592, flat: 0xe9e4d4 },
+      { type: 'box', w: 7.5, d: 5, h: 1.4, y0: 14.3, dx: -410.0, dz: -197.4, rotY: 1.8592, flat: 0xe9e4d4 },
+      { type: 'box', w: 4, d: 5, h: 1.3, y0: 15.7, dx: -410.0, dz: -197.4, rotY: 1.8592, flat: 0xe9e4d4 },
+      { type: 'box', w: 7.5, d: 5, h: 1.4, y0: 10, dx: -395.6, dz: -245.8, rotY: 1.8592, flat: 0xe9e4d4 },
+      { type: 'box', w: 5, d: 5, h: 1.3, y0: 11.4, dx: -395.6, dz: -245.8, rotY: 1.8592, flat: 0xe9e4d4 },
+      { type: 'box', w: 2.8, d: 5, h: 1.2, y0: 12.7, dx: -395.6, dz: -245.8, rotY: 1.8592, flat: 0xe9e4d4 },
+      { type: 'box', w: 7.5, d: 5, h: 1.4, y0: 10, dx: -413.8, dz: -184.4, rotY: 1.8592, flat: 0xe9e4d4 },
+      { type: 'box', w: 5, d: 5, h: 1.3, y0: 11.4, dx: -413.8, dz: -184.4, rotY: 1.8592, flat: 0xe9e4d4 },
+      { type: 'box', w: 2.8, d: 5, h: 1.2, y0: 12.7, dx: -413.8, dz: -184.4, rotY: 1.8592, flat: 0xe9e4d4 },
+      { type: 'box', w: 5.5, d: 5, h: 2, y0: 18, dx: -401.7, dz: -225.2, rotY: 1.8592, flat: 0xe9e4d4 },
+      { type: 'box', w: 5.5, d: 5, h: 2, y0: 18, dx: -407.7, dz: -205.0, rotY: 1.8592, flat: 0xe9e4d4 },
+      { type: 'box', w: 32, d: 5.6, h: 2.6, y0: 20, dx: -404.7, dz: -215.1, rotY: 1.8592, flat: 0xe9e4d4 },
+      { type: 'box', w: 25, d: 5.6, h: 2.2, y0: 15.8, dx: -396.6, dz: -242.4, rotY: 1.8592, flat: 0xe9e4d4 },
+      { type: 'box', w: 25, d: 5.6, h: 2.2, y0: 15.8, dx: -412.8, dz: -187.8, rotY: 1.8592, flat: 0xe9e4d4 },
+      { type: 'box', w: 11, d: 0.4, h: 2.2, y0: 20.3, dx: -401.9, dz: -214.3, rotY: 1.8592, flat: 0x2e2a26 },
+      { type: 'box', w: 11, d: 0.4, h: 2.2, y0: 20.3, dx: -407.5, dz: -215.9, rotY: 1.8592, flat: 0x2e2a26 },
+      { type: 'box', w: 36, d: 7, h: 2.4, y0: 22.6, dx: -404.7, dz: -215.1, rotY: 1.8592, flat: 0x26548f },
+      { type: 'box', w: 30, d: 7, h: 2.3, y0: 25, dx: -404.7, dz: -215.1, rotY: 1.8592, flat: 0x26548f },
+      { type: 'box', w: 23, d: 7, h: 2.2, y0: 27.3, dx: -404.7, dz: -215.1, rotY: 1.8592, flat: 0x26548f },
+      { type: 'box', w: 14, d: 7, h: 0.9, y0: 29.5, dx: -404.7, dz: -215.1, rotY: 1.8592, flat: 0x2a5a9e },
+      { type: 'box', w: 19, d: 6.6, h: 2.3, y0: 18, dx: -397.9, dz: -238.1, rotY: 1.8592, flat: 0x26548f },
+      { type: 'box', w: 14.5, d: 6.6, h: 2.2, y0: 20.3, dx: -397.9, dz: -238.1, rotY: 1.8592, flat: 0x26548f },
+      { type: 'box', w: 10, d: 6.6, h: 2, y0: 22.5, dx: -397.9, dz: -238.1, rotY: 1.8592, flat: 0x26548f },
+      { type: 'box', w: 19, d: 6.6, h: 2.3, y0: 18, dx: -411.5, dz: -192.1, rotY: 1.8592, flat: 0x26548f },
+      { type: 'box', w: 14.5, d: 6.6, h: 2.2, y0: 20.3, dx: -411.5, dz: -192.1, rotY: 1.8592, flat: 0x26548f },
+      { type: 'box', w: 10, d: 6.6, h: 2, y0: 22.5, dx: -411.5, dz: -192.1, rotY: 1.8592, flat: 0x26548f },
+      { type: 'box', w: 12.5, d: 6.2, h: 2, y0: 18, dx: -394.6, dz: -249.1, rotY: 1.8592, flat: 0x26548f },
+      { type: 'box', w: 9, d: 6.2, h: 1.9, y0: 20, dx: -394.6, dz: -249.1, rotY: 1.8592, flat: 0x26548f },
+      { type: 'box', w: 12.5, d: 6.2, h: 2, y0: 18, dx: -414.8, dz: -181.1, rotY: 1.8592, flat: 0x26548f },
+      { type: 'box', w: 9, d: 6.2, h: 1.9, y0: 20, dx: -414.8, dz: -181.1, rotY: 1.8592, flat: 0x26548f },
     ],
   },
   {
@@ -1090,13 +1195,36 @@ const LANDMARK_STRUCTURES = [
     // ridge roof becomes stepped boxes (they cannot rotate —
     // see the memorial hall's note), profiles matched at each
     // step's base, ridge crest along the rotated local x.
+    // Issue #138: walls blanked to flat cream (the cited
+    // front photo shows blank walls behind the colonnade —
+    // the prewar window grid is gone) and the square front
+    // authored: red pillar colonnade, pale frieze, glass
+    // entrance and the grand stair down the plinth. The
+    // front is the local +z face, toward the square.
     id: 'national-concert-hall', name: 'National Concert Hall', nameZh: '國家音樂廳',
     lat: 25.036985, lon: 121.519262, realHeight: 37, estimated: true, color: 0xdccfa9,
     site: { w: 126, d: 121, dx: 0, dz: 0 },
     facade: { kind: 'prewar', stoneColor: 0xe6d9bc, trimColor: 0xbfae87, windowGlassColor: 0x2a3644, windowWidth: 3.4, floorHeight: 5.0, litProbability: 0.26, warmth: 0.68, seed: 57.30 },
     parts: [
       { type: 'box', w: 110, d: 105, h: 5, rotY: 0.4924, flat: 0xa89c80 },
-      { type: 'box', w: 94, d: 90, h: 15, y0: 5, rotY: 0.4924 },
+      { type: 'box', w: 94, d: 90, h: 15, y0: 5, rotY: 0.4924, flat: 0xe6d9bc },
+      { type: 'box', w: 95.4, d: 91.4, h: 1.6, y0: 5, rotY: 0.4924, flat: 0xd8cba6 },
+      { type: 'box', w: 1.7, d: 1.7, h: 12.5, y0: 5, dx: -57.4, dz: 22.3, rotY: 0.4924, flat: 0x9e2b23 },
+      { type: 'box', w: 1.7, d: 1.7, h: 12.5, y0: 5, dx: -50.3, dz: 26.1, rotY: 0.4924, flat: 0x9e2b23 },
+      { type: 'box', w: 1.7, d: 1.7, h: 12.5, y0: 5, dx: -43.3, dz: 29.9, rotY: 0.4924, flat: 0x9e2b23 },
+      { type: 'box', w: 1.7, d: 1.7, h: 12.5, y0: 5, dx: -36.2, dz: 33.7, rotY: 0.4924, flat: 0x9e2b23 },
+      { type: 'box', w: 1.7, d: 1.7, h: 12.5, y0: 5, dx: -29.2, dz: 37.5, rotY: 0.4924, flat: 0x9e2b23 },
+      { type: 'box', w: 1.7, d: 1.7, h: 12.5, y0: 5, dx: -22.1, dz: 41.2, rotY: 0.4924, flat: 0x9e2b23 },
+      { type: 'box', w: 1.7, d: 1.7, h: 12.5, y0: 5, dx: -15.1, dz: 45.0, rotY: 0.4924, flat: 0x9e2b23 },
+      { type: 'box', w: 1.7, d: 1.7, h: 12.5, y0: 5, dx: -8.0, dz: 48.8, rotY: 0.4924, flat: 0x9e2b23 },
+      { type: 'box', w: 1.7, d: 1.7, h: 12.5, y0: 5, dx: -1.0, dz: 52.6, rotY: 0.4924, flat: 0x9e2b23 },
+      { type: 'box', w: 1.7, d: 1.7, h: 12.5, y0: 5, dx: 6.1, dz: 56.4, rotY: 0.4924, flat: 0x9e2b23 },
+      { type: 'box', w: 1.7, d: 1.7, h: 12.5, y0: 5, dx: 13.1, dz: 60.1, rotY: 0.4924, flat: 0x9e2b23 },
+      { type: 'box', w: 95, d: 2.2, h: 1.6, y0: 17.5, dx: -22.0, dz: 41.1, rotY: 0.4924, flat: 0x7d8b74 },
+      { type: 'box', w: 17, d: 0.8, h: 7.5, y0: 5.5, dx: -21.5, dz: 40.0, rotY: 0.4924, flat: 0x1c2833 },
+      { type: 'box', w: 30, d: 2.4, h: 4.95, dx: -25.4, dz: 47.3, rotY: 0.4924, flat: 0xbdb098 },
+      { type: 'box', w: 30, d: 2.4, h: 3.3, dx: -26.5, dz: 49.4, rotY: 0.4924, flat: 0xbdb098 },
+      { type: 'box', w: 30, d: 2.4, h: 1.65, dx: -27.7, dz: 51.6, rotY: 0.4924, flat: 0xbdb098 },
       { type: 'box', w: 112, d: 108, h: 3, y0: 20, rotY: 0.4924, flat: 0xc79a3f },
       { type: 'box', w: 103, d: 99, h: 3, y0: 23, rotY: 0.4924, flat: 0xc79a3f },
       { type: 'box', w: 94, d: 90, h: 3, y0: 26, rotY: 0.4924, flat: 0xc79a3f },
@@ -1115,13 +1243,33 @@ const LANDMARK_STRUCTURES = [
     // Issue #116: rotated to the park axis with the north hall
     // (its own way 1052759776 measures the same 118.2/28.5°
     // edge family); roof as stepped boxes, profiles matched.
+    // Issue #138: same blank-wall + square-front treatment
+    // as the concert hall; the front is the local -z face,
+    // toward the square.
     id: 'national-theater', name: 'National Theater', nameZh: '國家戲劇院',
     lat: 25.035319, lon: 121.518245, realHeight: 37, estimated: true, color: 0xdccfa9,
     site: { w: 130, d: 123, dx: 0, dz: 0 },
     facade: { kind: 'prewar', stoneColor: 0xe6d9bc, trimColor: 0xbfae87, windowGlassColor: 0x2a3644, windowWidth: 3.4, floorHeight: 5.0, litProbability: 0.26, warmth: 0.68, seed: 57.31 },
     parts: [
       { type: 'box', w: 114, d: 107, h: 5, rotY: 0.4924, flat: 0xa89c80 },
-      { type: 'box', w: 98, d: 92, h: 15, y0: 5, rotY: 0.4924 },
+      { type: 'box', w: 98, d: 92, h: 15, y0: 5, rotY: 0.4924, flat: 0xe6d9bc },
+      { type: 'box', w: 99.4, d: 93.4, h: 1.6, y0: 5, rotY: 0.4924, flat: 0xd8cba6 },
+      { type: 'box', w: 1.7, d: 1.7, h: 12.5, y0: 5, dx: -14.4, dz: -62.0, rotY: 0.4924, flat: 0x9e2b23 },
+      { type: 'box', w: 1.7, d: 1.7, h: 12.5, y0: 5, dx: -7.0, dz: -58.0, rotY: 0.4924, flat: 0x9e2b23 },
+      { type: 'box', w: 1.7, d: 1.7, h: 12.5, y0: 5, dx: 0.4, dz: -54.0, rotY: 0.4924, flat: 0x9e2b23 },
+      { type: 'box', w: 1.7, d: 1.7, h: 12.5, y0: 5, dx: 7.8, dz: -50.1, rotY: 0.4924, flat: 0x9e2b23 },
+      { type: 'box', w: 1.7, d: 1.7, h: 12.5, y0: 5, dx: 15.2, dz: -46.1, rotY: 0.4924, flat: 0x9e2b23 },
+      { type: 'box', w: 1.7, d: 1.7, h: 12.5, y0: 5, dx: 22.6, dz: -42.1, rotY: 0.4924, flat: 0x9e2b23 },
+      { type: 'box', w: 1.7, d: 1.7, h: 12.5, y0: 5, dx: 30.0, dz: -38.2, rotY: 0.4924, flat: 0x9e2b23 },
+      { type: 'box', w: 1.7, d: 1.7, h: 12.5, y0: 5, dx: 37.4, dz: -34.2, rotY: 0.4924, flat: 0x9e2b23 },
+      { type: 'box', w: 1.7, d: 1.7, h: 12.5, y0: 5, dx: 44.8, dz: -30.2, rotY: 0.4924, flat: 0x9e2b23 },
+      { type: 'box', w: 1.7, d: 1.7, h: 12.5, y0: 5, dx: 52.2, dz: -26.2, rotY: 0.4924, flat: 0x9e2b23 },
+      { type: 'box', w: 1.7, d: 1.7, h: 12.5, y0: 5, dx: 59.6, dz: -22.3, rotY: 0.4924, flat: 0x9e2b23 },
+      { type: 'box', w: 99, d: 2.2, h: 1.6, y0: 17.5, dx: 22.5, dz: -41.9, rotY: 0.4924, flat: 0x7d8b74 },
+      { type: 'box', w: 17, d: 0.8, h: 7.5, y0: 5.5, dx: 21.9, dz: -40.9, rotY: 0.4924, flat: 0x1c2833 },
+      { type: 'box', w: 30, d: 2.4, h: 4.95, dx: 25.9, dz: -48.2, rotY: 0.4924, flat: 0xbdb098 },
+      { type: 'box', w: 30, d: 2.4, h: 3.3, dx: 27.0, dz: -50.3, rotY: 0.4924, flat: 0xbdb098 },
+      { type: 'box', w: 30, d: 2.4, h: 1.65, dx: 28.1, dz: -52.4, rotY: 0.4924, flat: 0xbdb098 },
       { type: 'box', w: 116, d: 110, h: 3, y0: 20, rotY: 0.4924, flat: 0xc79a3f },
       { type: 'box', w: 107, d: 101, h: 3, y0: 23, rotY: 0.4924, flat: 0xc79a3f },
       { type: 'box', w: 97, d: 92, h: 3, y0: 26, rotY: 0.4924, flat: 0xc79a3f },
@@ -1147,17 +1295,80 @@ const LANDMARK_STRUCTURES = [
     // 0.0977 (5.6°) with offsets rotated about the pin; the
     // square frustum cap becomes two stepped boxes so it can
     // rotate with them (frustum parts cannot rotate).
+    // Issue #138 (detail pass): the cited front photo
+    // (Wikipedia, from Ketagalan Boulevard) drives the new
+    // detail — the red/white banding now exists as GEOMETRY
+    // (thin white slabs at every floor line of the range and
+    // both pavilions, over a grey stereobate base — the
+    // official architecture page's own feature list), the
+    // wings gain their pale-green hip roofs and the pavilions
+    // their green pyramid caps (pavilions rise 27 -> 30 m as
+    // in the photo), the entrance gains its stone portico
+    // with the two guard towers the official page describes
+    // flanking it (flat-roofed, +3.5 m over the range), and
+    // the tower gets band rings, a white crown and a slate-
+    // green stepped cap still topping out at exactly 60 m.
+    // Facade grid retuned to the real five floors (5.4 m).
     id: 'presidential-office-building', name: 'Presidential Office Building', nameZh: '總統府',
     lat: 25.039994, lon: 121.511973, realHeight: 60, color: 0x9c5a41,
     site: { w: 110, d: 145, dx: 0, dz: 0 },
-    facade: { kind: 'prewar', stoneColor: 0xa9603f, trimColor: 0xd9d0bd, windowGlassColor: 0x27313d, windowWidth: 2.6, floorHeight: 4.6, litProbability: 0.27, warmth: 0.58, seed: 57.32 },
+    facade: { kind: 'prewar', stoneColor: 0xa9603f, trimColor: 0xd9d0bd, windowGlassColor: 0x27313d, windowWidth: 3.2, floorHeight: 5.4, litProbability: 0.27, warmth: 0.58, seed: 57.32 },
     parts: [
       { type: 'box', w: 44, d: 130, h: 27, rotY: 0.0977 },
-      { type: 'box', w: 54, d: 22, h: 27, dx: 5.3, dz: -53.7, rotY: 0.0977 },
-      { type: 'box', w: 54, d: 22, h: 27, dx: -5.3, dz: 53.7, rotY: 0.0977 },
-      { type: 'box', w: 26, d: 26, h: 30, y0: 27, rotY: 0.0977 },
-      { type: 'box', w: 26, d: 26, h: 1.5, y0: 57, rotY: 0.0977, flat: 0x4a4440 },
-      { type: 'box', w: 19, d: 19, h: 1.5, y0: 58.5, rotY: 0.0977, flat: 0x4a4440 },
+      { type: 'box', w: 54, d: 22, h: 30, dx: 5.3, dz: -53.7, rotY: 0.0977 },
+      { type: 'box', w: 54, d: 22, h: 30, dx: -5.3, dz: 53.7, rotY: 0.0977 },
+      // Issue #138 gate revision: the tower is SLENDER — the
+      // photo puts it at ~1/8 of the facade width, where the old
+      // 26 m block read at ~1/4 and barely cleared the wings.
+      // The shaft is now 16.5 m square, still y0 27 and still
+      // topping out (with its cap) at the published 60 m.
+      { type: 'box', w: 16.5, d: 16.5, h: 27, y0: 27, rotY: 0.0977 },
+      { type: 'box', w: 45.6, d: 131.6, h: 2.0, rotY: 0.0977, flat: 0x8d867b },
+      { type: 'box', w: 44.7, d: 130.7, h: 0.85, y0: 5.0, rotY: 0.0977, flat: 0xd9d0bd },
+      { type: 'box', w: 44.7, d: 130.7, h: 0.85, y0: 10.4, rotY: 0.0977, flat: 0xd9d0bd },
+      { type: 'box', w: 44.7, d: 130.7, h: 0.85, y0: 15.8, rotY: 0.0977, flat: 0xd9d0bd },
+      { type: 'box', w: 44.7, d: 130.7, h: 0.85, y0: 21.2, rotY: 0.0977, flat: 0xd9d0bd },
+      { type: 'box', w: 45.2, d: 131.2, h: 1.1, y0: 25.9, rotY: 0.0977, flat: 0xd9d0bd },
+      { type: 'box', w: 54.7, d: 22.7, h: 0.85, y0: 5.0, dx: 5.3, dz: -53.7, rotY: 0.0977, flat: 0xd9d0bd },
+      { type: 'box', w: 54.7, d: 22.7, h: 0.85, y0: 10.4, dx: 5.3, dz: -53.7, rotY: 0.0977, flat: 0xd9d0bd },
+      { type: 'box', w: 54.7, d: 22.7, h: 0.85, y0: 15.8, dx: 5.3, dz: -53.7, rotY: 0.0977, flat: 0xd9d0bd },
+      { type: 'box', w: 54.7, d: 22.7, h: 0.85, y0: 21.2, dx: 5.3, dz: -53.7, rotY: 0.0977, flat: 0xd9d0bd },
+      { type: 'box', w: 54.7, d: 22.7, h: 1.1, y0: 28.9, dx: 5.3, dz: -53.7, rotY: 0.0977, flat: 0xd9d0bd },
+      { type: 'box', w: 54.7, d: 22.7, h: 0.85, y0: 5.0, dx: -5.3, dz: 53.7, rotY: 0.0977, flat: 0xd9d0bd },
+      { type: 'box', w: 54.7, d: 22.7, h: 0.85, y0: 10.4, dx: -5.3, dz: 53.7, rotY: 0.0977, flat: 0xd9d0bd },
+      { type: 'box', w: 54.7, d: 22.7, h: 0.85, y0: 15.8, dx: -5.3, dz: 53.7, rotY: 0.0977, flat: 0xd9d0bd },
+      { type: 'box', w: 54.7, d: 22.7, h: 0.85, y0: 21.2, dx: -5.3, dz: 53.7, rotY: 0.0977, flat: 0xd9d0bd },
+      { type: 'box', w: 54.7, d: 22.7, h: 1.1, y0: 28.9, dx: -5.3, dz: 53.7, rotY: 0.0977, flat: 0xd9d0bd },
+      { type: 'box', w: 47, d: 133, h: 1.1, y0: 27, rotY: 0.0977, flat: 0x74907f },
+      { type: 'box', w: 41, d: 124, h: 2.0, y0: 28.1, rotY: 0.0977, flat: 0x7fa08c },
+      { type: 'box', w: 33, d: 112, h: 1.9, y0: 30.1, rotY: 0.0977, flat: 0x7fa08c },
+      { type: 'box', w: 40, d: 18, h: 1.8, y0: 30, dx: 5.3, dz: -53.7, rotY: 0.0977, flat: 0x74907f },
+      { type: 'box', w: 26, d: 12, h: 1.7, y0: 31.8, dx: 5.3, dz: -53.7, rotY: 0.0977, flat: 0x7fa08c },
+      { type: 'box', w: 40, d: 18, h: 1.8, y0: 30, dx: -5.3, dz: 53.7, rotY: 0.0977, flat: 0x74907f },
+      { type: 'box', w: 26, d: 12, h: 1.7, y0: 31.8, dx: -5.3, dz: 53.7, rotY: 0.0977, flat: 0x7fa08c },
+      { type: 'box', w: 7, d: 11, h: 30.5, dx: 26.4, dz: -18.5, rotY: 0.0977 },
+      { type: 'box', w: 7.7, d: 11.7, h: 0.9, y0: 30.5, dx: 26.4, dz: -18.5, rotY: 0.0977, flat: 0xd9d0bd },
+      { type: 'box', w: 7, d: 11, h: 30.5, dx: 22.3, dz: 23.3, rotY: 0.0977 },
+      { type: 'box', w: 7.7, d: 11.7, h: 0.9, y0: 30.5, dx: 22.3, dz: 23.3, rotY: 0.0977, flat: 0xd9d0bd },
+      { type: 'box', w: 3, d: 18, h: 0.5, dx: 29.6, dz: 2.9, rotY: 0.0977, flat: 0xd9d0bd },
+      { type: 'box', w: 3, d: 16.5, h: 0.5, y0: 0.5, dx: 28.1, dz: 2.8, rotY: 0.0977, flat: 0xd9d0bd },
+      { type: 'box', w: 5.5, d: 14, h: 7.2, y0: 1.0, dx: 24.6, dz: 2.4, rotY: 0.0977, flat: 0xd9d0bd },
+      { type: 'box', w: 6.5, d: 15.5, h: 0.8, y0: 8.2, dx: 24.6, dz: 2.4, rotY: 0.0977, flat: 0xcfc5ae },
+      { type: 'box', w: 0.6, d: 5.5, h: 5.2, y0: 1.2, dx: 27.5, dz: 2.7, rotY: 0.0977, flat: 0x17120e },
+      { type: 'box', w: 0.6, d: 1.8, h: 3.6, y0: 1.6, dx: 27.9, dz: -1.8, rotY: 0.0977, flat: 0x27313d },
+      { type: 'box', w: 0.6, d: 1.8, h: 3.6, y0: 1.6, dx: 27.0, dz: 7.2, rotY: 0.0977, flat: 0x27313d },
+      // Tower dress on the slender shaft (gate revision): the
+      // white band rings keep their 7 m rhythm, shrunk to ride
+      // just proud of the 16.5 m shaft; above the shaft top
+      // (54 m) a white crown, then the slate-green stepped cap
+      // and the small spire, still topping out at exactly 60 m.
+      { type: 'box', w: 17.2, d: 17.2, h: 0.8, y0: 34, rotY: 0.0977, flat: 0xd9d0bd },
+      { type: 'box', w: 17.2, d: 17.2, h: 0.8, y0: 41, rotY: 0.0977, flat: 0xd9d0bd },
+      { type: 'box', w: 17.2, d: 17.2, h: 0.8, y0: 48, rotY: 0.0977, flat: 0xd9d0bd },
+      { type: 'box', w: 18, d: 18, h: 2, y0: 54, rotY: 0.0977, flat: 0xd9d0bd },
+      { type: 'box', w: 13.5, d: 13.5, h: 1.6, y0: 56, rotY: 0.0977, flat: 0x5d6d66 },
+      { type: 'box', w: 9.5, d: 9.5, h: 1.4, y0: 57.6, rotY: 0.0977, flat: 0x5d6d66 },
+      { type: 'box', w: 2, d: 2, h: 1, y0: 59, rotY: 0.0977, flat: 0x5d6d66 },
     ],
   },
   {
@@ -1348,6 +1559,82 @@ const LANDMARK_STRUCTURES = [
       { type: 'cylinder', r: 4.7, h: 21.7, y0: 121.3, flat: 0xdcd8ce },
       { type: 'cylinder', r: 7.8, h: 3.6, y0: 143, flat: 0x4a5058 },
       { type: 'cylinder', r: 4.9, h: 3.4, y0: 146.6, flat: 0xb9b4a8 },
+    ],
+  },
+  {
+    // Batch 7 (issue #144): 臺北表演藝術中心 — the Taipei
+    // Performing Arts Center (OMA, opened 2022), immediately SW
+    // of Jiantan station. A 12-storey central cube with three
+    // theatres plugged into it: the Grand Theater (south), the
+    // Blue Box (north) and the spherical Globe Playhouse (east)
+    // — the "planet docking against the cube" of the user's
+    // reference photo. Height 55 m PUBLISHED for the built
+    // building (ASCE Civil Engineering Magazine, Jan 2023: "a
+    // 12-story, 55 m tall central cube"; the 63 m in OMA's
+    // project data is the competition scheme). The Chinese
+    // structural paper （土木水利 42(2), 2015) gives the cube's
+    // structural module as ~55 m tall, 50 × 50 m, the Grand
+    // Theater 37 × 39 m plugged at 3F–8F of the south side and
+    // the multiform theater 29 × 31 m at 3F–7F of the north.
+    // Siting is measured from the OSM building relation
+    // 13913132 (outline way 449040993 + its building:part ways),
+    // fitted in the tile frame: the composition axis is the
+    // cube's fitted centre and every box carries the outline's
+    // measured axis, rotY −0.159 rad (−9.1° — both the west-face
+    // chain and the north edge measure it). The cube's plan
+    // envelope measures 56 × 59 m (the paper's 50 × 50 is the
+    // braced core inside it) and the cube zone's WEST TOWER
+    // slab 19 × 59 m along its west face. The two theatre boxes
+    // take their OSM part footprints (GT 43.6 × 35.6,
+    // MT 32.8 × 27.9)
+    // at their plugged heights over the open plaza storey
+    // (y0 9, the ground storey the whole composition is raised
+    // on: corner pilotis + a ground core + the GT's own legs
+    // stand in for the public-loop undercroft).
+    // The sphere is an ELLIPSOID （實構築季刊： 橢圓形結構）: the
+    // OSM part's arc fits a plan circle of R 22.1 m (max
+    // residual 0.02 m) centred 28 m east of the cube centre
+    // — the published cantilever is 26 m (New Atlas: "juts
+    // outwards by 26 m"), measured from the cube's
+    // structural face; against the OSM envelope's east
+    // steps the disc stands 22 m proud, and the model keeps
+    // the fitted disc position exactly. The Blue Box keeps
+    // its part's exact size but sits 2 m south of the part's
+    // north edge: the lane along the north face (OSM way
+    // 1184381230) has its centreline drawn ON the building's
+    // face line, so the lane's 5 m ribbon clips the true
+    // footprint's NW corner by 0.91 m² in the issue-#42
+    // audit — the closest legal siting, flagged here (the
+    // Main Station's +11 m shift inside its outline, issue
+    // #74, is the same medicine).
+    // Vertically it is squashed: Ø 44 in plan × 34 tall,
+    // spanning 19–53 m (the published 5F–12F band), crown
+    // 2 m under the cube's 55 m roof, as the user's photo
+    // shows. Two hemisphere parts
+    // (one flipped) make the ball; the plan disc the issue-#42
+    // audit tests is the OSM disc. The axis stands ~89 m SW of
+    // the Jiantan guideway centreline; no part reaches the
+    // MRT corridor, and the roadbed audit runs in the PR.
+    id: 'taipei-performing-arts-center', name: 'Taipei Performing Arts Center', nameZh: '臺北表演藝術中心',
+    lat: 25.085153, lon: 121.524222, realHeight: 55, color: 0x232d36,
+    site: { w: 111, d: 137, dx: -1, dz: 5 },
+    // The cube's corrugated dark glass (the theatres' matte
+    // aluminium shells are flat overrides on their parts).
+    facade: { kind: 'curtain', glassTint: 0x1c262f, frameTint: 0x707880, windowWidth: 2.4, floorHeight: 4.6, litProbability: 0.3, warmth: 0.5, reflectivity: 0.9, seed: 57.38 },
+    parts: [
+      { type: 'box', w: 19, d: 59, h: 48, dx: -34.8, dz: 5.8, rotY: -0.159, facade: { kind: 'curtain', glassTint: 0x151b21, frameTint: 0x565e63, windowWidth: 2.0, floorHeight: 4.0, litProbability: 0.26, warmth: 0.5, reflectivity: 0.85, seed: 57.39 } },
+      { type: 'box', w: 26, d: 30, h: 9, dx: 0.3, dz: 2.0, rotY: -0.159, flat: 0x3d4143 },
+      { type: 'box', w: 3.5, d: 3.5, h: 9, dx: 20.0, dz: -27.0, rotY: -0.159, flat: 0x53575a },
+      { type: 'box', w: 3.5, d: 3.5, h: 9, dx: -23.5, dz: -20.0, rotY: -0.159, flat: 0x53575a },
+      { type: 'box', w: 3.5, d: 3.5, h: 9, dx: 27.4, dz: 19.4, rotY: -0.159, flat: 0x53575a },
+      { type: 'box', w: 3.5, d: 3.5, h: 9, dx: -16.0, dz: 26.4, rotY: -0.159, flat: 0x53575a },
+      { type: 'box', w: 3.5, d: 3.5, h: 9, dx: -12.2, dz: 62.7, rotY: -0.159, flat: 0x53575a },
+      { type: 'box', w: 3.5, d: 3.5, h: 9, dx: 19.4, dz: 57.6, rotY: -0.159, flat: 0x53575a },
+      { type: 'box', w: 56, d: 59, h: 46, y0: 9, dx: 2.0, dz: -0.3, rotY: -0.159 },
+      { type: 'box', w: 43.6, d: 35.6, h: 25, y0: 9, dx: 3.6, dz: 47.6, rotY: -0.159, flat: { color: 0xb7bbbd, roughness: 0.5, metalness: 0.3 } },
+      { type: 'box', w: 32.8, d: 27.9, h: 20, y0: 9, dx: -13.9, dz: -39.7, rotY: -0.159, flat: { color: 0xb7bbbd, roughness: 0.5, metalness: 0.3 } },
+      { type: 'dome', rx: 22, rz: 22, h: 17, y0: 36, dx: 29.6, dz: -4.5, flat: { color: 0xc2c5c7, roughness: 0.55, metalness: 0.25 } },
+      { type: 'dome', rx: 22, rz: 22, h: 17, y0: 36, dx: 29.6, dz: -4.5, flip: true, flat: { color: 0xc2c5c7, roughness: 0.55, metalness: 0.25 } },
     ],
   },
 ];
@@ -3287,6 +3574,11 @@ export function createTaipeiLandmarkTowers(THREE, plan, factories) {
         mesh = new THREE.Mesh(new THREE.SphereGeometry(1, 28, 14, 0, Math.PI * 2, 0, Math.PI / 2), partMaterial(part, false));
         mesh.scale.set(part.rx, part.h, part.rz);
         mesh.position.set(s.x + (part.dx || 0), y0, s.z + (part.dz || 0));
+        // flip: the same hemisphere hung below its base plane —
+        // the bottom half of a full ellipsoid (the TPAC sphere,
+        // issue #144) without a second geometry type; the plan
+        // disc the issue-#42 audit tests is unchanged.
+        if (part.flip) mesh.rotation.x = Math.PI;
       } else if (part.type === 'frustum') {
         mesh = new THREE.Mesh(frustumGeometry(THREE, part), partMaterial(part, true));
         mesh.position.set(s.x, y0, s.z);

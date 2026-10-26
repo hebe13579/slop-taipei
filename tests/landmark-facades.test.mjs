@@ -42,6 +42,10 @@ const EXPECTED_FACADES = {
   'beitou-incinerator': 'prewar',
   // Issue #135: the Twin Towers — blue-glass curtain pair.
   'taipei-twin-towers': 'curtain',
+  // Batch 7 (issue #144): TPAC — the cube's corrugated dark
+  // glass takes the curtain factory; the sphere and theatre
+  // boxes are matte aluminium flat overrides on their parts.
+  'taipei-performing-arts-center': 'curtain',
 };
 
 // The only Latin wordmarks a landmark sign may carry — the ones the
