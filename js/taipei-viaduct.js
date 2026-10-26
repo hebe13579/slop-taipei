@@ -43,6 +43,18 @@ export const BALLAST_HALF = 1.7;   // half width of one track's strip, m
 export const RAIL_OFF = 0.72;      // rail centre offset from the track centre (1435 mm gauge), m
 export const RAIL_W = 0.15;        // rail ribbon width, m
 export const RAIL_LIFT = 0.06;     // rail ribbon above the strip top, m
+// Issue #146: the Wenhu guideway treatment (line.trackStyle ===
+// 'guideway') — a rubber-tyred VAL runs on pale CONCRETE strips,
+// not ballast: one raised concrete strip per track (its own sink,
+// so the boot can give it a pale concrete material), with the
+// steel GUIDE BARS as thin ribbons just outside the strip edges
+// (the bars stand at the beam's edges at running-surface level;
+// the rails sink carries them, same steel as the Red Line rails).
+export const GUIDE_H = 0.16;       // guideway strip height above the running surface, m
+export const GUIDE_HALF = 1.05;    // half width of one track's concrete strip, m
+export const BAR_OFF = 1.13;       // guide bar centre offset from the track centre, m
+export const BAR_W = 0.12;         // guide bar ribbon width, m
+export const BAR_LIFT = 0.05;      // guide bar ribbon above the strip top, m
 
 const ptsOf = (line) => {
   const p = [];
@@ -67,6 +79,7 @@ function pointNormals(pts) {
 //   asphalt:  { positions, normals },  // deck-top ribbon inside parapets
 //   ballast:  { positions, normals },  // MRT track strips (opts.tracks)
 //   rails:    { positions, normals },  // MRT rail ribbons (opts.tracks)
+//   guideway: { positions, normals },  // Wenhu concrete strips (guideway lines)
 //   triCount, lineCount, pierCount,
 // }
 // Positions are non-indexed triangles (6 vertices per quad face) in
@@ -79,6 +92,7 @@ export function buildDeckGeometry(elevated, opts = {}) {
   const asphalt = { pos: [], nor: [] };
   const ballast = { pos: [], nor: [] };
   const rails = { pos: [], nor: [] };
+  const guideway = { pos: [], nor: [] };
   // Append one quad (corners in boundary order) as two triangles
   // with the quad's flat normal.
   const quad = (sink, a, b, c, d) => {
@@ -111,12 +125,34 @@ export function buildDeckGeometry(elevated, opts = {}) {
       quad(rails, raL, rbL, rbR, raR);
     }
   };
+  // Issue #146: one track's concrete guideway strip + guide bars
+  // over a segment — the trackStrip shape (top + two sides) in the
+  // guideway sink, the bars as flat steel ribbons in the rails
+  // sink just outside the strip's edges.
+  const guideStrip = (pA, nA, yA, pB, nB, yB, o) => {
+    const corner = (p, n, off, y) => [p[0] + n[0] * off, y, p[1] + n[1] * off];
+    const aL = corner(pA, nA, o + GUIDE_HALF, yA + GUIDE_H), aR = corner(pA, nA, o - GUIDE_HALF, yA + GUIDE_H);
+    const bL = corner(pB, nB, o + GUIDE_HALF, yB + GUIDE_H), bR = corner(pB, nB, o - GUIDE_HALF, yB + GUIDE_H);
+    const aLb = corner(pA, nA, o + GUIDE_HALF, yA), aRb = corner(pA, nA, o - GUIDE_HALF, yA);
+    const bLb = corner(pB, nB, o + GUIDE_HALF, yB), bRb = corner(pB, nB, o - GUIDE_HALF, yB);
+    quad(guideway, aL, bL, bR, aR);       // strip top
+    quad(guideway, aL, aLb, bLb, bL);     // left side
+    quad(guideway, aR, bR, bRb, aRb);     // right side
+    for (const s of [-BAR_OFF, BAR_OFF]) {
+      const raL = corner(pA, nA, o + s + BAR_W / 2, yA + GUIDE_H + BAR_LIFT);
+      const raR = corner(pA, nA, o + s - BAR_W / 2, yA + GUIDE_H + BAR_LIFT);
+      const rbL = corner(pB, nB, o + s + BAR_W / 2, yB + GUIDE_H + BAR_LIFT);
+      const rbR = corner(pB, nB, o + s - BAR_W / 2, yB + GUIDE_H + BAR_LIFT);
+      quad(rails, raL, rbL, rbR, raR);
+    }
+  };
 
   for (const line of lines) {
     const pts = ptsOf(line);
     if (pts.length < 2) continue;
     const normals = pointNormals(pts);
     const trackOffs = tracks ? (line.tracks?.length ? line.tracks : [0]) : [];
+    const stripFn = line.trackStyle === 'guideway' ? guideStrip : trackStrip;
     const half = (line.width || 6) / 2;
     const inner = half - PARAPET_T;
     // Cross-section corners per point: slab TL/TR (top) and BL/BR
@@ -157,7 +193,7 @@ export function buildDeckGeometry(elevated, opts = {}) {
           const asph = (c, key) => [c[key][0], LOW_BED_H + ASPHALT_LIFT, c[key][2]];
           quad(asphalt, asph(A, 'aL'), asph(B, 'aL'), asph(B, 'aR'), asph(A, 'aR'));
         } else {
-          for (const o of trackOffs) trackStrip(pts[i], normals[i], LOW_BED_H, pts[i + 1], normals[i + 1], LOW_BED_H, o);
+          for (const o of trackOffs) stripFn(pts[i], normals[i], LOW_BED_H, pts[i + 1], normals[i + 1], LOW_BED_H, o);
         }
         continue;
       }
@@ -176,7 +212,7 @@ export function buildDeckGeometry(elevated, opts = {}) {
       // Top ribbon inside the parapets: the asphalt ribbon, or in
       // track mode the ballast strips + rails on the slab top.
       if (!tracks) quad(asphalt, A.aL, B.aL, B.aR, A.aR);
-      else for (const o of trackOffs) trackStrip(pts[i], normals[i], A.h, pts[i + 1], normals[i + 1], B.h, o);
+      else for (const o of trackOffs) stripFn(pts[i], normals[i], A.h, pts[i + 1], normals[i + 1], B.h, o);
     }
     // End caps where the line ends in the air (portal ends sit at
     // h ~ 0 and need none; tile-edge ends close the box).
@@ -189,12 +225,13 @@ export function buildDeckGeometry(elevated, opts = {}) {
     cap(cs[cs.length - 1], true);
   }
 
-  const triCount = (concrete.pos.length + asphalt.pos.length + ballast.pos.length + rails.pos.length) / 9;
+  const triCount = (concrete.pos.length + asphalt.pos.length + ballast.pos.length + rails.pos.length + guideway.pos.length) / 9;
   return {
     concrete: { positions: new Float32Array(concrete.pos), normals: new Float32Array(concrete.nor) },
     asphalt: { positions: new Float32Array(asphalt.pos), normals: new Float32Array(asphalt.nor) },
     ballast: { positions: new Float32Array(ballast.pos), normals: new Float32Array(ballast.nor) },
     rails: { positions: new Float32Array(rails.pos), normals: new Float32Array(rails.nor) },
+    guideway: { positions: new Float32Array(guideway.pos), normals: new Float32Array(guideway.nor) },
     triCount,
     lineCount: lines.length,
     pierCount: (elevated?.piers || []).length,

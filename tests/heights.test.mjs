@@ -54,7 +54,7 @@ test('height layer present, provenanced, factors agree with the planner', () => 
 
 test('join census: every lot labelled, per-source counts pinned', (t) => {
   const lots = plan.lots;
-  assert.equal(lots.length, 38342, 'the join moves heights only — the lot count is the #106 plan as composed with #118, #134 and #137, less the #139 removals, the #144 site exclusion (7 lots) and the #135 Twin Towers parcel exclusions (47 lots: 21 in the C1 site rect, 26 in the D1 plaza rect, counted on the pre-#135 plan)');
+  assert.equal(lots.length, 38340, 'the join moves heights only — the lot count is the #106 plan as composed with #118, #134 and #137, less the #139 removals, the #144 site exclusion (7 lots), the #135 Twin Towers parcel exclusions (47 lots: 21 in the C1 site rect, 26 in the D1 plaza rect, counted on the pre-#135 plan) and the 2 #146 Wenhu dive drops');
   for (const lot of lots) assert.ok([...REAL, 'field', 'proc'].includes(lot.hSrc), `lot labelled (${lot.hSrc})`);
   const c = {};
   for (const lot of lots) c[lot.hSrc] = (c[lot.hSrc] || 0) + 1;
@@ -115,22 +115,31 @@ test('join census: every lot labelled, per-source counts pinned', (t) => {
   // the tier with new heights. Net: permit -7, field -2,
   // proc +2; the door and OSM tiers are untouched, and
   // real-signal lots go 17,372 -> 17,365.
+  // Issue #146 composition (Wenhu Line), diffed lot by lot on
+  // this merged tree: the Wenhu guideway clearance drops
+  // exactly 2 lots, both piercing the descending guideway
+  // north of Zhongshan JHS (census in taipei-mrt.test.mjs) —
+  // one door lot (h 15.5) and one proc lot (h 14.5). Net:
+  // door -1, proc -1.
+  // Merged-tree composition (#135 + #144 + #146): the three
+  // sites are kilometres apart and their deltas are
+  // independent — permit 3,487 - 37 = 3,450, osm tiers
+  // untouched, door 8,093 - 1 (#146) = 8,092, field
+  // 14,296 - 14 = 14,282, proc 6,728 + 4 (#135 re-pool)
+  // - 1 (#146) = 6,731; real-signal
+  // 17,365 - 37 - 1 = 17,327; lots 38,342 - 2 = 38,340.
+  assert.equal(c.permit, 3450);
   assert.equal(c['osm-height'], 1108);
   assert.equal(c['osm-levels'], 4677);
-  assert.equal(c.door, 8093);
-  // Merged-tree composition (#135 on top of #144): the two
-  // sites are 6 km apart and their deltas are independent —
-  // permit 3,487 - 37 = 3,450, field 14,296 - 14 = 14,282,
-  // proc 6,728 + 4 = 6,732; real-signal 17,365 - 37 = 17,328.
-  assert.equal(c.permit, 3450);
+  assert.equal(c.door, 8092);
   assert.equal(c.field, 14282);
-  assert.equal(c.proc, 6732);
+  assert.equal(c.proc, 6731);
   assert.equal(plan.stats.heightsPermit, c.permit, 'stats census agrees (permit)');
   assert.equal(plan.stats.heightsDoor, c.door, 'stats census agrees (door)');
   assert.equal(plan.stats.heightsField, c.field, 'stats census agrees (field)');
   assert.equal(plan.stats.heightsProc, c.proc, 'stats census agrees (proc)');
   const real = REAL.reduce((s, k) => s + c[k], 0);
-  assert.equal(real, 17328, 'real-signal lots');
+  assert.equal(real, 17327, 'real-signal lots');
   assert.ok(real / lots.length > 0.40 && real / lots.length < 0.50, 'real coverage in the measured band');
 });
 
@@ -154,6 +163,8 @@ test('joined skyline: the >=30 m share lands on the study’s real figure', () =
   // note) — 5,990 of 38,342 = 15.6% on this merged tree;
   // >= 60 m: 1,038 - 47 - 7 = 984 (the #144 lots, at h 36,
   // never touched the >= 60 m class).
+  // Issue #146: both Wenhu dive drops are < 30 m (h 14.5 /
+  // 15.5) — the count holds at 5,990 of 38,340 = 15.6%.
   const tall = plan.lots.filter((l) => l.h >= 30).length;
   assert.equal(tall, 5990);
   const g60 = plan.lots.filter((l) => l.h >= 60).length;
@@ -225,7 +236,7 @@ test('fallback byte-stability: untouched lots keep their procedural heights exac
       procChecked++;
     }
   }
-  assert.equal(procChecked, 6732); // the proc census, re-pinned with it for issues #134 + #139; +2 for #144 (the face-statistic flips, see the census diff), +4 for #135 (the field re-pool flips, see the census diff)
+  assert.equal(procChecked, 6731); // the proc census, re-pinned with it for issues #134 + #139; +2 for #144 (the face-statistic flips, see the census diff), +4 for #135 (the field re-pool flips, see the census diff), -1 for #146 (one of the two Wenhu dive drops is a proc lot)
   assert.ok(bare.lots.every((l) => l.hSrc === 'proc'), 'no layer, no labels but proc');
 });
 
