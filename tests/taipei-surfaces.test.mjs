@@ -234,3 +234,68 @@ test('podium blocks: exactly the 101 and City Hall blocks, by landmark-centre co
   assert.ok(far && !isPodiumBlock(far, centres), 'a far corner block is not podium');
   assert.ok(!isPodiumBlock(TAIPEI_GEO.blocks[0], []), 'no centres -> no podium');
 });
+
+// ---------------------------------------------------------------------
+// Issue #173 (MEDTIP class): median strips terminate at junction
+// surfaces with the painted bands' discipline — the cap test probes
+// centre + both edges per frame (and the interval mid-edges), not
+// the centre point alone.
+
+test('medtip (issue #173): a median corner may not enter a cap the centre clears', () => {
+  // A divided boulevard running east; the cap square starts at
+  // x=80 and covers the strip's north edge line (strip half is
+  // 1.2 m; the square spans z in [-3, 0.6]) — the strip's centre
+  // stays clear of it, its north corner does not. With the old
+  // centre-only cap test the strip dragged quads across the
+  // square; with edge parity it ends before it.
+  const blvd = bed('仁愛路四段', 'secondary', 30, [1, 2], [-100, 0, 100, 0]);
+  const cap = [[80, -3], [130, -3], [130, -0.9], [80, -0.9]];
+  const { planted } = buildMedianStrips([blvd], [cap]);
+  assert.ok(planted.length > 0, 'the strip still runs west of the cap');
+  const signed = (p) => p.reduce((s, pt, i, a) => s + pt[0] * a[(i + 1) % a.length][1] - a[(i + 1) % a.length][0] * pt[1], 0) / 2;
+  const clipArea = (subject, clip) => {
+    let cl = signed(clip) < 0 ? [...clip].reverse() : clip;
+    let out = subject;
+    for (let i = 0; i < cl.length; i++) {
+      const A = cl[i], B = cl[(i + 1) % cl.length];
+      const inp = out; out = [];
+      if (!inp.length) break;
+      const cross = (p) => (B[0] - A[0]) * (p[1] - A[1]) - (B[1] - A[1]) * (p[0] - A[0]);
+      for (let j = 0; j < inp.length; j++) {
+        const cur = inp[j], prv = inp[(j + inp.length - 1) % inp.length];
+        const cc = cross(cur), pc = cross(prv);
+        const inter = () => { const t = pc / (pc - cc); return [prv[0] + (cur[0] - prv[0]) * t, prv[1] + (cur[1] - prv[1]) * t]; };
+        if (cc >= -1e-9) { if (pc < -1e-9) out.push(inter()); out.push(cur); }
+        else if (pc >= -1e-9) out.push(inter());
+      }
+    }
+    return Math.abs(signed(out));
+  };
+  for (const q of planted) {
+    const qp = [[q[0], q[1]], [q[2], q[3]], [q[4], q[5]], [q[6], q[7]]];
+    assert.ok(clipArea(qp, cap) < 0.02, `median quad ${q} overlaps the cap`);
+  }
+});
+
+test('medtip (issue #173): boot-path census — median overlap of junction surfaces is ~zero', async () => {
+  const { detectJunctions } = await import('../js/taipei-markings.js');
+  const { planJunctionCaps, planRoundabouts, ringPoints, capSurfacePolys, capClipPolys } = await import('../js/taipei-junctions.js');
+  const beds = TAIPEI_GEO.roadbeds;
+  const junctions = detectJunctions(beds);
+  const sites = planRoundabouts(beds, junctions);
+  const caps = planJunctionCaps(beds, junctions, sites, capClipPolys(TAIPEI_GEO));
+  const capPolys = [...caps.flatMap((c) => capSurfacePolys(c)), ...sites.flatMap((s) => [s.disc, ...s.aprons]).map((c) => ringPoints(c.ring))];
+  const { planted, plain, stats } = buildMedianStrips(beds, capPolys);
+  // Before #173 this wiring measured 86 quads / 26.2 m² of median
+  // over junction surfaces; the edge-parity cap test leaves at
+  // most a sub-0.05 m² graze.
+  const { buildPolyGrid, pointInAnyPoly } = await import('../js/taipei-painted.js');
+  const grid = buildPolyGrid(capPolys, 60);
+  let cornersIn = 0;
+  for (const q of [...planted, ...plain]) {
+    for (let i = 0; i < 8; i += 2) if (pointInAnyPoly(grid, capPolys, [q[i], q[i + 1]])) cornersIn++;
+  }
+  assert.equal(cornersIn, 0, 'no median quad corner inside a junction surface');
+  assert.ok(stats.plantedKm > 28 && stats.plantedKm < 29, `planted ${stats.plantedKm} km on the boot path`);
+  assert.ok(stats.plainKm > 81 && stats.plainKm < 82, `plain ${stats.plainKm} km on the boot path`);
+});

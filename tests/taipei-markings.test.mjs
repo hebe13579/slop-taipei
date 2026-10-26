@@ -333,10 +333,22 @@ test('geodata: tile-wide marking counts are in the audited bands', () => {
   // centres that landed on the removed fan corners and tongues
   // are no longer occluded: 158,099 -> 158,190 quads (+91) and
   // 235.28 -> 235.41 km (+0.13).
-  assert.equal(r.stats.dashQuads, 158190, `dash quads ${r.stats.dashQuads}`);
+  // Issue #173 re-pin (on top of #171's): two placement rules —
+  // the X-pair cull (divider centrelines may not properly cross:
+  // 258 crossing pairs among emittable intervals, 975 samples
+  // blocked, both intervals of a pair dropped so the lines end
+  // at the gore) and the roundabout occluders (island + apron
+  // polygons join the dash occlusion set; the boot path also
+  // passes the park/green polys for the disc-clipped wedge
+  // occluders). Measured on this path: 158,190 -> 157,589 quads
+  // (-601) and 235.41 -> 234.55 km (-0.86). The boot path moves
+  // 158,202 -> 157,599 by the same rules plus its wedge greens
+  // and roundabout-planned caps.
+  assert.equal(r.stats.dashQuads, 157589, `dash quads ${r.stats.dashQuads}`);
+  assert.equal(r.stats.crossPairs, 258, `X pairs culled ${r.stats.crossPairs}`);
   assert.equal(r.stats.dividerBeds, 1010, `divider beds ${r.stats.dividerBeds}`);
   assert.equal(r.stats.deckDividerBedsSkipped, 91, `deck divider beds skipped ${r.stats.deckDividerBedsSkipped}`);
-  assert.ok(Math.abs(r.stats.dividerKm - 235.41) < 0.05, `divider km ${r.stats.dividerKm}`);
+  assert.ok(Math.abs(r.stats.dividerKm - 234.55) < 0.05, `divider km ${r.stats.dividerKm}`);
   assert.ok(r.stats.crosswalks > 400, `crosswalks ${r.stats.crosswalks}`);
   assert.ok(r.stats.signalUnits >= r.stats.stopLines && r.stats.stopLines > 600,
     `signals ${r.stats.signalUnits} / stop lines ${r.stats.stopLines}`);
@@ -452,5 +464,117 @@ test('geodata (issue #64): no signal stands on a carriageway; mast-arms only on 
       `${divided ? 'divided' : 'undivided'} approach (bed ${beds[s.bed].name}) got kind ${s.kind}`);
     if (s.kind === 'mast') assert.ok(s.armLen >= MAST_ARM_MIN && s.armLen <= MAST_ARM_MAX, `armLen ${s.armLen}`);
     else assert.equal(s.armLen, 0);
+  }
+});
+
+// ---------------------------------------------------------------------
+// Issue #173 (DASH class): X-pair cull + roundabout occluders.
+
+const segCrossProper = (a, b, p, q) => {
+  const d1 = (b[0] - a[0]) * (p[1] - a[1]) - (b[1] - a[1]) * (p[0] - a[0]);
+  const d2 = (b[0] - a[0]) * (q[1] - a[1]) - (b[1] - a[1]) * (q[0] - a[0]);
+  const d3 = (q[0] - p[0]) * (a[1] - p[1]) - (q[1] - p[1]) * (a[0] - p[0]);
+  const d4 = (q[0] - p[0]) * (b[1] - p[1]) - (q[1] - p[1]) * (b[0] - p[0]);
+  return ((d1 > 0 && d2 < 0) || (d1 < 0 && d2 > 0)) && ((d3 > 0 && d4 < 0) || (d3 < 0 && d4 > 0));
+};
+const dashSeg = (q) => [[(q[0] + q[6]) / 2, (q[1] + q[7]) / 2], [(q[2] + q[4]) / 2, (q[3] + q[5]) / 2]];
+const countDashCrossings = (dashes) => {
+  const cell = 8;
+  const g = new Map();
+  dashes.forEach((q, i) => {
+    const c = quadCentre(q);
+    const k = `${Math.floor(c[0] / cell)},${Math.floor(c[1] / cell)}`;
+    if (!g.has(k)) g.set(k, []);
+    g.get(k).push(i);
+  });
+  let n = 0;
+  dashes.forEach((q, i) => {
+    const c = quadCentre(q);
+    const [a, b] = dashSeg(q);
+    for (let dx = -1; dx <= 1; dx++) for (let dz = -1; dz <= 1; dz++) {
+      for (const j of g.get(`${Math.floor(c[0] / cell) + dx},${Math.floor(c[1] / cell) + dz}`) || []) {
+        if (j <= i) continue;
+        const [p, r] = dashSeg(dashes[j]);
+        if (segCrossProper(a, b, p, r)) n++;
+      }
+    }
+  });
+  return n;
+};
+
+test('dash X-cull (issue #173): braided same-way beds never paint a crossing pair', () => {
+  // Two wide divided beds sharing a source way (the braid pattern
+  // the foreign-ribbon clip cannot see): their divider centrelines
+  // cross live all along the braid. Without the cull the crossing
+  // intervals paint X pairs; with it both sides end at the gore.
+  const a = bed('A Blvd', 'secondary', 36, [1, 2], [-100, 0, 100, 0]);
+  const b = bed('B Blvd', 'secondary', 36, [1, 3], [-100, 8, 100, -8]);
+  const { dashes, dashStrips, stats } = buildLaneDividers([a, b]);
+  assert.ok(stats.crossPairs > 0, `crossing pairs detected (${stats.crossPairs})`);
+  assert.ok(stats.crossBlockedSamples > 0, 'samples blocked by the cull');
+  assert.equal(countDashCrossings(dashes), 0, 'no emitted dash centreline properly crosses another');
+  assert.ok(dashStrips.length > 0, 'shader strips still emitted away from the crossings');
+});
+
+test('dash X-cull (issue #173): the real tile emits zero crossing pairs', () => {
+  const r = buildRoadMarkings(TAIPEI_GEO.roadbeds);
+  assert.equal(countDashCrossings(r.dashes), 0, 'tile-wide emitted crossings');
+});
+
+test('roundabout occluders (issue #173): helper clips wedge greens to the disc', async () => {
+  const { roundaboutDashOccluders, ringPoints } = await import('../js/taipei-junctions.js');
+  // Square disc 100x100 centred on the origin; a green square
+  // straddling its east rim (x 30..70, z -10..10).
+  const site = {
+    island: { ring: [-10, -10, 10, -10, 10, 10, -10, 10] },
+    aprons: [],
+    disc: { ring: [-50, -50, 50, -50, 50, 50, -50, 50] },
+  };
+  const green = [[30, -10], [70, -10], [70, 10], [30, 10]];
+  const occ = roundaboutDashOccluders([site], [green]);
+  assert.equal(occ.length, 2, 'island + one wedge piece');
+  const wedge = occ[1];
+  for (const p of wedge) assert.ok(p[0] <= 50.01, `wedge point ${p} stays inside the disc`);
+  const area = Math.abs(wedge.reduce((s, p, i, a) => s + p[0] * a[(i + 1) % a.length][1] - a[(i + 1) % a.length][0] * p[1], 0) / 2);
+  assert.ok(Math.abs(area - 400) < 1, `wedge piece is the in-disc half of the green (${area} m² of 800)`);
+  assert.deepEqual(ringPoints(site.island.ring).length, 4, 'ringPoints sanity');
+});
+
+test('roundabout occluders (issue #173): no dash overlaps an island or apron on the real tile', async () => {
+  const { planRoundabouts, ringPoints } = await import('../js/taipei-junctions.js');
+  const beds = TAIPEI_GEO.roadbeds;
+  const r = buildRoadMarkings(beds);
+  const sites = planRoundabouts(beds, r.junctions);
+  assert.equal(sites.length, 3, 'the three roundabout sites');
+  const clipArea = (subject, clip) => {
+    let area = 0;
+    const signed = (p) => p.reduce((s, pt, i, a) => s + pt[0] * a[(i + 1) % a.length][1] - a[(i + 1) % a.length][0] * pt[1], 0) / 2;
+    let cl = signed(clip) < 0 ? [...clip].reverse() : clip;
+    let out = subject;
+    for (let i = 0; i < cl.length; i++) {
+      const A = cl[i], B = cl[(i + 1) % cl.length];
+      const inp = out; out = [];
+      if (!inp.length) break;
+      const cross = (p) => (B[0] - A[0]) * (p[1] - A[1]) - (B[1] - A[1]) * (p[0] - A[0]);
+      for (let j = 0; j < inp.length; j++) {
+        const cur = inp[j], prv = inp[(j + inp.length - 1) % inp.length];
+        const cc = cross(cur), pc = cross(prv);
+        const inter = () => { const t = pc / (pc - cc); return [prv[0] + (cur[0] - prv[0]) * t, prv[1] + (cur[1] - prv[1]) * t]; };
+        if (cc >= -1e-9) { if (pc < -1e-9) out.push(inter()); out.push(cur); }
+        else if (pc >= -1e-9) out.push(inter());
+      }
+    }
+    return Math.abs(signed(out));
+  };
+  for (const s of sites) {
+    const polys = [ringPoints(s.island.ring), ...s.aprons.map((a) => ringPoints(a.ring))];
+    let bad = 0;
+    for (const q of r.dashes) {
+      const c = quadCentre(q);
+      if (Math.hypot(c[0] - s.x, c[1] - s.z) > s.discR + 20) continue;
+      const qp = [[q[0], q[1]], [q[2], q[3]], [q[4], q[5]], [q[6], q[7]]];
+      if (polys.some((p) => clipArea(qp, p) > 0.02)) bad++;
+    }
+    assert.equal(bad, 0, `${s.id}: dashes overlapping island/aprons`);
   }
 });

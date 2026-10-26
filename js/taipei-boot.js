@@ -8,7 +8,8 @@ import { buildAirfieldPaint } from './taipei-airfield.js';
 import { SURFACE_TONES, surfaceClass, buildMedianStrips, isPlazaPark, isPodiumBlock, podiumCentresOf, memorialPaving, MEMORIAL_GRID_TONE } from './taipei-surfaces.js';
 import { buildRoadMarkings, detectJunctions, DASH_LEN, DASH_GAP, STRIPE_W, STRIPE_PITCH } from './taipei-markings.js';
 import { planJunctionCaps, planRoundabouts, ringPoints, capSurfacePolys, capClipPolys, CAP_Y, ISLAND_Y } from './taipei-junctions.js';
-import { buildDeckGeometry, PIER_W, PIER_D } from './taipei-viaduct.js';
+import { buildDeckGeometry, groundContactPolys, PIER_W, PIER_D } from './taipei-viaduct.js';
+import { ribbonsQuads, jointFramesFor } from './taipei-ribbons.js';
 import { buildMrtStationGeometry, buildMrtDepotGeometry } from './taipei-mrt-stations.js';
 import { buildTerrainSkinGeometry } from './taipei-terrain.js';
 import { buildGreenTintLayers, GREEN_TINT_Y } from './taipei-green.js';
@@ -265,29 +266,14 @@ function buildMrtDepotMesh(depot) {
   return mesh;
 }
 
-function ribbonsGeometry(roads, y) {
-  let segments = 0;
-  for (const r of roads) segments += Math.max(0, r.pts.length / 2 - 1);
-  const positions = new Float32Array(segments * 18);
-  let o = 0;
-  for (const r of roads) {
-    const half = Math.max((r.width || 3) / 2, 0.75);
-    for (let i = 0; i + 3 < r.pts.length; i += 2) {
-      const ax = r.pts[i], az = r.pts[i + 1], bx = r.pts[i + 2], bz = r.pts[i + 3];
-      const dx = bx - ax, dz = bz - az;
-      const len = Math.hypot(dx, dz);
-      if (len < 0.01) continue;
-      const nx = (-dz / len) * half, nz = (dx / len) * half;
-      const axn = ax + nx, azn = az + nz, axp = ax - nx, azp = az - nz;
-      const bxn = bx + nx, bzn = bz + nz, bxp = bx - nx, bzp = bz - nz;
-      positions.set([axn, y, azn, bxn, y, bzn, bxp, y, bzp, axn, y, azn, bxp, y, bzp, axp, y, azp], o);
-      o += 18;
-    }
-  }
-  const geo = new THREE.BufferGeometry();
-  geo.setAttribute('position', new THREE.BufferAttribute(positions.subarray(0, o), 3));
-  geo.computeVertexNormals();
-  return geo;
+// Ribbon geometry comes from js/taipei-ribbons.js (issue #173):
+// per-vertex miter frames instead of the per-segment square butt
+// ends that left triangular NOTCH wedges on every bend, plus shared
+// end frames at cross-road continuation joints. `jointFrames` lets
+// the per-class carriageway layers share one joint map computed
+// over the full carriageway set (a continuation can cross classes).
+function ribbonsGeometry(roads, y, jointFrames = null) {
+  return quadsGeometry(ribbonsQuads(roads, jointFrames).quads, y);
 }
 
 // 標線型人行道 (painted walkways, TAIWAN_STREETSCAPE.md §c.3): a solid
@@ -745,6 +731,9 @@ export async function buildTaipeiGround(scene, tile, deps = {}) {
   const carriageways = Array.isArray(geo.roadbeds) && geo.roadbeds.length
     ? geo.roadbeds
     : geo.roads.filter((r) => !NON_CARRIAGEWAY.has(r.highway));
+  // Issue #173: continuation-joint frames over the whole carriageway
+  // set, shared by the band layer and the per-class layers below.
+  const carriagewayJoints = jointFramesFor(carriageways);
   // Street-section bands at 0.045: below the paths layer (0.05) so park
   // and campus paths still read over a band, above parks (0.04) so a
   // riverside boulevard's sidewalk isn't swallowed by the park fill.
@@ -756,7 +745,7 @@ export async function buildTaipeiGround(scene, tile, deps = {}) {
   const widened = (layout) => carriageways
     .filter((r) => r.pedestrianLayout === layout)
     .map((r) => ({ pts: r.pts, width: (r.width || 3) + BAND_EXTRA[layout] * 2 }));
-  addLayer(ribbonsGeometry(widened('arcade'), 0.045), mat(0x8e8672), 'TaipeiArcadeBands');
+  addLayer(ribbonsGeometry(widened('arcade'), 0.045, carriagewayJoints), mat(0x8e8672), 'TaipeiArcadeBands');
   const sidewalkBands = buildSidewalkBands(carriageways, 0.045);
   addLayer(positionsGeometry(sidewalkBands.positions), mat(0xb5b0a4), 'TaipeiSidewalkBands');
   console.info(`[taipei-sidewalks] ${sidewalkBands.quadCount} band quads, ${(sidewalkBands.totalBandLength / 1000).toFixed(1)} km of sidewalk band (both edges, junction-trimmed)`);
@@ -772,10 +761,10 @@ export async function buildTaipeiGround(scene, tile, deps = {}) {
   // deck is exactly what it was when the deck was a boulevard.
   const byClass = { deck: [], arterial: [], collector: [], lane: [] };
   for (const r of carriageways) if (!r.deck) byClass[surfaceClass(r)].push(r);
-  addLayer(ribbonsGeometry(byClass.deck, 0.06), mat(SURFACE_TONES.deck, 0.9), 'TaipeiRoadsDeck');
-  addLayer(ribbonsGeometry(byClass.arterial, 0.06), mat(SURFACE_TONES.arterial, 0.9), 'TaipeiRoads');
-  addLayer(ribbonsGeometry(byClass.collector, 0.06), mat(SURFACE_TONES.collector, 0.9), 'TaipeiRoadsCollector');
-  addLayer(ribbonsGeometry(byClass.lane, 0.06), mat(SURFACE_TONES.lane, 0.9), 'TaipeiRoadsLane');
+  addLayer(ribbonsGeometry(byClass.deck, 0.06, carriagewayJoints), mat(SURFACE_TONES.deck, 0.9), 'TaipeiRoadsDeck');
+  addLayer(ribbonsGeometry(byClass.arterial, 0.06, carriagewayJoints), mat(SURFACE_TONES.arterial, 0.9), 'TaipeiRoads');
+  addLayer(ribbonsGeometry(byClass.collector, 0.06, carriagewayJoints), mat(SURFACE_TONES.collector, 0.9), 'TaipeiRoadsCollector');
+  addLayer(ribbonsGeometry(byClass.lane, 0.06, carriagewayJoints), mat(SURFACE_TONES.lane, 0.9), 'TaipeiRoadsLane');
   await completeStage('roads', `${carriageways.length} roadbeds, ${sidewalkBands.quadCount} sidewalk band quads`);
   // Junction caps (issues #66/#75/#145, js/taipei-junctions.js):
   // one paved polygon per detected junction at 0.061, in per-vertex
@@ -855,7 +844,8 @@ export async function buildTaipeiGround(scene, tile, deps = {}) {
   // red pedestrian panel. No phase cycle yet, and traffic does not
   // obey them; scooter waiting boxes are out of scope (user cut).
   const markingsStart = performance.now();
-  const markings = buildRoadMarkings(carriageways, medians, caps, junctions); // reuses the strips built above as dash occluders
+  const markings = buildRoadMarkings(carriageways, medians, caps, junctions,
+    [...(geo.parks || []), ...(geo.green || [])].map((g) => ringPoints(g.ring))); // reuses the strips built above as dash occluders; greens feed the #173 roundabout wedge occluders
   // Dashes and zebra stripes render as shader patterns over plain
   // ribbons/bands (issue #90 — the plan in taipei-markings.js is
   // unchanged; only the baking moved into the fragment shader).
@@ -917,6 +907,16 @@ export async function buildTaipeiGround(scene, tile, deps = {}) {
     if (mrtGeo.rails.positions.length) {
       const mrtRails = addLayer(deckPartGeometry(mrtGeo.rails), mat(0x8f9296, 0.45), 'TaipeiMrtRails');
       mrtRails.castShadow = true;
+    }
+    // Issue #173: the dive-portal mouths (headwall + wing walls in
+    // the deck concrete tone, the dark opening near-black) where a
+    // track line truly dives — the 民權西路 portal in this tile.
+    if (mrtGeo.portal.positions.length) {
+      const mrtPortals = addLayer(deckPartGeometry(mrtGeo.portal), mat(0x98958a, 0.95), 'TaipeiMrtPortals');
+      mrtPortals.castShadow = true;
+    }
+    if (mrtGeo.portalDark.positions.length) {
+      addLayer(deckPartGeometry(mrtGeo.portalDark), mat(0x14161a, 1.0), 'TaipeiMrtPortalOpenings');
     }
     const mrtPiers = buildDeckPierMesh(geo.mrtDecks.piers || []);
     if (mrtPiers) { mrtPiers.name = 'TaipeiMrtDeckPiers'; group.add(mrtPiers); }
@@ -1001,6 +1001,11 @@ export async function buildTaipeiGround(scene, tile, deps = {}) {
   const treeExclusions = [
     ...caps.flatMap((c) => [c.ring, ...(c.extras || []).map((ex) => ex.ring)]),
     ...roundabouts.flatMap((s) => [s.disc.ring, ...s.aprons.map((a) => a.ring)]),
+    // Issue #173: the MRT beds where they touch the ground (at-grade
+    // stretches + the portal fan-outs) — a tree stood on the ballast
+    // at the s09 dive in the #169 sweep; the corridors are not
+    // roadbeds, so the bed grid never covered them.
+    ...groundContactPolys(geo.mrtDecks || { lines: [] }).map((p) => p.flatMap((pt) => pt)),
   ];
   const treePlan = planStreetTrees(geo, plan, { exclusions: treeExclusions });
   const parkTreePlan = planParkTrees(geo, plan, { exclusions: treeExclusions });
