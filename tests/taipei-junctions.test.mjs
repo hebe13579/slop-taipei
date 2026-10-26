@@ -6,7 +6,7 @@ import { pointInPoly, buildPolyGrid, pointInAnyPoly, ribbonPoly } from '../js/ta
 import { buildPaintedBands } from '../js/taipei-painted.js';
 import { buildMedianStrips, surfaceClass } from '../js/taipei-surfaces.js';
 import { detectJunctions, buildRoadMarkings } from '../js/taipei-markings.js';
-import { convexHull, planJunctionCaps, planRoundabouts, ringPoints, CAP_Y } from '../js/taipei-junctions.js';
+import { convexHull, planJunctionCaps, planRoundabouts, ringPoints, CAP_Y, MAIN_CORNER_STRIP_TOL_M } from '../js/taipei-junctions.js';
 
 // Issue #66 — junction caps. The rules live in js/taipei-junctions.js
 // (pure) so these tests pin the exact code the renderer draws with:
@@ -159,12 +159,23 @@ test('real tile: exactly one cap per multi-arm junction, centres and arm ends co
   // over alley webs — collapse to box + ribbons), box 540,543 ->
   // 520,406 m2 (the margin-line corners and displaced-mouth
   // flares go; the box and its mouth aprons stay).
+  // Census re-pinned for issue #171 (cap outline discipline):
+  // counts and kind split unchanged; the ring areas fall by the
+  // main-corner strip gate — a pair's main corner survives only
+  // while it lies on the two arms' own carriageway strips, so
+  // the fan corners over corner plots (the #169 sweep's WEB
+  // class) and the near-reflex pair spikes (SPIKE) leave the
+  // hulls: total 703,160 -> 660,401 m² (fitted 182,754 ->
+  // 161,862 m², box 520,406 -> 498,539 m²). This census plans
+  // WITHOUT the green clip (the boot passes capClipPolys; the
+  // clip's own deltas are pinned in the #171 evidence, not
+  // here — the pure builders keep planning unclipped caps).
   assert.equal(junctions.length, 2701, `junctions ${junctions.length}`);
   assert.equal(caps.length, 2694, `caps ${caps.length}`);
   assert.equal(caps.filter((c) => c.kind === 'box').length, 579, 'box caps');
   assert.equal(caps.filter((c) => c.kind === 'fitted').length, 2115, 'fitted caps');
-  assert.equal(Math.round(caps.reduce((s, c) => s + c.area, 0)), 703160, 'cap area census');
-  assert.equal(Math.round(caps.filter((c) => c.kind === 'fitted').reduce((s, c) => s + c.area, 0)), 182754,
+  assert.equal(Math.round(caps.reduce((s, c) => s + c.area, 0)), 660401, 'cap area census');
+  assert.equal(Math.round(caps.filter((c) => c.kind === 'fitted').reduce((s, c) => s + c.area, 0)), 161862,
     'fitted cap area census (overlap construction since #145)');
   // Census addition for issue #163 (junction fix v2): the ring
   // counts/areas above are unchanged BY CONSTRUCTION — the #163
@@ -178,8 +189,17 @@ test('real tile: exactly one cap per multi-arm junction, centres and arm ends co
   // chord opposes the arm axis and get no strip (no honest
   // corridor direction); 34 arms sit past the 30 m cap and
   // stay unpaved by design (cluster scatter, not mouths).
+  // Strip area re-pinned for issue #171: the count is unchanged
+  // (2,618 — the kerb stop trims, it does not add or drop whole
+  // strips on this tile), the area falls 138,514 -> 129,142 m²:
+  // 252 strips that crossed a foreign carriageway and ran on
+  // onto the far plot, or stopped just short of a foreign kerb
+  // far from their ring (the TONGUE class, ji394), now end at
+  // the far kerb + the usual 0.25 m tuck (9,372 m² of tongue
+  // removed; strips ending on their ring or on a carriageway —
+  // ji562, the #163 synthetic — are untouched).
   assert.equal(caps.reduce((s, c) => s + (c.extras || []).length, 0), 2618, 'extension strip census');
-  assert.equal(caps.reduce((s, c) => s + (c.extraArea || 0), 0), 138514, 'extension strip area census');
+  assert.equal(caps.reduce((s, c) => s + (c.extraArea || 0), 0), 129142, 'extension strip area census');
   for (const c of caps) if (c.kind === 'box') assert.equal((c.extras || []).length, 0, 'box caps carry no strips');
   const capByJ = new Map();
   {
@@ -309,13 +329,17 @@ test('real tile: no painted band, median strip or dash quad centre inside a cap'
   // centres; the clipped builders still put exactly 0 there.
   // (Medians barely move: their quads run along centrelines,
   // inside the boxes under both constructions.)
+  // Bite re-pinned for issue #171: the occluder rings shrink by
+  // the main-corner gate (703,160 -> 660,401 m2), so the bite
+  // falls again — 1,533 band, 3,026 edge and 3,568 median quad
+  // centres; the clipped builders still put exactly 0 there.
   const unclipped = buildPaintedBands(beds);
-  assert.equal(unclipped.band.filter(inOcc).length, 1626,
+  assert.equal(unclipped.band.filter(inOcc).length, 1533,
     `unclipped bands inside occluders: ${unclipped.band.filter(inOcc).length}`);
-  assert.equal(unclipped.edges.filter(inOcc).length, 3230,
+  assert.equal(unclipped.edges.filter(inOcc).length, 3026,
     `unclipped edges inside occluders: ${unclipped.edges.filter(inOcc).length}`);
   const unclippedMedians = buildMedianStrips(beds);
-  assert.equal([...unclippedMedians.plain, ...unclippedMedians.planted].filter(inOcc).length, 3622,
+  assert.equal([...unclippedMedians.plain, ...unclippedMedians.planted].filter(inOcc).length, 3568,
     'unclipped medians inside occluders');
 });
 
@@ -329,6 +353,12 @@ test('real tile: no painted band, median strip or dash quad centre inside a cap'
 // staying within the cross arm's mouth span + 6); the box is the
 // hull of corners + segment endpoints. Pure crossHalf arithmetic —
 // what "corner to corner" means, independent of the shipped cap.
+// Issue #171 narrows the box to the POC box: a main corner is a
+// box corner only while it lies on the two arms' own carriageway
+// strips (lateral offset within either arm's half width +
+// MAIN_CORNER_STRIP_TOL_M). Past that the "corner" is a fan
+// vertex over the corner plot — not junction box, not covered,
+// by the same rule the shipped cap now follows.
 function junctionBox(j) {
   const arms = [...j.arms].sort((a, b) => Math.atan2(a.dirZ, a.dirX) - Math.atan2(b.dirZ, b.dirX));
   const lineOf = (a) => ({ a, px: j.x + a.dirX * a.crossHalf, pz: j.z + a.dirZ * a.crossHalf, nx: -a.dirZ, nz: a.dirX });
@@ -363,7 +393,13 @@ function junctionBox(j) {
     if (Math.abs(det) >= 1e-6) {
       const t = ((B.px - A.px) * B.nz - (B.pz - A.pz) * B.nx) / det;
       const p = [A.px + A.nx * t, A.pz + A.nz * t];
-      if (sane(p, A, B, gap)) pts.push(p);
+      // Issue #171 strip gate (mirrors overlapRing): the main
+      // corner must lie on both arms' own strips.
+      const sA = (p[0] - j.x) * A.nx + (p[1] - j.z) * A.nz;
+      const sB = (p[0] - j.x) * B.nx + (p[1] - j.z) * B.nz;
+      if (Math.abs(sA) <= a.width / 2 + MAIN_CORNER_STRIP_TOL_M &&
+          Math.abs(sB) <= b.width / 2 + MAIN_CORNER_STRIP_TOL_M &&
+          sane(p, A, B, gap)) pts.push(p);
     }
     const edgeCorner = (edge, cross, hEdge, hCross) => {
       const d = edge.dx * cross.nz - edge.dz * cross.nx;

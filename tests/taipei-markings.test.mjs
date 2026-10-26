@@ -326,10 +326,17 @@ test('geodata: tile-wide marking counts are in the audited bands', () => {
   // exactly, so the whole delta is the strip clipping. (On the
   // pre-#162 tree the same delta measured -359; the difference
   // is deck-bed dashes #162 removed first.)
-  assert.equal(r.stats.dashQuads, 158099, `dash quads ${r.stats.dashQuads}`);
+  // Issue #171 re-pin (on top of #163's): the cap surface the
+  // dashes clip against shrinks by the outline discipline —
+  // rings by the main-corner gate (703,160 -> 660,401 m²) and
+  // strips by the kerb stop (138,514 -> 129,142 m²) — so dash
+  // centres that landed on the removed fan corners and tongues
+  // are no longer occluded: 158,099 -> 158,190 quads (+91) and
+  // 235.28 -> 235.41 km (+0.13).
+  assert.equal(r.stats.dashQuads, 158190, `dash quads ${r.stats.dashQuads}`);
   assert.equal(r.stats.dividerBeds, 1010, `divider beds ${r.stats.dividerBeds}`);
   assert.equal(r.stats.deckDividerBedsSkipped, 91, `deck divider beds skipped ${r.stats.deckDividerBedsSkipped}`);
-  assert.ok(Math.abs(r.stats.dividerKm - 235.28) < 0.05, `divider km ${r.stats.dividerKm}`);
+  assert.ok(Math.abs(r.stats.dividerKm - 235.41) < 0.05, `divider km ${r.stats.dividerKm}`);
   assert.ok(r.stats.crosswalks > 400, `crosswalks ${r.stats.crosswalks}`);
   assert.ok(r.stats.signalUnits >= r.stats.stopLines && r.stats.stopLines > 600,
     `signals ${r.stats.signalUnits} / stop lines ${r.stats.stopLines}`);

@@ -7,7 +7,7 @@ import { buildPaintedBands } from './taipei-painted.js';
 import { buildAirfieldPaint } from './taipei-airfield.js';
 import { SURFACE_TONES, surfaceClass, buildMedianStrips, isPlazaPark, isPodiumBlock, podiumCentresOf, memorialPaving, MEMORIAL_GRID_TONE } from './taipei-surfaces.js';
 import { buildRoadMarkings, detectJunctions, DASH_LEN, DASH_GAP, STRIPE_W, STRIPE_PITCH } from './taipei-markings.js';
-import { planJunctionCaps, planRoundabouts, ringPoints, capSurfacePolys, CAP_Y, ISLAND_Y } from './taipei-junctions.js';
+import { planJunctionCaps, planRoundabouts, ringPoints, capSurfacePolys, capClipPolys, CAP_Y, ISLAND_Y } from './taipei-junctions.js';
 import { buildDeckGeometry, PIER_W, PIER_D } from './taipei-viaduct.js';
 import { buildMrtStationGeometry, buildMrtDepotGeometry } from './taipei-mrt-stations.js';
 import { buildTerrainSkinGeometry } from './taipei-terrain.js';
@@ -796,13 +796,15 @@ export async function buildTaipeiGround(scene, tile, deps = {}) {
   // builder (which used to detect its own copy).
   const junctions = detectJunctions(carriageways);
   const roundabouts = planRoundabouts(carriageways, junctions);
-  const caps = planJunctionCaps(carriageways, junctions, roundabouts);
+  const caps = planJunctionCaps(carriageways, junctions, roundabouts, capClipPolys(geo));
   const capPolys = [
     ...caps.flatMap((c) => capSurfacePolys(c)),
     ...roundabouts.flatMap((s) => [s.disc, ...s.aprons]).map((c) => ringPoints(c.ring)),
   ];
   const capMaterial = new THREE.MeshStandardNodeMaterial({ vertexColors: true, roughness: 0.9, metalness: 0.0 });
-  addLayer(capFanGeometry(caps, CAP_Y), capMaterial, 'TaipeiJunctionCaps');
+  // Issue #171: a cap whose ring was cut by the green clip
+  // renders its remaining ring pieces in the same fan layer.
+  addLayer(capFanGeometry([...caps, ...caps.flatMap((c) => c.pieces || [])], CAP_Y), capMaterial, 'TaipeiJunctionCaps');
   // Issue #163: the fitted caps' arm extension strips render as
   // their own fan layer half a millimetre UNDER the rings — the
   // strips overlap the box ring and each other by design (seam
