@@ -55,6 +55,18 @@ export const GUIDE_HALF = 1.05;    // half width of one track's concrete strip, 
 export const BAR_OFF = 1.13;       // guide bar centre offset from the track centre, m
 export const BAR_W = 0.12;         // guide bar ribbon width, m
 export const BAR_LIFT = 0.05;      // guide bar ribbon above the strip top, m
+// Issue #173 (PORTAL class, from the #169 sweep): a TRUE dive portal
+// — a track-mode line end at grade whose neighbour is elevated and
+// which no other line continues (a grade join is not a portal) —
+// gets a shaped end instead of the ballast strips stopping square
+// on the grass: a concrete headwall across the formation with a
+// dark opening the tracks run into, and short wing walls flanking
+// the ramp foot. Track mode only; the road-deck path is untouched.
+export const PORTAL_HEADWALL_H = 5.2;  // headwall height above grade, m
+export const PORTAL_OPENING_H = 4.4;   // dark opening height, m
+export const PORTAL_WING_M = 9;        // wing wall run back along the ramp, m
+export const PORTAL_JOIN_TOL_M = 2;    // an end this close to another line's end is a join, not a portal
+export const MRT_TREE_MARGIN_M = 1;    // tree-exclusion margin around ground-contact MRT beds, m
 
 const ptsOf = (line) => {
   const p = [];
@@ -80,6 +92,8 @@ function pointNormals(pts) {
 //   ballast:  { positions, normals },  // MRT track strips (opts.tracks)
 //   rails:    { positions, normals },  // MRT rail ribbons (opts.tracks)
 //   guideway: { positions, normals },  // Wenhu concrete strips (guideway lines)
+//   portal:   { positions, normals },  // dive-portal headwalls + wings (opts.tracks, issue #173)
+//   portalDark: { positions, normals },// the portal openings (opts.tracks, issue #173)
 //   triCount, lineCount, pierCount,
 // }
 // Positions are non-indexed triangles (6 vertices per quad face) in
@@ -93,6 +107,8 @@ export function buildDeckGeometry(elevated, opts = {}) {
   const ballast = { pos: [], nor: [] };
   const rails = { pos: [], nor: [] };
   const guideway = { pos: [], nor: [] };
+  const portal = { pos: [], nor: [] };
+  const portalDark = { pos: [], nor: [] };
   // Append one quad (corners in boundary order) as two triangles
   // with the quad's flat normal.
   const quad = (sink, a, b, c, d) => {
@@ -223,17 +239,98 @@ export function buildDeckGeometry(elevated, opts = {}) {
     };
     cap(cs[0], false);
     cap(cs[cs.length - 1], true);
+    // Issue #173: a shaped end at a TRUE dive portal (track mode):
+    // the end sits at grade, its neighbour is elevated, and no other
+    // line ends at the same spot to continue it at grade. The
+    // headwall stands across the formation at the end point, the
+    // ballast runs into the dark opening, and wing walls flank the
+    // ramp foot, sloping from headwall height down to the formation.
+    if (tracks) {
+      const maxTrack = Math.max(...trackOffs.map((o) => Math.abs(o)));
+      const oHalf = Math.min(half - 0.5, maxTrack + BALLAST_HALF);
+      for (const endIdx of [0, pts.length - 1]) {
+        const hEnd = line.h?.[endIdx] ?? 0;
+        const nIdx = endIdx === 0 ? 1 : pts.length - 2;
+        const hNbr = line.h?.[nIdx] ?? 0;
+        if (!(hEnd < LOW_BED_MAX && hNbr >= LOW_BED_MAX)) continue;
+        const E = pts[endIdx], P = pts[nIdx];
+        const joined = lines.some((l2) => {
+          if (l2 === line) return false;
+          const p2 = ptsOf(l2);
+          if (p2.length < 2) return false;
+          return [p2[0], p2[p2.length - 1]].some((q) => Math.hypot(q[0] - E[0], q[1] - E[1]) <= PORTAL_JOIN_TOL_M);
+        });
+        if (joined) continue;
+        let tx = E[0] - P[0], tz = E[1] - P[1];
+        const tl = Math.hypot(tx, tz) || 1;
+        tx /= tl; tz /= tl;
+        const nx = -tz, nz = tx;
+        const at = (off, y, back = 0) => [E[0] + nx * off - tx * back, y, E[1] + nz * off - tz * back];
+        // Headwall: two piers + a lintel around the opening, in the
+        // end plane, facing back along the line.
+        quad(portal, at(-half, 0), at(-oHalf, 0), at(-oHalf, PORTAL_HEADWALL_H), at(-half, PORTAL_HEADWALL_H));
+        quad(portal, at(oHalf, 0), at(half, 0), at(half, PORTAL_HEADWALL_H), at(oHalf, PORTAL_HEADWALL_H));
+        quad(portal, at(-oHalf, PORTAL_OPENING_H), at(oHalf, PORTAL_OPENING_H), at(oHalf, PORTAL_HEADWALL_H), at(-oHalf, PORTAL_HEADWALL_H));
+        // The dark opening, recessed just behind the face.
+        const dk = (off, y) => at(off, y, -0.06);
+        quad(portalDark, dk(-oHalf, 0), dk(oHalf, 0), dk(oHalf, PORTAL_OPENING_H), dk(-oHalf, PORTAL_OPENING_H));
+        // Wing walls on both flanks (corner order chosen per side
+        // so the flat normal points outward).
+        const segLen = Math.hypot(P[0] - E[0], P[1] - E[1]);
+        const back = Math.min(PORTAL_WING_M, segLen * 0.9);
+        const hBack = hEnd + (hNbr - hEnd) * (segLen ? back / segLen : 0);
+        const yBack = Math.max(hBack, LOW_BED_H) + 0.5;
+        for (const s of [-1, 1]) {
+          const fb = at(s * half, 0), bb = at(s * (half + 0.7), 0, back);
+          const bt = at(s * (half + 0.7), yBack, back), ft = at(s * half, PORTAL_HEADWALL_H);
+          if (s < 0) quad(portal, fb, bb, bt, ft);
+          else quad(portal, fb, ft, bt, bb);
+        }
+      }
+    }
   }
 
-  const triCount = (concrete.pos.length + asphalt.pos.length + ballast.pos.length + rails.pos.length + guideway.pos.length) / 9;
+  const triCount = (concrete.pos.length + asphalt.pos.length + ballast.pos.length + rails.pos.length + guideway.pos.length + portal.pos.length + portalDark.pos.length) / 9;
   return {
     concrete: { positions: new Float32Array(concrete.pos), normals: new Float32Array(concrete.nor) },
     asphalt: { positions: new Float32Array(asphalt.pos), normals: new Float32Array(asphalt.nor) },
     ballast: { positions: new Float32Array(ballast.pos), normals: new Float32Array(ballast.nor) },
     rails: { positions: new Float32Array(rails.pos), normals: new Float32Array(rails.nor) },
     guideway: { positions: new Float32Array(guideway.pos), normals: new Float32Array(guideway.nor) },
+    portal: { positions: new Float32Array(portal.pos), normals: new Float32Array(portal.nor) },
+    portalDark: { positions: new Float32Array(portalDark.pos), normals: new Float32Array(portalDark.nor) },
     triCount,
     lineCount: lines.length,
     pierCount: (elevated?.piers || []).length,
   };
+}
+
+// Issue #173: ground-contact polygons for the MRT beds — the
+// segments whose lower end touches the ground (at-grade stretches
+// and the dive ramps' fan-out at the portals). The tree planners'
+// exclusion rings gain these so no tree stands on the ballast the
+// way one did at the s09 dive in the #169 sweep frame; elevated
+// segments keep their under-planting (the formation is above the
+// canopy there). Returns point-array polygons like the junction
+// module's rings.
+export function groundContactPolys(elevated, marginM = MRT_TREE_MARGIN_M) {
+  const polys = [];
+  for (const line of elevated?.lines || []) {
+    const pts = ptsOf(line);
+    if (pts.length < 2) continue;
+    const normals = pointNormals(pts);
+    const half = (line.width || 6) / 2 + marginM;
+    for (let i = 0; i + 1 < pts.length; i++) {
+      const hA = line.h?.[i] ?? 0, hB = line.h?.[i + 1] ?? 0;
+      if (Math.min(hA, hB) > LOW_BED_MAX) continue;
+      const A = pts[i], B = pts[i + 1], nA = normals[i], nB = normals[i + 1];
+      polys.push([
+        [A[0] + nA[0] * half, A[1] + nA[1] * half],
+        [B[0] + nB[0] * half, B[1] + nB[1] * half],
+        [B[0] - nB[0] * half, B[1] - nB[1] * half],
+        [A[0] - nA[0] * half, A[1] - nA[1] * half],
+      ]);
+    }
+  }
+  return polys;
 }

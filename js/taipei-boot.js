@@ -7,10 +7,12 @@ import { buildPaintedBands } from './taipei-painted.js';
 import { buildAirfieldPaint } from './taipei-airfield.js';
 import { SURFACE_TONES, surfaceClass, buildMedianStrips, isPlazaPark, isPodiumBlock, podiumCentresOf, memorialPaving, MEMORIAL_GRID_TONE } from './taipei-surfaces.js';
 import { buildRoadMarkings, detectJunctions, DASH_LEN, DASH_GAP, STRIPE_W, STRIPE_PITCH } from './taipei-markings.js';
-import { planJunctionCaps, planRoundabouts, ringPoints, CAP_Y, ISLAND_Y } from './taipei-junctions.js';
-import { buildDeckGeometry, PIER_W, PIER_D } from './taipei-viaduct.js';
+import { planJunctionCaps, planRoundabouts, ringPoints, capSurfacePolys, capClipPolys, CAP_Y, ISLAND_Y } from './taipei-junctions.js';
+import { buildDeckGeometry, groundContactPolys, PIER_W, PIER_D } from './taipei-viaduct.js';
+import { ribbonsQuads, jointFramesFor } from './taipei-ribbons.js';
 import { buildMrtStationGeometry, buildMrtDepotGeometry } from './taipei-mrt-stations.js';
 import { buildTerrainSkinGeometry } from './taipei-terrain.js';
+import { buildGreenTintLayers, GREEN_TINT_Y } from './taipei-green.js';
 import { unionExclusionRects, clipRectToBoxes } from './taipei-union.js';
 import { createCurtainWallMaterial, createPreWarBuildingMaterial, createTaipeiMarkingMaterial, setTaipeiSignAtlases } from './tsl-materials.js';
 import { drawBandAtlas, drawBladeAtlas, BAND_ATLAS, BLADE_ATLAS, TAIPEI_BAND_SIGNS, TAIPEI_BLADE_SIGNS } from './taipei-signs.js';
@@ -95,12 +97,14 @@ function flatPolygonGeometry(rings, y) {
   return geo;
 }
 
-// Junction caps (issue #91): fan-triangulated from each cap's
-// blend origin with per-vertex colours — the planner's blend
-// (capBlendTones in js/taipei-junctions.js) gives every ring
-// vertex a tone mixed from the incident arms, so the cap meets
-// each arm in that arm's own tone instead of wearing the widest
-// arm's flat tone across the whole junction. Planner tones are
+// Junction caps: fan-triangulated from each cap's origin with
+// per-vertex colours — since issue #172 every vertex of a
+// junction (ring, clipped pieces, strips) carries the ONE
+// junction tone from capBlendTones in js/taipei-junctions.js:
+// the width-weighted mean of the incident arms' tones, flat
+// across the whole surface (issue #91's per-vertex mouth blend
+// interpolated differently through each piece's fan and read as
+// stepped plates — the #169 SEAM class). Planner tones are
 // sRGB; setRGB with SRGBColorSpace converts them into the
 // working space exactly as the flat materials' hex colours are
 // converted, so a vertex at an arm's mouth is indistinguishable
@@ -262,29 +266,14 @@ function buildMrtDepotMesh(depot) {
   return mesh;
 }
 
-function ribbonsGeometry(roads, y) {
-  let segments = 0;
-  for (const r of roads) segments += Math.max(0, r.pts.length / 2 - 1);
-  const positions = new Float32Array(segments * 18);
-  let o = 0;
-  for (const r of roads) {
-    const half = Math.max((r.width || 3) / 2, 0.75);
-    for (let i = 0; i + 3 < r.pts.length; i += 2) {
-      const ax = r.pts[i], az = r.pts[i + 1], bx = r.pts[i + 2], bz = r.pts[i + 3];
-      const dx = bx - ax, dz = bz - az;
-      const len = Math.hypot(dx, dz);
-      if (len < 0.01) continue;
-      const nx = (-dz / len) * half, nz = (dx / len) * half;
-      const axn = ax + nx, azn = az + nz, axp = ax - nx, azp = az - nz;
-      const bxn = bx + nx, bzn = bz + nz, bxp = bx - nx, bzp = bz - nz;
-      positions.set([axn, y, azn, bxn, y, bzn, bxp, y, bzp, axn, y, azn, bxp, y, bzp, axp, y, azp], o);
-      o += 18;
-    }
-  }
-  const geo = new THREE.BufferGeometry();
-  geo.setAttribute('position', new THREE.BufferAttribute(positions.subarray(0, o), 3));
-  geo.computeVertexNormals();
-  return geo;
+// Ribbon geometry comes from js/taipei-ribbons.js (issue #173):
+// per-vertex miter frames instead of the per-segment square butt
+// ends that left triangular NOTCH wedges on every bend, plus shared
+// end frames at cross-road continuation joints. `jointFrames` lets
+// the per-class carriageway layers share one joint map computed
+// over the full carriageway set (a continuation can cross classes).
+function ribbonsGeometry(roads, y, jointFrames = null) {
+  return quadsGeometry(ribbonsQuads(roads, jointFrames).quads, y);
 }
 
 // 標線型人行道 (painted walkways, TAIWAN_STREETSCAPE.md §c.3): a solid
@@ -671,6 +660,24 @@ export async function buildTaipeiGround(scene, tile, deps = {}) {
   for (const b of groundBlocks) (isPodiumBlock(b, centres) ? podiumBlocks : ordinaryBlocks).push(b);
   addLayer(rectsGeometry(ordinaryBlocks, 0.02), mat(SURFACE_TONES.block), 'TaipeiBlocks');
   if (podiumBlocks.length) addLayer(rectsGeometry(podiumBlocks, 0.021), mat(SURFACE_TONES.podium), 'TaipeiPodiumBlocks');
+  // Green-layer ground tint (issue #141, js/taipei-green.js): the
+  // #114 green land (farmland, wood, wetland, reserves) finally
+  // renders its own colours instead of the block grey — the Guandu
+  // plain reads green from the air. One layer per sampled tone at
+  // GREEN_TINT_Y (0.0235): above the block/podium greys, below the
+  // airfield surfaces, the riverside band (0.025), water (0.03) and
+  // parks (0.04), so every measured overlap keeps its existing
+  // winner — wetland channels stay water, park interiors stay lawn.
+  // Visual-only: the planner never reads this (its byte-identity is
+  // pinned in tests/green-tint.test.mjs).
+  const greenTint = buildGreenTintLayers(geo.green);
+  for (const layer of greenTint) {
+    addLayer(flatPolygonGeometry(layer.rings, GREEN_TINT_Y), mat(layer.tone, 0.95), 'TaipeiGreenTint');
+  }
+  if (greenTint.length) {
+    const ringCount = greenTint.reduce((s, l) => s + l.rings.length, 0);
+    console.info(`[taipei-green] ground tint: ${ringCount} rings in ${greenTint.length} tone layers at y=${GREEN_TINT_Y} (issue #141)`);
+  }
   // Songshan airfield (issue #134): the aerodrome site ground in a
   // muted field green-grey at 0.022 and its hard surfaces (runway,
   // taxiways, aprons) in pale concrete at 0.024 — both below water so
@@ -724,6 +731,9 @@ export async function buildTaipeiGround(scene, tile, deps = {}) {
   const carriageways = Array.isArray(geo.roadbeds) && geo.roadbeds.length
     ? geo.roadbeds
     : geo.roads.filter((r) => !NON_CARRIAGEWAY.has(r.highway));
+  // Issue #173: continuation-joint frames over the whole carriageway
+  // set, shared by the band layer and the per-class layers below.
+  const carriagewayJoints = jointFramesFor(carriageways);
   // Street-section bands at 0.045: below the paths layer (0.05) so park
   // and campus paths still read over a band, above parks (0.04) so a
   // riverside boulevard's sidewalk isn't swallowed by the park fill.
@@ -735,7 +745,7 @@ export async function buildTaipeiGround(scene, tile, deps = {}) {
   const widened = (layout) => carriageways
     .filter((r) => r.pedestrianLayout === layout)
     .map((r) => ({ pts: r.pts, width: (r.width || 3) + BAND_EXTRA[layout] * 2 }));
-  addLayer(ribbonsGeometry(widened('arcade'), 0.045), mat(0x8e8672), 'TaipeiArcadeBands');
+  addLayer(ribbonsGeometry(widened('arcade'), 0.045, carriagewayJoints), mat(0x8e8672), 'TaipeiArcadeBands');
   const sidewalkBands = buildSidewalkBands(carriageways, 0.045);
   addLayer(positionsGeometry(sidewalkBands.positions), mat(0xb5b0a4), 'TaipeiSidewalkBands');
   console.info(`[taipei-sidewalks] ${sidewalkBands.quadCount} band quads, ${(sidewalkBands.totalBandLength / 1000).toFixed(1)} km of sidewalk band (both edges, junction-trimmed)`);
@@ -751,10 +761,10 @@ export async function buildTaipeiGround(scene, tile, deps = {}) {
   // deck is exactly what it was when the deck was a boulevard.
   const byClass = { deck: [], arterial: [], collector: [], lane: [] };
   for (const r of carriageways) if (!r.deck) byClass[surfaceClass(r)].push(r);
-  addLayer(ribbonsGeometry(byClass.deck, 0.06), mat(SURFACE_TONES.deck, 0.9), 'TaipeiRoadsDeck');
-  addLayer(ribbonsGeometry(byClass.arterial, 0.06), mat(SURFACE_TONES.arterial, 0.9), 'TaipeiRoads');
-  addLayer(ribbonsGeometry(byClass.collector, 0.06), mat(SURFACE_TONES.collector, 0.9), 'TaipeiRoadsCollector');
-  addLayer(ribbonsGeometry(byClass.lane, 0.06), mat(SURFACE_TONES.lane, 0.9), 'TaipeiRoadsLane');
+  addLayer(ribbonsGeometry(byClass.deck, 0.06, carriagewayJoints), mat(SURFACE_TONES.deck, 0.9), 'TaipeiRoadsDeck');
+  addLayer(ribbonsGeometry(byClass.arterial, 0.06, carriagewayJoints), mat(SURFACE_TONES.arterial, 0.9), 'TaipeiRoads');
+  addLayer(ribbonsGeometry(byClass.collector, 0.06, carriagewayJoints), mat(SURFACE_TONES.collector, 0.9), 'TaipeiRoadsCollector');
+  addLayer(ribbonsGeometry(byClass.lane, 0.06, carriagewayJoints), mat(SURFACE_TONES.lane, 0.9), 'TaipeiRoadsLane');
   await completeStage('roads', `${carriageways.length} roadbeds, ${sidewalkBands.quadCount} sidewalk band quads`);
   // Junction caps (issues #66/#75/#145, js/taipei-junctions.js):
   // one paved polygon per detected junction at 0.061, in per-vertex
@@ -777,9 +787,23 @@ export async function buildTaipeiGround(scene, tile, deps = {}) {
   // builder (which used to detect its own copy).
   const junctions = detectJunctions(carriageways);
   const roundabouts = planRoundabouts(carriageways, junctions);
-  const caps = planJunctionCaps(carriageways, junctions, roundabouts);
-  const capPolys = [...caps, ...roundabouts.flatMap((s) => [s.disc, ...s.aprons])].map((c) => ringPoints(c.ring));
-  addLayer(capFanGeometry(caps, CAP_Y), new THREE.MeshStandardNodeMaterial({ vertexColors: true, roughness: 0.9, metalness: 0.0 }), 'TaipeiJunctionCaps');
+  const caps = planJunctionCaps(carriageways, junctions, roundabouts, capClipPolys(geo));
+  const capPolys = [
+    ...caps.flatMap((c) => capSurfacePolys(c)),
+    ...roundabouts.flatMap((s) => [s.disc, ...s.aprons]).map((c) => ringPoints(c.ring)),
+  ];
+  const capMaterial = new THREE.MeshStandardNodeMaterial({ vertexColors: true, roughness: 0.9, metalness: 0.0 });
+  // Issue #171: a cap whose ring was cut by the green clip
+  // renders its remaining ring pieces in the same fan layer.
+  addLayer(capFanGeometry([...caps, ...caps.flatMap((c) => c.pieces || [])], CAP_Y), capMaterial, 'TaipeiJunctionCaps');
+  // Issue #163: the fitted caps' arm extension strips render as
+  // their own fan layer half a millimetre UNDER the rings — the
+  // strips overlap the box ring and each other by design (seam
+  // insurance at the ribbon butt and the box edge), and the
+  // 0.5 mm step (the stack's own discipline: caps sit 1 mm over
+  // the carriageways) keeps those overlaps from z-fighting.
+  const capExtras = caps.flatMap((c) => c.extras || []);
+  if (capExtras.length) addLayer(capFanGeometry(capExtras, CAP_Y - 0.0005), capMaterial, 'TaipeiJunctionCapExtensions');
   const discsByClass = { deck: [], arterial: [], collector: [], lane: [] };
   for (const s of roundabouts) {
     discsByClass[s.disc.cls].push(s.disc.ring);
@@ -791,7 +815,7 @@ export async function buildTaipeiGround(scene, tile, deps = {}) {
   for (const s of roundabouts) islandsByKind[s.island.kind].push(s.island.ring);
   if (islandsByKind.planted.length) addLayer(flatPolygonGeometry(islandsByKind.planted, ISLAND_Y), mat(SURFACE_TONES.park, 0.9), 'TaipeiRoundaboutIslands-planted');
   if (islandsByKind.plaza.length) addLayer(flatPolygonGeometry(islandsByKind.plaza, ISLAND_Y), mat(SURFACE_TONES.plaza, 0.9), 'TaipeiRoundaboutIslands-plaza');
-  console.info(`[taipei-junctions] ${caps.length} junction caps over ${junctions.length} detected junctions (${caps.reduce((s, c) => s + c.area, 0).toLocaleString('en-US')} m² of junction box paved); ${caps.filter((c) => c.kind === 'box').length} box / ${caps.filter((c) => c.kind === 'fitted').length} fitted; roundabouts handcrafted: ${roundabouts.map((s) => `${s.id} disc r=${s.discR}${s.islandR ? ` island r=${s.islandR}` : ' capsule island'} (${s.claimedJunctions.length} junctions claimed${s.aprons.length ? `, ${s.aprons.length} entry aprons` : ''})`).join(', ')}`);
+  console.info(`[taipei-junctions] ${caps.length} junction caps over ${junctions.length} detected junctions (${caps.reduce((s, c) => s + c.area, 0).toLocaleString('en-US')} m² of junction box paved + ${capExtras.length} arm extension strips, ${caps.reduce((s, c) => s + (c.extraArea || 0), 0).toLocaleString('en-US')} m², at fitted caps); ${caps.filter((c) => c.kind === 'box').length} box / ${caps.filter((c) => c.kind === 'fitted').length} fitted; roundabouts handcrafted: ${roundabouts.map((s) => `${s.id} disc r=${s.discR}${s.islandR ? ` island r=${s.islandR}` : ' capsule island'} (${s.claimedJunctions.length} junctions claimed${s.aprons.length ? `, ${s.aprons.length} entry aprons` : ''})`).join(', ')}`);
   await completeStage('junctions', `${caps.length} caps + ${roundabouts.length} roundabouts over ${junctions.length} junctions`);
   // Boulevard medians (issue #29): a strip along the centreline of
   // each merged bed wide enough to hold one — planted on the grand
@@ -820,7 +844,8 @@ export async function buildTaipeiGround(scene, tile, deps = {}) {
   // red pedestrian panel. No phase cycle yet, and traffic does not
   // obey them; scooter waiting boxes are out of scope (user cut).
   const markingsStart = performance.now();
-  const markings = buildRoadMarkings(carriageways, medians, caps, junctions); // reuses the strips built above as dash occluders
+  const markings = buildRoadMarkings(carriageways, medians, caps, junctions,
+    [...(geo.parks || []), ...(geo.green || [])].map((g) => ringPoints(g.ring))); // reuses the strips built above as dash occluders; greens feed the #173 roundabout wedge occluders
   // Dashes and zebra stripes render as shader patterns over plain
   // ribbons/bands (issue #90 — the plan in taipei-markings.js is
   // unchanged; only the baking moved into the fragment shader).
@@ -892,6 +917,16 @@ export async function buildTaipeiGround(scene, tile, deps = {}) {
       const mrtGuideways = addLayer(deckPartGeometry(mrtGeo.guideway), mat(0xb8bcb2, 0.95), 'TaipeiMrtGuideways');
       mrtGuideways.castShadow = true;
       mrtGuideways.receiveShadow = true;
+    }
+    // Issue #173: the dive-portal mouths (headwall + wing walls in
+    // the deck concrete tone, the dark opening near-black) where a
+    // track line truly dives — the 民權西路 portal in this tile.
+    if (mrtGeo.portal.positions.length) {
+      const mrtPortals = addLayer(deckPartGeometry(mrtGeo.portal), mat(0x98958a, 0.95), 'TaipeiMrtPortals');
+      mrtPortals.castShadow = true;
+    }
+    if (mrtGeo.portalDark.positions.length) {
+      addLayer(deckPartGeometry(mrtGeo.portalDark), mat(0x14161a, 1.0), 'TaipeiMrtPortalOpenings');
     }
     const mrtPiers = buildDeckPierMesh(geo.mrtDecks.piers || []);
     if (mrtPiers) { mrtPiers.name = 'TaipeiMrtDeckPiers'; group.add(mrtPiers); }
@@ -973,9 +1008,21 @@ export async function buildTaipeiGround(scene, tile, deps = {}) {
   // receive the cap rings + roundabout disc/apron rings computed
   // above as exclusion polygons (their centreline-distance checks
   // cannot see a cap corner 20+ m from every centreline).
+  // Issue #178: the cap part of the exclusions is the cap's FULL
+  // paved surface (capSurfacePolys: ring + #163 strips + #171
+  // clipped pieces) — ring + extras alone left the clipped pieces
+  // plantable, and the roadsweep-2 census found exactly one street
+  // tree standing on a piece at ji1029. The module's own comment on
+  // capSurfacePolys has prescribed this for occlusion consumers
+  // all along; the boot's tree list now follows it too.
   const treeExclusions = [
-    ...caps.map((c) => c.ring),
+    ...caps.flatMap((c) => capSurfacePolys(c).map((p) => p.flatMap((pt) => pt))),
     ...roundabouts.flatMap((s) => [s.disc.ring, ...s.aprons.map((a) => a.ring)]),
+    // Issue #173: the MRT beds where they touch the ground (at-grade
+    // stretches + the portal fan-outs) — a tree stood on the ballast
+    // at the s09 dive in the #169 sweep; the corridors are not
+    // roadbeds, so the bed grid never covered them.
+    ...groundContactPolys(geo.mrtDecks || { lines: [] }).map((p) => p.flatMap((pt) => pt)),
   ];
   const treePlan = planStreetTrees(geo, plan, { exclusions: treeExclusions });
   const parkTreePlan = planParkTrees(geo, plan, { exclusions: treeExclusions });

@@ -77,6 +77,22 @@ export const isUnderpassName = (name) => UNDERPASS_NAME.test(name || '');
 export const MEDIAN_MIN_WIDTH = 16;        // below this the pairing is too tight to hold a strip
 export const MEDIAN_PLANTED_MIN_WIDTH = 26; // planted only on wide ground boulevards
 export const MEDIAN_CLIP_MIN_WIDTH = 8;    // only crossings at least this wide break a strip
+// Issue #178 (the T18 form): a minor bed below the clip width
+// still breaks a strip when its ribbon crosses the WHOLE strip —
+// a through lane, not a mouth. The roadsweep-2 frame at
+// 信義路六段76巷 showed the median band rendering unbroken over
+// a 6 m residential lane that crosses the avenue outright (no
+// junction is detected there, so no cap breaks the strip either).
+// The test is containment of the strip centre AND of both probes
+// at ±(half + 0.75) along the strip normal inside the one foreign
+// ribbon: a mouth bed ends at the centreline, so its far probe
+// falls outside and the #25 rule above (narrow mouths do not
+// break a median — the 3.2 m synthetic lane included) stands.
+// The floor sits between that synthetic (3.2 m) and the measured
+// T18 lane (6 m). One guard: the break does not apply under an
+// elevated deck's ribbon — there the ground median is the deck's
+// pier island (see underDeck in buildMedianStrips).
+export const MEDIAN_MINOR_CROSS_MIN_WIDTH = 4.5;
 
 // 'planted' | 'plain' | null for one roadbed.
 export function medianKind(bed) {
@@ -148,6 +164,60 @@ export function buildMedianStrips(roadbeds, capPolys = null) {
     }
     return false;
   };
+  // Issue #178: minor through-crossings (see
+  // MEDIAN_MINOR_CROSS_MIN_WIDTH). A separate grid holds the
+  // sub-clip-width beds; deck-flagged beds are excluded (an
+  // elevated crossing does not break the median under its deck).
+  const minorGrid = new Map();
+  polys.forEach((poly, i) => {
+    const w = roadbeds[i].width || 3;
+    if (w < MEDIAN_MINOR_CROSS_MIN_WIDTH || w >= MEDIAN_CLIP_MIN_WIDTH || roadbeds[i].deck) return;
+    const xs = poly.map((p) => p[0]), zs = poly.map((p) => p[1]);
+    for (let gx = Math.floor(Math.min(...xs) / GRID_M); gx <= Math.floor(Math.max(...xs) / GRID_M); gx++)
+      for (let gz = Math.floor(Math.min(...zs) / GRID_M); gz <= Math.floor(Math.max(...zs) / GRID_M); gz++) {
+        const k = `${gx},${gz}`;
+        if (!minorGrid.has(k)) minorGrid.set(k, []);
+        minorGrid.get(k).push(i);
+      }
+  });
+  // Deck ribbons, for the guard inside minorCrossBlocked: where
+  // an elevated deck crosses the strip, the ground median is the
+  // deck's pier island (the baked piers stand on the centreline
+  // there — six of them tile-wide, e.g. the 承德橋 pier at the
+  // 承德路四段6巷 throat), so the through-crossing break does
+  // not apply under a deck. T18 itself has no deck overhead and
+  // is unaffected.
+  const deckIdx = [];
+  polys.forEach((poly, i) => { if (roadbeds[i].deck) deckIdx.push(i); });
+  const deckGrid = new Map();
+  deckIdx.forEach((i) => {
+    const poly = polys[i];
+    const xs = poly.map((p) => p[0]), zs = poly.map((p) => p[1]);
+    for (let gx = Math.floor(Math.min(...xs) / GRID_M); gx <= Math.floor(Math.max(...xs) / GRID_M); gx++)
+      for (let gz = Math.floor(Math.min(...zs) / GRID_M); gz <= Math.floor(Math.max(...zs) / GRID_M); gz++) {
+        const k = `${gx},${gz}`;
+        if (!deckGrid.has(k)) deckGrid.set(k, []);
+        deckGrid.get(k).push(i);
+      }
+  });
+  const underDeck = (p) => {
+    const cand = deckGrid.get(`${Math.floor(p[0] / GRID_M)},${Math.floor(p[1] / GRID_M)}`) || [];
+    for (const ci of cand) if (pointInPoly(p, polys[ci])) return true;
+    return false;
+  };
+  const minorCrossBlocked = (p, nx, nz, half, selfIdx, selfWays) => {
+    if (underDeck(p)) return false;
+    const cand = minorGrid.get(`${Math.floor(p[0] / GRID_M)},${Math.floor(p[1] / GRID_M)}`) || [];
+    const reach = half + 0.75;
+    for (const ci of cand) {
+      if (ci === selfIdx) continue;
+      if ((roadbeds[ci].sourceWayIds || []).some((w) => selfWays.has(w))) continue;
+      if (pointInPoly(p, polys[ci])
+        && pointInPoly([p[0] + nx * reach, p[1] + nz * reach], polys[ci])
+        && pointInPoly([p[0] - nx * reach, p[1] - nz * reach], polys[ci])) return true;
+    }
+    return false;
+  };
 
   const out = { planted: [], plain: [] };
   const stats = {
@@ -167,11 +237,22 @@ export function buildMedianStrips(roadbeds, capPolys = null) {
       let dx = c[0] - a[0], dz = c[1] - a[1];
       const n = Math.hypot(dx, dz) || 1; dx /= n; dz /= n;
       const nx = -dz, nz = dx;
+      // Issue #173 (MEDTIP): the cap test joins the foreign test at
+      // centre + both edges — it used to probe the centre point
+      // only, so a strip whose centre cleared a junction surface
+      // still dragged a corner across it (66 quads / 25.6 m² of
+      // median over cap tile-wide in the #169 sweep census). The
+      // painted bands (js/taipei-painted.js) have always tested
+      // their corners this way; the median now terminates with the
+      // same discipline.
       const blocked =
         foreignBlocked(p, selfIdx, selfWays) ||
         foreignBlocked([p[0] + nx * half, p[1] + nz * half], selfIdx, selfWays) ||
         foreignBlocked([p[0] - nx * half, p[1] - nz * half], selfIdx, selfWays) ||
-        capBlocked(p);
+        minorCrossBlocked(p, nx, nz, half, selfIdx, selfWays) ||
+        capBlocked(p) ||
+        capBlocked([p[0] + nx * half, p[1] + nz * half]) ||
+        capBlocked([p[0] - nx * half, p[1] - nz * half]);
       return { p, nx, nz, blocked };
     });
     const sink = out[kind];
@@ -179,7 +260,12 @@ export function buildMedianStrips(roadbeds, capPolys = null) {
       const f0 = frames[i], f1 = frames[i + 1];
       if (f0.blocked || f1.blocked) continue;
       const mid = [(f0.p[0] + f1.p[0]) / 2, (f0.p[1] + f1.p[1]) / 2];
-      if (foreignBlocked(mid, selfIdx, selfWays) || capBlocked(mid)) continue;
+      const mnx = f0.nx + f1.nx, mnz = f0.nz + f1.nz;
+      const mnl = Math.hypot(mnx, mnz) || 1;
+      if (foreignBlocked(mid, selfIdx, selfWays) || capBlocked(mid)
+        || minorCrossBlocked(mid, mnx / mnl, mnz / mnl, half, selfIdx, selfWays)
+        || capBlocked([mid[0] + (mnx / mnl) * half, mid[1] + (mnz / mnl) * half])
+        || capBlocked([mid[0] - (mnx / mnl) * half, mid[1] - (mnz / mnl) * half])) continue;
       sink.push([
         f0.p[0] + f0.nx * half, f0.p[1] + f0.nz * half,
         f1.p[0] + f1.nx * half, f1.p[1] + f1.nz * half,

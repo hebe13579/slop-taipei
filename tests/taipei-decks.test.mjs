@@ -261,7 +261,7 @@ test('ground network unchanged: beds, junctions and caps exactly as before decks
   // junctions claimed by #77's handcrafted roundabout sites (Renai 4 +
   // Dongmen 3). The invariant this test protects is unchanged: decks do not
   // remove a single cap — the delta is #77's, documented in its audit.
-  assert.equal(caps.length, 2694, 'junction caps still planned over the full bed set, deck beds included (2701 detected − 7 roundabout-claimed, #77)');
+  assert.equal(caps.length, 2623, 'junction caps still planned over the full bed set, deck beds included (2701 detected − 7 roundabout-claimed, #77; − 71 groundless phantoms dropped by the issue #178 ORPHAN rule — 20 of them the deck-interchange clusters this layer sits on)');
 });
 
 test('viaduct renderer: synthetic box section with parapets', () => {

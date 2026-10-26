@@ -195,6 +195,40 @@ test('a narrow lane mouth does not break a median strip', () => {
   assert.ok(covered >= 5, `strip coverage across the lane mouth reaches x=${covered}, expected past 5`);
 });
 
+test('issue #178: a through minor lane breaks a median strip even with no junction cap (the T18 form)', () => {
+  // 信義路六段76巷 on the real tile: a 6 m residential lane whose
+  // bed crosses the divided avenue outright. No junction is
+  // detected there (the lane's ends lie far past the avenue), so
+  // no cap breaks the strip, and before this rule the median
+  // rendered unbroken over the lane, severing it visually. The
+  // lane is below MEDIAN_CLIP_MIN_WIDTH, so only the
+  // through-crossing test (the ribbon contains the strip centre
+  // and both ±(half + 0.75) probes) can break the strip — a lane
+  // ENDING at the centreline (a mouth) fails the far probe and
+  // still does not break it, per the #25 test above.
+  const blvd = bed('Blvd', 'secondary', 30, [1, 2], [-100, 0, 100, 0]);
+  const lane = bed('Lane', 'residential', 6, [3], [0, -50, 0, 50]);
+  const { planted } = buildMedianStrips([blvd, lane]);
+  const lanePoly = ribbonPoly(lane);
+  assert.ok(planted.length > 0, 'the boulevard keeps its planted strip mid-block');
+  for (const q of planted) assert.ok(!pointInPoly(quadCentre(q), lanePoly), `planted quad centre ${quadCentre(q)} inside the through lane`);
+  assert.ok(planted.some((q) => quadCentre(q)[0] > 10), 'strip resumes east of the lane');
+  assert.ok(planted.some((q) => quadCentre(q)[0] < -10), 'strip resumes west of the lane');
+  // The same lane ending at the centreline is a mouth: no break.
+  const mouth = bed('Mouth', 'residential', 6, [4], [0, -50, 0, 0]);
+  const m = buildMedianStrips([blvd, mouth]);
+  const intervals = m.planted
+    .map((q) => [Math.min(q[0], q[2], q[4], q[6]), Math.max(q[0], q[2], q[4], q[6])])
+    .sort((a, b) => a[0] - b[0]);
+  let covered = -100;
+  for (const [lo, hi] of intervals) {
+    if (lo > covered + 0.01) break;
+    covered = Math.max(covered, hi);
+    if (covered >= 5) break;
+  }
+  assert.ok(covered >= 5, `strip coverage across the 6 m mouth reaches x=${covered}, expected past 5`);
+});
+
 test('an underpass bed emits no strip quads at all', () => {
   const up = bed('辛亥路車行地下道', 'secondary', 34.3, [1, 2], [-100, 500, 100, 500]);
   const { planted, plain, stats } = buildMedianStrips([up]);
@@ -233,4 +267,75 @@ test('podium blocks: exactly the 101 and City Hall blocks, by landmark-centre co
   const far = TAIPEI_GEO.blocks.find((b) => b.bbox.maxX < -4000 && b.bbox.minZ < -2000);
   assert.ok(far && !isPodiumBlock(far, centres), 'a far corner block is not podium');
   assert.ok(!isPodiumBlock(TAIPEI_GEO.blocks[0], []), 'no centres -> no podium');
+});
+
+// ---------------------------------------------------------------------
+// Issue #173 (MEDTIP class): median strips terminate at junction
+// surfaces with the painted bands' discipline — the cap test probes
+// centre + both edges per frame (and the interval mid-edges), not
+// the centre point alone.
+
+test('medtip (issue #173): a median corner may not enter a cap the centre clears', () => {
+  // A divided boulevard running east; the cap square starts at
+  // x=80 and covers the strip's north edge line (strip half is
+  // 1.2 m; the square spans z in [-3, 0.6]) — the strip's centre
+  // stays clear of it, its north corner does not. With the old
+  // centre-only cap test the strip dragged quads across the
+  // square; with edge parity it ends before it.
+  const blvd = bed('仁愛路四段', 'secondary', 30, [1, 2], [-100, 0, 100, 0]);
+  const cap = [[80, -3], [130, -3], [130, -0.9], [80, -0.9]];
+  const { planted } = buildMedianStrips([blvd], [cap]);
+  assert.ok(planted.length > 0, 'the strip still runs west of the cap');
+  const signed = (p) => p.reduce((s, pt, i, a) => s + pt[0] * a[(i + 1) % a.length][1] - a[(i + 1) % a.length][0] * pt[1], 0) / 2;
+  const clipArea = (subject, clip) => {
+    let cl = signed(clip) < 0 ? [...clip].reverse() : clip;
+    let out = subject;
+    for (let i = 0; i < cl.length; i++) {
+      const A = cl[i], B = cl[(i + 1) % cl.length];
+      const inp = out; out = [];
+      if (!inp.length) break;
+      const cross = (p) => (B[0] - A[0]) * (p[1] - A[1]) - (B[1] - A[1]) * (p[0] - A[0]);
+      for (let j = 0; j < inp.length; j++) {
+        const cur = inp[j], prv = inp[(j + inp.length - 1) % inp.length];
+        const cc = cross(cur), pc = cross(prv);
+        const inter = () => { const t = pc / (pc - cc); return [prv[0] + (cur[0] - prv[0]) * t, prv[1] + (cur[1] - prv[1]) * t]; };
+        if (cc >= -1e-9) { if (pc < -1e-9) out.push(inter()); out.push(cur); }
+        else if (pc >= -1e-9) out.push(inter());
+      }
+    }
+    return Math.abs(signed(out));
+  };
+  for (const q of planted) {
+    const qp = [[q[0], q[1]], [q[2], q[3]], [q[4], q[5]], [q[6], q[7]]];
+    assert.ok(clipArea(qp, cap) < 0.02, `median quad ${q} overlaps the cap`);
+  }
+});
+
+test('medtip (issue #173): boot-path census — median overlap of junction surfaces is ~zero', async () => {
+  const { detectJunctions } = await import('../js/taipei-markings.js');
+  const { planJunctionCaps, planRoundabouts, ringPoints, capSurfacePolys, capClipPolys } = await import('../js/taipei-junctions.js');
+  const beds = TAIPEI_GEO.roadbeds;
+  const junctions = detectJunctions(beds);
+  const sites = planRoundabouts(beds, junctions);
+  const caps = planJunctionCaps(beds, junctions, sites, capClipPolys(TAIPEI_GEO));
+  const capPolys = [...caps.flatMap((c) => capSurfacePolys(c)), ...sites.flatMap((s) => [s.disc, ...s.aprons]).map((c) => ringPoints(c.ring))];
+  const { planted, plain, stats } = buildMedianStrips(beds, capPolys);
+  // Before #173 this wiring measured 86 quads / 26.2 m² of median
+  // over junction surfaces; the edge-parity cap test leaves at
+  // most a sub-0.05 m² graze.
+  const { buildPolyGrid, pointInAnyPoly } = await import('../js/taipei-painted.js');
+  const grid = buildPolyGrid(capPolys, 60);
+  let cornersIn = 0;
+  for (const q of [...planted, ...plain]) {
+    for (let i = 0; i < 8; i += 2) if (pointInAnyPoly(grid, capPolys, [q[i], q[i + 1]])) cornersIn++;
+  }
+  assert.equal(cornersIn, 0, 'no median quad corner inside a junction surface');
+  assert.ok(stats.plantedKm > 28 && stats.plantedKm < 29, `planted ${stats.plantedKm} km on the boot path`);
+  // Re-pinned for issue #178 (the T18 through-crossing rule):
+  // plain 81.512 -> 81.045 km on this wiring (planted 28.367 ->
+  // 28.125, still inside its band) — the through-crossing breaks
+  // remove 1.216 km of median at minor lanes crossing a divided
+  // road outright, and the under-deck guard restores 0.749 km of
+  // it where an elevated deck crosses overhead (pier islands).
+  assert.ok(stats.plainKm > 81 && stats.plainKm < 82, `plain ${stats.plainKm} km on the boot path`);
 });

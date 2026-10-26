@@ -32,7 +32,7 @@ import { ribbonPoly, buildPolyGrid, pointInAnyPoly, pointInPoly } from '../js/ta
 import { buildMedianStrips } from '../js/taipei-surfaces.js';
 import { planTaipeiBuildings } from '../js/taipei-buildings.js';
 import { buildMrtStationGeometry, buildMrtDepotGeometry, mrtStationFootprint } from '../js/taipei-mrt-stations.js';
-import { buildDeckGeometry } from '../js/taipei-viaduct.js';
+import { buildDeckGeometry, groundContactPolys } from '../js/taipei-viaduct.js';
 
 const decks = TAIPEI_GEO.mrtDecks;
 const lines = decks?.lines || [];
@@ -609,6 +609,59 @@ test('tracks (issue #139): the renderer draws ballast + rails only in track mode
   for (let i = 1; i < tracked.guideway.positions.length; i += 3) maxGuideY = Math.max(maxGuideY, tracked.guideway.positions[i]);
   assert.ok(maxGuideY > 9.1 && maxGuideY < 9.22, `elevated guideway crest ${maxGuideY.toFixed(2)} (deck 9 + strip 0.16)`);
   for (let i = 0; i < tracked.guideway.positions.length; i++) assert.ok(Number.isFinite(tracked.guideway.positions[i]), 'finite guideway');
+});
+
+test('portal (issue #173): a lone dive end gets a shaped portal mouth; a grade join and road mode do not', () => {
+  const dive = {
+    lines: [{ pts: [0, 0, 100, 0], width: 10.4, h: [9, 0], tracks: [-3, 3] }],
+    piers: [], deckDepth: 1.8,
+  };
+  const g = buildDeckGeometry(dive, { tracks: true });
+  assert.ok(g.portal.positions.length > 0, 'headwall + wing geometry emitted at the dive end');
+  assert.ok(g.portalDark.positions.length > 0, 'dark opening emitted');
+  // The headwall faces back along the line (the line runs +x and
+  // dives at x=100): the first portal quad's flat normal is -x.
+  assert.ok(g.portal.normals[0] < -0.99 && Math.abs(g.portal.normals[1]) < 0.01 && Math.abs(g.portal.normals[2]) < 0.01,
+    `headwall normal (${g.portal.normals[0]}, ${g.portal.normals[1]}, ${g.portal.normals[2]}) faces -x`);
+  // Headwall height is the module's portal height.
+  let maxY = 0;
+  for (let i = 1; i < g.portal.positions.length; i += 3) maxY = Math.max(maxY, g.portal.positions[i]);
+  assert.ok(Math.abs(maxY - 5.2) < 1e-6, `headwall tops at ${maxY} m`);
+  // A continuation line ending at the same point makes it a grade
+  // join (the Beitou descent pattern), not a portal.
+  const joined = {
+    lines: [
+      { pts: [0, 0, 100, 0], width: 10.4, h: [9, 0], tracks: [-3, 3] },
+      { pts: [100, 0, 200, 0], width: 10.4, h: [0, 0], tracks: [-3, 3] },
+    ],
+    piers: [], deckDepth: 1.8,
+  };
+  const gj = buildDeckGeometry(joined, { tracks: true });
+  assert.equal(gj.portal.positions.length, 0, 'no portal where another line continues the dive at grade');
+  // Road mode never grows portals (the road-deck path stays stable).
+  const gr = buildDeckGeometry(dive);
+  assert.equal(gr.portal.positions.length, 0, 'no portal geometry in road mode');
+  assert.equal(gr.portalDark.positions.length, 0);
+});
+
+test('portal (issue #173): the real tile has exactly the two Minquan dive mouths', () => {
+  const tracked = buildDeckGeometry(decks, { tracks: true });
+  // Two portal ends (the twin trackways of the 民權西路 dive):
+  // per end, headwall 2 piers + lintel + 2 wings = 5 quads = 10
+  // triangles, and one dark opening quad = 2 triangles.
+  assert.equal(tracked.portal.positions.length / 9, 20, 'portal concrete triangles (2 mouths × 5 quads)');
+  assert.equal(tracked.portalDark.positions.length / 9, 4, 'portal opening triangles (2 mouths × 1 quad)');
+});
+
+test('portal trees (issue #173): ground-contact polygons cover at-grade and dive segments only', () => {
+  const mk = (h) => ({ lines: [{ pts: [0, 0, 50, 0, 100, 0], width: 10.4, h, tracks: [-3, 3] }], piers: [] });
+  assert.equal(groundContactPolys(mk([9, 9, 9])).length, 0, 'fully elevated: nothing touches ground');
+  assert.equal(groundContactPolys(mk([9, 0, 0])).length, 2, 'the dive segment and the at-grade segment both count');
+  assert.equal(groundContactPolys(mk([0, 0, 9])).length, 2, 'an at-grade segment plus the ramp rising from grade (its low end touches)');
+  const real = groundContactPolys(decks);
+  assert.equal(real.length, 124, 'real-tile ground-contact segments (at-grade Beitou + the portal ramps)');
+  // Every polygon is a quad around its segment.
+  for (const p of real) assert.equal(p.length, 4);
 });
 
 test('clearance (issue #139): census by counterfactual, audit exact', (t) => {
