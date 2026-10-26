@@ -45,6 +45,11 @@ const C = {
   hallWall: 0xcfc8bb,
   depotWall: 0xb5aea0, depotRoof: 0x8f9597, depotSkylight: 0x646e75,
   ballast: 0x6e5136, rail: 0x8f9296,
+  // Issue #146: the Wenhu (Brown) Line stations + airport
+  // entrances — pale blue-white body, white barrel roofs, pale
+  // steel-blue trim, the line's brown on the entrance band.
+  wenhuBody: 0xd9dfe3, wenhuRoof: 0xeef0ee, wenhuTrim: 0x9db4c0,
+  wenhuBrown: 0x8c5a2b,
 };
 const rgb = (hex) => [((hex >> 16) & 255) / 255, ((hex >> 8) & 255) / 255, (hex & 255) / 255];
 
@@ -65,6 +70,11 @@ export function mrtStationFootprint(st) {
     case 'xinbeitou': return { hw: (Wd + 1.2) / 2, hl: (L + 2.4) / 2 };
     // at-grade: the bridge hall's roof overhang is the widest part.
     case 'at-grade': return { hw: (Wd + 4.6) / 2, hl: L / 2 };
+    // wenhu: the concourse tier / flat side roofs are the widest
+    // parts (the vault crowns stay inside the body width).
+    case 'wenhu': return { hw: (Wd + 1.6) / 2, hl: (L + 1.2) / 2 };
+    // entrance: the canopy slab overhangs the glass pavilion.
+    case 'entrance': return { hw: (Wd + 1.6) / 2, hl: (L + 1.6) / 2 };
     default: return { hw: (Wd + 1.9) / 2, hl: L / 2 };
   }
 }
@@ -73,6 +83,7 @@ export function mrtStationFootprint(st) {
 // clamps in tools/taipei/build-mrt.mjs).
 export const MRT_STATION_DEFAULT_WIDTH = {
   standard: 21.5, jiantan: 24, beitou: 33, xinbeitou: 21.5, 'at-grade': 16.5,
+  wenhu: 20, entrance: 7,
 };
 
 export function buildMrtStationGeometry(stations) {
@@ -231,6 +242,68 @@ export function buildMrtStationGeometry(stations) {
       box(0, 0, 11.4, Wd + 3.8, 5.5, 6.7, C.glass);
       box(0, 0, 12.4, Wd + 4.6, 7.3, 7.65, C.roofPale);
       for (const s of [1, -1]) box(0, s * (Wd / 2 + 0.9), 2.0, 1.6, 0, 4.35, C.concrete);
+    } else if (st.kind === 'wenhu') {
+      // Issue #146: the Wenhu barrel-roof station (facts in the
+      // #146 evidence — the user's Nanjing Fuxing photos and the
+      // satellite frames). A pale concourse tier spans the street
+      // at mezzanine level; above it, side platforms flank the
+      // guideways (platform inner edge 3.65 m from the centreline
+      // = the 4.3 m track spacing plus the car envelope) under
+      // TWIN BARREL VAULTS with glazed screen walls and ends; a
+      // flat trim strip caps the track slot (the X-braced skylight
+      // band of the top-down photo).
+      const Wp = Math.min(Wd, 20);           // platform tier width
+      const platIn = 3.65, platOut = Wp / 2 - 0.7;
+      const platW = platOut - platIn, platC = platIn + platW / 2;
+      for (const u of [-L / 3, 0, L / 3]) {
+        box(u, 0, 2.0, 2.0, 0, 4.4, C.concrete);
+        if (Wd > 24) for (const s of [1, -1]) box(u, s * (Wd / 2 - 2.2), 1.4, 1.4, 0, 4.4, C.concrete);
+      }
+      // Concourse tier, its projecting lip and glazed side band.
+      box(0, 0, L * 0.94, Wd, 4.4, 6.3, C.wenhuBody);
+      box(0, 0, L * 0.94, Wd - 1.2, 4.12, 4.4, C.wenhuTrim);
+      for (const s of [1, -1]) box(0, s * (Wd / 2 - 0.26), L * 0.94, 0.52, 5.05, 6.0, C.glass);
+      // Platform slabs, screen walls and their top rails.
+      for (const s of [1, -1]) {
+        box(0, s * platC, L * 0.97, platW, 9.15, 9.95, C.platform);
+        box(0, s * (Wp / 2 - 0.3), L * 0.97, 0.5, 9.95, 12.2, C.glass);
+        box(0, s * (Wp / 2 - 0.3), L * 0.97, 0.7, 12.2, 12.45, C.wenhuTrim);
+      }
+      // Flat side roofs where the body out-widths the platform
+      // tier (the transfer stations' lower concourse roofs).
+      if (Wd > Wp + 2) {
+        for (const s of [1, -1]) {
+          box(0, s * (Wp / 2 + (Wd - Wp) / 4), L * 0.9, (Wd - Wp) / 2 + 0.6, 11.55, 11.85, C.wenhuRoof);
+        }
+      }
+      // Twin barrel vaults: five tilted slabs per platform on a
+      // shallow circular arc (2.2 m rise, springing at 12.3 m).
+      const springY = 12.3, rise = 2.2;
+      const halfSpan = platW / 2 + 0.55;
+      const R = (halfSpan * halfSpan + rise * rise) / (2 * rise);
+      const phiMax = Math.asin(halfSpan / R);
+      const SEG = 5;
+      for (const s of [1, -1]) {
+        const vc = s * platC;
+        for (let i = 0; i < SEG; i++) {
+          const phi = -phiMax + ((i + 0.5) * 2 * phiMax) / SEG;
+          const cx = vc + R * Math.sin(phi);
+          const cyy = springY + rise - R + R * Math.cos(phi);
+          const chord = 2 * R * Math.sin(phiMax / SEG) + 0.18;
+          tiltBox(cx, cyy, 0, chord, 0.28, L * 0.97, -phi, 0, C.wenhuRoof);
+        }
+      }
+      // Central skylight strip over the slot + glazed ends.
+      box(0, 0, L * 0.97, 3.4, 13.5, 13.8, C.wenhuTrim);
+      for (const e of [1, -1]) box(e * (L / 2 - 0.3), 0, 0.5, Wp - 0.6, 9.15, 13.3, C.glass);
+    } else if (st.kind === 'entrance') {
+      // Issue #146: a Songshan Airport exit pavilion — the
+      // underground station's whole surface presence: a low
+      // glass headhouse with the line's brown band under a pale
+      // canopy slab.
+      box(0, 0, L, Wd, 0, 2.4, C.glass);
+      box(0, 0, L + 0.3, Wd + 0.3, 1.95, 2.4, C.wenhuBrown);
+      box(0, 0, L + 1.6, Wd + 1.6, 2.4, 2.72, C.wenhuRoof);
     } else {
       // standard — Yuanshan pattern
       for (const u of [-L / 3, 0, L / 3]) box(u, 0, 2.2, 2.2, 0, 4.6, C.concrete);

@@ -894,6 +894,11 @@ export async function buildTaipeiGround(scene, tile, deps = {}) {
   // the brown track treatment (ballast strips + rails instead of
   // the asphalt ribbon), the three at-grade stations join the
   // station mesh, and the Beitou depot stands by Fuxinggang.
+  // Issue #146: the Wenhu (Brown) Line rides the same field — its
+  // lines carry the concrete-guideway treatment instead (pale
+  // strips + steel guide bars, no ballast), its four barrel-vault
+  // stations join the station mesh, and the underground Songshan
+  // Airport station is present only as two entrance headhouses.
   let mrtDetail = '';
   if (geo.mrtDecks?.lines?.length) {
     const mrtGeo = buildDeckGeometry(geo.mrtDecks, { tracks: true });
@@ -907,6 +912,11 @@ export async function buildTaipeiGround(scene, tile, deps = {}) {
     if (mrtGeo.rails.positions.length) {
       const mrtRails = addLayer(deckPartGeometry(mrtGeo.rails), mat(0x8f9296, 0.45), 'TaipeiMrtRails');
       mrtRails.castShadow = true;
+    }
+    if (mrtGeo.guideway.positions.length) {
+      const mrtGuideways = addLayer(deckPartGeometry(mrtGeo.guideway), mat(0xb8bcb2, 0.95), 'TaipeiMrtGuideways');
+      mrtGuideways.castShadow = true;
+      mrtGuideways.receiveShadow = true;
     }
     // Issue #173: the dive-portal mouths (headwall + wing walls in
     // the deck concrete tone, the dark opening near-black) where a

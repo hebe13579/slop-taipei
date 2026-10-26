@@ -2317,9 +2317,9 @@ export function planTaipeiBuildings(geodata) {
     // mirrors mrtStationFootprint in js/taipei-mrt-stations.js (this
     // module stays import-free by convention; keep the two in sync).
     const L = s.length || 112;
-    const Wd = s.width || (s.kind === 'jiantan' ? 24 : s.kind === 'beitou' ? 33 : s.kind === 'at-grade' ? 16.5 : 21.5);
-    const hw = s.kind === 'jiantan' ? (Wd + 2) / 2 : s.kind === 'beitou' ? (Wd + 2.6) / 2 : s.kind === 'xinbeitou' ? (Wd + 1.2) / 2 : s.kind === 'at-grade' ? (Wd + 4.6) / 2 : (Wd + 1.9) / 2;
-    const hl = s.kind === 'jiantan' ? 122 : s.kind === 'beitou' ? (L + 4) / 2 : s.kind === 'xinbeitou' ? (L + 2.4) / 2 : L / 2;
+    const Wd = s.width || (s.kind === 'jiantan' ? 24 : s.kind === 'beitou' ? 33 : s.kind === 'at-grade' ? 16.5 : s.kind === 'wenhu' ? 20 : s.kind === 'entrance' ? 7 : 21.5);
+    const hw = s.kind === 'jiantan' ? (Wd + 2) / 2 : s.kind === 'beitou' ? (Wd + 2.6) / 2 : s.kind === 'xinbeitou' ? (Wd + 1.2) / 2 : s.kind === 'at-grade' ? (Wd + 4.6) / 2 : s.kind === 'wenhu' ? (Wd + 1.6) / 2 : s.kind === 'entrance' ? (Wd + 1.6) / 2 : (Wd + 1.9) / 2;
+    const hl = s.kind === 'jiantan' ? 122 : s.kind === 'beitou' ? (L + 4) / 2 : s.kind === 'xinbeitou' ? (L + 2.4) / 2 : s.kind === 'wenhu' ? (L + 1.2) / 2 : s.kind === 'entrance' ? (L + 1.6) / 2 : L / 2;
     const cy = Math.cos(s.yaw), sy = Math.sin(s.yaw);
     let minX = Infinity, maxX = -Infinity, minZ = Infinity, maxZ = -Infinity;
     for (const [lx, lz] of [[-hw, -hl], [hw, -hl], [hw, hl], [-hw, hl]]) {

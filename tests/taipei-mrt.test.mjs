@@ -15,6 +15,16 @@
 // deck kept), the Beitou depot （北投機廠） as a non-registry
 // special structure, and the three at-grade stations
 // 復興崗/忠義/關渡 on the same station path.
+//
+// Issue #146 (Wenhu / Brown Line) extends it again: the rubber-
+// tyred line on CONCRETE GUIDEWAYS (a per-line track treatment —
+// pale strips + guide bars, no ballast) up the Fuxing Rd median,
+// elevated at full height past 大安/忠孝復興/南京復興/中山國中，
+// curving east on Minzu E. Rd and diving underground before
+// Songshan Airport (the airport station is entrances only). Its
+// four barrel-vault stations and three airport entrance
+// headhouses join the same non-registry station path, and the
+// #139 corridor clearance covers its guideway too.
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { TAIPEI_GEO } from '../js/taipei-geodata.js';
@@ -36,6 +46,10 @@ const AT = {
   shipai: [-4993, -9040], qilian: [-5941, -9738], qiyan: [-6445, -10258],
   beitou: [-6702, -10959], fuxinggang: [-8024, -11575], zhongyi: [-9247, -10850],
   guandu: [-9878, -10269], xinbeitou: [-6240, -11516],
+  // Wenhu (issue #146): the digest's station defs + the OSM
+  // Songshan Airport station anchor (underground — no line).
+  daanW: [-2160, 17], zhongxiaoF: [-2143, -879], nanjingF: [-2114, -2148],
+  zhongshanJH: [-2098, -3078], songshanAirport: [-1351, -3333],
 };
 const mid = (a, b) => [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2];
 
@@ -200,6 +214,47 @@ test('spec: at-grade after Beitou through Fuxinggang / Zhongyi / Guandu', () => 
   assert.ok(saw9 && saw0, 'descent profile present Beitou -> Fuxinggang');
 });
 
+test('wenhu spec (issue #146): elevated at full height along Fuxing, Daan -> Zhongshan JHS', () => {
+  const pairs = [
+    ['daanW', 'zhongxiaoF'], ['zhongxiaoF', 'nanjingF'], ['nanjingF', 'zhongshanJH'],
+  ];
+  for (const [a, b] of pairs) {
+    const prof = pairProfile(a, b);
+    for (let i = 0; i < 10; i++) {
+      assert.ok(prof[i] !== null, `${a}->${b}: alignment continuous (bin ${i})`);
+      assert.ok(prof[i] >= 8.99, `${a}->${b}: full height in bin ${i} (h=${prof[i].toFixed(2)})`);
+    }
+  }
+  for (const k of ['daanW', 'zhongxiaoF', 'nanjingF', 'zhongshanJH']) {
+    const n = nearestLinePoint(AT[k][0], AT[k][1]);
+    assert.ok(n && n.d < 40 && n.h >= 8.99, `${k} station on the full-height guideway`);
+    assert.equal(n.line.trackStyle, 'guideway', `${k} served by a guideway line`);
+  }
+});
+
+test('wenhu spec (issue #146): the dive — ramp down after Zhongshan JHS, nothing at the airport station', () => {
+  const wenhu = lines.filter((l) => l.trackStyle === 'guideway');
+  assert.equal(wenhu.length, 21, 'wenhu deck lines (twin pairs + shared crossovers + the two dive ramps)');
+  let sawRamp = false, sawPortalBottom = false, sawFullNorth = false;
+  for (const l of wenhu) {
+    for (let i = 0; i < l.h.length; i++) {
+      const x = l.pts[i * 2], z = l.pts[i * 2 + 1], h = l.h[i];
+      if (h > 0.05 && h < 8.9) sawRamp = true;
+      // The portal bottoms sit north of the airport anchor's
+      // latitude, where the ramps meet the tunnel bores.
+      if (h <= 0.01 && z < -3500) sawPortalBottom = true;
+      if (h >= 8.99 && z < -3078 && z > -3560) sawFullNorth = true;
+      // The underground stretch emits nothing: no guideway point
+      // comes near the airport station anchor.
+      assert.ok(Math.hypot(x - AT.songshanAirport[0], z - AT.songshanAirport[1]) > 200,
+        'no surface guideway near the underground Songshan Airport station');
+    }
+  }
+  assert.ok(sawFullNorth, 'guideway still at full height on the Minzu curve');
+  assert.ok(sawRamp, 'a ramp (0.05 < h < 8.9) exists on the dive');
+  assert.ok(sawPortalBottom, 'the dive reaches grade at the portal');
+});
+
 test('deck discipline: heights in [0, 9], ramps within 6%, no floating ends', () => {
   for (const l of lines) {
     for (let i = 0; i < l.h.length; i++) {
@@ -214,13 +269,22 @@ test('deck discipline: heights in [0, 9], ramps within 6%, no floating ends', ()
       }
     }
     // A line end is either at grade, joins another line end (shared
-    // point at the same height), or terminates inside a station
+    // point at the same height), terminates inside a station
     // footprint (the Xinbeitou terminus buffer ends inside its
-    // station box).
+    // station box), or sits on the tile-union boundary — a line
+    // that runs out of the tile continues beyond it (the road
+    // decks' convention; issue #146: the Wenhu twins are clipped
+    // at Box A's south edge, z = 498.5, at full height, because
+    // the line runs on to 動物園）.
     for (const end of [0, l.pts.length - 2]) {
       const ex = l.pts[end], ez = l.pts[end + 1], eh = l.h[end / 2];
       if (eh <= 0.01) continue;
       let joined = false;
+      for (const b of TAIPEI_GEO.frame.boxes) {
+        const onZEdge = (Math.abs(ez - b.minZ) <= 2 || Math.abs(ez - b.maxZ) <= 2) && ex >= b.minX - 2 && ex <= b.maxX + 2;
+        const onXEdge = (Math.abs(ex - b.minX) <= 2 || Math.abs(ex - b.maxX) <= 2) && ez >= b.minZ - 2 && ez <= b.maxZ + 2;
+        if (onZEdge || onXEdge) { joined = true; break; }
+      }
       for (const o of lines) {
         if (o === l) continue;
         for (let i = 0; i < o.pts.length; i += 2) {
@@ -278,6 +342,23 @@ test('piers: never in a lot, never in a crossing street (same rule as road decks
     return false;
   };
   assert.ok(decks.piers.length >= 300, `${decks.piers.length} mrt piers`);
+  // Merge note (PR #160 gate, wenhu-line × main e036a86b): crossing
+  // failures are collected and pinned as a set because exactly ONE
+  // pier legitimately stands in a crossing carriageway without
+  // median cover — the Wenhu pier at (-2150.2, -528.3), on the
+  // line's centreline (yaw -0.02) in the Fuxing median inside the
+  // 復興×仁愛 junction, inside the ribbon of 仁愛路三段's 6.4 m
+  // carriageway. Proven cause: on the branch base the uncapped
+  // Fuxing median strip ran through the junction and exempted it;
+  // main's #173 MEDTIP edge probes (cap bite at centre + edges)
+  // and #178 minor-cross termination (a [4.5, 8) m bed crossing
+  // the whole strip breaks it — the 6.4 m Renai carriageway is in
+  // that band) now terminate the strip at the junction in both
+  // the capped and uncapped builds, which is the intended render
+  // (medians break at junction surfaces). A median pier standing
+  // in its own junction is correct; any NEW pier in a crossing
+  // carriageway fails this pin until individually justified.
+  const crossingPiers = [];
   for (const p of decks.piers) {
     assert.ok(p.h > 0 && p.h <= 9, `pier height ${p.h}`);
     assert.ok(!inLot(p.x, p.z), `pier inside a building lot at (${p.x}, ${p.z})`);
@@ -285,13 +366,18 @@ test('piers: never in a lot, never in a crossing street (same rule as road decks
     const cellKey = `${Math.floor(p.x / 100)},${Math.floor(p.z / 100)}`;
     for (const ci of ribbonGrid.get(cellKey) || []) {
       if (!pointInPoly([p.x, p.z], ribbons[ci])) continue;
-      assert.ok(bedParallelNear(groundBeds[ci], p), `pier in a crossing carriageway (${groundBeds[ci].name}) at (${p.x}, ${p.z})`);
+      if (!bedParallelNear(groundBeds[ci], p)) {
+        crossingPiers.push(`${p.x.toFixed(1)},${p.z.toFixed(1)} in ${groundBeds[ci].name}`);
+        break;
+      }
     }
   }
+  assert.deepEqual(crossingPiers, ['-2150.2,-528.3 in 仁愛路三段'],
+    'piers in a crossing carriageway (pinned exception set — see comment above)');
 });
 
 test('stations: ten elevated + three at-grade (issue #139), kinds, on-alignment, sane geometry', () => {
-  assert.equal(stations.length, 13, 'ten elevated + three at-grade station defs');
+  assert.equal(stations.length, 20, 'Red Line defs + the Wenhu defs of issue #146');
   const kinds = Object.fromEntries(stations.map((s) => [s.id, s.kind]));
   assert.equal(kinds['mrt-jiantan'], 'jiantan');
   assert.equal(kinds['mrt-beitou'], 'beitou');
@@ -301,7 +387,20 @@ test('stations: ten elevated + three at-grade (issue #139), kinds, on-alignment,
   assert.equal(kinds['mrt-fuxinggang'], 'at-grade');
   assert.equal(kinds['mrt-zhongyi'], 'at-grade');
   assert.equal(kinds['mrt-guandu'], 'at-grade');
+  // Issue #146: the four Wenhu barrel-vault stations and the
+  // three Songshan Airport entrance headhouses join the same
+  // path. The entrances are exempt from the on-alignment loop
+  // below (their station is underground; they are pinned by
+  // their own test against the OSM entrance nodes).
+  assert.equal(kinds['mrt-daan'], 'wenhu');
+  assert.equal(kinds['mrt-zhongxiao-fuxing'], 'wenhu');
+  assert.equal(kinds['mrt-nanjing-fuxing'], 'wenhu');
+  assert.equal(kinds['mrt-zhongshan-junior-high-school'], 'wenhu');
+  assert.equal(kinds['mrt-songshan-airport-exit-1'], 'entrance');
+  assert.equal(kinds['mrt-songshan-airport-exit-2'], 'entrance');
+  assert.equal(kinds['mrt-songshan-airport-exit-3'], 'entrance');
   for (const s of stations) {
+    if (s.kind === 'entrance') continue;
     const n = nearestLinePoint(s.x, s.z);
     assert.ok(n && n.d < 12, `${s.id} centred on the guideway (${n?.d?.toFixed(1)} m to the nearest track)`);
     assert.ok(s.length >= 80 && s.length <= 190, `${s.id} length ${s.length}`);
@@ -334,7 +433,7 @@ test('stations: ten elevated + three at-grade (issue #139), kinds, on-alignment,
     }
   }
   const g = buildMrtStationGeometry(stations);
-  assert.equal(g.stationCount, 13);
+  assert.equal(g.stationCount, 20);
   assert.ok(g.triCount > 800, `${g.triCount} station triangles`);
   for (let i = 0; i < g.positions.length; i++) assert.ok(Number.isFinite(g.positions[i]), 'finite geometry');
   // Jiantan's pylons are the tallest station structure on the line.
@@ -345,6 +444,55 @@ test('stations: ten elevated + three at-grade (issue #139), kinds, on-alignment,
   const widths = stations.map((s) => mrtStationFootprint(s).hw * 2);
   const beitouW = mrtStationFootprint(stations.find((s) => s.id === 'mrt-beitou')).hw * 2;
   assert.equal(Math.max(...widths), beitouW, 'beitou widest');
+});
+
+test('wenhu stations (issue #146): barrel-vault geometry over the guideways', () => {
+  const wenhu = stations.filter((s) => s.kind === 'wenhu');
+  assert.equal(wenhu.length, 4, 'four elevated Wenhu stations');
+  for (const s of wenhu) {
+    // Digest-measured defs: length = OSM platform extent + 16 m
+    // (stairs/machine rooms), width = platform across extent +
+    // 3 m, both from the level-tagged platform ways.
+    assert.ok(s.length >= 88 && s.length <= 98, `${s.id} length ${s.length} (platforms 74-80 m + end rooms)`);
+    assert.ok(s.width >= 16.5 && s.width <= 20, `${s.id} width ${s.width}`);
+  }
+  const g = buildMrtStationGeometry(wenhu);
+  assert.equal(g.stationCount, 4);
+  assert.ok(g.triCount > 1000, `${g.triCount} wenhu station triangles`);
+  for (let i = 0; i < g.positions.length; i++) assert.ok(Number.isFinite(g.positions[i]), 'finite geometry');
+  let maxY = 0;
+  for (let i = 1; i < g.positions.length; i += 3) maxY = Math.max(maxY, g.positions[i]);
+  // The vault crown: deck datum 9 + platform/screen tiers to the
+  // 12.3 m springing + 2.2 m rise + the skylight strip — a low
+  // shed over the tracks, nothing like Jiantan's pylons.
+  assert.ok(maxY > 14 && maxY < 15.5, `wenhu vault crown ${maxY.toFixed(2)} m`);
+});
+
+test('songshan airport entrances (issue #146): three headhouses, OSM positions, no guideway', () => {
+  const ents = stations.filter((s) => s.kind === 'entrance');
+  assert.equal(ents.length, 3, 'the three OSM subway entrances');
+  // Positions are the live-OSM entrance nodes (verified through
+  // the OSM API 2026-10-25; see AIRPORT_ENTRANCES in
+  // tools/taipei/build-mrt.mjs), in world metres.
+  const want = {
+    'mrt-songshan-airport-exit-1': [-1313, -3383],
+    'mrt-songshan-airport-exit-2': [-1392, -3382],
+    'mrt-songshan-airport-exit-3': [-1337, -3324],
+  };
+  for (const s of ents) {
+    const [wx, wz] = want[s.id];
+    assert.ok(Math.abs(s.x - wx) <= 3 && Math.abs(s.z - wz) <= 3, `${s.id} at (${s.x}, ${s.z}), OSM node at (${wx}, ${wz})`);
+    assert.equal(s.length, 11);
+    assert.equal(s.width, 7);
+    // Inside the airport box (frame box 6-airport), on the
+    // terminal side — the airfield's lot-free rule covers them.
+    assert.ok(s.x >= -3229.5 && s.x <= 504.6 && s.z >= -4984.8 && s.z <= -2437, `${s.id} inside the airport box`);
+  }
+  const g = buildMrtStationGeometry(ents);
+  assert.equal(g.stationCount, 3);
+  let maxY = 0;
+  for (let i = 1; i < g.positions.length; i += 3) maxY = Math.max(maxY, g.positions[i]);
+  assert.ok(maxY > 2.6 && maxY < 2.85, `headhouse canopy top ${maxY.toFixed(2)} m — a pavilion, not a station box`);
 });
 
 test('stations: no planned lot overlaps a station footprint', () => {
@@ -436,10 +584,19 @@ function trackClass(lot) {
 }
 
 test('tracks (issue #139): every deck line carries its track offsets in the data', () => {
-  assert.equal(lines.length, 54, 'deck line count unchanged by the track treatment');
+  // Issue #146: the Wenhu Line adds 21 guideway lines to the
+  // Red Line's 54 — the line count moves, the Red Line's own
+  // track data is byte-identical.
+  assert.equal(lines.length, 75, '54 Red Line + 21 Wenhu deck lines');
+  assert.equal(lines.filter((l) => l.trackStyle === 'guideway').length, 21, 'wenhu guideway lines');
   for (const l of lines) {
     assert.ok(Array.isArray(l.tracks), `${l.name} carries tracks`);
-    if (l.width <= 6.5) assert.deepEqual(l.tracks, [0], `${l.name}: twin line, one track on its centreline`);
+    if (l.trackStyle === 'guideway') {
+      // Wenhu (issue #146): concrete guideways at the measured
+      // 4.3 m twin spacing (OSM centrelines 4.1-4.4 m apart).
+      if (l.width <= 6.5) assert.deepEqual(l.tracks, [0], `${l.name}: wenhu twin line, one guideway on its centreline`);
+      else assert.deepEqual(l.tracks, [-2.15, 2.15], `${l.name}: wenhu shared formation, two guideways at 4.3 m`);
+    } else if (l.width <= 6.5) assert.deepEqual(l.tracks, [0], `${l.name}: twin line, one track on its centreline`);
     else assert.deepEqual(l.tracks, [-3, 3], `${l.name}: shared-formation line, two tracks at the measured 6 m spacing`);
   }
 });
@@ -462,6 +619,18 @@ test('tracks (issue #139): the renderer draws ballast + rails only in track mode
   let maxBalY = 0;
   for (let i = 1; i < tracked.ballast.positions.length; i += 3) maxBalY = Math.max(maxBalY, tracked.ballast.positions[i]);
   assert.ok(maxBalY > 9.2 && maxBalY < 9.3, `elevated ballast crest ${maxBalY.toFixed(2)} (deck 9 + ballast 0.24)`);
+  // Issue #146: the guideway treatment is Wenhu-only — plain
+  // (road) mode emits none, the road decks never carry it, and
+  // in track mode the concrete strips crest just above the
+  // Wenhu deck surface (9 + 0.16 strip), below the ballast crest.
+  assert.equal(plain.guideway.positions.length, 0, 'no guideway strips without track mode');
+  assert.ok(tracked.guideway.positions.length > 0, 'guideway strips emitted for the Wenhu lines');
+  const roadTracked = buildDeckGeometry(TAIPEI_GEO.elevatedRoads, { tracks: true });
+  assert.equal(roadTracked.guideway.positions.length, 0, 'road decks never carry the guideway treatment');
+  let maxGuideY = 0;
+  for (let i = 1; i < tracked.guideway.positions.length; i += 3) maxGuideY = Math.max(maxGuideY, tracked.guideway.positions[i]);
+  assert.ok(maxGuideY > 9.1 && maxGuideY < 9.22, `elevated guideway crest ${maxGuideY.toFixed(2)} (deck 9 + strip 0.16)`);
+  for (let i = 0; i < tracked.guideway.positions.length; i++) assert.ok(Number.isFinite(tracked.guideway.positions[i]), 'finite guideway');
 });
 
 test('portal (issue #173): a lone dive end gets a shaped portal mouth; a grade join and road mode do not', () => {
@@ -497,13 +666,19 @@ test('portal (issue #173): a lone dive end gets a shaped portal mouth; a grade j
   assert.equal(gr.portalDark.positions.length, 0);
 });
 
-test('portal (issue #173): the real tile has exactly the two Minquan dive mouths', () => {
+test('portal (issue #173): the real tile has exactly the four dive mouths (Minquan + Wenhu twins)', () => {
   const tracked = buildDeckGeometry(decks, { tracks: true });
-  // Two portal ends (the twin trackways of the 民權西路 dive):
-  // per end, headwall 2 piers + lintel + 2 wings = 5 quads = 10
-  // triangles, and one dark opening quad = 2 triangles.
-  assert.equal(tracked.portal.positions.length / 9, 20, 'portal concrete triangles (2 mouths × 5 quads)');
-  assert.equal(tracked.portalDark.positions.length / 9, 4, 'portal opening triangles (2 mouths × 1 quad)');
+  // Portal ends: per end, headwall 2 piers + lintel + 2 wings =
+  // 5 quads = 10 triangles, and one dark opening quad = 2
+  // triangles. On main (Red Line only) this pinned 2 mouths —
+  // the twin trackways of the 民權西路 dive. Merged with issue
+  // #146 (PR #160 gate): the Wenhu twin trackways dive before
+  // Songshan Airport and #173's rule dresses their ends
+  // identically — 2 more mouths, measured at the gate as portal
+  // clusters at (-4633, -3507) (Minquan) and (-1858, -3564)
+  // (Wenhu), 20 triangles each. 4 mouths total.
+  assert.equal(tracked.portal.positions.length / 9, 40, 'portal concrete triangles (4 mouths × 5 quads)');
+  assert.equal(tracked.portalDark.positions.length / 9, 8, 'portal opening triangles (4 mouths × 1 quad)');
 });
 
 test('portal trees (issue #173): ground-contact polygons cover at-grade and dive segments only', () => {
@@ -512,7 +687,13 @@ test('portal trees (issue #173): ground-contact polygons cover at-grade and dive
   assert.equal(groundContactPolys(mk([9, 0, 0])).length, 2, 'the dive segment and the at-grade segment both count');
   assert.equal(groundContactPolys(mk([0, 0, 9])).length, 2, 'an at-grade segment plus the ramp rising from grade (its low end touches)');
   const real = groundContactPolys(decks);
-  assert.equal(real.length, 124, 'real-tile ground-contact segments (at-grade Beitou + the portal ramps)');
+  // 124 on the Red-only field (main's pin, reproduced exactly by
+  // partitioning the merged field on trackStyle) + 2 from issue
+  // #146 (PR #160 gate): each Wenhu twin line's dive ramp has
+  // exactly one ground-touching segment at its foot (h starts at
+  // 0), so the Wenhu dive contributes one contact polygon per
+  // trackway.
+  assert.equal(real.length, 126, 'real-tile ground-contact segments (at-grade Beitou + the portal ramps + the Wenhu dive feet)');
   // Every polygon is a quad around its segment.
   for (const p of real) assert.equal(p.length, 4);
 });
@@ -521,29 +702,43 @@ test('clearance (issue #139): census by counterfactual, audit exact', (t) => {
   const plan = planTaipeiBuildings(TAIPEI_GEO);
   // Counterfactual: the pre-#139 plan on this same tree — strip
   // the track data, the depot and the at-grade stations, and the
-  // plan reproduces 38,857 lots exactly on the #134+#137+#136
-  // tree. Composed on this merged tree with issue #144 (TPAC
-  // site exclusion removes its 7 parcel lots in BOTH plans —
-  // the site rule is not a #139 input) and issue #135 (the
-  // Twin Towers parcel exclusions remove 47 lots from both
-  // plans): both anchors drop by 54 and the #139 delta below
-  // is unchanged at 461.
+  // plan reproduces 38,857 lots exactly (the #134+#137 plan as
+  // composed with #136; on the pre-expansion tree this reproduced
+  // 34,645, the #106+#118 plan).
+  // Composed with issue #144 on this merged tree: the TPAC
+  // landmark's site exclusion removes its 7 parcel lots in
+  // BOTH plans (the site rule is not a #139 input), so both
+  // anchors drop by 7 and the #139 delta below is unchanged
+  // at 461 (measured at the #144 gate).
+  // Composed with issue #135 on this merged tree: the Twin
+  // Towers parcel exclusions remove 47 lots from BOTH plans —
+  // both anchors drop by 47 more (counterfactual 38,803).
+  // Composed with issue #146 on this merged tree: the
+  // counterfactual also strips the Wenhu station defs (the
+  // 'wenhu' + 'entrance' kinds did not exist pre-#146), so the
+  // 38,803 anchor still reproduces; the shipped plan drops 2
+  // more lots, both pierce drops flanking the Wenhu dive north
+  // of Zhongshan JHS, where the descending guideway's underside
+  // meets their tops (a proc lot, h 14.5 at (-1869, -3587),
+  // and a door-tier lot, h 15.5 at (-2018, -3685); both
+  // masonry family — diffed lot by lot at the #146 gate).
   const before = planTaipeiBuildings({
     ...TAIPEI_GEO,
     mrtDecks: undefined, mrtDepot: undefined,
-    mrtStations: stations.filter((s) => s.kind !== 'at-grade'),
+    mrtStations: stations.filter((s) => s.kind !== 'at-grade' && s.kind !== 'wenhu' && s.kind !== 'entrance'),
   });
   assert.equal(before.lots.length, 38803, 'counterfactual plan reproduces the pre-#139 lot count, less the #144 site lots (7) and the #135 parcel exclusions (47)');
-  // 461 lots removed on this tree (524 on the pre-expansion
+  // 463 lots removed on this tree (524 on the pre-expansion
   // tree): 433 inside the Beitou depot + at-grade station sites
   // (398 with centres inside the depot site rect alone; the rest
   // are margin-grown corner hits at the site edges), 13 standing
-  // on the at-grade track bed, 15 tall enough to pierce the
-  // guideway (planner counters below; classification by lot
-  // centre against the site rects on this tree).
-  assert.equal(plan.lots.length, 38342, 'shipped plan lot count after the #139 removals, the #144 site exclusion and the #135 parcel exclusions');
+  // on the at-grade track bed, 17 tall enough to pierce a
+  // guideway (15 Red Line + the 2 Wenhu dive lots of issue #146;
+  // planner counters below; classification by lot centre
+  // against the site rects on this tree).
+  assert.equal(plan.lots.length, 38340, 'shipped plan lot count after the #139 removals, the #144 site exclusion, the #135 parcel exclusions and the #146 dive drops');
   assert.equal(plan.stats.lotsDroppedTrackBed, 13, 'planner bed drops agree with the census');
-  assert.equal(plan.stats.lotsDroppedTrackPierce, 15, 'planner pierce drops agree with the census');
+  assert.equal(plan.stats.lotsDroppedTrackPierce, 17, 'planner pierce drops agree with the census (15 Red + 2 Wenhu, issue #146)');
   let bed = 0, pierce = 0, keptUnder = 0;
   for (const lot of plan.lots) {
     const c = trackClass(lot);

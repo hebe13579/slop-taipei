@@ -19,7 +19,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { pedestrianLayout } from './pedestrian-layout.mjs';
 import { buildElevated, buildMrtDecks } from './build-elevated.mjs';
-import { digestRedLine } from './build-mrt.mjs';
+import { digestRedLine, digestWenhuLine } from './build-mrt.mjs';
 import { planTaipeiBuildings } from '../../js/taipei-buildings.js';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
@@ -905,19 +905,27 @@ let terrain = null;
 // feed the planner's exclusion sites (no generic lot is planned
 // through a station footprint).
 let mrtDigest = null;
+let wenhuDigest = null;
 {
   const railPath = path.join(DATA, 'osm_railways.json');
   if (fs.existsSync(railPath)) {
     const railElements = JSON.parse(fs.readFileSync(railPath, 'utf8')).elements;
     mrtDigest = digestRedLine(railElements, (lat, lon) => toWorld(lon, lat));
-    TAIPEI_GEO.mrtStations = mrtDigest.stations;
+    // Issue #146: the Wenhu (Brown) Line digest runs on the same
+    // extract; its station defs join the same planner exclusion
+    // field, and its records join the same deck build below (one
+    // combined buildMrtDecks call: pier twin-merge keys on the line
+    // name, portal seeding on shared track nodes — the two lines
+    // share neither, so the Red Line's decks are untouched).
+    wenhuDigest = digestWenhuLine(railElements, (lat, lon) => toWorld(lon, lat));
+    TAIPEI_GEO.mrtStations = [...mrtDigest.stations, ...wenhuDigest.stations];
     TAIPEI_GEO.mrtDepot = mrtDigest.depot;
     // Issue #139: the lot planner tests candidates against the MRT
     // track corridor, so the deck LINES are built once here, before
     // the plan (line geometry depends only on the digest records;
     // the MRT pass below re-places the piers against the real plan
     // and overwrites this field with the complete deck set).
-    const preDecks = buildMrtDecks(mrtDigest.records, [], []);
+    const preDecks = buildMrtDecks([...mrtDigest.records, ...wenhuDigest.records], [], []);
     TAIPEI_GEO.mrtDecks = { lines: preDecks.lines, deckDepth: preDecks.deckDepth };
   }
 }
@@ -937,9 +945,14 @@ const lotPlan = planTaipeiBuildings(TAIPEI_GEO);
 {
   if (mrtDigest) {
     const mrt = mrtDigest;
-    TAIPEI_GEO.mrtDecks = buildMrtDecks(mrt.records, TAIPEI_GEO.roadbeds || [], lotPlan.lots);
+    const allRecords = wenhuDigest ? [...mrt.records, ...wenhuDigest.records] : mrt.records;
+    TAIPEI_GEO.mrtDecks = buildMrtDecks(allRecords, TAIPEI_GEO.roadbeds || [], lotPlan.lots);
     const ms = TAIPEI_GEO.mrtDecks.stats;
     console.log(`[taipei-geodata] mrt red line: ${mrt.stats.lineWays} line ways (${JSON.stringify(mrt.stats.byFormKm)} km by form), ${mrt.stats.pathsFound}/13 station paths, ${mrt.stats.crossoverWays} crossover ways -> ${ms.lines} deck lines (${ms.lineKm} km), piers ${ms.piers} (${ms.piersMerged} twin-merged, ${ms.piersRejectedRoad} road-rejected, ${ms.piersRejectedLot} lot-rejected); ${mrt.stations.length} stations (10 elevated + ${mrt.stations.length - 10} at-grade); depot: ${mrt.stats.yardWays} yard ways (${mrt.stats.yardKm} km), ${mrt.stats.depotHalls} halls`);
+    if (wenhuDigest) {
+      const ws = wenhuDigest.stats;
+      console.log(`[taipei-geodata] mrt wenhu line: ${ws.lineWays} line ways (${JSON.stringify(ws.byFormKm)} km by form), ${ws.pathsFound}/6 station paths, ${ws.crossoverWays} crossover ways; ${wenhuDigest.stations.length} station defs (4 elevated barrel-vault + 3 Songshan Airport entrances)`);
+    }
   } else {
     console.log('[taipei-geodata] mrt: osm_railways.json absent — no MRT decks/stations emitted');
   }
