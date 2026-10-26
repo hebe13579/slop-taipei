@@ -166,6 +166,21 @@ test('real tile: exactly one cap per multi-arm junction, centres and arm ends co
   assert.equal(Math.round(caps.reduce((s, c) => s + c.area, 0)), 703160, 'cap area census');
   assert.equal(Math.round(caps.filter((c) => c.kind === 'fitted').reduce((s, c) => s + c.area, 0)), 182754,
     'fitted cap area census (overlap construction since #145)');
+  // Census addition for issue #163 (junction fix v2): the ring
+  // counts/areas above are unchanged BY CONSTRUCTION — the #163
+  // arm extension strips are separate quads carried on fitted
+  // caps (see the #163 test below), never folded into the ring.
+  // Strip census at the #163 gate: 2,618 strips / 138,514 m²,
+  // fitted caps only (box caps carry none — their mouth slide
+  // already reaches their bed ends). Of 8,576 fitted arms,
+  // 2,637 measure a 0.3–30 m bed-end shortfall past their box
+  // edge; 19 of those are bending/hairpin fragments whose bed
+  // chord opposes the arm axis and get no strip (no honest
+  // corridor direction); 34 arms sit past the 30 m cap and
+  // stay unpaved by design (cluster scatter, not mouths).
+  assert.equal(caps.reduce((s, c) => s + (c.extras || []).length, 0), 2618, 'extension strip census');
+  assert.equal(caps.reduce((s, c) => s + (c.extraArea || 0), 0), 138514, 'extension strip area census');
+  for (const c of caps) if (c.kind === 'box') assert.equal((c.extras || []).length, 0, 'box caps carry no strips');
   const capByJ = new Map();
   {
     let ci = 0;
@@ -725,4 +740,72 @@ test('issue #145: every minor junction box is covered by its overlap cap', () =>
       assert.ok(distToPoly(v, box) <= 21, `junction ${ji} cap vertex overshoots the box by ${distToPoly(v, box).toFixed(1)} m`);
   });
   assert.equal(minor, 2115, `minor junctions audited ${minor}`);
+});
+
+test('issue #163: short fitted arms extend to the box edge — strips, never tongues', () => {
+  // The ji562 topology in miniature: finite beds all round. The
+  // EW road's beds end 12 m either side of the centre while its
+  // box edge sits at crossHalf 5 (the NS road's half width) — a
+  // 7 m shortfall band along the EW corridor that neither ribbon
+  // nor ring paves under #145. The NS beds end exactly at their
+  // box edge (sd 10 = crossHalf 10, the EW half width).
+  const beds = [
+    bed('EW Rd', 'residential', 20, [1], [-100, 0, -12, 0]),
+    bed('EW Rd', 'residential', 20, [2], [12, 0, 100, 0]),
+    bed('NS Rd', 'residential', 10, [3], [0, -100, 0, -10]),
+    bed('NS Rd', 'residential', 10, [4], [0, 10, 0, 100]),
+  ];
+  const junctions = detectJunctions(beds);
+  assert.equal(junctions.length, 1);
+  const caps = planJunctionCaps(beds, junctions);
+  assert.equal(caps.length, 1);
+  const cap = caps[0];
+  assert.equal(cap.kind, 'fitted');
+  // Both EW arms stripped, neither NS arm.
+  assert.equal(cap.extras.length, 2, `strips ${cap.extras.length}`);
+  const west = cap.extras.map((e) => ringPoints(e.ring)).find((pts) => Math.min(...pts.map((p) => p[0])) < 0);
+  const wxs = west.map((p) => p[0]), wzs = west.map((p) => p[1]);
+  // From just behind the bed end (-12 - 0.5 join) inward to the
+  // box edge tucked 0.25 under the ring (-(5 - 0.25)); the full
+  // arm width plus the join widening.
+  assert.ok(Math.abs(Math.min(...wxs) - -12.5) <= 0.15, `strip start ${Math.min(...wxs)}`);
+  assert.ok(Math.abs(Math.max(...wxs) - -4.75) <= 0.15, `strip reach ${Math.max(...wxs)}`);
+  assert.ok(Math.abs(Math.max(...wzs) - 10.5) <= 0.15 && Math.abs(Math.min(...wzs) - -10.5) <= 0.15,
+    'strip spans the arm width + join widening');
+  // No tongue: no strip vertex crosses the box edge toward the
+  // far side (every vertex stays on its own arm's side, between
+  // the tucked box edge and the bed end's join overlap).
+  for (const e of cap.extras) for (const [px] of ringPoints(e.ring))
+    assert.ok(Math.abs(px) >= 4.6 && Math.abs(px) <= 12.6, `strip vertex at ${px} stays on its own side`);
+  // The band point (-8, 0) is bare under the ring alone (the
+  // #157 regression in miniature) and paved with the strips.
+  const ringPoly = ringPoints(cap.ring);
+  assert.ok(distToPoly([-8, 0], ringPoly) > 1, 'ring alone leaves the band bare');
+  const surf = [cap.ring, ...cap.extras.map((e) => e.ring)].map(ringPoints);
+  for (const p of [[-8, 0], [8, 0], [-8, 8], [8, -8], [-11, 0]])
+    assert.ok(surf.some((poly) => distToPoly(p, poly) <= 0.15), `band point ${p} paved by ring + strips`);
+  assert.equal(cap.extraArea, cap.extras.reduce((s, e) => s + e.area, 0), 'extraArea is the strips summed');
+});
+
+test('issue #163: the user junction ji562 — the avenue band is paved', () => {
+  // 民生東路三段 × 127巷/140巷 (the regression screenshot): the
+  // avenue beds end 9.0/16.1 m from the merged centre against a
+  // 1.6 m box edge; under #145 the cap was 176 m² and 588 m² of
+  // the avenue corridor inside the old cap window was bare
+  // (2 m grid census, junction-v2 evidence). With the strips
+  // the whole band — axis and quadrants — is ring ∪ strip
+  // surface (the same census measures 4 m² residual).
+  const beds = TAIPEI_GEO.roadbeds;
+  const junctions = detectJunctions(beds);
+  const caps = planJunctionCaps(beds, junctions);
+  const near = caps.map((c) => ({ c, d: Math.hypot(c.x - -1773.1, c.z - -2738.7) })).sort((a, b) => a.d - b.d)[0];
+  assert.ok(near.d < 5, `cap at ji562 (d=${near.d})`);
+  const cap = near.c;
+  assert.equal(cap.kind, 'fitted');
+  assert.equal(cap.extras.length, 2, 'the two avenue arms carry the strips');
+  const surf = [cap.ring, ...cap.extras.map((e) => e.ring)].map(ringPoints);
+  const rel = (dx, dz) => [cap.x + dx, cap.z + dz];
+  for (const p of [rel(-8, 0), rel(8, 0), rel(-8, 10), rel(8, -10), rel(-8, -10), rel(8, 10), rel(0, 8), rel(0, -8)])
+    assert.ok(surf.some((poly) => distToPoly(p, poly) <= 0.15), `ji562 point ${p.map((v) => v.toFixed(0))} paved`);
+  assert.ok(distToPoly(rel(-8, 0), ringPoints(cap.ring)) > 3, 'the ring alone still leaves the band bare (strip does the work)');
 });

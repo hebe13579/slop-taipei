@@ -41,6 +41,23 @@
 //   major, 'fitted' minor) for the census and the boot log;
 //   the construction no longer differs by it.
 //
+//   Issue #163 (junction fix v2) adds ONE thing to the fitted
+//   class: ARM EXTENSION STRIPS (armExtension below). The #145
+//   overlap rule is exact where beds physically meet, but OSM
+//   beds are finite — tile-wide 54% of cap arms end more than
+//   2 m short of their box edge (71% of street arms at divided
+//   junctions), and the ground between a short bed end and the
+//   box edge was left bare (the user's regression: median
+//   strips and lane dashes crossing a pale patch at 民生東路三段
+//   × 127/140巷）. The user's approved rule (junction-poc2) is
+//   to extend each arm's ribbon along its own direction to the
+//   box edge and take the junction surface from the EXTENDED
+//   ribbons. A strip is that extension for one arm — its own
+//   bed end, direction and width, reaching exactly the box
+//   edge and never past it (a minor's extension stops at the
+//   major's kerb: no tongue). Box caps are untouched: majors'
+//   mouth segments already slide to their bed ends.
+//
 //   ROUNDABOUTS get neither generic cap (issue #75, user
 //   direction): planRoundabouts below handcrafts each site — a
 //   plain asphalt DISC (the annulus field, drawn full and then
@@ -557,8 +574,115 @@ export function capBlendTones(j, ringPts) {
   return { centre, origin, ring: ringPts.map(([px, pz]) => at(px, pz)) };
 }
 
+// ---------------------------------------------------------------------
+// Issue #163: arm extension strips (fitted caps only).
+//
+// armExtension(j, a, roadbeds) -> { pts, area, origin } | null.
+// An arm needs a strip when its bed END falls short of the
+// junction box: the end sits FARTHER from the centre than the
+// box edge on its side (sd > crossHalf — the ribbon stops
+// before it reaches the junction, the specimen being ji562's
+// avenue arms at sd 9.0/16.1 m against a 1.6 m box edge: a
+// 25 m band of avenue corridor paved by neither ribbon nor
+// ring). The strip is the arm's own corridor across that gap:
+// anchored ON the bed end point (so it continues the ribbon
+// exactly, lateral offset and all), following the bed's own
+// initial chord direction (the same 12 m chord the arm
+// direction is measured on in detectJunctions), at the arm's
+// own width, running INWARD from the bed end to the box edge
+// and tucking EXT_PAST_BOX_M past it, under the ring — the
+// strip stops at the box: it never crosses the junction, so a
+// minor's extension never tongues into the major's
+// carriageway (junction-poc2 rule 3); the crossing road's own
+// surface (ring, its ribbons, its strips) paves the rest.
+// Behind the bed end the strip overlaps the ribbon butt by
+// EXT_JOIN_M and widens by the same per side, so no seam or
+// pale wedge can open at the join; the overlaps sit 0.5 mm
+// under the box ring at render (boot), so they never z-fight
+// the ring, and overlapping strips of one junction share that
+// junction's single tone field (capBlendTones is a pure
+// function of position), so a strip crossing a wider arm's
+// strip in a corner quadrant blends to the same colour from
+// either layer.
+//
+// Returns null when there is nothing to pave: the ribbon
+// already reaches into the box (sd <= crossHalf + EXT_MIN_GAP_M
+// — a through bed, a bed end inside the box range, or the
+// butt's own rounding), or the gap is past EXT_STRIP_MAX_M.
+// The cap is the honesty bound: a bed end scattered further
+// than that from its box is a fragment of the 40 m cluster
+// merge, not this junction's mouth (ji273's warren arms sit
+// at sd up to 71 m) — it gets NO strip and NO slab, and the
+// census counts the skips so the uncovered remainder is a
+// measured number. A bed that leaves its own junction
+// backwards (chord direction against the arm axis) is
+// likewise not a mouth.
+export const EXT_STRIP_MAX_M = 30;
+export const EXT_MIN_GAP_M = 0.3;
+const EXT_JOIN_M = 0.5;
+const EXT_PAST_BOX_M = 0.25;
+const EXT_CHORD_M = 12;
+
+// The chord direction of a bed from one end, `dist` metres in —
+// the local mirror of taipei-markings' pointAlongBed chord
+// (kept local: taipei-markings imports THIS module, the same
+// one-way dependency as BOX_FURNITURE_REACH_M above).
+const bedChordDir = (bed, end, dist = EXT_CHORD_M) => {
+  const pts = ptsOf(bed);
+  if (pts.length < 2) return null;
+  const seq = end === 0 ? pts : [...pts].reverse();
+  const [ex, ez] = seq[0];
+  let acc = 0;
+  let tx = seq[seq.length - 1][0], tz = seq[seq.length - 1][1];
+  for (let i = 0; i + 1 < seq.length; i++) {
+    const [ax, az] = seq[i], [bx, bz] = seq[i + 1];
+    const len = Math.hypot(bx - ax, bz - az);
+    if (acc + len >= dist) {
+      const t = len > 0 ? (dist - acc) / len : 0;
+      tx = ax + (bx - ax) * t;
+      tz = az + (bz - az) * t;
+      break;
+    }
+    acc += len;
+  }
+  const dx = tx - ex, dz = tz - ez, n = Math.hypot(dx, dz);
+  return n > 1e-6 ? [dx / n, dz / n] : null;
+};
+
+export function armExtension(j, a, roadbeds) {
+  const sd = (a.endX - j.x) * a.dirX + (a.endZ - j.z) * a.dirZ;
+  const gap = sd - a.crossHalf;
+  if (gap < EXT_MIN_GAP_M || gap > EXT_STRIP_MAX_M) return null;
+  // dir: OUTWARD along the bed from its end (into the bed).
+  const dir = bedChordDir(roadbeds[a.bed], a.end) || [a.dirX, a.dirZ];
+  const along = dir[0] * a.dirX + dir[1] * a.dirZ;
+  if (along < 0.3) return null;
+  // Inward run: from the bed end toward the centre until the
+  // strip's far edge sits at axis crossHalf - EXT_PAST_BOX_M.
+  const tIn = (gap + EXT_PAST_BOX_M) / along;
+  const w2 = a.width / 2 + EXT_JOIN_M;
+  const px = -dir[1], pz = dir[0];
+  const x0 = a.endX + dir[0] * EXT_JOIN_M, z0 = a.endZ + dir[1] * EXT_JOIN_M;
+  const x1 = a.endX - dir[0] * tIn, z1 = a.endZ - dir[1] * tIn;
+  const pts = [
+    [x0 + px * w2, z0 + pz * w2],
+    [x1 + px * w2, z1 + pz * w2],
+    [x1 - px * w2, z1 - pz * w2],
+    [x0 - px * w2, z0 - pz * w2],
+  ];
+  return {
+    pts,
+    area: polyArea(pts),
+    origin: [
+      round4(pts.reduce((s, p) => s + p[0], 0) / 4),
+      round4(pts.reduce((s, p) => s + p[1], 0) / 4),
+    ],
+  };
+}
+
 // planJunctionCaps(roadbeds, junctions, sitesIn?) -> [{ x, z,
-// ring, radius, cls, tones, arms, signalized, area, kind }]
+// ring, radius, cls, tones, arms, signalized, area, kind,
+// extras, extraArea }]
 // junctions: detectJunctions() output (js/taipei-markings.js) — the
 // caller detects once and shares the result with the markings
 // builder. One cap per detected junction with >= 2 arms that no
@@ -569,7 +693,14 @@ export function capBlendTones(j, ringPts) {
 // at major junctions and at signalized minors). ring is a flat
 // [x, z, …] array in hull order; cls is the surfaceClass of the
 // widest incident arm (census/metadata — the rendered tone is
-// `tones`, the per-vertex blend above).
+// `tones`, the per-vertex blend above). `area` is the RING's
+// area (the #145 census semantics — rings are unchanged by
+// #163); fitted caps additionally carry `extras`: the #163 arm
+// extension strips, each { ring, tones, area } in the same
+// shapes as a cap (tones from capBlendTones over the strip's
+// own vertices, fan origin at the strip's centroid), and
+// `extraArea`, their summed area. The cap's full paved surface
+// for occlusion consumers is ring + extras (capSurfacePolys).
 export function planJunctionCaps(roadbeds, junctions, sitesIn = null) {
   const sites = sitesIn || planRoundabouts(roadbeds, junctions);
   const claimed = new Set(sites.flatMap((s) => s.claimedJunctions));
@@ -589,6 +720,21 @@ export function planJunctionCaps(roadbeds, junctions, sitesIn = null) {
     const ring = ringOf(hull);
     const ringPts = [];
     for (let i = 0; i + 1 < ring.length; i += 2) ringPts.push([ring[i], ring[i + 1]]);
+    const extras = [];
+    let extraArea = 0;
+    if (kind === 'fitted') {
+      for (const a of j.arms) {
+        const ext = armExtension(j, a, roadbeds);
+        if (!ext) continue;
+        const t = capBlendTones(j, ext.pts);
+        extras.push({
+          ring: ringOf(ext.pts),
+          tones: { centre: t.centre, origin: ext.origin, ring: t.ring },
+          area: Math.round(ext.area),
+        });
+        extraArea += ext.area;
+      }
+    }
     caps.push({
       x: j.x, z: j.z,
       ring,
@@ -599,6 +745,8 @@ export function planJunctionCaps(roadbeds, junctions, sitesIn = null) {
       signalized: !!j.signalized,
       area: Math.round(area),
       kind,
+      extras,
+      extraArea: Math.round(extraArea),
     });
   });
   return caps;
@@ -614,4 +762,16 @@ export const ringPoints = (ring) => {
   const pts = [];
   for (let i = 0; i + 1 < ring.length; i += 2) pts.push([ring[i], ring[i + 1]]);
   return pts;
+};
+
+// A cap's FULL paved surface as polygon point arrays: the ring
+// plus its #163 extension strips. Every occlusion consumer
+// (median bite, painted bands, dash clipping, tree exclusions)
+// must clip against this, not the ring alone — a median strip
+// or dash that stops at the ring but crosses a strip is back
+// on the regression screenshot.
+export const capSurfacePolys = (cap) => {
+  const polys = [ringPoints(cap.ring)];
+  for (const ex of cap.extras || []) polys.push(ringPoints(ex.ring));
+  return polys;
 };

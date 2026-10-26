@@ -314,10 +314,22 @@ test('geodata: tile-wide marking counts are in the audited bands', () => {
   // pre-fix arrays with the deck beds' own entries removed, order
   // preserved; stripes / stop lines / signals identical (furniture
   // untouched — deck arms were already skipped, issue #88).
-  assert.equal(r.stats.dashQuads, 158434, `dash quads ${r.stats.dashQuads}`);
+  // Issue #163 re-pin (on top of #162's): buildRoadMarkings now
+  // clips dashes against the caps' full paved surface — ring +
+  // the fitted caps' arm extension strips (capSurfacePolys) —
+  // not the ring alone, so dashes whose centres land on an
+  // extension strip (junction mouth ground paved by #163) are
+  // clipped too. Proven delta, measured on this tree by running
+  // buildLaneDividers with ring-only vs ring+strip occluders:
+  // 158,434 -> 158,099 quads (-335) and 235.77 -> 235.28 km
+  // (-0.49); the ring-only run reproduces the #162 pins above
+  // exactly, so the whole delta is the strip clipping. (On the
+  // pre-#162 tree the same delta measured -359; the difference
+  // is deck-bed dashes #162 removed first.)
+  assert.equal(r.stats.dashQuads, 158099, `dash quads ${r.stats.dashQuads}`);
   assert.equal(r.stats.dividerBeds, 1010, `divider beds ${r.stats.dividerBeds}`);
   assert.equal(r.stats.deckDividerBedsSkipped, 91, `deck divider beds skipped ${r.stats.deckDividerBedsSkipped}`);
-  assert.ok(Math.abs(r.stats.dividerKm - 235.77) < 0.05, `divider km ${r.stats.dividerKm}`);
+  assert.ok(Math.abs(r.stats.dividerKm - 235.28) < 0.05, `divider km ${r.stats.dividerKm}`);
   assert.ok(r.stats.crosswalks > 400, `crosswalks ${r.stats.crosswalks}`);
   assert.ok(r.stats.signalUnits >= r.stats.stopLines && r.stats.stopLines > 600,
     `signals ${r.stats.signalUnits} / stop lines ${r.stats.stopLines}`);

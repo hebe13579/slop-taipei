@@ -91,7 +91,7 @@
 
 import { ribbonPoly, pointInPoly, buildPolyGrid, pointInAnyPoly } from './taipei-painted.js';
 import { medianKind, medianStripWidth, buildMedianStrips } from './taipei-surfaces.js';
-import { planJunctionCaps, planRoundabouts, ringPoints } from './taipei-junctions.js';
+import { planJunctionCaps, planRoundabouts, ringPoints, capSurfacePolys } from './taipei-junctions.js';
 
 export const LANE_W = 3.2;               // generator's width-per-lane conversion
 export const DASH_LEN = 3;               // m of paint per dash
@@ -799,7 +799,9 @@ export function buildJunctionFurniture(roadbeds, junctions) {
 export function buildRoadMarkings(roadbeds, medianStrips = null, caps = null, junctionsIn = null) {
   const junctions = junctionsIn || detectJunctions(roadbeds);
   if (!caps) caps = planJunctionCaps(roadbeds, junctions);
-  const capPolys = caps.map((c) => ringPoints(c.ring));
+  // Issue #163: dashes clip against the caps' full paved
+  // surface (ring + arm extension strips), not the ring alone.
+  const capPolys = caps.flatMap((c) => capSurfacePolys(c));
   const furniture = buildJunctionFurniture(roadbeds, junctions);
   const dividers = buildLaneDividers(roadbeds, furniture.suppress, medianStrips, capPolys);
   return {
