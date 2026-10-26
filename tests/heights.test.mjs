@@ -94,18 +94,26 @@ test('join census: every lot labelled, per-source counts pinned', (t) => {
   // removals (net: permit 3,494, osm-height 1,108, osm-levels
   // 4,677, door 8,093, field 14,298, proc 6,726; real-signal
   // 17,372 = 45.2%).
-  assert.equal(c.permit, 3494);
+  // Issue #135 composition (Twin Towers), diffed lot by lot on
+  // this tree: the C1/D1 parcel rects remove 47 lots (permit 37,
+  // field 10 — every one >= 60 m: the parcels' own permit stock),
+  // and the field tier re-pools on the blocks around the site —
+  // 11 kept lots change (7 field heights collapse from borrowed
+  // tall signals to ~10-12.5 m, 4 lots fall through field ->
+  // proc). Net: permit 3,457, field 14,284, proc 6,730;
+  // real-signal 17,335 = 45.2%.
+  assert.equal(c.permit, 3457);
   assert.equal(c['osm-height'], 1108);
   assert.equal(c['osm-levels'], 4677);
   assert.equal(c.door, 8093);
-  assert.equal(c.field, 14298);
-  assert.equal(c.proc, 6726);
+  assert.equal(c.field, 14284);
+  assert.equal(c.proc, 6730);
   assert.equal(plan.stats.heightsPermit, c.permit, 'stats census agrees (permit)');
   assert.equal(plan.stats.heightsDoor, c.door, 'stats census agrees (door)');
   assert.equal(plan.stats.heightsField, c.field, 'stats census agrees (field)');
   assert.equal(plan.stats.heightsProc, c.proc, 'stats census agrees (proc)');
   const real = REAL.reduce((s, k) => s + c[k], 0);
-  assert.equal(real, 17372, 'real-signal lots');
+  assert.equal(real, 17335, 'real-signal lots');
   assert.ok(real / lots.length > 0.40 && real / lots.length < 0.50, 'real coverage in the measured band');
 });
 
@@ -122,10 +130,14 @@ test('joined skyline: the >=30 m share lands on the study’s real figure', () =
   // Issue #139: 8 of the >=30 m lots were among the corridor /
   // depot removals (all 8 in the Beitou box) — 6,051 of 38,396
   // = 15.8%.
+  // Issue #135: the 47 parcel removals were all >= 60 m and 7
+  // more >= 30 m lots fell in the field re-pool (see the census
+  // note) — 5,997 of 38,349 = 15.6%; >= 60 m: 1,038 - 47 - 7
+  // = 984.
   const tall = plan.lots.filter((l) => l.h >= 30).length;
-  assert.equal(tall, 6051);
+  assert.equal(tall, 5997);
   const g60 = plan.lots.filter((l) => l.h >= 60).length;
-  assert.equal(g60, 1038, 'a >=60 m class exists at all (procedural plan: 5 lots)');
+  assert.equal(g60, 984, 'a >=60 m class exists at all (procedural plan: 5 lots)');
 });
 
 test('real heights are never clamped to the procedural bands', () => {
@@ -135,8 +147,11 @@ test('real heights are never clamped to the procedural bands', () => {
   // steam-cap failure the study warned about.
   // Re-pinned for issue #134: 857 lots (the tallest is still the
   // same 222 m permit — the max assert below is unedited).
+  // Issue #135: 820 — of the 47 parcel removals 30 stood > 60 m
+  // (17 sat at exactly 60.0 m: 20F permits x 3.0 m/f), and 7
+  // more fell in the field re-pool.
   const over = plan.lots.filter((l) => REAL.includes(l.hSrc) && l.h > 60).length;
-  assert.equal(over, 857);
+  assert.equal(over, 820);
   assert.ok(Math.max(...plan.lots.map((l) => l.h)) <= 250, 'no absurd heights (tallest real signal is 222 m)');
 });
 
@@ -190,7 +205,7 @@ test('fallback byte-stability: untouched lots keep their procedural heights exac
       procChecked++;
     }
   }
-  assert.equal(procChecked, 6726); // the proc census, re-pinned with it for issues #134 + #139
+  assert.equal(procChecked, 6730); // the proc census, re-pinned with it for issues #134 + #139 + #135
   assert.ok(bare.lots.every((l) => l.hSrc === 'proc'), 'no layer, no labels but proc');
 });
 

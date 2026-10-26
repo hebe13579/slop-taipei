@@ -49,12 +49,19 @@ const pairs = (flat) => {
   return pts;
 };
 
+// Corner order matters: quadsGeometry builds triangles
+// (0,1,2)(0,2,3) and the boot materials are single-sided, so
+// the corners must wind to face UP — with v = rot90(u) as
+// everywhere in the markings code, that means the +v edge is
+// emitted first and the -v edge returns (the stop-line order
+// in js/taipei-markings.js). tests/taipei-airfield.test.mjs
+// pins the up-facing invariant for every emitted quad.
 const quad = (out, cx, cz, ux, uz, vx, vz, hu, hv) => {
   out.push([
-    cx - ux * hu - vx * hv, cz - uz * hu - vz * hv,
-    cx + ux * hu - vx * hv, cz + uz * hu - vz * hv,
-    cx + ux * hu + vx * hv, cz + uz * hu + vz * hv,
     cx - ux * hu + vx * hv, cz - uz * hu + vz * hv,
+    cx + ux * hu + vx * hv, cz + uz * hu + vz * hv,
+    cx + ux * hu - vx * hv, cz + uz * hu - vz * hv,
+    cx - ux * hu - vx * hv, cz - uz * hu - vz * hv,
   ]);
 };
 
@@ -230,9 +237,10 @@ function standPaint(paint, yellowCentre) {
 function padPaint(pads, white) {
   for (const p of pads) {
     const stalls = (zLine, inward) => {
+      // Up-facing winding (u = +x): the larger-z edge first.
+      const zA = Math.max(zLine, zLine + inward * 5), zB = Math.min(zLine, zLine + inward * 5);
       for (let x = p.x0 + 1.3; x + 1.3 <= p.x1; x += 2.6) {
-        const cz = zLine + inward * 2.5;
-        white.push([x - 0.06, cz - inward * 2.5, x + 0.06, cz - inward * 2.5, x + 0.06, cz + inward * 2.5, x - 0.06, cz + inward * 2.5]);
+        white.push([x - 0.06, zA, x + 0.06, zA, x + 0.06, zB, x - 0.06, zB]);
       }
     };
     stalls(p.z0, 1);
@@ -242,7 +250,7 @@ function padPaint(pads, white) {
       stalls(mid, 1);
       stalls(mid, -1);
       // The double row's spine line.
-      white.push([p.x0 + 0.5, mid - 0.075, p.x1 - 0.5, mid - 0.075, p.x1 - 0.5, mid + 0.075, p.x0 + 0.5, mid + 0.075]);
+      white.push([p.x0 + 0.5, mid + 0.075, p.x1 - 0.5, mid + 0.075, p.x1 - 0.5, mid - 0.075, p.x0 + 0.5, mid - 0.075]);
     }
   }
 }

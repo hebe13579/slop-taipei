@@ -1060,7 +1060,16 @@ test('taiwan types: family zoning, distribution and rooftop clamp', (t) => {
   // at-grade bed, 15 piercing the guideway). Of the removed
   // lots 27 were glass, 79 Taiwan, 355 masonry: glass
   // 4,375 - 27 = 4,348.
-  assert.equal(glass, 4348, 'glass family counts after #136 + #139, composed with #134 + #137');
+  // Gate composition with issue #135 (Taipei Twin Towers),
+  // measured on this tree by lot-by-lot diff against the
+  // pre-#135 plan: the C1 site + D1 plaza rects exclude exactly
+  // 47 lots (38,396 -> 38,349), ALL of them glass — the parcels
+  // stand in the station-front office core, where the frontage
+  // stock is glass by the core rule — and 8 kept lots on the
+  // parcels' blocks re-roll their family (5 glass -> masonry,
+  // 1 glass -> Taiwan, 2 masonry -> masonry): glass
+  // 4,348 - 47 - 6 = 4,295.
+  assert.equal(glass, 4295, 'glass family counts after #136 + #139 + #135, composed with #134 + #137');
   const masonry = opts.lots.filter((l) => l.mat <= 2).length;
   // Range re-based for issue #65: the exact ribbon exclusion removed
   // ~4,400 masonry lots that stood on ribbons or in medians; masonry
