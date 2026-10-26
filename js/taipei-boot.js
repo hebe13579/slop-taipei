@@ -998,8 +998,15 @@ export async function buildTaipeiGround(scene, tile, deps = {}) {
   // receive the cap rings + roundabout disc/apron rings computed
   // above as exclusion polygons (their centreline-distance checks
   // cannot see a cap corner 20+ m from every centreline).
+  // Issue #178: the cap part of the exclusions is the cap's FULL
+  // paved surface (capSurfacePolys: ring + #163 strips + #171
+  // clipped pieces) — ring + extras alone left the clipped pieces
+  // plantable, and the roadsweep-2 census found exactly one street
+  // tree standing on a piece at ji1029. The module's own comment on
+  // capSurfacePolys has prescribed this for occlusion consumers
+  // all along; the boot's tree list now follows it too.
   const treeExclusions = [
-    ...caps.flatMap((c) => [c.ring, ...(c.extras || []).map((ex) => ex.ring)]),
+    ...caps.flatMap((c) => capSurfacePolys(c).map((p) => p.flatMap((pt) => pt))),
     ...roundabouts.flatMap((s) => [s.disc.ring, ...s.aprons.map((a) => a.ring)]),
     // Issue #173: the MRT beds where they touch the ground (at-grade
     // stretches + the portal fan-outs) — a tree stood on the ballast

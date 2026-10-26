@@ -93,7 +93,11 @@
 // ranked by priority (arm class rank, then crossing width, then
 // junction, then placement order) and a crossing >= 60% covered by
 // higher-priority kept crossings is suppressed whole, otherwise
-// its individually overlapping stripes are culled; stop lines
+// its individually overlapping stripes are culled; (2b) BANDX —
+// the same priority discipline applied to the crosswalk BAND
+// quads the shader paints (bands overlap through their duty
+// gaps where no stripe pair meets), suppressing a crossing
+// whose band is >= 60% culled; stop lines
 // always yield to stripes (a stop line overlapping a surviving
 // stripe is dropped, as is one centred off asphalt); (3) FURN —
 // a signal unit deeper than 2 m inside the full junction surface
@@ -351,7 +355,7 @@ export function buildLaneDividers(roadbeds, suppress = new Map(), medianStrips =
     return false;
   };
 
-  const stats = { beds: 0, dashQuads: 0, dividerKm: 0, medianBlockedSamples: 0, deckBedsSkipped: 0, crossPairs: 0, crossBlockedSamples: 0 };
+  const stats = { beds: 0, dashQuads: 0, dividerKm: 0, medianBlockedSamples: 0, deckBedsSkipped: 0, crossPairs: 0, crossBlockedSamples: 0, stripSegmentsClipped: 0 };
 
   // Pass 1: per divider bed, the densified frames and the base
   // occlusion flags per boundary offset (everything the pre-#173
@@ -515,6 +519,38 @@ export function buildLaneDividers(roadbeds, suppress = new Map(), medianStrips =
       }
       if (runStart >= 0) flushRun(frames.length - 1);
     }
+  }
+  // Issue #178 (dash-strip leak): the quad loop above tests every
+  // interval's midpoint against the cap occluders, but the shader
+  // strips were grouped from the per-frame flags alone, so a strip
+  // run could bridge a junction surface between two unblocked
+  // frames — the roadsweep-2 census counted 128 strip segments
+  // whose centreline midpoint lies inside a cap/roundabout surface
+  // (the sweep's ji1066 frame shows one running straight through
+  // the cap). Split every strip at each segment whose midpoint —
+  // the mean of its two section centres, the same point the census
+  // probes — lies inside an occluder polygon, dropping that
+  // segment; pieces keep the remaining sections verbatim (dash
+  // phase is per-section `along`, so a split cannot shift paint).
+  // Only runs when capPolys were passed: standalone divider calls
+  // (the #173 X-cull synthetics) stay byte-identical.
+  if (capGrid) {
+    const splitStrips = [];
+    for (const strip of dashStrips) {
+      let piece = [strip[0]];
+      for (let k = 0; k + 1 < strip.length; k++) {
+        const a = strip[k], b = strip[k + 1];
+        const mid = [(a.hx + a.lx + b.hx + b.lx) / 4, (a.hz + a.lz + b.hz + b.lz) / 4];
+        if (capBlocked(mid)) {
+          stats.stripSegmentsClipped++;
+          if (piece.length >= 2) splitStrips.push(piece);
+          piece = [b];
+        } else piece.push(b);
+      }
+      if (piece.length >= 2) splitStrips.push(piece);
+    }
+    dashStrips.length = 0;
+    dashStrips.push(...splitStrips);
   }
   return { dashes, dashStrips, stats };
 }
@@ -699,6 +735,7 @@ export function buildJunctionFurniture(roadbeds, junctions, capsIn = null) {
     surfaceMoved: 0, surfaceUnresolved: 0,
     xovlGroupsDropped: 0, xovlStripesDropped: 0, xoffStripesDropped: 0,
     xoffGroupsDropped: 0, trimStripesDropped: 0,
+    bandStripesDropped: 0, bandGroupsDropped: 0,
     zebraStopLinesDropped: 0, xoffStopLinesDropped: 0,
   };
   // Crosswalk groups (issue #170): one record per placed crossing
@@ -1156,6 +1193,140 @@ export function buildJunctionFurniture(roadbeds, junctions, capsIn = null) {
         for (const i of live) if (!hit.has(i)) kept.add(i);
       }
     }
+    // (2b) BANDX (issue #178): XOVL judges stripe x stripe, but
+    // the renderer paints the BAND quads (issue #90), and two
+    // bands overlap wherever their spans cross — including the
+    // duty-cycle gaps, where no stripe pair ever meets. The
+    // roadsweep-2 census counted 158 band pairs overlapping by
+    // > STRIPE_OVERLAP_M2 (878.5 m2 over 112 junctions, worst
+    // 29.2 m2: interleaved duplicate crossings sharing a corner).
+    // So each crossing's candidate band — the band step (3) would
+    // rebuild from its longest surviving run — is judged against
+    // the bands already kept, in the SAME priority order as XOVL
+    // (arm rank, then crossing size, then junction, then
+    // placement). Band-specific tie-break: a crossing's size for
+    // this pass is its candidate RUN length in stripes, not the
+    // placed stripe count XOVL sorts by — the band is the run, so
+    // the wider surviving band outranks, exactly as stripe count
+    // proxies width at placement. Against the worst kept band,
+    // run stripes whose own quad overlaps it by > 0.02 m2 are
+    // culled and the run re-forms; if the bands still overlap
+    // with no stripe touching the offender (a gap-only overlap),
+    // the run shrinks from the end nearer the overlap centroid.
+    // The judged run is always the run step (3) would emit, re-
+    // judged after every cull — killing the longest run promotes
+    // a secondary run whose band must face the same test. A
+    // crossing losing >= XOVL_GROUP_SUPPRESS_SHARE of the run
+    // being judged is suppressed whole (every live stripe of the
+    // group, as XOVL suppresses), stripes and band together — a
+    // culled band region never leaves its stripes painted, nor
+    // vice versa, because step (3) rebuilds both from the same
+    // dropCause.
+    {
+      const longestRun = (g) => {
+        let best = null, cur = null;
+        for (let k = 0; k < g.count; k++) {
+          if (dropCause[g.start + k]) { cur = null; continue; }
+          if (cur) cur.e = k; else cur = { s: k, e: k };
+          if (!best || cur.e - cur.s > best.e - best.s) best = { ...cur };
+        }
+        return best;
+      };
+      const bandQuadOf = (g, run) => {
+        const first = stripes[g.start + run.s], last = stripes[g.start + run.e];
+        return [last[0], last[1], last[2], last[3], first[4], first[5], first[6], first[7]];
+      };
+      // Convex clip returning the polygon (clipArea's sibling,
+      // for the overlap centroid the shrink rule needs).
+      const clipPolyOf = (subject, clip) => {
+        let out = subject;
+        for (let i = 0; i < clip.length; i++) {
+          const a = clip[i], b = clip[(i + 1) % clip.length];
+          const inp = out; out = [];
+          if (!inp.length) break;
+          const cross = (p) => (b[0] - a[0]) * (p[1] - a[1]) - (b[1] - a[1]) * (p[0] - a[0]);
+          for (let j = 0; j < inp.length; j++) {
+            const curp = inp[j], prv = inp[(j + inp.length - 1) % inp.length];
+            const cc = cross(curp), pc = cross(prv);
+            const inter = () => {
+              const t = pc / (pc - cc);
+              return [prv[0] + (curp[0] - prv[0]) * t, prv[1] + (curp[1] - prv[1]) * t];
+            };
+            if (cc >= -1e-9) { if (pc < -1e-9) out.push(inter()); out.push(curp); }
+            else if (pc >= -1e-9) out.push(inter());
+          }
+        }
+        return out;
+      };
+      const bandOrder = groups.map((g, gi) => ({ gi, run: longestRun(g) }))
+        .filter((e) => e.run)
+        .sort((a, b) => groups[b.gi].rank - groups[a.gi].rank
+          || (b.run.e - b.run.s) - (a.run.e - a.run.s)
+          || groups[a.gi].ji - groups[b.gi].ji || a.gi - b.gi);
+      const keptBands = []; // { quad, frame }
+      const kbFrames = [];
+      const kbGrid = new Map();
+      let kbMaxR = 0;
+      const kbAdd = (entry) => {
+        keptBands.push(entry); kbFrames.push(entry.frame);
+        kbMaxR = Math.max(kbMaxR, entry.frame.r);
+        const k = `${Math.floor(entry.frame.cx / PAIR_CELL)},${Math.floor(entry.frame.cz / PAIR_CELL)}`;
+        if (!kbGrid.has(k)) kbGrid.set(k, []);
+        kbGrid.get(k).push(keptBands.length - 1);
+      };
+      for (const { gi } of bandOrder) {
+        const g = groups[gi];
+        // Judge the run step (3) will actually emit, and re-judge
+        // after every cull: killing the longest run promotes a
+        // secondary run whose band was never judged (measured at
+        // ji1739: the suppressed run's sibling emitted a band
+        // overlapping a kept neighbour by 3.8 m2). Suppression
+        // drops the whole group, as XOVL's does.
+        let guard = 0;
+        while (guard++ < 64) {
+          const run = longestRun(g);
+          if (!run) break;
+          const runLen = run.e - run.s + 1;
+          const bq = bandQuadOf(g, run);
+          const bf = quadFrame(bq);
+          let worst = null, worstArea = STRIPE_OVERLAP_M2;
+          for (const ki of nearIdx(kbGrid, kbFrames, bf, kbMaxR)) {
+            const a = clipArea(quadPts(bq), quadPts(keptBands[ki].quad));
+            if (a > worstArea) { worstArea = a; worst = keptBands[ki]; }
+          }
+          if (!worst) { kbAdd({ quad: bq, frame: bf }); break; }
+          // Cull the run stripes touching the offender band.
+          let dropped = 0;
+          for (let k = run.s; k <= run.e; k++) {
+            if (clipArea(quadPts(stripes[g.start + k]), quadPts(worst.quad)) > 0.02) {
+              dropCause[g.start + k] = 'bandx'; dropped++;
+            }
+          }
+          if (!dropped) {
+            // Gap-only overlap: shrink from the end nearer the
+            // overlap centroid, projected on the band's lateral
+            // axis (first stripe centre -> last stripe centre).
+            const poly = clipPolyOf(quadPts(bq), quadPts(worst.quad));
+            const cen = poly.reduce((acc, p) => [acc[0] + p[0] / poly.length, acc[1] + p[1] / poly.length], [0, 0]);
+            const fs = sFrames[g.start + run.s], ls = sFrames[g.start + run.e];
+            const ax = ls.cx - fs.cx, az = ls.cz - fs.cz;
+            const mid = [(fs.cx + ls.cx) / 2, (fs.cz + ls.cz) / 2];
+            const d = (cen[0] - mid[0]) * ax + (cen[1] - mid[1]) * az;
+            dropCause[g.start + (d > 0 ? run.e : run.s)] = 'bandx'; dropped = 1;
+          }
+          if (dropped / runLen >= XOVL_GROUP_SUPPRESS_SHARE) {
+            for (let k = 0; k < g.count; k++) {
+              if (!dropCause[g.start + k] || dropCause[g.start + k] === 'bandx')
+                dropCause[g.start + k] = 'bandxGroup';
+            }
+            stats.bandGroupsDropped++;
+            break;
+          }
+        }
+        // A group whose runs all emptied without a suppression is
+        // accounted in step (3) with the other vanished groups.
+      }
+    }
     // (3) Rebuild stripes + bands: each surviving crossing keeps
     // its longest contiguous run of stripes (the band algebra
     // needs a contiguous run at the original pitch); stripes cut
@@ -1171,13 +1342,19 @@ export function buildJunctionFurniture(roadbeds, junctions, capsIn = null) {
         // A suppressed group was already counted at marking time;
         // a group that vanished any other way is counted by its
         // stripes' causes (all-off-asphalt, else overlap-led).
-        let hasXovlGroup = false, allXoff = true;
+        // Issue #178: 'bandxGroup' groups were counted by the
+        // BANDX pass itself; a group killed purely by BANDX culls
+        // counts as a band group here.
+        let hasGroupCause = false, allXoff = true, allBandx = true;
         for (let k = 0; k < g.count; k++) {
-          if (dropCause[g.start + k] === 'xovlGroup') hasXovlGroup = true;
-          if (dropCause[g.start + k] !== 'xoff') allXoff = false;
+          const c = dropCause[g.start + k];
+          if (c === 'xovlGroup' || c === 'bandxGroup') hasGroupCause = true;
+          if (c !== 'xoff') allXoff = false;
+          if (c !== 'bandx' && c !== 'bandxGroup') allBandx = false;
         }
-        if (!hasXovlGroup) {
+        if (!hasGroupCause) {
           if (allXoff) stats.xoffGroupsDropped++;
+          else if (allBandx) stats.bandGroupsDropped++;
           else stats.xovlGroupsDropped++;
         }
         continue;
@@ -1209,6 +1386,7 @@ export function buildJunctionFurniture(roadbeds, junctions, capsIn = null) {
     for (const c of dropCause) {
       if (c === 'xovl' || c === 'xovlGroup') stats.xovlStripesDropped++;
       else if (c === 'xoff') stats.xoffStripesDropped++;
+      else if (c === 'bandx' || c === 'bandxGroup') stats.bandStripesDropped++;
     }
     stripes = nStripes; stripeJunction = nStripeJunction;
     bands = nBands; bandJunction = nBandJunction;
@@ -1299,6 +1477,8 @@ export function buildRoadMarkings(roadbeds, medianStrips = null, caps = null, ju
       surfaceUnresolved: furniture.stats.surfaceUnresolved,
       xovlGroupsDropped: furniture.stats.xovlGroupsDropped,
       xovlStripesDropped: furniture.stats.xovlStripesDropped,
+      bandStripesDropped: furniture.stats.bandStripesDropped,
+      bandGroupsDropped: furniture.stats.bandGroupsDropped,
       xoffStripesDropped: furniture.stats.xoffStripesDropped,
       xoffGroupsDropped: furniture.stats.xoffGroupsDropped,
       trimStripesDropped: furniture.stats.trimStripesDropped,

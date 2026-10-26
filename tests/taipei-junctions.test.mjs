@@ -74,14 +74,19 @@ test('synthetic 4-way: one cap, widest arm owns the tone, ends inside', () => {
   assert.ok(CAP_Y > 0.06 && CAP_Y < 0.062, 'cap Y sits between carriageways and medians');
 });
 
-test('real tile: exactly one cap per multi-arm junction, centres and arm ends covered', () => {
+test('real tile: exactly one cap per grounded multi-arm junction, centres and arm ends covered', () => {
   const beds = TAIPEI_GEO.roadbeds;
   const junctions = detectJunctions(beds);
   const sites = planRoundabouts(beds, junctions);
   const claimed = new Set(sites.flatMap((s) => s.claimedJunctions));
   const eligible = junctions.filter((j, ji) => j.arms.length >= 2 && !claimed.has(ji));
   const caps = planJunctionCaps(beds, junctions, sites);
-  assert.equal(caps.length, eligible.length);
+  // Issue #178: the ORPHAN drop pass removes the caps that
+  // touch no ground ribbon and no sibling surface (71 on this
+  // wiring — elevated-interchange deck clusters and lane-warren
+  // bed-end artifacts), so the invariant is one cap per GROUNDED
+  // eligible junction; the phantom set is pinned by the count.
+  assert.equal(caps.length, eligible.length - 71);
   // Census re-pinned 2026-10-24 for the PR #73 rebase onto the
   // expanded map (PR #70): the station district + Ximending took
   // detected junctions 894 -> 1,158, and every detected junction
@@ -170,12 +175,25 @@ test('real tile: exactly one cap per multi-arm junction, centres and arm ends co
   // WITHOUT the green clip (the boot passes capClipPolys; the
   // clip's own deltas are pinned in the #171 evidence, not
   // here — the pure builders keep planning unclipped caps).
+  // Census re-pinned for issue #178 (ORPHAN attach-or-drop):
+  // the armExtension attach rule (strips run to their ring, not
+  // the box plane) and the drop pass (a surface polygon touching
+  // no ground ribbon and no sibling within 0.05 m is dropped; a
+  // dropped ring removes its cap). 71 caps are phantoms on this
+  // wiring — 20 box caps at elevated-interchange clusters whose
+  // deck arms have no ground ribbons at all, 51 fitted caps at
+  // bed-end cluster artifacts in lane warrens (ji2429's ring
+  // hangs 7.1 m from the nearest carriageway, inside a block) —
+  // caps 2,694 -> 2,623, box 579 -> 559, fitted 2,115 -> 2,064,
+  // ring area 660,401 -> 650,771 m² (fitted 161,862 -> 159,678).
+  // The capByJ maps in this file now match caps by centre:
+  // the plan no longer lines up 1:1 with qualifying junctions.
   assert.equal(junctions.length, 2701, `junctions ${junctions.length}`);
-  assert.equal(caps.length, 2694, `caps ${caps.length}`);
-  assert.equal(caps.filter((c) => c.kind === 'box').length, 579, 'box caps');
-  assert.equal(caps.filter((c) => c.kind === 'fitted').length, 2115, 'fitted caps');
-  assert.equal(Math.round(caps.reduce((s, c) => s + c.area, 0)), 660401, 'cap area census');
-  assert.equal(Math.round(caps.filter((c) => c.kind === 'fitted').reduce((s, c) => s + c.area, 0)), 161862,
+  assert.equal(caps.length, 2623, `caps ${caps.length}`);
+  assert.equal(caps.filter((c) => c.kind === 'box').length, 559, 'box caps');
+  assert.equal(caps.filter((c) => c.kind === 'fitted').length, 2064, 'fitted caps');
+  assert.equal(Math.round(caps.reduce((s, c) => s + c.area, 0)), 650771, 'cap area census');
+  assert.equal(Math.round(caps.filter((c) => c.kind === 'fitted').reduce((s, c) => s + c.area, 0)), 159678,
     'fitted cap area census (overlap construction since #145)');
   // Census addition for issue #163 (junction fix v2): the ring
   // counts/areas above are unchanged BY CONSTRUCTION — the #163
@@ -198,14 +216,19 @@ test('real tile: exactly one cap per multi-arm junction, centres and arm ends co
   // the far kerb + the usual 0.25 m tuck (9,372 m² of tongue
   // removed; strips ending on their ring or on a carriageway —
   // ji562, the #163 synthetic — are untouched).
-  assert.equal(caps.reduce((s, c) => s + (c.extras || []).length, 0), 2618, 'extension strip census');
-  assert.equal(caps.reduce((s, c) => s + (c.extraArea || 0), 0), 129142, 'extension strip area census');
+  // Strip census re-pinned for issue #178 (ORPHAN): the attach
+  // rule lengthens strips that fell short of their ring, and
+  // the drop pass removes the strips of dropped caps plus any
+  // strip touching no ribbon and no sibling: 2,618 -> 2,479
+  // strips, 129,142 -> 122,201 m² on this (unclipped) wiring.
+  assert.equal(caps.reduce((s, c) => s + (c.extras || []).length, 0), 2479, 'extension strip census');
+  assert.equal(caps.reduce((s, c) => s + (c.extraArea || 0), 0), 122201, 'extension strip area census');
   for (const c of caps) if (c.kind === 'box') assert.equal((c.extras || []).length, 0, 'box caps carry no strips');
   const capByJ = new Map();
-  {
-    let ci = 0;
-    junctions.forEach((j, ji) => { if (j.arms.length >= 2 && !claimed.has(ji)) { capByJ.set(ji, caps[ci]); ci++; } });
-  }
+  junctions.forEach((j, ji) => {
+    const cap = caps.find((c) => c.x === j.x && c.z === j.z);
+    if (cap) capByJ.set(ji, cap);
+  });
   junctions.forEach((j, ji) => {
     const cap = capByJ.get(ji);
     if (!cap) return;
@@ -262,7 +285,14 @@ test('real tile: roadGraph cross-check — multi-arm nodes have a cap nearby', (
     if (caps.some((c) => Math.hypot(c.x - x, c.z - z) <= 30)) covered++;
   }
   assert.ok(checked > 1500, `qualifying graph nodes ${checked}`);
-  assert.ok(covered / checked >= 0.94, `cap coverage ${covered}/${checked}`);
+  // Threshold re-pinned for issue #178: the ORPHAN drop pass
+  // removes the phantom caps (deck-interchange clusters and
+  // lane-warren artifacts whose centres sit inside blocks, not
+  // on carriageways), and the graph nodes around those clusters
+  // lose their only nearby cap: coverage 94% -> 92.6%
+  // (4,975/5,373 measured). The pin stays a loud floor, now at
+  // 92% — a detection regression still fails it.
+  assert.ok(covered / checked >= 0.92, `cap coverage ${covered}/${checked}`);
 });
 
 test('real tile: no painted band, median strip or dash quad centre inside a cap', () => {
@@ -333,13 +363,20 @@ test('real tile: no painted band, median strip or dash quad centre inside a cap'
   // the main-corner gate (703,160 -> 660,401 m2), so the bite
   // falls again — 1,533 band, 3,026 edge and 3,568 median quad
   // centres; the clipped builders still put exactly 0 there.
+  // Bite re-pinned for issue #178: the occluder set loses the
+  // 71 dropped phantom rings (660,401 -> 650,771 m2) and the
+  // T18 median rule shortens unclipped medians at minor
+  // through-crossings — band and edge bites are unchanged
+  // (1,533 / 3,026: painted centres never fell in the phantom
+  // rings), the median bite falls 3,568 -> 3,311; the clipped
+  // builders still put exactly 0 there.
   const unclipped = buildPaintedBands(beds);
   assert.equal(unclipped.band.filter(inOcc).length, 1533,
     `unclipped bands inside occluders: ${unclipped.band.filter(inOcc).length}`);
   assert.equal(unclipped.edges.filter(inOcc).length, 3026,
     `unclipped edges inside occluders: ${unclipped.edges.filter(inOcc).length}`);
   const unclippedMedians = buildMedianStrips(beds);
-  assert.equal([...unclippedMedians.plain, ...unclippedMedians.planted].filter(inOcc).length, 3568,
+  assert.equal([...unclippedMedians.plain, ...unclippedMedians.planted].filter(inOcc).length, 3311,
     'unclipped medians inside occluders');
 });
 
@@ -432,15 +469,16 @@ test('issue #75: every major junction box is covered corner to corner by its box
   const claimed = new Set(sites.flatMap((s) => s.claimedJunctions));
   const caps = planJunctionCaps(beds, junctions, sites);
   const capByJ = new Map();
-  {
-    let ci = 0;
-    junctions.forEach((j, ji) => { if (j.arms.length >= 2 && !claimed.has(ji)) { capByJ.set(ji, caps[ci]); ci++; } });
-  }
+  junctions.forEach((j, ji) => {
+    const cap = caps.find((c) => c.x === j.x && c.z === j.z);
+    if (cap) capByJ.set(ji, cap);
+  });
   let major = 0;
   junctions.forEach((j, ji) => {
     if (j.arms.length < 2 || claimed.has(ji) || !isMajorJunction(j)) return;
     major++;
     const cap = capByJ.get(ji);
+    if (!cap) return; // issue #178: cap dropped as a groundless phantom (deck-interchange cluster)
     assert.equal(cap.kind, 'box', `junction ${ji} is a box cap`);
     const poly = ringPoints(cap.ring);
     const box = junctionBox(j);
@@ -634,10 +672,10 @@ test('issue #81: box-cap vertices stay near the box — no slab spikes', () => {
   const claimed = new Set(sites.flatMap((s) => s.claimedJunctions));
   const caps = planJunctionCaps(beds, junctions, sites);
   const capByJ = new Map();
-  {
-    let ci = 0;
-    junctions.forEach((j, ji) => { if (j.arms.length >= 2 && !claimed.has(ji)) { capByJ.set(ji, caps[ci]); ci++; } });
-  }
+  junctions.forEach((j, ji) => {
+    const cap = caps.find((c) => c.x === j.x && c.z === j.z);
+    if (cap) capByJ.set(ji, cap);
+  });
   // The #75 test (c) bounds every vertex at 45 m past the box
   // (40 m on the A+B tile; re-based at #102, see that test);
   // the #81 complaint was the DISTRIBUTION — corners thrown
@@ -669,6 +707,7 @@ test('issue #81: box-cap vertices stay near the box — no slab spikes', () => {
   junctions.forEach((j, ji) => {
     if (j.arms.length < 2 || claimed.has(ji) || !isMajorJunction(j)) return;
     const cap = capByJ.get(ji);
+    if (!cap) return; // issue #178: dropped phantom, no vertices to distribute
     const box = junctionBox(j);
     assert.ok(box.length >= 3, `junction ${ji} has a box`);
     for (const v of ringPoints(cap.ring)) {
@@ -749,15 +788,16 @@ test('issue #145: every minor junction box is covered by its overlap cap', () =>
   const claimed = new Set(sites.flatMap((s) => s.claimedJunctions));
   const caps = planJunctionCaps(beds, junctions, sites);
   const capByJ = new Map();
-  {
-    let ci = 0;
-    junctions.forEach((j, ji) => { if (j.arms.length >= 2 && !claimed.has(ji)) { capByJ.set(ji, caps[ci]); ci++; } });
-  }
+  junctions.forEach((j, ji) => {
+    const cap = caps.find((c) => c.x === j.x && c.z === j.z);
+    if (cap) capByJ.set(ji, cap);
+  });
   let minor = 0;
   junctions.forEach((j, ji) => {
     if (j.arms.length < 2 || claimed.has(ji) || isMajorJunction(j)) return;
     minor++;
     const cap = capByJ.get(ji);
+    if (!cap) return; // issue #178: cap dropped as a groundless phantom (bed-end cluster artifact)
     assert.equal(cap.kind, 'fitted', `junction ${ji} is a fitted cap`);
     const poly = ringPoints(cap.ring);
     const box = junctionBox(j);
