@@ -3107,6 +3107,19 @@ function buildCityBlocks(scene, opts = null) {
     flagRange(hutCapInst.instanceMatrix, hutCount);
     flagRange(hutRoofInst.instanceMatrix, hutCount);
     if (hutInst.instanceColor) flagRange(hutInst.instanceColor, hutCount);
+    // Issue #156: the CAP's instance colour must be flagged too. It
+    // was added in #100 with only its instanceMatrix flagged, so its
+    // colours were uploaded once — at the first fill — and never
+    // again: every streamer refill rewrote the cap matrices (flagged)
+    // and rewrote the colours CPU-side (never uploaded), so each cap
+    // kept the colour of whichever hut held its pool slot at the
+    // first fill while its body and sheet followed the hut actually
+    // standing there. Roofs read two-coloured and flashed between
+    // palette colours as refills reshuffled slots — invisible in
+    // first-fill stills and in CPU-side instance dumps (the #113
+    // probe read the arrays, which were always correct). All three
+    // hut pools carry per-instance colour; all three are flagged.
+    if (hutCapInst.instanceColor) flagRange(hutCapInst.instanceColor, hutCount);
     if (hutRoofInst.instanceColor) flagRange(hutRoofInst.instanceColor, hutCount);
 
     vSignInst.count = vSignCount;
