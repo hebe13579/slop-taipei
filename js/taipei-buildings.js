@@ -887,6 +887,73 @@ const LANDMARK_STRUCTURES = [
     ],
   },
   {
+    // Taipei Twin Towers (issue #135): the COMPLETED design
+    // west of Taipei Main Station, modelled ahead of the real
+    // towers (construction began 2022-11-11; completion 2027
+    // per Taipei DORTS). Two blue-glass towers of unequal
+    // height over the C1/D1 parcels between the station and
+    // 延平北路一段:
+    //   D1 (west parcel): 369 m overall — SOM's project page
+    //     (som.com/projects/taipei-twin-towers: building height
+    //     369 m, 73 stories, site area 31,600 m² for the pair)
+    //     and contractor Kumagai Gumi's release (D1 369 m /
+    //     73F, C1 289 m / 56F). Taipei DORTS gives D1 70 floors
+    //     / ~360 m to the main roof, so the model's shaft steps
+    //     to 349 and a 20 m crown step closes to 369.
+    //   C1 (east parcel): 289 m overall (Kumagai Gumi, above;
+    //     DORTS: 53 floors / ~280 m) — shaft steps to 279 and
+    //     a 10 m crown step closes to 289.
+    // Tower plates measured from the OSM construction
+    // outlines (taiwan.osm.pbf 2026-10-23): D1 = way
+    // 1502280746, min-area rect 76 × 48 m axis-aligned E-W;
+    // C1 = way 1502280687, 66 × 42 m with its long axis at
+    // +11.4° in the tile plane — the station grid's skew (cf.
+    // the station's rotY 0.1859) — so C1's parts carry rotY
+    // 0.199 and D1's none. NO podium bridges 重慶北路一段,
+    // which splits the parcels: one slab per parcel, south
+    // edges aligned so the pair reads as the renders' shared
+    // podium (27 m — the terraced base reads about 1/13 of
+    // D1's height in SOM's renders; the design's mid-rise
+    // slabs behind the towers are not modelled). The design's bullet taper reads as three shaft
+    // steps + a crown step per tower. site = the C1 parcel
+    // (OSM block way 204616538), plaza = the D1 parcel (way
+    // 204616537) — the City Hall precedent: exclusion without
+    // mass, so both parcels stay lot-free.
+    id: 'taipei-twin-towers', name: 'Taipei Twin Towers', nameZh: '台北雙子星',
+    lat: 25.04877, lon: 121.51316, realHeight: 369, color: 0x3a5570,
+    site: { w: 163, d: 160, dx: 114, dz: 32 },
+    plaza: { w: 165, d: 160, dx: -66, dz: -12 },
+    facade: { kind: 'curtain', glassTint: 0x2c4a68, frameTint: 0xb9c6d2, windowWidth: 2.8, floorHeight: 4.6, litProbability: 0.3, warmth: 0.35, reflectivity: 0.93, seed: 135.1 },
+    parts: [
+      // D1 podium (west parcel), trimmed to the parcel's
+      // road frame: south edge north of the station pickup
+      // lanes along 北平西路 (ribbons at z ≈ -1696..-1709),
+      // west edge clear of the slanting 延平北路一段 ribbon,
+      // north edge south of 鄭州路.
+      { type: 'box', w: 112, d: 95, h: 27, dx: -76, dz: -12, facade: { kind: 'curtain', glassTint: 0x7d94a8, frameTint: 0xd9dde1, windowWidth: 3.4, floorHeight: 4.4, litProbability: 0.28, warmth: 0.4, seed: 135.2 } },
+      // D1 tower, 369 m: measured 76 × 48 plate, stepped.
+      { type: 'box', w: 74, d: 46, h: 208, dx: -90, dz: -10 },
+      { type: 'box', w: 67, d: 42, h: 96, y0: 208, dx: -90, dz: -10 },
+      { type: 'box', w: 58, d: 37, h: 45, y0: 304, dx: -90, dz: -10 },
+      { type: 'box', w: 47, d: 30, h: 20, y0: 349, dx: -90, dz: -10 },
+      // C1 podium (east parcel, on the station grid's skew),
+      // in two boxes: no single rotated slab both contains
+      // the tower plate and clears the parcel's road frame
+      // (the 鄭州路/市民大道 curve north, the pickup lanes
+      // south — measured against the #42 audit) — so a plinth
+      // fitted to the tower plate plus a lower terrace
+      // reaching east toward the station, stepped 0.6 m down
+      // where they overlap.
+      { type: 'box', w: 88, d: 50, h: 27, dx: 92, dz: 8, rotY: 0.199, facade: { kind: 'curtain', glassTint: 0x7d94a8, frameTint: 0xd9dde1, windowWidth: 3.4, floorHeight: 4.4, litProbability: 0.28, warmth: 0.4, seed: 135.3 } },
+      { type: 'box', w: 120, d: 48, h: 26.4, dx: 125, dz: 8, rotY: 0.199, facade: { kind: 'curtain', glassTint: 0x7d94a8, frameTint: 0xd9dde1, windowWidth: 3.4, floorHeight: 4.4, litProbability: 0.28, warmth: 0.4, seed: 135.3 } },
+      // C1 tower, 289 m: measured 66 × 42 plate at rotY 0.199.
+      { type: 'box', w: 64, d: 40, h: 188, dx: 92, dz: 12, rotY: 0.199 },
+      { type: 'box', w: 58, d: 37, h: 66, y0: 188, dx: 92, dz: 12, rotY: 0.199 },
+      { type: 'box', w: 51, d: 33, h: 25, y0: 254, dx: 92, dz: 12, rotY: 0.199 },
+      { type: 'box', w: 42, d: 28, h: 10, y0: 279, dx: 92, dz: 12, rotY: 0.199 },
+    ],
+  },
+  {
     // Station district batch (issue #74). 70 m published: the
     // white hall on its three-level stepped terrace in the
     // memorial park, under the blue double-eaved roof. The OSM
@@ -1281,6 +1348,73 @@ const LANDMARK_STRUCTURES = [
       { type: 'cylinder', r: 4.7, h: 21.7, y0: 121.3, flat: 0xdcd8ce },
       { type: 'cylinder', r: 7.8, h: 3.6, y0: 143, flat: 0x4a5058 },
       { type: 'cylinder', r: 4.9, h: 3.4, y0: 146.6, flat: 0xb9b4a8 },
+    ],
+  },
+];
+
+// Songshan Airport site structures (issue #135): the terminal
+// complex on the airfield's south edge. These are SITE
+// buildings, not registry landmarks — no map pins, no search
+// names (taipeiLandmarkStructures reads LANDMARK_STRUCTURES
+// only) — resolved through the same resolveLandmark massing
+// path and returned on the plan as siteStructures; boot renders
+// them with the landmark renderer. They live INSIDE the #134
+// aerodrome site, where the planner's airfield rule already
+// drops every procedural lot; their site rects join the
+// exclusions as well, so the footprints stay clear even at the
+// site's edge. Footprints segmented from the OSM terminal
+// outlines (taiwan.osm.pbf 2026-10-23): way 549458178 is one
+// merged outline for the whole complex (T2 + link + T1), way
+// 498435030 the T2 outline, way 269541734 the observation
+// deck block airside of T2. Heights are storey-based estimates
+// (estimated: true — no published metric height): T1 works
+// over 3-4 floors (arrivals 2F / departures 3F per the
+// airport's own guidance), T2 is 3 floors with the public
+// observation deck on its roof (opened 2011-11-09), so
+// 16 m / 13 m + thin roof slabs reading the real buildings'
+// long curved roofline as a flat cap. The outline's gate-pier
+// teeth along T1's airside edge are below this scale and are
+// not modelled.
+const AIRPORT_TERMINAL_FACADE = { kind: 'curtain', glassTint: 0x8ea6b5, frameTint: 0xe9e7e0, windowWidth: 3.6, floorHeight: 4.2, litProbability: 0.3, warmth: 0.45, reflectivity: 0.55, seed: 135.4 };
+const AIRPORT_SITE_STRUCTURES = [
+  {
+    id: 'songshan-terminal-t1-west', name: 'Songshan Airport Terminal 1 (west)', nameZh: '松山機場第一航廈',
+    lat: 25.063942, lon: 121.551945, realHeight: 17.6, color: 0xd9d5c9, estimated: true,
+    site: { w: 243, d: 83, dx: 0, dz: 0 },
+    facade: AIRPORT_TERMINAL_FACADE,
+    parts: [
+      { type: 'box', w: 235, d: 75, h: 16 },
+      { type: 'box', w: 241, d: 81, h: 1.6, y0: 16, flat: 0xcfd0cc },
+    ],
+  },
+  {
+    id: 'songshan-terminal-t1-east', name: 'Songshan Airport Terminal 1 (east)', nameZh: '松山機場第一航廈',
+    lat: 25.064253, lon: 121.553728, realHeight: 17.6, color: 0xd9d5c9, estimated: true,
+    site: { w: 133, d: 49, dx: 0, dz: 0 },
+    facade: AIRPORT_TERMINAL_FACADE,
+    parts: [
+      { type: 'box', w: 125, d: 41, h: 16 },
+      { type: 'box', w: 131, d: 47, h: 1.6, y0: 16, flat: 0xcfd0cc },
+    ],
+  },
+  {
+    id: 'songshan-terminal-t2', name: 'Songshan Airport Terminal 2', nameZh: '松山機場第二航廈',
+    lat: 25.063932, lon: 121.550173, realHeight: 14.4, color: 0xd9d5c9, estimated: true,
+    site: { w: 130, d: 80, dx: 0, dz: 0 },
+    facade: AIRPORT_TERMINAL_FACADE,
+    parts: [
+      { type: 'box', w: 122, d: 72, h: 13 },
+      { type: 'box', w: 128, d: 78, h: 1.4, y0: 13, flat: 0xcfd0cc },
+    ],
+  },
+  {
+    id: 'songshan-observation-deck', name: 'Songshan Airport Observation Deck', nameZh: '松山機場觀景台',
+    lat: 25.06446, lon: 121.550407, realHeight: 10, color: 0xd9d5c9, estimated: true,
+    site: { w: 98, d: 29, dx: 0, dz: 0 },
+    facade: AIRPORT_TERMINAL_FACADE,
+    parts: [
+      { type: 'box', w: 90, d: 21, h: 9 },
+      { type: 'box', w: 96, d: 27, h: 1, y0: 9, flat: 0xd8d5cc },
     ],
   },
 ];
@@ -1878,6 +2012,13 @@ export function planTaipeiBuildings(geodata) {
   const originLatLon = (geodata.frame && geodata.frame.originLatLon) || [25.033, 121.565];
   const landmarkTowers = LANDMARK_STRUCTURES.map((def) => resolveLandmark(def, originLatLon));
   const landmarkSites = landmarkTowers.flatMap((s) => s.sites);
+  // Songshan Airport site structures (issue #135): resolved like
+  // landmarks but kept off the registry — the plan carries them
+  // separately and their site rects join the exclusions (inside
+  // the #134 airfield the lot rule already clears the ground;
+  // the rects keep the terminal frontage clear regardless).
+  const siteStructures = AIRPORT_SITE_STRUCTURES.map((def) => resolveLandmark(def, originLatLon));
+  const siteStructureSites = siteStructures.flatMap((s) => s.sites);
   // MRT elevated stations (issue #118): the structures straddle the
   // guideway corridor, so their footprint bounding boxes join the
   // exclusion sites — no generic lot is planned through a station.
@@ -1934,7 +2075,7 @@ export function planTaipeiBuildings(geodata) {
     return mxA >= depotRect.dAcross - depotRect.hAcross && mnA <= depotRect.dAcross + depotRect.hAcross &&
            mxL >= depotRect.dAlong - depotRect.hAlong && mnL <= depotRect.dAlong + depotRect.hAlong;
   };
-  const exclusionSites = towerSite ? [towerSite, ...landmarkSites, ...mrtSites] : [...landmarkSites, ...mrtSites];
+  const exclusionSites = towerSite ? [towerSite, ...landmarkSites, ...mrtSites, ...siteStructureSites] : [...landmarkSites, ...mrtSites, ...siteStructureSites];
 
   const lots = [];
   const lotProcH = []; // issue #128: each lot's procedural draw, index-aligned with lots
@@ -2350,7 +2491,7 @@ export function planTaipeiBuildings(geodata) {
     }
     tower = { x: tx, z: tz, podium, podiumParts, ornaments, tiers, top, spire: { y0: top.y0 + top.h, h: 508 - (top.y0 + top.h), w: 2.4 }, totalHeight: 508 };
   }
-  return { lots, tower, landmarkTowers, stats };
+  return { lots, tower, landmarkTowers, siteStructures, stats };
 }
 
 // Issue #136: the office cores — the districts where curtain glass

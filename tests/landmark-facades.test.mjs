@@ -40,6 +40,8 @@ const EXPECTED_FACADES = {
   // hall's concrete grid (the chimney parts are flat-coloured).
   'grand-hotel': 'prewar',
   'beitou-incinerator': 'prewar',
+  // Issue #135: the Twin Towers — blue-glass curtain pair.
+  'taipei-twin-towers': 'curtain',
 };
 
 // The only Latin wordmarks a landmark sign may carry — the ones the

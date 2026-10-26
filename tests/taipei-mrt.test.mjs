@@ -468,15 +468,16 @@ test('clearance (issue #139): census by counterfactual, audit exact', (t) => {
   const plan = planTaipeiBuildings(TAIPEI_GEO);
   // Counterfactual: the pre-#139 plan on this same tree — strip
   // the track data, the depot and the at-grade stations, and the
-  // plan reproduces 38,857 lots exactly (the #134+#137 plan as
-  // composed with #136; on the pre-expansion tree this reproduced
-  // 34,645, the #106+#118 plan).
+  // plan reproduces 38,810 lots exactly (38,857 on the pre-#135
+  // tree — the #134+#137 plan as composed with #136; the #135
+  // Twin Towers parcel exclusions remove 47 lots from both
+  // plans, so the #139 delta below is unchanged).
   const before = planTaipeiBuildings({
     ...TAIPEI_GEO,
     mrtDecks: undefined, mrtDepot: undefined,
     mrtStations: stations.filter((s) => s.kind !== 'at-grade'),
   });
-  assert.equal(before.lots.length, 38857, 'counterfactual plan reproduces the pre-#139 lot count');
+  assert.equal(before.lots.length, 38810, 'counterfactual plan reproduces the pre-#139 lot count (38,857 pre-#135; the Twin Towers parcel exclusions remove 47 on both plans)');
   // 461 lots removed on this tree (524 on the pre-expansion
   // tree): 433 inside the Beitou depot + at-grade station sites
   // (398 with centres inside the depot site rect alone; the rest
@@ -484,7 +485,7 @@ test('clearance (issue #139): census by counterfactual, audit exact', (t) => {
   // on the at-grade track bed, 15 tall enough to pierce the
   // guideway (planner counters below; classification by lot
   // centre against the site rects on this tree).
-  assert.equal(plan.lots.length, 38396, 'shipped plan lot count after the #139 removals');
+  assert.equal(plan.lots.length, 38349, 'shipped plan lot count after the #139 removals and the #135 parcel exclusions');
   assert.equal(plan.stats.lotsDroppedTrackBed, 13, 'planner bed drops agree with the census');
   assert.equal(plan.stats.lotsDroppedTrackPierce, 15, 'planner pierce drops agree with the census');
   let bed = 0, pierce = 0, keptUnder = 0;

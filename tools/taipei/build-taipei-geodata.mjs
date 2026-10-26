@@ -631,6 +631,12 @@ console.log(`[taipei-geodata] tamsui: ${waterRaw.filter((w) => w.river === 'tams
 let airfield = null;
 if (fs.existsSync(path.join(DATA, 'osm_aeroway.json'))) {
   const site = [], surfaces = [];
+  // Paint source geometry (issue #135): the SAME clipped centrelines
+  // and per-vertex half widths the surfaces are buffered from, kept so
+  // the renderer's markings layer (js/taipei-airfield.js) registers
+  // exactly on the drawn pavement. Stands are the parking_position
+  // lead-in lines as mapped.
+  const paintRunway = [], paintTaxiways = [], paintStands = [];
   for (const el of load('osm_aeroway.json').elements) {
     if (el.type === 'relation') {
       for (const rawRing of elRings(el)) {
@@ -651,6 +657,9 @@ if (fs.existsSync(path.join(DATA, 'osm_aeroway.json'))) {
           surfaces.push(flat(ring));
         }
       }
+    } else if (a === 'parking_position') {
+      const near = geomPts(el).filter(([x, z]) => x >= BBOX.minX - 300 && x <= BBOX.maxX + 300 && z >= BBOX.minZ - 300 && z <= BBOX.maxZ + 300);
+      if (near.length >= 2) paintStands.push(flat(near));
     } else if (a === 'runway' || a === 'taxiway' || a === 'stopway') {
       const near = geomPts(el).filter(([x, z]) => x >= BBOX.minX - 300 && x <= BBOX.maxX + 300 && z >= BBOX.minZ - 300 && z <= BBOX.maxZ + 300);
       if (near.length < 2) continue;
@@ -658,6 +667,8 @@ if (fs.existsSync(path.join(DATA, 'osm_aeroway.json'))) {
       const baseHalf = (Number.isFinite(wtag) ? wtag : (a === 'taxiway' ? 23 : 60)) / 2;
       const clear = vertexClearances(near);
       const halfArr = clear.map((c) => Math.max(1.5, Math.min(baseHalf, 0.45 * c)));
+      if (a === 'runway') paintRunway.push({ pts: flat(near), half: halfArr.map((h) => Math.round(h * 10) / 10), ref: el.tags.ref || '' });
+      else if (a === 'taxiway') paintTaxiways.push({ pts: flat(near), half: halfArr.map((h) => Math.round(h * 10) / 10) });
       for (const f of [1, 0.5]) {
         const raw = bufferLineVar(near, halfArr.map((h) => h * f));
         if (!raw) break;
@@ -669,8 +680,8 @@ if (fs.existsSync(path.join(DATA, 'osm_aeroway.json'))) {
     }
   }
   if (site.length) {
-    airfield = { site, surfaces };
-    console.log(`[taipei-geodata] airfield: Songshan site ${site.length} ring(s), ${surfaces.length} hard-surface polygons (issue #134)`);
+    airfield = { site, surfaces, paint: { runway: paintRunway, taxiways: paintTaxiways, stands: paintStands } };
+    console.log(`[taipei-geodata] airfield: Songshan site ${site.length} ring(s), ${surfaces.length} hard-surface polygons (issue #134); paint: ${paintRunway.length} runway, ${paintTaxiways.length} taxiway centrelines, ${paintStands.length} stands (issue #135)`);
   } else {
     console.warn('[taipei-geodata] WARNING: osm_aeroway.json present but no aerodrome site ring — airport exclusion inactive');
   }

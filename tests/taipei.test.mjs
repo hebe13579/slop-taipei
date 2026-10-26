@@ -541,6 +541,10 @@ test('landmark structures: true positions and heights, sites kept clear', (t) =>
     // estimated in the registry (see the batch-4 test).
     'shin-kong-life-tower': { h: 244.15, x: -5016.4, z: -1458.4 },
     'taipei-main-station': { h: 48, x: -4839.7, z: -1623.1 },
+    // Issue #135: the completed Taipei Twin Towers on the C1/D1
+    // parcels — 369 m overall (SOM project page; D1 369 m /
+    // 73F per Kumagai Gumi; C1 steps to 289 in the same entry).
+    'taipei-twin-towers': { h: 369, x: -5231.9, z: -1746.9 },
     'chiang-kai-shek-memorial-hall': { h: 70, x: -4388.2, z: -200.6 },
     'national-concert-hall': { h: 37, x: -4616.0, z: -441.4 },
     'national-theater': { h: 37, x: -4718.7, z: -256.9 },
