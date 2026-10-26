@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
+import { readFileSync } from 'node:fs';
 
 import { TAIPEI_GEO } from '../js/taipei-geodata.js';
 import {
@@ -1299,6 +1300,25 @@ test('rooftop additions: sparse fitted tanks and full-roof sheet-metal huts', (t
     assert.deepEqual(taipeiRooftopAdditions({ maxH: 20 }, { ...base, h: 20, mat: 4 }, []).tanks, [], 'no tanks on glass');
     assert.deepEqual(taipeiRooftopAdditions({ maxH: 20 }, { ...base, h: 20, mat: 5 }, []).huts, [], 'no huts on glass');
     assert.deepEqual(taipeiRooftopAdditions({ maxH: 45 }, { ...base, h: 45, mat: 6 }, []).huts, [], 'no huts on tall lots');
+  }
+});
+
+// Issue #156 (source contract): all THREE hut pools carry per-instance
+// colour, and the streamer's fill must flag every one's instanceColor
+// for upload — an instanced attribute is only re-uploaded when its
+// version advances (flagRange sets needsUpdate). The cap pool (#100)
+// shipped flagged for instanceMatrix only, so its colours froze at the
+// first fill and every later refill left caps wearing a previous
+// occupant's colour while body and sheet tracked their hut — the
+// two-coloured, flashing 鐵皮屋 roofs. The geometry itself was never
+// the fight (the #113 probe read the CPU arrays, which were correct);
+// this pins the upload contract for all three pools.
+test('hut pools: the streamer flags every hut instance colour for upload (source contract)', () => {
+  const src = readFileSync(new URL('../js/buildings.js', import.meta.url), 'utf8');
+  for (const pool of ['hutInst', 'hutCapInst', 'hutRoofInst']) {
+    assert.match(src, new RegExp(`flagRange\\(${pool}\\.instanceMatrix, hutCount\\)`), `${pool} instanceMatrix flagged`);
+    assert.match(src, new RegExp(`if \\(${pool}\\.instanceColor\\) flagRange\\(${pool}\\.instanceColor, hutCount\\)`), `${pool} instanceColor flagged`);
+    assert.match(src, new RegExp(`${pool}\\.setColorAt\\(hutCount, hutPalette`), `${pool} colour written per fill`);
   }
 });
 
