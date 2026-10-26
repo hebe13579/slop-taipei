@@ -7,7 +7,7 @@ import { buildPaintedBands } from './taipei-painted.js';
 import { buildAirfieldPaint } from './taipei-airfield.js';
 import { SURFACE_TONES, surfaceClass, buildMedianStrips, isPlazaPark, isPodiumBlock, podiumCentresOf, memorialPaving, MEMORIAL_GRID_TONE } from './taipei-surfaces.js';
 import { buildRoadMarkings, detectJunctions, DASH_LEN, DASH_GAP, STRIPE_W, STRIPE_PITCH } from './taipei-markings.js';
-import { planJunctionCaps, planRoundabouts, ringPoints, CAP_Y, ISLAND_Y } from './taipei-junctions.js';
+import { planJunctionCaps, planRoundabouts, ringPoints, capSurfacePolys, CAP_Y, ISLAND_Y } from './taipei-junctions.js';
 import { buildDeckGeometry, PIER_W, PIER_D } from './taipei-viaduct.js';
 import { buildMrtStationGeometry, buildMrtDepotGeometry } from './taipei-mrt-stations.js';
 import { buildTerrainSkinGeometry } from './taipei-terrain.js';
@@ -797,8 +797,20 @@ export async function buildTaipeiGround(scene, tile, deps = {}) {
   const junctions = detectJunctions(carriageways);
   const roundabouts = planRoundabouts(carriageways, junctions);
   const caps = planJunctionCaps(carriageways, junctions, roundabouts);
-  const capPolys = [...caps, ...roundabouts.flatMap((s) => [s.disc, ...s.aprons])].map((c) => ringPoints(c.ring));
-  addLayer(capFanGeometry(caps, CAP_Y), new THREE.MeshStandardNodeMaterial({ vertexColors: true, roughness: 0.9, metalness: 0.0 }), 'TaipeiJunctionCaps');
+  const capPolys = [
+    ...caps.flatMap((c) => capSurfacePolys(c)),
+    ...roundabouts.flatMap((s) => [s.disc, ...s.aprons]).map((c) => ringPoints(c.ring)),
+  ];
+  const capMaterial = new THREE.MeshStandardNodeMaterial({ vertexColors: true, roughness: 0.9, metalness: 0.0 });
+  addLayer(capFanGeometry(caps, CAP_Y), capMaterial, 'TaipeiJunctionCaps');
+  // Issue #163: the fitted caps' arm extension strips render as
+  // their own fan layer half a millimetre UNDER the rings — the
+  // strips overlap the box ring and each other by design (seam
+  // insurance at the ribbon butt and the box edge), and the
+  // 0.5 mm step (the stack's own discipline: caps sit 1 mm over
+  // the carriageways) keeps those overlaps from z-fighting.
+  const capExtras = caps.flatMap((c) => c.extras || []);
+  if (capExtras.length) addLayer(capFanGeometry(capExtras, CAP_Y - 0.0005), capMaterial, 'TaipeiJunctionCapExtensions');
   const discsByClass = { deck: [], arterial: [], collector: [], lane: [] };
   for (const s of roundabouts) {
     discsByClass[s.disc.cls].push(s.disc.ring);
@@ -810,7 +822,7 @@ export async function buildTaipeiGround(scene, tile, deps = {}) {
   for (const s of roundabouts) islandsByKind[s.island.kind].push(s.island.ring);
   if (islandsByKind.planted.length) addLayer(flatPolygonGeometry(islandsByKind.planted, ISLAND_Y), mat(SURFACE_TONES.park, 0.9), 'TaipeiRoundaboutIslands-planted');
   if (islandsByKind.plaza.length) addLayer(flatPolygonGeometry(islandsByKind.plaza, ISLAND_Y), mat(SURFACE_TONES.plaza, 0.9), 'TaipeiRoundaboutIslands-plaza');
-  console.info(`[taipei-junctions] ${caps.length} junction caps over ${junctions.length} detected junctions (${caps.reduce((s, c) => s + c.area, 0).toLocaleString('en-US')} m² of junction box paved); ${caps.filter((c) => c.kind === 'box').length} box / ${caps.filter((c) => c.kind === 'fitted').length} fitted; roundabouts handcrafted: ${roundabouts.map((s) => `${s.id} disc r=${s.discR}${s.islandR ? ` island r=${s.islandR}` : ' capsule island'} (${s.claimedJunctions.length} junctions claimed${s.aprons.length ? `, ${s.aprons.length} entry aprons` : ''})`).join(', ')}`);
+  console.info(`[taipei-junctions] ${caps.length} junction caps over ${junctions.length} detected junctions (${caps.reduce((s, c) => s + c.area, 0).toLocaleString('en-US')} m² of junction box paved + ${capExtras.length} arm extension strips, ${caps.reduce((s, c) => s + (c.extraArea || 0), 0).toLocaleString('en-US')} m², at fitted caps); ${caps.filter((c) => c.kind === 'box').length} box / ${caps.filter((c) => c.kind === 'fitted').length} fitted; roundabouts handcrafted: ${roundabouts.map((s) => `${s.id} disc r=${s.discR}${s.islandR ? ` island r=${s.islandR}` : ' capsule island'} (${s.claimedJunctions.length} junctions claimed${s.aprons.length ? `, ${s.aprons.length} entry aprons` : ''})`).join(', ')}`);
   await completeStage('junctions', `${caps.length} caps + ${roundabouts.length} roundabouts over ${junctions.length} junctions`);
   // Boulevard medians (issue #29): a strip along the centreline of
   // each merged bed wide enough to hold one — planted on the grand
@@ -983,7 +995,7 @@ export async function buildTaipeiGround(scene, tile, deps = {}) {
   // above as exclusion polygons (their centreline-distance checks
   // cannot see a cap corner 20+ m from every centreline).
   const treeExclusions = [
-    ...caps.map((c) => c.ring),
+    ...caps.flatMap((c) => [c.ring, ...(c.extras || []).map((ex) => ex.ring)]),
     ...roundabouts.flatMap((s) => [s.disc.ring, ...s.aprons.map((a) => a.ring)]),
   ];
   const treePlan = planStreetTrees(geo, plan, { exclusions: treeExclusions });
