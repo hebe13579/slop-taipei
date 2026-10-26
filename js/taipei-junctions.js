@@ -90,16 +90,20 @@
 //   stand only on the ring entries.
 //
 // Caps render at y = 0.061 (above the carriageways at 0.06, below
-// the median strips at 0.062). The RENDERED tone is a per-vertex
-// blend of the incident arms' surface tones (issue #91, see
-// capBlendTones below): a cap meets every arm in that arm's own
-// tone and blends across the middle, instead of wearing the
-// widest arm's flat tone across the whole junction — at mixed
-// junctions (a wide collector crossing arterials, an arterial
-// plugging into lane mouths) the flat rule read as a mismatched
-// slab. `cls` still records the widest arm's class (the census /
-// audit metadata it has always been); it no longer colours the
-// cap. They are also the hard occluder for the painted layers: taipei-painted,
+// the median strips at 0.062). The RENDERED tone is ONE tone per
+// junction — the width-weighted mean of the incident arms'
+// surface tones — shared flat by the ring, the #171 clipped
+// pieces and the #163 strips alike (issue #172, see capBlendTones
+// below). Issue #91's per-vertex angular blend met every arm in
+// its own tone, but each piece fans from its own origin, so the
+// same field interpolated differently per piece and a mixed
+// junction rendered as 3-5 stepped grey plates (the #169 sweep's
+// SEAM class; a fan-exact probe measured up to 90 distinct tones
+// and a full arterial<->lane luminance spread inside one
+// surface). A constant is the only field every triangulation
+// agrees on everywhere. `cls` still records the widest arm's
+// class (the census / audit metadata it has always been); it no
+// longer colours the cap. They are also the hard occluder for the painted layers: taipei-painted,
 // taipei-surfaces (medians) and taipei-markings (dashes) take the
 // cap polygons and drop any band / strip / dash quad whose centre
 // lands inside one, so no paint crosses a junction core.
@@ -561,20 +565,36 @@ function overlapRing(j) {
 // Each cap carries `tones`: { centre, origin, ring } — sRGB
 // [r, g, b] triples in 0..1. `ring` aligns with the cap's ring
 // points; `centre` is the tone at `origin`, the fan centre the
-// renderer triangulates from. The tone at a point is the arms'
-// SURFACE_TONES entries weighted by arm width and an angular
-// kernel around the point's direction from the junction centre:
-// a vertex sitting at an arm's mouth (its angle ≈ the arm's
-// direction, where the hull vertices live) takes that arm's tone
-// almost purely; a corner between two arms mixes the two
-// neighbours; the centre mixes all arms by width. The kernel
-// cos^12 falls fast (a vertex 45° from an arm keeps under 2% of
-// it) yet keeps width in play at mid angles, and it is steep
-// enough that a vertex at a narrow arm's own mouth — within
-// ~13° of its axis — is owned by that arm even against a 5×
-// width disadvantage (measured on the synthetic 30 m arterial ×
-// 6 m lane junction in tests/taipei-captone.test.mjs): narrow
-// lane mouths lose their seam too, not just wide-road mouths.
+// renderer triangulates from.
+//
+// Issue #172 — ONE asphalt voice per junction. The tone rule is:
+// the junction tone = the arms' SURFACE_TONES entries weighted
+// by arm width (the width-weighted mean — the value #91 computed
+// for the centre), and EVERY vertex of EVERY piece of the
+// junction — ring, #171 clipped pieces, #163 strips — carries
+// exactly that tone. #91's angular-kernel field (cos^12 around
+// the point's direction, mouths taking their arm's tone) made
+// each piece fan interpolate the same field through a different
+// triangulation, so overlaps and joins stepped plate-to-plate:
+// the #169 sweep's SEAM class. The fan-exact probe in
+// seam172-evidence (28 stratified junctions) measured the field
+// before this change at 14-90 distinct tones per mixed surface,
+// luminance ranges up to the full arterial<->lane spread (0.068)
+// and 75-93% of samples off the modal tone; the real-boot pixel
+// probe found 2-4 tone clusters per mixed junction.
+// Single-class junctions were already flat under both probes,
+// so the fix is scoped to this field, not to any construction
+// subset. A flat tone is tessellation-proof by construction:
+// any fan of a constant is the constant, so ring, pieces and
+// strips agree at every point, and at a single-class junction
+// the tone equals the arm ribbons' exactly (no boundary step at
+// all). At a mixed junction each mouth steps once, cleanly, from
+// its ribbon to the shared tone — bounded by the arms' own
+// spread and weighted toward the wide arms that dominate the
+// junction visually. The blend #91 wanted at the boundary
+// survives only in that choice of value, not as an in-surface
+// gradient.
+//
 // The result is a pure function of the arms and the ring
 // (deterministic, no iteration state), applies to box and fitted
 // caps alike, and is a convex combination — every component
@@ -585,8 +605,6 @@ function overlapRing(j) {
 // centroid, which a convex ring always contains — the renderer's
 // fan must start inside the polygon it fans.
 
-export const CAP_BLEND_KERNEL = 12;
-
 const toneRGB = (cls) => {
   const t = SURFACE_TONES[cls];
   return [((t >> 16) & 255) / 255, ((t >> 8) & 255) / 255, (t & 255) / 255];
@@ -596,32 +614,17 @@ const round4 = (v) => Math.round(v * 10000) / 10000;
 export function capBlendTones(j, ringPts) {
   const arms = j.arms.map((a) => ({
     width: a.width,
-    ang: Math.atan2(a.dirZ, a.dirX),
     rgb: toneRGB(surfaceClass({ highway: a.highway })),
   }));
   const totW = arms.reduce((s, a) => s + a.width, 0) || 1;
   const centre = [0, 1, 2].map((k) => round4(arms.reduce((s, a) => s + a.width * a.rgb[k], 0) / totW));
-  const at = (px, pz) => {
-    const th = Math.atan2(pz - j.z, px - j.x);
-    let den = 0;
-    const num = [0, 0, 0];
-    for (const a of arms) {
-      const d = Math.cos(th - a.ang);
-      if (d <= 0) continue;
-      const w = a.width * Math.pow(d, CAP_BLEND_KERNEL);
-      den += w;
-      for (let k = 0; k < 3; k++) num[k] += w * a.rgb[k];
-    }
-    if (den < 1e-9) return centre;
-    return num.map((v) => round4(v / den));
-  };
   const origin = pointInPoly([j.x, j.z], ringPts)
     ? [j.x, j.z]
     : [
         ringPts.reduce((s, p) => s + p[0], 0) / ringPts.length,
         ringPts.reduce((s, p) => s + p[1], 0) / ringPts.length,
       ];
-  return { centre, origin, ring: ringPts.map(([px, pz]) => at(px, pz)) };
+  return { centre, origin, ring: ringPts.map(() => centre) };
 }
 
 // ---------------------------------------------------------------------
@@ -1300,7 +1303,7 @@ function kerbStopStrip(pts, ownBedIdx, ctx) {
 // at major junctions and at signalized minors). ring is a flat
 // [x, z, …] array in hull order; cls is the surfaceClass of the
 // widest incident arm (census/metadata — the rendered tone is
-// `tones`, the per-vertex blend above). `area` is the RING's
+// `tones`, the single junction tone above). `area` is the RING's
 // area (the #145 census semantics — rings are unchanged by
 // #163); fitted caps additionally carry `extras`: the #163 arm
 // extension strips, each { ring, tones, area } in the same

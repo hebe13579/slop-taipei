@@ -96,12 +96,14 @@ function flatPolygonGeometry(rings, y) {
   return geo;
 }
 
-// Junction caps (issue #91): fan-triangulated from each cap's
-// blend origin with per-vertex colours — the planner's blend
-// (capBlendTones in js/taipei-junctions.js) gives every ring
-// vertex a tone mixed from the incident arms, so the cap meets
-// each arm in that arm's own tone instead of wearing the widest
-// arm's flat tone across the whole junction. Planner tones are
+// Junction caps: fan-triangulated from each cap's origin with
+// per-vertex colours — since issue #172 every vertex of a
+// junction (ring, clipped pieces, strips) carries the ONE
+// junction tone from capBlendTones in js/taipei-junctions.js:
+// the width-weighted mean of the incident arms' tones, flat
+// across the whole surface (issue #91's per-vertex mouth blend
+// interpolated differently through each piece's fan and read as
+// stepped plates — the #169 SEAM class). Planner tones are
 // sRGB; setRGB with SRGBColorSpace converts them into the
 // working space exactly as the flat materials' hex colours are
 // converted, so a vertex at an arm's mouth is indistinguishable
