@@ -74,6 +74,37 @@
 // The ground beds under a deck (the at-grade street in the same
 // corridor) are different beds and keep their dividers.
 //
+// FURNITURE DISCIPLINE (issue #170). The #169 tile-wide sweep found
+// the furniture layer disagreeing with the junction surface v2
+// built (#163) and with itself: crossings are placed per detected
+// junction with no de-overlap pass, so at staggered / merged nodes
+// two crossings of the SAME junction paint over each other
+// (tile-wide census: 92 crossing pairs, 822 stripe pairs, 458 m2
+// of double-painted zebra — all same-junction, axes within ~3
+// degrees: duplicates, subsets and corner pairs, never crossing
+// zebras); stop lines lie across zebras at 47 junctions; the v2
+// arm strips paved ground the #64 ribbon clearance cannot see, so
+// 95 signal units stand >= 5 m inside the paved surface; and 55
+// stripes + 13 stop lines + 2 bands sit with their centres off
+// asphalt entirely (roundabout-island strays, zebra tails onto
+// green). The builders therefore run a discipline pass before
+// returning: (1) XOFF — a stripe whose centre is off the asphalt
+// (ribbons U junction surface) is culled; (2) XOVL — crossings are
+// ranked by priority (arm class rank, then crossing width, then
+// junction, then placement order) and a crossing >= 60% covered by
+// higher-priority kept crossings is suppressed whole, otherwise
+// its individually overlapping stripes are culled; stop lines
+// always yield to stripes (a stop line overlapping a surviving
+// stripe is dropped, as is one centred off asphalt); (3) FURN —
+// a signal unit deeper than 2 m inside the full junction surface
+// (capSurfacePolys: ring + strips) is relocated out along its
+// corner diagonal, with nearest-boundary exits and the #64 ribbon
+// solver as fallbacks; units are moved, never added or dropped.
+// Surviving stripes of a crossing are trimmed to their longest
+// contiguous run and the band is rebuilt from that run, so the
+// band <-> stripe algebra of issue #90 (one band per crossing,
+// width a whole number of stripe pitches) survives every cull.
+//
 // RENDER FORM (issue #90): the plan above is unchanged — dashes and
 // stripes are still enumerated exactly as before (the tests pin
 // them) — but the renderer no longer bakes them as solid quads.
@@ -124,6 +155,20 @@ export const SIGNAL_ESCAPE_MAX = 80;     // solver budget: 40 m of diagonal esca
 export const SIGNAL_SEARCH_MAX = 30;     // quadrant lattice search radius, m (Manhattan)
 export const MAST_ARM_MIN = 4;           // mast-arm reach clamps, m
 export const MAST_ARM_MAX = 13;
+
+// Furniture discipline (issue #170): the stripe-overlap census
+// threshold of the #169 audit, the share of a crossing that must
+// be covered by higher-priority crossings before the whole
+// crossing is suppressed, and the signal surface-clearance
+// tolerances (a unit may graze the surface edge by this much —
+// the surface polygon spans corner to corner, sidewalks
+// included — but never stand deep in the paved interior).
+export const STRIPE_OVERLAP_M2 = 0.25;
+export const XOVL_GROUP_SUPPRESS_SHARE = 0.6;
+export const SIGNAL_SURFACE_GRAZE_M = 2;
+export const SIGNAL_SURFACE_EXIT_M = 1;  // stand this far past the surface boundary after an exit
+export const SIGNAL_SURFACE_WALK_MAX = 90; // corner-diagonal walk budget (0.5 m steps)
+const SURF_GRID_M = 60;                  // surface-poly grid cell for depth queries
 
 // Class rank shared with the signalized/divider rules: 3 trunk /
 // primary, 2 secondary, 1 tertiary, 0 everything else (links take
@@ -557,24 +602,36 @@ export function junctionArmDivided(junction, arm, roadbeds) {
 // mast arm over the approach) on divided approaches only, 'pole'
 // (plain corner pole) elsewhere; armLen is the mast arm's reach.
 // suppress feeds buildLaneDividers' stop-line zones.
-export function buildJunctionFurniture(roadbeds, junctions) {
-  const stripes = [], stopLines = [], signals = [];
+export function buildJunctionFurniture(roadbeds, junctions, capsIn = null) {
+  let stripes = [], stopLines = [], signals = [];
   // Provenance (issue #75 audit/tests): the junction index that
   // generated each stripe / stop-line quad, aligned with the
   // stripes / stopLines arrays.
-  const stripeJunction = [], stopLineJunction = [];
+  let stripeJunction = [], stopLineJunction = [];
   // Shader render form (issue #90): one band per crosswalk,
   // spanning exactly the union of its stripe quads across the road
   // ({ quad in stripe-corner order, width = the band's extent
   // across the road }); the material stripes it from the band's
   // own low edge, so the stripe phase is the plan's phase.
-  const bands = [], bandJunction = [];
+  let bands = [], bandJunction = [];
   const suppress = new Map();
   const stats = {
     junctions: 0, crosswalks: 0, stopLines: 0, signals: 0, skippedArms: 0,
     mastSignals: 0, poleSignals: 0, clearanceMoved: 0, clearanceUnresolved: 0, clearanceFallback: 0,
     ringArmsSkipped: 0, deckArmsSkipped: 0,
+    // Furniture discipline (issue #170): surface-relocated signal
+    // units, units that stayed deep (no candidate qualified), and
+    // the per-class cull counts of the discipline pass.
+    surfaceMoved: 0, surfaceUnresolved: 0,
+    xovlGroupsDropped: 0, xovlStripesDropped: 0, xoffStripesDropped: 0,
+    xoffGroupsDropped: 0, trimStripesDropped: 0,
+    zebraStopLinesDropped: 0, xoffStopLinesDropped: 0,
   };
+  // Crosswalk groups (issue #170): one record per placed crossing
+  // ({ ji, start, count, rank, width } into the stripes array, in
+  // band order) — the discipline pass reasons per crossing, not
+  // per stripe.
+  const groups = [];
   // Roundabout claims (issue #75): at a junction a roundabout site
   // claims, arms running on the site's ring carriageway get NO
   // furniture — the #66 audit measured their zebras spraying
@@ -601,6 +658,149 @@ export function buildJunctionFurniture(roadbeds, junctions) {
     for (const ci of cand) if (pointInPoly([x, z], ribbonPolys[ci])) return true;
     return false;
   };
+  // Junction surface for the discipline pass (issue #170): the
+  // caps' full paved surface (ring + #163 arm strips,
+  // capSurfacePolys). buildRoadMarkings passes its caps in; a
+  // standalone caller gets them planned here (the roundabout
+  // sites are already resolved above).
+  const caps = capsIn || planJunctionCaps(roadbeds, junctions, sites);
+  const surfPolys = caps.flatMap((c) => capSurfacePolys(c));
+  const surfGrid = buildPolyGrid(surfPolys, SURF_GRID_M);
+  const surfCands = (x, z) => surfGrid.get(`${Math.floor(x / SURF_GRID_M)},${Math.floor(z / SURF_GRID_M)}`) || [];
+  // Depth of a point inside the surface: the smallest distance to
+  // a containing polygon's edge (the #169 census3 measure), or -1
+  // when the point stands outside every surface polygon.
+  const surfDepth = (x, z) => {
+    let depth = -1;
+    for (const ci of surfCands(x, z)) {
+      const poly = surfPolys[ci];
+      if (!pointInPoly([x, z], poly)) continue;
+      let d = Infinity;
+      for (let k = 0; k < poly.length; k++) {
+        const ax = poly[k][0], az = poly[k][1];
+        const bx = poly[(k + 1) % poly.length][0], bz = poly[(k + 1) % poly.length][1];
+        const dx = bx - ax, dz = bz - az, l2 = dx * dx + dz * dz || 1;
+        let t = ((x - ax) * dx + (z - az) * dz) / l2;
+        t = t < 0 ? 0 : t > 1 ? 1 : t;
+        const ex = ax + dx * t - x, ez = az + dz * t - z;
+        if (ex * ex + ez * ez < d) d = ex * ex + ez * ez;
+      }
+      d = Math.sqrt(d);
+      if (depth < 0 || d < depth) depth = d;
+    }
+    return depth;
+  };
+  // Ribbon clearance solver (issue #64), factored out (issue
+  // #170) so the surface relocation can re-clear a candidate with
+  // the identical machinery: diagonal escape off the corner, then
+  // lattice searches of the far-right, near-right and far-left
+  // quadrants, in that preference order. Returns [x, z, phase]
+  // with phase 0 when the point still stands on a carriageway
+  // after the full budget (position = the diagonal endpoint,
+  // exactly where the inline solver used to leave it).
+  const escapeRibbons = (x0, z0, arm, rx, rz) => {
+    let px = x0, pz = z0;
+    const fx = px, fz = pz;
+    let ex = -arm.dirX + rx, ez = -arm.dirZ + rz;
+    const en = Math.hypot(ex, ez) || 1; ex /= en; ez /= en;
+    let steps = 0;
+    while (steps < SIGNAL_ESCAPE_MAX && insideRibbon(px, pz)) {
+      px += ex * SIGNAL_ESCAPE_STEP; pz += ez * SIGNAL_ESCAPE_STEP; steps++;
+    }
+    if (!insideRibbon(px, pz)) return [px, pz, 1];
+    const diagX = px, diagZ = pz;
+    const lattice = (ux, uz, vx, vz) => {
+      for (let d = 1; d <= SIGNAL_SEARCH_MAX; d++) {
+        for (let a = 0; a <= d; a++) {
+          const b = d - a;
+          if (!insideRibbon(fx + ux * a + vx * b, fz + uz * a + vz * b)) return [fx + ux * a + vx * b, fz + uz * a + vz * b];
+          if (a !== b && !insideRibbon(fx + ux * b + vx * a, fz + uz * b + vz * a)) return [fx + ux * b + vx * a, fz + uz * b + vz * a];
+        }
+      }
+      return null;
+    };
+    const hit2 = lattice(-arm.dirX, -arm.dirZ, rx, rz);
+    if (hit2) return [hit2[0], hit2[1], 2];
+    const hit3 = lattice(arm.dirX, arm.dirZ, rx, rz);
+    if (hit3) return [hit3[0], hit3[1], 3];
+    const hit4 = lattice(-arm.dirX, -arm.dirZ, -rx, -rz);
+    if (hit4) return [hit4[0], hit4[1], 4];
+    return [diagX, diagZ, 0];
+  };
+  // Surface relocation (issue #170): from a point deep inside the
+  // junction surface, find a nearby standing point outside the
+  // surface (a graze of the edge is acceptable) and clear of every
+  // ribbon. Preference: walk out along the corner diagonal (the
+  // unit stays at its own corner, just further out); then the
+  // nearest-boundary exits of the containing polygons, re-cleared
+  // against the ribbons where needed. Returns [x, z, true] on
+  // success, or the original point with false when nothing
+  // qualifies (the unit keeps its #64 corner rather than landing
+  // on a carriageway or deeper in the box).
+  const relocateSurface = (x, z, arm, rx, rz) => {
+    let ex = -arm.dirX + rx, ez = -arm.dirZ + rz;
+    const en = Math.hypot(ex, ez) || 1; ex /= en; ez /= en;
+    let best = null; // [x, z, depth] shallowest non-ribbon graze seen
+    const judge = (cx, cz) => {
+      if (insideRibbon(cx, cz)) return -1;
+      const d = surfDepth(cx, cz);
+      if (d < 0) return 1;
+      if (!best || d < best[2]) best = [cx, cz, d];
+      return 0;
+    };
+    for (let s = 1; s <= SIGNAL_SURFACE_WALK_MAX; s++) {
+      const cx = x + ex * SIGNAL_ESCAPE_STEP * s, cz = z + ez * SIGNAL_ESCAPE_STEP * s;
+      if (judge(cx, cz) === 1) return [cx, cz, true];
+    }
+    if (best && best[2] <= SIGNAL_SURFACE_GRAZE_M) return [best[0], best[1], true];
+    for (const ci of surfCands(x, z)) {
+      const poly = surfPolys[ci];
+      if (!pointInPoly([x, z], poly)) continue;
+      let cNear = null, dNear = Infinity;
+      for (let k = 0; k < poly.length; k++) {
+        const ax = poly[k][0], az = poly[k][1];
+        const bx = poly[(k + 1) % poly.length][0], bz = poly[(k + 1) % poly.length][1];
+        const dx = bx - ax, dz = bz - az, l2 = dx * dx + dz * dz || 1;
+        let t = ((x - ax) * dx + (z - az) * dz) / l2;
+        t = t < 0 ? 0 : t > 1 ? 1 : t;
+        const exx = ax + dx * t - x, ezz = az + dz * t - z;
+        if (exx * exx + ezz * ezz < dNear) { dNear = exx * exx + ezz * ezz; cNear = [ax + dx * t, az + dz * t]; }
+      }
+      if (!cNear) continue;
+      let ox = cNear[0] - x, oz = cNear[1] - z;
+      const on = Math.hypot(ox, oz);
+      if (on < 1e-6) { ox = ex; oz = ez; } else { ox /= on; oz /= on; }
+      const qx = cNear[0] + ox * SIGNAL_SURFACE_EXIT_M, qz = cNear[1] + oz * SIGNAL_SURFACE_EXIT_M;
+      if (judge(qx, qz) === 1) return [qx, qz, true];
+      if (insideRibbon(qx, qz)) {
+        const [sx, sz, phase] = escapeRibbons(qx, qz, arm, rx, rz);
+        if (phase && judge(sx, sz) === 1) return [sx, sz, true];
+      }
+    }
+    if (best && best[2] <= SIGNAL_SURFACE_GRAZE_M) return [best[0], best[1], true];
+    // 3. Radial search (last resort, measured 1 unit tile-wide):
+    // in cap-cluster knots the diagonal and the boundary exits
+    // all land on a neighbouring cap or ribbon, so sample a
+    // bounded ring fan around the point — nearest radius first,
+    // angles ordered from the corner diagonal — for any standing
+    // point the judge accepts.
+    const diagAng = Math.atan2(ez, ex);
+    const angs = [];
+    for (let k = 0; k < 24; k++) angs.push((k * Math.PI) / 12);
+    angs.sort((a, b) => {
+      const da = Math.abs(Math.atan2(Math.sin(a - diagAng), Math.cos(a - diagAng)));
+      const db = Math.abs(Math.atan2(Math.sin(b - diagAng), Math.cos(b - diagAng)));
+      return da - db || a - b;
+    });
+    for (let r = 3; r <= 30; r += 1.5) {
+      for (const a of angs) {
+        const cx = x + Math.cos(a) * r, cz = z + Math.sin(a) * r;
+        if (judge(cx, cz) === 1) return [cx, cz, true];
+      }
+      if (best && best[2] <= SIGNAL_SURFACE_GRAZE_M) return [best[0], best[1], true];
+    }
+    return [x, z, false];
+  };
   junctions.forEach((j, ji) => {
     if (!j.signalized) return;
     stats.junctions++;
@@ -625,6 +825,7 @@ export function buildJunctionFurniture(roadbeds, junctions) {
           const c = pointAlongBed(bed, arm.end, sCross);
           const ux = c.dx, uz = c.dz, vx = -uz, vz = ux; // v = left of travel away from junction
           const d = CROSSWALK_DEPTH / 2;
+          const gStart = stripes.length;
           let firstO = null, lastO = null;
           for (let o = -half + 0.35 + STRIPE_W / 2; o <= half - 0.35 - STRIPE_W / 2 + 1e-6; o += STRIPE_PITCH) {
             const oHi = o + STRIPE_W / 2, oLo = o - STRIPE_W / 2;
@@ -653,6 +854,7 @@ export function buildJunctionFurniture(roadbeds, junctions) {
               width: bHi - bLo,
             });
             bandJunction.push(ji);
+            groups.push({ ji, start: gStart, count: stripes.length - gStart, rank: arm.rank, width: arm.width });
           }
           stats.crosswalks++;
         } else stats.skippedArms++;
@@ -723,42 +925,25 @@ export function buildJunctionFurniture(roadbeds, junctions) {
         //      resort: a corner at the side of the road still
         //      beats the middle of it — measured 1 unit tile-wide).
         if (insideRibbon(px, pz)) {
-          const fx = px, fz = pz;
-          let ex = -arm.dirX + rx, ez = -arm.dirZ + rz;
-          const en = Math.hypot(ex, ez) || 1; ex /= en; ez /= en;
-          let steps = 0;
-          while (steps < SIGNAL_ESCAPE_MAX && insideRibbon(px, pz)) {
-            px += ex * SIGNAL_ESCAPE_STEP; pz += ez * SIGNAL_ESCAPE_STEP; steps++;
-          }
-          const lattice = (ux, uz, vx, vz) => {
-            for (let d = 1; d <= SIGNAL_SEARCH_MAX; d++) {
-              for (let a = 0; a <= d; a++) {
-                const b = d - a;
-                if (!insideRibbon(fx + ux * a + vx * b, fz + uz * a + vz * b)) return [fx + ux * a + vx * b, fz + uz * a + vz * b];
-                if (a !== b && !insideRibbon(fx + ux * b + vx * a, fz + uz * b + vz * a)) return [fx + ux * b + vx * a, fz + uz * b + vz * a];
-              }
-            }
-            return null;
-          };
-          let solvedAt = 0;
-          if (!insideRibbon(px, pz)) solvedAt = 1;
-          if (!solvedAt) {
-            const hit = lattice(-arm.dirX, -arm.dirZ, rx, rz);
-            if (hit) { [px, pz] = hit; solvedAt = 2; }
-          }
-          if (!solvedAt) {
-            const hit = lattice(arm.dirX, arm.dirZ, rx, rz);
-            if (hit) { [px, pz] = hit; solvedAt = 3; }
-          }
-          if (!solvedAt) {
-            const hit = lattice(-arm.dirX, -arm.dirZ, -rx, -rz);
-            if (hit) { [px, pz] = hit; solvedAt = 4; }
-          }
+          const [sx, sz, solvedAt] = escapeRibbons(px, pz, arm, rx, rz);
+          px = sx; pz = sz;
           if (!solvedAt) stats.clearanceUnresolved++;
           else {
             stats.clearanceMoved++;
             if (solvedAt >= 3) stats.clearanceFallback++;
           }
+        }
+        // Surface clearance (issue #170): the ribbons end where
+        // the #163 arm strips begin, so a unit can clear every
+        // ribbon and still stand on junction asphalt — the sweep
+        // measured 95 units >= 5 m inside the paved surface, two
+        // of them mid-box. A unit deeper than the graze tolerance
+        // inside the full surface is relocated out (never dropped:
+        // the unit count and kind split are pinned invariants).
+        if (surfDepth(px, pz) > SIGNAL_SURFACE_GRAZE_M) {
+          const [sx, sz, ok] = relocateSurface(px, pz, arm, rx, rz);
+          if (ok) { px = sx; pz = sz; stats.surfaceMoved++; }
+          else stats.surfaceUnresolved++;
         }
         // Mast-arm (T) ONLY on a divided approach (user rule);
         // its arm reaches from the corner pole across the approach
@@ -778,6 +963,202 @@ export function buildJunctionFurniture(roadbeds, junctions) {
       }
     }
   });
+  // ---- furniture discipline pass (issue #170) -------------------
+  // Runs over the placed furniture; the junction surfaces and the
+  // dash suppression map are NOT touched. Planner quads are simple
+  // boundary-ordered loops (rectangles), so pairwise overlap is a
+  // direct Sutherland–Hodgman intersection area — no hull pass
+  // needed (the census's hull step only re-orders the same four
+  // corners). Candidate pairs come from a centre grid with a
+  // circumradius filter: two quads can only overlap when their
+  // centres are within the sum of their circumradii, so the
+  // filter is complete.
+  {
+    const quadPts = (q) => [[q[0], q[1]], [q[2], q[3]], [q[4], q[5]], [q[6], q[7]]];
+    const quadFrame = (q) => {
+      const cx = (q[0] + q[2] + q[4] + q[6]) / 4, cz = (q[1] + q[3] + q[5] + q[7]) / 4;
+      let r = 0;
+      for (let k = 0; k < 8; k += 2) r = Math.max(r, Math.hypot(q[k] - cx, q[k + 1] - cz));
+      return { cx, cz, r };
+    };
+    const polyArea = (p) => {
+      let a = 0;
+      for (let i = 0; i < p.length; i++) {
+        const [x1, y1] = p[i], [x2, y2] = p[(i + 1) % p.length];
+        a += x1 * y2 - x2 * y1;
+      }
+      return a / 2;
+    };
+    const clipArea = (subject, clip) => {
+      if (polyArea(clip) < 0) clip = [...clip].reverse();
+      let out = subject;
+      for (let i = 0; i < clip.length; i++) {
+        const a = clip[i], b = clip[(i + 1) % clip.length];
+        const inp = out; out = [];
+        if (!inp.length) break;
+        const cross = (p) => (b[0] - a[0]) * (p[1] - a[1]) - (b[1] - a[1]) * (p[0] - a[0]);
+        for (let j = 0; j < inp.length; j++) {
+          const cur = inp[j], prv = inp[(j + inp.length - 1) % inp.length];
+          const cc = cross(cur), pc = cross(prv);
+          const inter = () => {
+            const t = pc / (pc - cc);
+            return [prv[0] + (cur[0] - prv[0]) * t, prv[1] + (cur[1] - prv[1]) * t];
+          };
+          if (cc >= -1e-9) { if (pc < -1e-9) out.push(inter()); out.push(cur); }
+          else if (pc >= -1e-9) out.push(inter());
+        }
+      }
+      return Math.abs(polyArea(out));
+    };
+    const coveredPt = (x, z) => insideRibbon(x, z) || surfDepth(x, z) >= 0;
+    const PAIR_CELL = 4;
+    const pairGrid = (frames) => {
+      const grid = new Map();
+      frames.forEach((f, i) => {
+        const k = `${Math.floor(f.cx / PAIR_CELL)},${Math.floor(f.cz / PAIR_CELL)}`;
+        if (!grid.has(k)) grid.set(k, []);
+        grid.get(k).push(i);
+      });
+      return grid;
+    };
+    // Indices in `frames` (indexed in `grid`) whose quad could
+    // overlap the quad framed by f: centre within the summed
+    // circumradii (plus the largest stripe radius the caller
+    // pairs against).
+    const nearIdx = (grid, frames, f, otherR) => {
+      const out = [];
+      const reach = Math.ceil((f.r + otherR) / PAIR_CELL);
+      const gx = Math.floor(f.cx / PAIR_CELL), gz = Math.floor(f.cz / PAIR_CELL);
+      for (let dx = -reach; dx <= reach; dx++) for (let dz = -reach; dz <= reach; dz++) {
+        const cell = grid.get(`${gx + dx},${gz + dz}`);
+        if (!cell) continue;
+        for (const j of cell) {
+          const o = frames[j];
+          const rr = f.r + o.r;
+          const ddx = f.cx - o.cx, ddz = f.cz - o.cz;
+          if (ddx * ddx + ddz * ddz <= rr * rr) out.push(j);
+        }
+      }
+      return out;
+    };
+
+    const sFrames = stripes.map(quadFrame);
+    const stripeR = sFrames.reduce((m, f) => Math.max(m, f.r), 0);
+    const dropCause = new Array(stripes.length).fill(null);
+    // (1) XOFF: stripe centres off the asphalt are culled before
+    // overlap judging, so a stray island crossing cannot outrank
+    // a real one.
+    stripes.forEach((q, i) => {
+      const f = sFrames[i];
+      if (!coveredPt(f.cx, f.cz)) dropCause[i] = 'xoff';
+    });
+    // (2) XOVL: crossings in priority order (arm class rank,
+    // then width, then junction, then placement). `kept` holds
+    // the surviving stripes of the crossings already judged; a
+    // crossing mostly covered by them is suppressed whole,
+    // otherwise only its overlapping stripes are culled.
+    const sGrid = pairGrid(sFrames);
+    const kept = new Set();
+    const order = groups.map((g, gi) => gi).sort((a, b) =>
+      groups[b].rank - groups[a].rank || groups[b].count - groups[a].count
+      || groups[a].ji - groups[b].ji || a - b);
+    for (const gi of order) {
+      const g = groups[gi];
+      const live = [];
+      for (let k = g.start; k < g.start + g.count; k++) if (!dropCause[k]) live.push(k);
+      if (!live.length) continue;
+      const hit = new Set();
+      for (const i of live) {
+        for (const j of nearIdx(sGrid, sFrames, sFrames[i], stripeR)) {
+          if (!kept.has(j)) continue;
+          if (clipArea(quadPts(stripes[i]), quadPts(stripes[j])) > STRIPE_OVERLAP_M2) { hit.add(i); break; }
+        }
+      }
+      if (hit.size / live.length >= XOVL_GROUP_SUPPRESS_SHARE) {
+        for (const i of live) dropCause[i] = 'xovlGroup';
+        stats.xovlGroupsDropped++;
+      } else {
+        for (const i of hit) dropCause[i] = 'xovl';
+        for (const i of live) if (!hit.has(i)) kept.add(i);
+      }
+    }
+    // (3) Rebuild stripes + bands: each surviving crossing keeps
+    // its longest contiguous run of stripes (the band algebra
+    // needs a contiguous run at the original pitch); stripes cut
+    // off by that trim are counted separately from the two cull
+    // classes. The band is rebuilt from the run — first stripe's
+    // low edge, last stripe's high edge — so its corners still
+    // coincide with stripe corners.
+    const nStripes = [], nStripeJunction = [], nBands = [], nBandJunction = [];
+    for (const g of groups) {
+      const liveLocal = [];
+      for (let k = 0; k < g.count; k++) if (!dropCause[g.start + k]) liveLocal.push(k);
+      if (!liveLocal.length) {
+        // A suppressed group was already counted at marking time;
+        // a group that vanished any other way is counted by its
+        // stripes' causes (all-off-asphalt, else overlap-led).
+        let hasXovlGroup = false, allXoff = true;
+        for (let k = 0; k < g.count; k++) {
+          if (dropCause[g.start + k] === 'xovlGroup') hasXovlGroup = true;
+          if (dropCause[g.start + k] !== 'xoff') allXoff = false;
+        }
+        if (!hasXovlGroup) {
+          if (allXoff) stats.xoffGroupsDropped++;
+          else stats.xovlGroupsDropped++;
+        }
+        continue;
+      }
+      let bestS = liveLocal[0], bestE = liveLocal[0], curS = liveLocal[0], curE = liveLocal[0];
+      for (let t = 1; t < liveLocal.length; t++) {
+        if (liveLocal[t] === curE + 1) curE = liveLocal[t];
+        else {
+          if (curE - curS > bestE - bestS) { bestS = curS; bestE = curE; }
+          curS = curE = liveLocal[t];
+        }
+      }
+      if (curE - curS > bestE - bestS) { bestS = curS; bestE = curE; }
+      for (let k = 0; k < g.count; k++) {
+        if (k >= bestS && k <= bestE) continue;
+        if (!dropCause[g.start + k]) stats.trimStripesDropped++;
+      }
+      const first = stripes[g.start + bestS], last = stripes[g.start + bestE];
+      for (let k = bestS; k <= bestE; k++) {
+        nStripes.push(stripes[g.start + k]);
+        nStripeJunction.push(g.ji);
+      }
+      nBands.push({
+        quad: [last[0], last[1], last[2], last[3], first[4], first[5], first[6], first[7]],
+        width: (bestE - bestS) * STRIPE_PITCH + STRIPE_W,
+      });
+      nBandJunction.push(g.ji);
+    }
+    for (const c of dropCause) {
+      if (c === 'xovl' || c === 'xovlGroup') stats.xovlStripesDropped++;
+      else if (c === 'xoff') stats.xoffStripesDropped++;
+    }
+    stripes = nStripes; stripeJunction = nStripeJunction;
+    bands = nBands; bandJunction = nBandJunction;
+    stats.crosswalks = bands.length;
+    // (4) Stop lines yield to stripes: a line centred off the
+    // asphalt, or lying across a surviving zebra, is dropped.
+    // (The dash-suppression zones are arm geometry, computed at
+    // placement — they do not follow the line quad.)
+    const rFrames = stripes.map(quadFrame);
+    const rGrid = pairGrid(rFrames);
+    const nLines = [], nLineJunction = [];
+    stopLines.forEach((q, li) => {
+      const f = quadFrame(q);
+      if (!coveredPt(f.cx, f.cz)) { stats.xoffStopLinesDropped++; return; }
+      let onZebra = false;
+      for (const j of nearIdx(rGrid, rFrames, f, stripeR)) {
+        if (clipArea(quadPts(q), quadPts(stripes[j])) > STRIPE_OVERLAP_M2) { onZebra = true; break; }
+      }
+      if (onZebra) { stats.zebraStopLinesDropped++; return; }
+      nLines.push(q); nLineJunction.push(stopLineJunction[li]);
+    });
+    stopLines = nLines; stopLineJunction = nLineJunction;
+    stats.stopLines = stopLines.length;
+  }
   return { stripes, stopLines, signals, suppress, stats, stripeJunction, stopLineJunction, bands, bandJunction };
 }
 
@@ -787,8 +1168,9 @@ export function buildJunctionFurniture(roadbeds, junctions) {
 // the divider builder (see buildLaneDividers). caps / junctions
 // (issue #66): the boot detects junctions once and shares them —
 // caps default to planJunctionCaps over the detected junctions and
-// are forwarded to the divider builder as occluders. The junction
-// FURNITURE (crosswalks, stop lines) is deliberately NOT cap-
+// are forwarded to the divider builder as occluders and (issue
+// #170) to the furniture builder for its discipline pass. The
+// junction FURNITURE placement itself is deliberately NOT cap-
 // filtered: crosswalks are placed by the same crossHalf arithmetic
 // the caps are built from — at major junctions the #75 box cap
 // reaches past the stop line, so the furniture sits ON its own
@@ -802,7 +1184,7 @@ export function buildRoadMarkings(roadbeds, medianStrips = null, caps = null, ju
   // Issue #163: dashes clip against the caps' full paved
   // surface (ring + arm extension strips), not the ring alone.
   const capPolys = caps.flatMap((c) => capSurfacePolys(c));
-  const furniture = buildJunctionFurniture(roadbeds, junctions);
+  const furniture = buildJunctionFurniture(roadbeds, junctions, caps);
   const dividers = buildLaneDividers(roadbeds, furniture.suppress, medianStrips, capPolys);
   return {
     junctions,
@@ -832,6 +1214,15 @@ export function buildRoadMarkings(roadbeds, medianStrips = null, caps = null, ju
       clearanceMoved: furniture.stats.clearanceMoved,
       clearanceUnresolved: furniture.stats.clearanceUnresolved,
       clearanceFallback: furniture.stats.clearanceFallback,
+      surfaceMoved: furniture.stats.surfaceMoved,
+      surfaceUnresolved: furniture.stats.surfaceUnresolved,
+      xovlGroupsDropped: furniture.stats.xovlGroupsDropped,
+      xovlStripesDropped: furniture.stats.xovlStripesDropped,
+      xoffStripesDropped: furniture.stats.xoffStripesDropped,
+      xoffGroupsDropped: furniture.stats.xoffGroupsDropped,
+      trimStripesDropped: furniture.stats.trimStripesDropped,
+      zebraStopLinesDropped: furniture.stats.zebraStopLinesDropped,
+      xoffStopLinesDropped: furniture.stats.xoffStopLinesDropped,
       skippedArms: furniture.stats.skippedArms,
       ringArmsSkipped: furniture.stats.ringArmsSkipped,
       deckArmsSkipped: furniture.stats.deckArmsSkipped,
