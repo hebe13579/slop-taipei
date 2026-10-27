@@ -2792,8 +2792,15 @@ export function planTaipeiBuildings(geodata) {
 // around Taipei Main Station (Shin Kong, Asiaworld, the 館前/忠孝西路
 // office stock). Exported so the taipei suite can pin the boundary.
 const [STATION_FRONT_X, STATION_FRONT_Z] = latLonToTile(25.0478, 121.5170, [25.0330, 121.5650]);
+// The Xinyi planning district rectangle on its own: issue #142
+// scopes its white-tower revision to the district alone, NOT to
+// the station-front band — officeCoreFor below is the union of
+// the two, and the #136 hold survives in the station half.
+export function xinyiDistrictFor(lot) {
+  return lot.x >= -450 && lot.x <= 1000 && lot.z >= -1000 && lot.z <= 170;
+}
 export function officeCoreFor(lot) {
-  if (lot.x >= -450 && lot.x <= 1000 && lot.z >= -1000 && lot.z <= 170) return true; // Xinyi planning district
+  if (xinyiDistrictFor(lot)) return true; // Xinyi planning district
   return Math.hypot(lot.x - STATION_FRONT_X, lot.z - STATION_FRONT_Z) < 700; // station front
 }
 
@@ -2818,21 +2825,24 @@ export function officeCoreFor(lot) {
 // (7,988 of 34,645 lots) — dark glass canyons where real Taipei's tall
 // RESIDENTIAL stock is tile/concrete in red/pink/white/beige. Inside
 // the cores the rules below are the pre-#136 ones verbatim (Xinyi
-// stays a glass district); outside them, lots of 40 m or more wear
+// stays a glass district — until issue #142, see below); outside
+// them, lots of 40 m or more wear
 // the Taiwan tile types (tallTaiwanTypeFor) with only a small glass
 // accent, and the 22–40 m glass share drops from a half to a fifth.
+// Issue #142 revises the Xinyi half of that core rule afterwards:
+// see xinyiGlassOrLight below.
 function facadeMatFor(lot) {
   const seed = (Math.imul(Math.round(lot.x * 10), 73856093) ^ Math.imul(Math.round(lot.z * 10), 19349663) ^ 0x101) | 0;
   const r = hash01(seed);
   const core = officeCoreFor(lot);
   if (lot.h >= 40) {
-    if (core) return [3, 4, 5][Math.floor(r * 3) % 3];
+    if (core) return xinyiGlassOrLight(lot, seed, [3, 4, 5][Math.floor(r * 3) % 3]);
     if (r < 0.12) { const u = r / 0.12; return [3, 4, 5][Math.floor(u * 3) % 3]; } // glass accent: the curtain-wall 豪宅 minority
     return tallTaiwanTypeFor(lot, seed);
   }
   if (lot.h >= 22) {
     if (core) {
-      if (r < 0.5) return [3, 4, 5][Math.floor(r * 6) % 3]; // glass half, unchanged
+      if (r < 0.5) return xinyiGlassOrLight(lot, seed, [3, 4, 5][Math.floor(r * 6) % 3]); // glass half (issue #142 may trade tall Xinyi glass for light)
       const u = (r - 0.5) * 2; // masonry half, rescaled to 0..1
       if (u < 0.75) return taiwanTypeFor(lot, seed);
       const v = (u - 0.75) * 4;
@@ -2853,6 +2863,50 @@ function facadeMatFor(lot) {
   }
   if (lot.h >= 12) return r < 0.1 ? 3 : [0, 1, 2][Math.floor(r * 3) % 3];
   return [0, 1, 2][Math.floor(r * 3) % 3];
+}
+
+// Issue #142: the user, looking at the #136 result, asked for MORE
+// WHITE tall buildings in Xinyi — the one district #136 held glass
+// exactly. Reality backs a mix there: the planning district pairs
+// its dark curtain-glass landmarks (Taipei 101, Nan Shan — registry
+// structures, not plan lots, so this rule can never touch them)
+// with many light stone/white towers — the residential slabs south
+// of Zhuangjing Rd and the pale office slabs along Keelung Rd and
+// Songgao Rd. So inside the district rectangle ONLY, a tall glass
+// lot (>= 30 m) trades its glass for a white/light Taiwan family on
+// a seeded coin flip: XINYI_WHITE_SHARE of them convert. At 0.5 the
+// >= 40 m band goes from 100% glass to about half, and the district
+// keeps a real dark-glass minority — it still carries far more
+// glass than anywhere else in the tile, so it keeps reading as the
+// office core, just no longer as a dark monoculture. Deterministic
+// from the lot's own seed, like every other facade rule: the same
+// lot converts (or not) on every build. The station-front band is
+// NOT in scope — its lots fail the xinyiDistrictFor test and keep
+// the #136 hold verbatim, as does every lot under 30 m.
+const XINYI_WHITE_SHARE = 0.5;
+function xinyiGlassOrLight(lot, seed, glassMat) {
+  if (lot.h < 30 || !xinyiDistrictFor(lot)) return glassMat;
+  if (hash01(seed ^ 0x1420) >= XINYI_WHITE_SHARE) return glassMat;
+  return xinyiLightTypeFor(lot, seed);
+}
+
+// The light pick for a converted Xinyi tower: the white/cream tile
+// shophouse (6 — its palette is four warm whites and creams) and
+// the pebble-dash (9 — four pale stone greys, the light-stone slab
+// read) split the conversions evenly; the walk-up slab (8) takes a
+// minority share — its palette carries the warm white 0xe6dcc9
+// beside the beige anchor, and the district's south strip is
+// residential slabs in reality. Family 7 stays out: the arcade
+// colonnade is a street-wall ground floor, not a tower language.
+function xinyiLightTypeFor(lot, seed) {
+  const weights = [[6, 3.0], [9, 3.0], [8, 1.5]];
+  const total = weights.reduce((s, [, w]) => s + w, 0);
+  let pick = hash01(seed ^ 0x1421) * total;
+  for (const [mat, w] of weights) {
+    if (pick < w) return mat;
+    pick -= w;
+  }
+  return 6;
 }
 
 // The tall-residential pick (issue #136): a lot of 40 m or more

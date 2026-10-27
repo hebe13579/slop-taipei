@@ -13,7 +13,7 @@ import {
 } from '../js/taipei-adapter.js';
 import { TAIPEI_TILE } from '../js/taipei-tile.js';
 import { TILE_REGISTRY, tileIdFromSearch, loadSelectedTile } from '../js/tile-registry.js';
-import { planTaipeiBuildings, taipeiCityBlocksOptions, pointInRing, latLonToTile, clampTaipeiRooftopGear, taipeiArcadeParts, taipeiVerticalSigns, taipeiRooftopAdditions, TAIPEI_ARCADE_DEPTH, taipei101OrnamentPositions, taipeiLandmarkStructures, officeCoreFor } from '../js/taipei-buildings.js';
+import { planTaipeiBuildings, taipeiCityBlocksOptions, pointInRing, latLonToTile, clampTaipeiRooftopGear, taipeiArcadeParts, taipeiVerticalSigns, taipeiRooftopAdditions, TAIPEI_ARCADE_DEPTH, taipei101OrnamentPositions, taipeiLandmarkStructures, officeCoreFor, xinyiDistrictFor } from '../js/taipei-buildings.js';
 
 // M1 foundation: the Taipei tile's adapter, road graph, teleports and tile
 // registry. Numbers printed via t.diagnostic are the actual generated values.
@@ -884,10 +884,21 @@ test('buildings options: plan faithfully adapted for the upstream building syste
   // curtain glass (3-5) — the pre-#136 rule, verbatim — while outside
   // them tall lots are residential and wear the Taiwan tile types,
   // with only the small glass accent the rule allows.
+  // Issue #142 revises the Xinyi half of the core rule: inside the
+  // district rectangle, tall glass lots (>= 30 m) may trade glass for
+  // the white/light families 6/8/9 (about half convert), so the
+  // all-glass invariant now binds the station-front core alone, and
+  // the district gets its own two-sided pin below.
   const core = opts.lots.filter((l) => l.h >= 40);
   assert.ok(core.length > 0 && core.every((l) => l.mat >= 3), 'tall lots are glass or Taiwan tile, never low masonry');
   const tallInCore = opts.lots.filter((l, i) => l.h >= 40 && officeCoreFor(plan.lots[i]));
-  assert.ok(tallInCore.length > 0 && tallInCore.every((l) => l.mat >= 3 && l.mat <= 5), 'tall lots inside the office cores are all curtain glass');
+  assert.ok(tallInCore.length > 0 && tallInCore.every((l) => l.mat >= 3), 'tall lots inside the office cores are glass or the #142 light families, never masonry/arcade');
+  const tallStation = opts.lots.filter((l, i) => l.h >= 40 && officeCoreFor(plan.lots[i]) && !xinyiDistrictFor(plan.lots[i]));
+  assert.ok(tallStation.length > 0 && tallStation.every((l) => l.mat >= 3 && l.mat <= 5), 'tall lots inside the station-front core are all curtain glass (#136 hold, #142 out of scope)');
+  const tallXinyi = opts.lots.filter((l, i) => l.h >= 40 && xinyiDistrictFor(plan.lots[i]));
+  const tallXinyiGlass = tallXinyi.filter((l) => l.mat >= 3 && l.mat <= 5).length;
+  assert.ok(tallXinyi.length > 0 && tallXinyi.every((l) => (l.mat >= 3 && l.mat <= 5) || l.mat === 6 || l.mat === 8 || l.mat === 9), 'tall Xinyi lots are glass or the #142 light families 6/8/9');
+  assert.ok(tallXinyiGlass / tallXinyi.length > 0.4 && tallXinyiGlass / tallXinyi.length < 0.6, `Xinyi tall glass is a real minority, about half (${tallXinyiGlass}/${tallXinyi.length})`);
   const tallOutCore = opts.lots.filter((l, i) => l.h >= 40 && !officeCoreFor(plan.lots[i]));
   const tallOutGlass = tallOutCore.filter((l) => l.mat >= 3 && l.mat <= 5).length;
   assert.ok(tallOutCore.length > 0 && tallOutGlass / tallOutCore.length < 0.25, `tall residential lots are mostly Taiwan tile (${tallOutGlass}/${tallOutCore.length} glass accent)`);
@@ -907,7 +918,10 @@ test('buildings options: plan faithfully adapted for the upstream building syste
 // a core invariant — no Taiwan lot of 40 m or more stands inside a
 // core, and inside the cores every tall lot stays glass (pinned in
 // the options test above). The classic-band caps in taiwanTypeFor
-// are unchanged.
+// are unchanged. Issue #142 then plants the one deliberate
+// exception: converted Xinyi towers (families 6/8/9, >= 30 m) inside
+// the district rectangle — the invariant below is re-based to
+// "inside a core only via #142, and never family 7".
 test('taiwan types: family zoning, distribution and rooftop clamp', (t) => {
   const plan = planTaipeiBuildings(TAIPEI_GEO);
   const opts = taipeiCityBlocksOptions(TAIPEI_GEO, plan);
@@ -916,7 +930,11 @@ test('taiwan types: family zoning, distribution and rooftop clamp', (t) => {
   assert.ok(taiwan.every((l) => l.h >= 15), 'Taiwan types only on 15 m+ lots');
   const tallTaiwan = opts.lots.map((l, i) => [l, i]).filter(([l]) => l.mat >= 6 && l.h >= 40);
   assert.ok(tallTaiwan.length > 1000, `the #136 tall-residential set is planted (${tallTaiwan.length} lots)`);
-  assert.ok(tallTaiwan.every(([, i]) => !officeCoreFor(plan.lots[i])), 'no tall Taiwan lot inside an office core');
+  // Issue #142: the only tall Taiwan lots inside a core are the
+  // Xinyi conversions — inside the district rectangle, families
+  // 6/8/9 only (never the arcade family 7).
+  assert.ok(tallTaiwan.every(([, i]) => !officeCoreFor(plan.lots[i]) || xinyiDistrictFor(plan.lots[i])), 'no tall Taiwan lot inside an office core except the #142 Xinyi conversions');
+  assert.ok(tallTaiwan.every(([l, i]) => !officeCoreFor(plan.lots[i]) || l.mat !== 7), 'no arcade-family tall lot inside an office core');
   // Per-type bands: 6 tile shophouse 15-40, 7 arcade < 36, 8 walk-up
   // < 36, 9 pebble-dash 15-40 — and every type is planted in real
   // numbers. Issue #55 raised the F7 cap 28 → 36 and the F8 cap 30 → 36
@@ -1092,7 +1110,19 @@ test('taiwan types: family zoning, distribution and rooftop clamp', (t) => {
   // 4,348 - 47 - 6 = 4,295.
   // Merged tree (#135 composed with #144): the two sites are
   // independent — glass 4,344 - 53 = 4,291.
-  assert.equal(glass, 4291, 'glass family counts after #136 + #139 + #135, composed with #134 + #137 and #144');
+  // Issue #142 (Xinyi white), measured on this tree by lot-by-lot
+  // diff against the pre-#142 plan (plan byte-identical — same
+  // 38,340 lots, same heights; families only): inside the Xinyi
+  // district rectangle, 171 of the 329 tall glass lots (>= 30 m)
+  // convert to the white/light families on the seeded half-share
+  // (glass F3 -63, F4 -49, F5 -59; F6 +68, F8 +40, F9 +63), so the
+  // rectangle's >= 30 m glass goes 329 -> 158 and its >= 40 m band
+  // 276 -> 136. Every other lot's family is unchanged — the
+  // station-front band's hold is byte-identical, registry towers
+  // are not plan lots and cannot convert: glass 4,291 - 171 =
+  // 4,120. District before/after counts live in
+  // xinyiwhite-evidence/.
+  assert.equal(glass, 4120, 'glass family counts after #136 + #139 + #135 + #142, composed with #134 + #137 and #144');
   const masonry = opts.lots.filter((l) => l.mat <= 2).length;
   // Range re-based for issue #65: the exact ribbon exclusion removed
   // ~4,400 masonry lots that stood on ribbons or in medians; masonry
