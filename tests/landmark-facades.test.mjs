@@ -55,6 +55,15 @@ const EXPECTED_FACADES = {
   'shin-kong-mitsukoshi-a8': 'prewar', // beige stone cladding
   'shin-kong-mitsukoshi-a9': 'prewar', // light stone cladding
   'shin-kong-mitsukoshi-a11': 'prewar', // cream stone cladding
+  // Batch 9 (issue #166): the Tianmu/Beitou five — department
+  // store, stadium and three school campuses are all masonry
+  // masses, so all five take the prewar grid (the stadium's and
+  // the Red Building's coloured parts are flat overrides).
+  'dayeh-takashimaya': 'prewar',
+  'tianmu-stadium': 'prewar',
+  'shipai-junior-high': 'prewar',
+  'qingjiang-elementary': 'prewar',
+  'jianguo-high-school': 'prewar',
 };
 
 // The only Latin wordmarks a landmark sign may carry — the ones the

@@ -584,6 +584,19 @@ test('landmark structures: true positions and heights, sites kept clear', (t) =>
     'shin-kong-mitsukoshi-a8': { h: 38.5, x: 181.7, z: -584.0 },
     'shin-kong-mitsukoshi-a9': { h: 49.5, x: 168.9, z: -403.3 },
     'shin-kong-mitsukoshi-a11': { h: 33, x: 227.6, z: -403.3 },
+    // Batch 9 (issue #166, Tianmu/Beitou): positions are the
+    // measured siting anchors (Takashimaya: OSM relation 6821492
+    // outline centre; the stadium: its OSM grounds/structure
+    // centre with the bowl modelled complete across the corridor
+    // edge — see the issue; the schools: their campus centres).
+    // All five heights are estimates (floors × 3.6 m; Takashimaya
+    // 12F published but no metric height; the stadium's 30 m is
+    // its light towers) — flagged estimated in the registry.
+    'dayeh-takashimaya': { h: 47, x: -3363, z: -8726 },
+    'tianmu-stadium': { h: 30, x: -3215, z: -8933 },
+    'shipai-junior-high': { h: 14.4, x: -5187, z: -9183 },
+    'qingjiang-elementary': { h: 14.4, x: -5848, z: -10352 },
+    'jianguo-high-school': { h: 25.2, x: -5288, z: 299 },
   };
   assert.equal(plan.landmarkTowers.length, Object.keys(expected).length, 'all verified structures present');
   const partTop = (p) => (p.y0 || 0) + p.h + (p.type === 'ridge' ? p.ridgeH : 0);
@@ -719,12 +732,19 @@ test('landmark batch 3: two-slab Cathay rebuild, W, Songshan, Eslite, Arena', ()
     // halls: floor-count estimates (zh-Wikipedia floors x 5.5 m),
     // no published metres — the Four Seasons (RSHP 180 m) and
     // Farglory (208.3 m) heights in the same batch ARE published
-    // and stay unflagged.
+    // and stay unflagged. Batch 9 (issue #166) adds five more:
+    // Takashimaya's 47 m (12F published, no metric height), the
+    // stadium's 30 m light towers, and the three school campuses
+    // (floors × 3.6 m from OSM levels where tagged, estimated
+    // elsewhere).
     if (s.id !== 'eslite-spectrum-songyan' && s.id !== 'taipei-arena'
       && s.id !== 'national-concert-hall' && s.id !== 'national-theater'
       && s.id !== 'beimen'
       && s.id !== 'shin-kong-mitsukoshi-a4' && s.id !== 'shin-kong-mitsukoshi-a8'
-      && s.id !== 'shin-kong-mitsukoshi-a9' && s.id !== 'shin-kong-mitsukoshi-a11') {
+      && s.id !== 'shin-kong-mitsukoshi-a9' && s.id !== 'shin-kong-mitsukoshi-a11'
+      && s.id !== 'dayeh-takashimaya' && s.id !== 'tianmu-stadium'
+      && s.id !== 'shipai-junior-high' && s.id !== 'qingjiang-elementary'
+      && s.id !== 'jianguo-high-school') {
       assert.equal(s.estimated, false, `${s.id} height is published, not estimated`);
     }
   }
@@ -1160,7 +1180,13 @@ test('taiwan types: family zoning, distribution and rooftop clamp', (t) => {
   // core/height rules assign it — glass 4,109 -> 7,834. The
   // palette rules are unedited; the census moves because the
   // plan does.
-  assert.equal(glass, 7834, 'glass family counts after #136 + #139 + #135 + #142, composed with #134 + #137, #144, #165 and #124');
+  // Issue #166 (Tianmu/Beitou batch), measured on the merged
+  // tree by lot-by-lot diff of the options lots against the
+  // same plan without the five new registry entries: the sites
+  // exclude 141 fine lots (masonry -92, Taiwan -44, glass -5)
+  // and 16 kept lots re-roll family (glass -> masonry 1,
+  // masonry -> glass 1, net 0): glass 7,834 - 5 = 7,829.
+  assert.equal(glass, 7829, 'glass family counts after #136 + #139 + #135 + #142, composed with #134 + #137, #144, #165, #124 and #166');
   const masonry = opts.lots.filter((l) => l.mat <= 2).length;
   // Range re-based for issue #65: the exact ribbon exclusion removed
   // ~4,400 masonry lots that stood on ribbons or in medians; masonry
@@ -1285,11 +1311,14 @@ test('arcade parts: recessed core and full-perimeter colonnade', (t) => {
   // inset core would vanish) and keep the flat F7 facade. What the
   // gate passes, the arcade still covers completely: every one of
   // the 2,977 size-eligible F7 lots carries its arcade.
+  // Issue #166: the five Tianmu/Beitou sites remove 11 F7 lots
+  // (net of the family re-rolls, diffed lot by lot on the
+  // merged tree) — 6,444.
   const opts = taipeiCityBlocksOptions(TAIPEI_GEO, planTaipeiBuildings(TAIPEI_GEO));
   const f7 = opts.lots.filter((l) => l.mat === 7);
   const withArcade = f7.filter((l) => l.arcade);
   const eligible = f7.filter((l) => (l.x1 - l.x0) >= 11 && (l.z1 - l.z0) >= 11);
-  assert.equal(f7.length, 6455, 'F7 census after #124');
+  assert.equal(f7.length, 6444, 'F7 census after #124, composed with #166');
   assert.equal(withArcade.length, eligible.length, `every size-eligible F7 lot carries the arcade (${withArcade.length}/${eligible.length})`);
   const totalCols = withArcade.reduce((s, l) => s + l.arcade.columns.length, 0);
   assert.ok(totalCols / withArcade.length < 30, `columns per arcade lot sane (${(totalCols / withArcade.length).toFixed(1)})`);
