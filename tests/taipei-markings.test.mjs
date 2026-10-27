@@ -672,6 +672,48 @@ test('dash x furniture (issue #182): the real tile paints no dash over a zebra',
   assert.equal(crossSegs, 0, `strip segments crossing furniture (${crossSegs})`);
 });
 
+test('stop line x band (issue #190): the real tile paints no stop line over a zebra band', () => {
+  const r = buildRoadMarkings(TAIPEI_GEO.roadbeds);
+  // Issue #190: step (4) judged stop lines against stripes only,
+  // but the renderer paints the BAND quads — a diagonal stop line
+  // crosses a band in slices, each stripe slice under the
+  // threshold (type specimen: 0.204 m2 worst stripe slice, yet
+  // 1.260 m2 of the band covered), so it survived and painted a
+  // bar across the zebra. Census before the fix (furniture
+  // output): 90 stop x band pairs over 0.005 m2, 92.23 m2 total,
+  // 87 stop lines at 68 junctions, all same-junction. The band
+  // judgement at the same STRIPE_OVERLAP_M2 threshold culls
+  // exactly 68 stop lines on this path (1,629 -> 1,561); the
+  // old-vs-new audit (dump in the #190 evidence) shows dashes,
+  // dash strips, stripes, bands and signals byte-identical and
+  // every surviving stop line a strict subsequence of before.
+  assert.equal(r.stats.bandStopLinesDropped, 68, `stop lines culled at bands (${r.stats.bandStopLinesDropped})`);
+  assert.equal(r.stats.stopLines, 1561, `stop lines ${r.stats.stopLines}`);
+  const bandPolys = r.bands.map((b) => quadPtsOf(b.quad));
+  const CELL = 25;
+  const grid = new Map();
+  bandPolys.forEach((poly, i) => {
+    const xs = poly.map((p) => p[0]), zs = poly.map((p) => p[1]);
+    for (let gx = Math.floor(Math.min(...xs) / CELL); gx <= Math.floor(Math.max(...xs) / CELL); gx++)
+      for (let gz = Math.floor(Math.min(...zs) / CELL); gz <= Math.floor(Math.max(...zs) / CELL); gz++) {
+        const k = `${gx},${gz}`; if (!grid.has(k)) grid.set(k, []); grid.get(k).push(i);
+      }
+  });
+  let worst = 0;
+  for (const q of r.stopLines) {
+    const P = quadPtsOf(q);
+    const xs = P.map((p) => p[0]), zs = P.map((p) => p[1]);
+    const seen = new Set();
+    for (let gx = Math.floor(Math.min(...xs) / CELL); gx <= Math.floor(Math.max(...xs) / CELL); gx++)
+      for (let gz = Math.floor(Math.min(...zs) / CELL); gz <= Math.floor(Math.max(...zs) / CELL); gz++)
+        for (const i of grid.get(`${gx},${gz}`) || []) {
+          if (seen.has(i)) continue; seen.add(i);
+          const a = furnClipArea(P, bandPolys[i]); if (a > worst) worst = a;
+        }
+  }
+  assert.ok(worst <= markings.STRIPE_OVERLAP_M2, `worst surviving stop line x band overlap ${worst} m2`);
+});
+
 test('roundabout occluders (issue #173): helper clips wedge greens to the disc', async () => {
   const { roundaboutDashOccluders, ringPoints } = await import('../js/taipei-junctions.js');
   // Square disc 100x100 centred on the origin; a green square
