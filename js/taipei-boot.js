@@ -11,6 +11,7 @@ import { planJunctionCaps, planRoundabouts, ringPoints, capSurfacePolys, capClip
 import { buildDeckGeometry, groundContactPolys, portalTrenchSlots, diveAdjustedPiers, PIER_W, PIER_D } from './taipei-viaduct.js';
 import { ribbonsQuads, jointFramesFor } from './taipei-ribbons.js';
 import { buildMrtStationGeometry, buildMrtDepotGeometry } from './taipei-mrt-stations.js';
+import { buildBridgeGeometry } from './taipei-bridges.js';
 import { buildTerrainSkinGeometry } from './taipei-terrain.js';
 import { buildGreenTintLayers, GREEN_TINT_Y } from './taipei-green.js';
 import { unionExclusionRects, clipRectToBoxes } from './taipei-union.js';
@@ -246,6 +247,25 @@ function buildMrtStationMesh(stations) {
   mesh.name = 'TaipeiMrtStations';
   mesh.castShadow = true;
   mesh.receiveShadow = true;
+  return mesh;
+}
+
+// Signature bridges (issue #151): one merged vertex-coloured mesh
+// for the five crossings' signature structures. The geometry
+// builder is pure (js/taipei-bridges.js); anchors snap onto the
+// drawn deck centrelines in geodata.elevatedRoads at build time.
+function buildBridgeMesh(geo) {
+  const g = buildBridgeGeometry(geo);
+  if (!g.triCount) return null;
+  const bgeo = new THREE.BufferGeometry();
+  bgeo.setAttribute('position', new THREE.BufferAttribute(g.positions, 3));
+  bgeo.setAttribute('normal', new THREE.BufferAttribute(g.normals, 3));
+  bgeo.setAttribute('color', new THREE.BufferAttribute(g.colors, 3));
+  const mesh = new THREE.Mesh(bgeo, new THREE.MeshStandardNodeMaterial({ vertexColors: true, roughness: 0.9, metalness: 0.0 }));
+  mesh.name = 'TaipeiBridges';
+  mesh.castShadow = true;
+  mesh.receiveShadow = true;
+  mesh.userData.bridges = g.bridges.map((b) => b.id);
   return mesh;
 }
 
@@ -1090,6 +1110,8 @@ export async function buildTaipeiGround(scene, tile, deps = {}) {
     if (stationMesh) group.add(stationMesh);
     const depotMesh = buildMrtDepotMesh(geo.mrtDepot);
     if (depotMesh) group.add(depotMesh);
+    const bridgeMesh = buildBridgeMesh(geo);
+    if (bridgeMesh) group.add(bridgeMesh);
     mrtDetail = `, MRT ${geo.mrtDecks.lines.length} lines + ${(geo.mrtStations || []).length} stations`;
     console.info(`[taipei-mrt] ${mrtGeo.lineCount} deck lines (${geo.mrtDecks.stats?.lineKm ?? '?'} km), ${mrtGeo.pierCount} piers, ${(geo.mrtStations || []).length} stations${geo.mrtDepot ? ', Beitou depot' : ''}`);
   }
