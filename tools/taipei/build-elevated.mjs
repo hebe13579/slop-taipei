@@ -52,7 +52,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { ribbonPoly, buildPolyGrid, pointInAnyPoly, pointInPoly } from '../../js/taipei-painted.js';
-import { buildMedianStrips } from '../../js/taipei-surfaces.js';
+import { buildMedianStrips, medianKind, medianStripWidth } from '../../js/taipei-surfaces.js';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 
@@ -389,9 +389,11 @@ function buildDeckSet(ways, roadbeds, lots, stats) {
   };
   // Rejection geometry: ground carriageway ribbons (deck beds exempt
   // — a pier stands under its own deck, often inside its own bed's
-  // ribbon) and planned building lots. Two exemptions, detailed at
-  // pierPasses below: median strips, and streets running parallel
-  // under the deck. (Strips are built without junction caps here, so
+  // ribbon) and planned building lots. Two exemptions in pierPasses
+  // below: median strips, and streets running parallel under the
+  // deck; plus one last-resort rescue in the emit loop for a pier
+  // standing in its own street's median island inside a junction
+  // (issue #192). (Strips are built without junction caps here, so
   // the median exemption is a hair generous at junction corners —
   // where median piers also occur in reality.)
   const groundBeds = (roadbeds || []).filter((b) => !b.deck);
@@ -403,6 +405,55 @@ function buildDeckSet(ways, roadbeds, lots, stats) {
   // (the pier island) where a minor street passes underneath.
   const medianPolys = [...medians.plain, ...medians.planted, ...medians.deckBands].map((quad) => [[quad[0], quad[1]], [quad[2], quad[3]], [quad[4], quad[5]], [quad[6], quad[7]]]);
   const medianGrid = buildPolyGrid(medianPolys);
+  // Median island, pre-#178 reading (issue #192): the same strips
+  // built WITHOUT the minor-cross termination (see the option in
+  // buildMedianStrips). Consulted ONLY by the emit loop's
+  // last-resort rescue below — never by pierPasses, whose median
+  // test keeps the painted strips, so any pier the slide can move
+  // to a junction corner still slides exactly as before.
+  const islandMedians = buildMedianStrips(roadbeds || [], null, { minorCrossBreaks: false });
+  const islandStripPolys = [...islandMedians.plain, ...islandMedians.planted, ...islandMedians.deckBands].map((quad) => [[quad[0], quad[1]], [quad[2], quad[3]], [quad[4], quad[5]], [quad[6], quad[7]]]);
+  const islandStripGrid = buildPolyGrid(islandStripPolys);
+  // The rescue ALSO requires the pier to stand in the island of a
+  // street running parallel to it — its own street's median, not a
+  // crossing street's. That half reads the median-eligible beds'
+  // CENTRELINES directly: within the bed's strip half-width of the
+  // centreline, bed direction parallel to the pier (|cos| > 0.9,
+  // the bedParallelNear threshold). Any level, like the bands:
+  // deck beds are median-eligible too (their bands are the
+  // deckBands). Segments are filed under 25 m cells (bbox grown by
+  // 2 m, more than the widest strip half-width of 1.75 m), so the
+  // pier's own cell lists every segment that could pass it.
+  const islandSegs = [];
+  const islandGrid = new Map();
+  for (const bed of roadbeds || []) {
+    if (!medianKind(bed)) continue;
+    const half = medianStripWidth(bed) / 2;
+    const pts = bed.pts || [];
+    for (let i = 0; i + 3 < pts.length; i += 2) {
+      const seg = { ax: pts[i], az: pts[i + 1], bx: pts[i + 2], bz: pts[i + 3], half };
+      const idx = islandSegs.length;
+      islandSegs.push(seg);
+      const x0 = Math.floor((Math.min(seg.ax, seg.bx) - 2) / 25), x1 = Math.floor((Math.max(seg.ax, seg.bx) + 2) / 25);
+      const z0 = Math.floor((Math.min(seg.az, seg.bz) - 2) / 25), z1 = Math.floor((Math.max(seg.az, seg.bz) + 2) / 25);
+      for (let cx = x0; cx <= x1; cx++) for (let cz = z0; cz <= z1; cz++) {
+        const k = `${cx},${cz}`;
+        if (!islandGrid.has(k)) islandGrid.set(k, []);
+        islandGrid.get(k).push(idx);
+      }
+    }
+  }
+  const inMedianIsland = (p) => {
+    for (const si of islandGrid.get(`${Math.floor(p.x / 25)},${Math.floor(p.z / 25)}`) || []) {
+      const s = islandSegs[si];
+      const dx = s.bx - s.ax, dz = s.bz - s.az, L2 = dx * dx + dz * dz || 1e-9;
+      let t = ((p.x - s.ax) * dx + (p.z - s.az) * dz) / L2;
+      t = Math.max(0, Math.min(1, t));
+      if (Math.hypot(s.ax + t * dx - p.x, s.az + t * dz - p.z) > s.half) continue;
+      if (Math.abs(Math.cos(Math.atan2(dx, dz) - p.yaw)) > 0.9) return true;
+    }
+    return false;
+  };
   const lotGrid = new Map();
   for (const lot of lots || []) {
     const k = `${Math.floor(lot.x / 50)},${Math.floor(lot.z / 50)}`;
@@ -455,6 +506,30 @@ function buildDeckSet(ways, roadbeds, lots, stats) {
   // leaving a long unsupported span. Twin piers dedupe: the twin
   // carriageway's own candidate resolving to (nearly) the same
   // midpoint is consumed, not double-drawn.
+  // Median-island rescue (issue #192), applied only when the whole
+  // slide loop failed to place the candidate. The Wenhu pier at
+  // Fuxing x Renai (-2150.2, -528.3) stands in the Fuxing median
+  // island THROUGH the junction, as in reality (pinned as the sole
+  // legitimate crossing pier in tests/taipei-mrt.test.mjs). The
+  // #178 minor-cross termination breaks the Fuxing strip where the
+  // 6.4 m Renai-3 carriageway crosses it, so the painted-strip
+  // median test in pierPasses no longer exempts the pier at any
+  // slide offset whose landing stays in the junction, and the
+  // candidate is dropped (its -10 slide is even "consumed" by the
+  // neighbouring pier). The rescue places it at its sampled
+  // position when ALL of these hold: the position is not in a lot;
+  // it stands in a parallel street's median corridor
+  // (inMedianIsland); the pre-#178 strips cover it (the island is
+  // really there — the #173 centre + edge probes still apply, so a
+  // pier whose strip broke under the older wide-crossing rules
+  // stays dropped, as eleven road-deck candidates at wide arterial
+  // junctions do); and it is not a twin duplicate of an
+  // already-emitted pier (the 14 m dedupe radius, re-checked at
+  // its own position — the pier that "consumed" the Fuxing
+  // candidate mid-loop stands 22 m away and is a different pier;
+  // its twin sibling, resolving to the same midpoint, stays
+  // consumed). A candidate the slide COULD save is never rescued:
+  // it slides, exactly as before.
   const piers = [];
   const emittedTwin = [];
   for (const c of candidates) {
@@ -468,7 +543,15 @@ function buildDeckSet(ways, roadbeds, lots, stats) {
       if (ds !== 0) stats.piersSlid++;
       break;
     }
-    if (consumed) continue;
+    if (!placed) {
+      const p0 = resolvePier(c, 0);
+      if (p0 && !inLot(p0.x, p0.z) && inMedianIsland(p0)
+        && pointInAnyPoly(islandStripGrid, islandStripPolys, [p0.x, p0.z])
+        && !(p0.twin && emittedTwin.some((e) => Math.hypot(e.x - p0.x, e.z - p0.z) < 14))) {
+        placed = p0;
+      }
+    }
+    if (consumed && !placed) continue;
     if (!placed) {
       const p0 = resolvePier(c, 0);
       if (p0 && inLot(p0.x, p0.z)) stats.piersRejectedLot++; else stats.piersRejectedRoad++;

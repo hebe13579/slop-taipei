@@ -162,7 +162,18 @@ const ptsOf = (b) => {
 // before (the foreign/minor/deck grids are built from all beds,
 // untouched); only its ground emission stops, so every ground bed's
 // quads are byte-identical to the pre-fix build.
-export function buildMedianStrips(roadbeds, capPolys = null) {
+//
+// Option { minorCrossBreaks: false } (issue #192): skip the #178
+// minor-cross termination, keeping every other rule (the #173
+// centre + edge foreign probes included). The minor-cross rule is
+// a PAINT rule — a median strip should not be drawn stubbing across
+// a side street — but the island itself does not end where a minor
+// street crosses it, and the pier pass's last-resort rescue (see
+// build-elevated) asks exactly that question: would this bed's
+// strip cover the point if the paint rule did not terminate it?
+// Default true: every existing caller (renderer, pier pass median
+// test, tests) sees byte-identical output.
+export function buildMedianStrips(roadbeds, capPolys = null, { minorCrossBreaks = true } = {}) {
   const capGrid = capPolys ? buildPolyGrid(capPolys) : null;
   const capBlocked = (p) => pointInAnyPoly(capGrid, capPolys, p);
   const polys = roadbeds.map(ribbonPoly);
@@ -279,7 +290,7 @@ export function buildMedianStrips(roadbeds, capPolys = null) {
         foreignBlocked(p, selfIdx, selfWays) ||
         foreignBlocked([p[0] + nx * half, p[1] + nz * half], selfIdx, selfWays) ||
         foreignBlocked([p[0] - nx * half, p[1] - nz * half], selfIdx, selfWays) ||
-        minorCrossBlocked(p, nx, nz, half, selfIdx, selfWays) ||
+        (minorCrossBreaks && minorCrossBlocked(p, nx, nz, half, selfIdx, selfWays)) ||
         capBlocked(p) ||
         capBlocked([p[0] + nx * half, p[1] + nz * half]) ||
         capBlocked([p[0] - nx * half, p[1] - nz * half]);
@@ -293,7 +304,7 @@ export function buildMedianStrips(roadbeds, capPolys = null) {
       const mnx = f0.nx + f1.nx, mnz = f0.nz + f1.nz;
       const mnl = Math.hypot(mnx, mnz) || 1;
       if (foreignBlocked(mid, selfIdx, selfWays) || capBlocked(mid)
-        || minorCrossBlocked(mid, mnx / mnl, mnz / mnl, half, selfIdx, selfWays)
+        || (minorCrossBreaks && minorCrossBlocked(mid, mnx / mnl, mnz / mnl, half, selfIdx, selfWays))
         || capBlocked([mid[0] + (mnx / mnl) * half, mid[1] + (mnz / mnl) * half])
         || capBlocked([mid[0] - (mnx / mnl) * half, mid[1] - (mnz / mnl) * half])) continue;
       sink.push([
