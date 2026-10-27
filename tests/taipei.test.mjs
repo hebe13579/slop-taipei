@@ -1153,7 +1153,14 @@ test('taiwan types: family zoning, distribution and rooftop clamp', (t) => {
   // lots the field/frontage machinery re-rolls keep their
   // families (two of them move their rects and persist as F4):
   // glass 4,120 - 11 = 4,109.
-  assert.equal(glass, 4109, 'glass family counts after #136 + #139 + #135 + #142, composed with #134 + #137, #144 and #165');
+  // Issue #124 (fine-grain rule), measured on this tree: the
+  // re-subdivision multiplies the lots standing inside the
+  // glass-zoned cores (station front, Dunhua, the Xinyi
+  // fringe) and every subdivided lot keeps the family the
+  // core/height rules assign it — glass 4,109 -> 7,834. The
+  // palette rules are unedited; the census moves because the
+  // plan does.
+  assert.equal(glass, 7834, 'glass family counts after #136 + #139 + #135 + #142, composed with #134 + #137, #144, #165 and #124');
   const masonry = opts.lots.filter((l) => l.mat <= 2).length;
   // Range re-based for issue #65: the exact ribbon exclusion removed
   // ~4,400 masonry lots that stood on ribbons or in medians; masonry
@@ -1180,7 +1187,12 @@ test('taiwan types: family zoning, distribution and rooftop clamp', (t) => {
   // lots to masonry (F0 +264, F1 +222) — 17,020 of 34,645 (49.1%);
   // masonry + Taiwan types together are 30,734 (88.7%). Still
   // inside this range unedited.
-  assert.ok(masonry > 12000 && masonry < 20000, `masonry 0-2 reduced but still present (${masonry})`);
+  // Range re-based for issue #124: the fine-grain plan carries
+  // 34,666 masonry lots of 71,584 (48.4% — the same share as
+  // the #136 composition, on twice the lots); masonry + Taiwan
+  // together are 63,750 (89.1%), the local fabric as before.
+  // The range is re-based to the new census with headroom.
+  assert.ok(masonry > 30000 && masonry < 40000, `masonry 0-2 reduced but still present (${masonry})`);
   assert.equal(typeof opts.rooftopGearClamp, 'function', 'options carry the rooftop-gear clamp');
 
   const lot = { x0: 0, x1: 9, z0: 0, z1: 14 };
@@ -1266,10 +1278,19 @@ test('arcade parts: recessed core and full-perimeter colonnade', (t) => {
 
   // On the real plan: most F7 lots carry the arcade, and the colonnade
   // total stays in the stated budget (~24 facade-box instances per lot).
+  // Issue #124 re-bases the census, not the rule: the F7 population
+  // is 6,455 lots now, and the fine-grain lots are true shophouse
+  // widths (9–12.5 m), so most of them sit under the #55 viability
+  // gate (no arcade under 11 m in either dimension — the 3.6 m
+  // inset core would vanish) and keep the flat F7 facade. What the
+  // gate passes, the arcade still covers completely: every one of
+  // the 2,977 size-eligible F7 lots carries its arcade.
   const opts = taipeiCityBlocksOptions(TAIPEI_GEO, planTaipeiBuildings(TAIPEI_GEO));
   const f7 = opts.lots.filter((l) => l.mat === 7);
   const withArcade = f7.filter((l) => l.arcade);
-  assert.ok(withArcade.length / f7.length > 0.8, `most F7 lots carry the arcade (${withArcade.length}/${f7.length})`);
+  const eligible = f7.filter((l) => (l.x1 - l.x0) >= 11 && (l.z1 - l.z0) >= 11);
+  assert.equal(f7.length, 6455, 'F7 census after #124');
+  assert.equal(withArcade.length, eligible.length, `every size-eligible F7 lot carries the arcade (${withArcade.length}/${eligible.length})`);
   const totalCols = withArcade.reduce((s, l) => s + l.arcade.columns.length, 0);
   assert.ok(totalCols / withArcade.length < 30, `columns per arcade lot sane (${(totalCols / withArcade.length).toFixed(1)})`);
   t.diagnostic(`F7 lots ${f7.length}, with arcade ${withArcade.length}, total columns ${totalCols}`);
