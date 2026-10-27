@@ -344,7 +344,24 @@ test('geodata: tile-wide marking counts are in the audited bands', () => {
   // (-601) and 235.41 -> 234.55 km (-0.86). The boot path moves
   // 158,202 -> 157,599 by the same rules plus its wedge greens
   // and roundabout-planned caps.
-  assert.equal(r.stats.dashQuads, 157589, `dash quads ${r.stats.dashQuads}`);
+  // Issue #182 re-pin (on top of #173's): dash quads and dash
+  // strips now also yield to the crosswalk furniture itself —
+  // buildRoadMarkings passes the placed band/stripe polygons to
+  // the divider builder, which culls a quad overlapping one by
+  // more than the 0.05 m2 hairline and splits strips at segments
+  // whose centreline crosses one. Proven delta, measured on this
+  // path by a before/after dump diff: the after-dashes are an
+  // order-preserving subsequence of the pre-fix dashes and the
+  // removed set is exactly the 7 quads whose band/stripe overlap
+  // exceeded the hairline (157,589 -> 157,582 quads, 234.550 ->
+  // 234.539 km, inside the band below); no surviving quad
+  // overlaps a band or stripe at all (max 0.0000 m2), furniture /
+  // signals / X-pair counts are byte-identical, and 13 strip
+  // segments were split at furniture crossings (strips 6,989 ->
+  // 6,986: 5 strips fully crossed, 2 split). The sweep probes
+  // re-measure the class at zero: dash x band/stripe 20 pairs ->
+  // 0, strip paint over bands/stripes 16.43 m -> 0 m.
+  assert.equal(r.stats.dashQuads, 157582, `dash quads ${r.stats.dashQuads}`);
   assert.equal(r.stats.crossPairs, 258, `X pairs culled ${r.stats.crossPairs}`);
   assert.equal(r.stats.dividerBeds, 1010, `divider beds ${r.stats.dividerBeds}`);
   assert.equal(r.stats.deckDividerBedsSkipped, 91, `deck divider beds skipped ${r.stats.deckDividerBedsSkipped}`);
@@ -519,6 +536,112 @@ test('dash X-cull (issue #173): braided same-way beds never paint a crossing pai
 test('dash X-cull (issue #173): the real tile emits zero crossing pairs', () => {
   const r = buildRoadMarkings(TAIPEI_GEO.roadbeds);
   assert.equal(countDashCrossings(r.dashes), 0, 'tile-wide emitted crossings');
+});
+
+// Issue #182: dashes yield to the crosswalk furniture itself.
+// Helpers mirror the sweep probes (roadsweep3): convex clip area
+// and a strict segment-interior crossing test.
+const furnClipArea = (subject, clip) => {
+  let poly = subject.map((p) => [...p]);
+  const cc = [clip.reduce((s, p) => s + p[0], 0) / clip.length, clip.reduce((s, p) => s + p[1], 0) / clip.length];
+  for (let e = 0; e < clip.length && poly.length; e++) {
+    const a = clip[e], b = clip[(e + 1) % clip.length];
+    const ex = b[0] - a[0], ez = b[1] - a[1];
+    const side = (p) => ex * (p[1] - a[1]) - ez * (p[0] - a[0]);
+    const ref = side(cc);
+    const next = [];
+    for (let i = 0; i < poly.length; i++) {
+      const cur = poly[i], prv = poly[(i + poly.length - 1) % poly.length];
+      const ci = side(cur) * ref >= 0, pi = side(prv) * ref >= 0;
+      if (ci !== pi) { const t = side(prv) / (side(prv) - side(cur)); next.push([prv[0] + (cur[0] - prv[0]) * t, prv[1] + (cur[1] - prv[1]) * t]); }
+      if (ci) next.push(cur);
+    }
+    poly = next;
+  }
+  if (poly.length < 3) return 0;
+  return Math.abs(poly.reduce((s, p, i, a) => s + p[0] * a[(i + 1) % a.length][1] - a[(i + 1) % a.length][0] * p[1], 0) / 2);
+};
+const quadPtsOf = (q) => [[q[0], q[1]], [q[2], q[3]], [q[4], q[5]], [q[6], q[7]]];
+const segCrossesPoly = (ax, az, bx, bz, poly) => {
+  if (pointInPoly([ax, az], poly) || pointInPoly([bx, bz], poly)) return true;
+  for (let e = 0; e < poly.length; e++) {
+    const [px, pz] = poly[e], [qx, qz] = poly[(e + 1) % poly.length];
+    if (segCrossProper([ax, az], [bx, bz], [px, pz], [qx, qz])) return true;
+  }
+  return false;
+};
+
+test('dash x furniture (issue #182): a band across the road culls and splits dashes', () => {
+  const b = bed('Band Blvd', 'secondary', 36, [1, 2], [-100, 0, 100, 0]);
+  const band = [[-3, -30], [3, -30], [3, 30], [-3, 30]];
+  const base = buildLaneDividers([b]);
+  assert.ok(base.dashes.length > 0 && base.dashStrips.length > 0, 'synthetic dividers exist');
+  const furn = buildLaneDividers([b], new Map(), null, null, [band]);
+  assert.ok(furn.stats.furnBlockedQuads > 0, `quads culled at the band (${furn.stats.furnBlockedQuads})`);
+  assert.ok(furn.dashes.length < base.dashes.length, 'fewer dashes survive');
+  for (const q of furn.dashes) {
+    assert.ok(furnClipArea(quadPtsOf(q), band) <= markings.DASH_FURN_OVERLAP_M2,
+      'no surviving dash overlaps the band beyond the hairline');
+  }
+  assert.ok(furn.stats.furnStripSegmentsClipped > 0, 'strip segments clipped at the band');
+  for (const strip of furn.dashStrips) {
+    for (let k = 0; k + 1 < strip.length; k++) {
+      const a = strip[k], c = strip[k + 1];
+      assert.ok(!segCrossesPoly((a.hx + a.lx) / 2, (a.hz + a.lz) / 2, (c.hx + c.lx) / 2, (c.hz + c.lz) / 2, band),
+        'no surviving strip segment crosses the band');
+    }
+  }
+  // No furniture (or an empty set) changes nothing for a caller.
+  const empty = buildLaneDividers([b], new Map(), null, null, []);
+  assert.deepEqual(empty.dashes, base.dashes, 'empty furniture set: dashes identical');
+  assert.deepEqual(empty.dashStrips, base.dashStrips, 'empty furniture set: strips identical');
+});
+
+test('dash x furniture (issue #182): the real tile paints no dash over a zebra', () => {
+  const r = buildRoadMarkings(TAIPEI_GEO.roadbeds);
+  // The measured #182 delta on this path (see the census re-pin
+  // comment in the counts test): exactly 7 quads culled and 13
+  // strip segments clipped.
+  assert.equal(r.stats.furnBlockedQuads, 7, `quads culled at furniture (${r.stats.furnBlockedQuads})`);
+  assert.equal(r.stats.furnStripSegmentsClipped, 13, `strip segments clipped (${r.stats.furnStripSegmentsClipped})`);
+  const furnPolys = [...r.bands.map((b) => b.quad), ...r.stripes].map(quadPtsOf);
+  const CELL = 25;
+  const grid = new Map();
+  furnPolys.forEach((poly, i) => {
+    const xs = poly.map((p) => p[0]), zs = poly.map((p) => p[1]);
+    for (let gx = Math.floor(Math.min(...xs) / CELL); gx <= Math.floor(Math.max(...xs) / CELL); gx++)
+      for (let gz = Math.floor(Math.min(...zs) / CELL); gz <= Math.floor(Math.max(...zs) / CELL); gz++) {
+        const k = `${gx},${gz}`; if (!grid.has(k)) grid.set(k, []); grid.get(k).push(i);
+      }
+  });
+  let worst = 0;
+  for (const q of r.dashes) {
+    const P = quadPtsOf(q);
+    const xs = P.map((p) => p[0]), zs = P.map((p) => p[1]);
+    const seen = new Set();
+    for (let gx = Math.floor(Math.min(...xs) / CELL); gx <= Math.floor(Math.max(...xs) / CELL); gx++)
+      for (let gz = Math.floor(Math.min(...zs) / CELL); gz <= Math.floor(Math.max(...zs) / CELL); gz++)
+        for (const i of grid.get(`${gx},${gz}`) || []) {
+          if (seen.has(i)) continue; seen.add(i);
+          const a = furnClipArea(P, furnPolys[i]); if (a > worst) worst = a;
+        }
+  }
+  assert.ok(worst <= markings.DASH_FURN_OVERLAP_M2, `worst surviving dash x furniture overlap ${worst} m2`);
+  let crossSegs = 0;
+  for (const strip of r.dashStrips) {
+    for (let k = 0; k + 1 < strip.length; k++) {
+      const a = strip[k], c = strip[k + 1];
+      const ax = (a.hx + a.lx) / 2, az = (a.hz + a.lz) / 2, bx = (c.hx + c.lx) / 2, bz = (c.hz + c.lz) / 2;
+      const seen = new Set();
+      for (let gx = Math.floor(Math.min(ax, bx) / CELL); gx <= Math.floor(Math.max(ax, bx) / CELL); gx++)
+        for (let gz = Math.floor(Math.min(az, bz) / CELL); gz <= Math.floor(Math.max(az, bz) / CELL); gz++)
+          for (const i of grid.get(`${gx},${gz}`) || []) {
+            if (seen.has(i)) continue; seen.add(i);
+            if (segCrossesPoly(ax, az, bx, bz, furnPolys[i])) crossSegs++;
+          }
+    }
+  }
+  assert.equal(crossSegs, 0, `strip segments crossing furniture (${crossSegs})`);
 });
 
 test('roundabout occluders (issue #173): helper clips wedge greens to the disc', async () => {

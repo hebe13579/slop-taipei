@@ -109,6 +109,27 @@
 // band <-> stripe algebra of issue #90 (one band per crossing,
 // width a whole number of stripe pitches) survives every cull.
 //
+// DASH x FURNITURE (issue #182). The round-3 sweep censused a
+// pair class every earlier census missed because it measured
+// dashes against junction SURFACES only: dash quads and shader
+// dash-strip paint overlapping the crosswalk furniture itself.
+// Bands sit 0.8 m outside the junction box, off-cap, so a dash
+// whose centre never enters a cap can still paint across a
+// zebra — 31 quad pairs / 2.39 m2 tile-wide and ~16.4 m of
+// strip paint over bands and stripes, worst at roundabout
+// entries (ji149). Furniture outranks dashes, as in the #170
+// discipline: buildRoadMarkings passes the placed band and
+// stripe polygons to the divider builder, which culls a dash
+// quad overlapping any of them by more than a hairline
+// (DASH_FURN_OVERLAP_M2) and splits dash strips at every
+// segment whose centreline crosses one — the #178 split, but
+// with a segment-intersection test instead of the cap split's
+// midpoint test, because the furniture sits off-cap where a
+// crossing segment's midpoint usually stays clean. Stop lines
+// are NOT dash occluders: a divider terminating at its stop
+// line is adjacency, not paint over a crossing (the sweep's
+// own severity note on its 35.71 m stop-line figure).
+//
 // RENDER FORM (issue #90): the plan above is unchanged — dashes and
 // stripes are still enumerated exactly as before (the tests pin
 // them) — but the renderer no longer bakes them as solid quads.
@@ -173,6 +194,14 @@ export const SIGNAL_SURFACE_GRAZE_M = 2;
 export const SIGNAL_SURFACE_EXIT_M = 1;  // stand this far past the surface boundary after an exit
 export const SIGNAL_SURFACE_WALK_MAX = 90; // corner-diagonal walk budget (0.5 m steps)
 const SURF_GRID_M = 60;                  // surface-poly grid cell for depth queries
+
+// Dash x furniture (issue #182): the largest dash-quad overlap
+// with a crosswalk band or stripe polygon the divider builder
+// tolerates — a hairline graze; anything larger culls the dash.
+// Dash strip segments clip at the same furniture (see the split
+// pass in buildLaneDividers).
+export const DASH_FURN_OVERLAP_M2 = 0.05;
+const FURN_GRID_M = 25;                  // furniture-poly grid cell for dash queries
 
 // Class rank shared with the signalized/divider rules: 3 trunk /
 // primary, 2 secondary, 1 tertiary, 0 everything else (links take
@@ -304,9 +333,90 @@ export const bedLength = (bed) => {
 // inside it, and at the frames flanking those vertices. along is
 // the centreline arc the dash phase already keys on, so shader
 // paint lands where the plan's dashes are.
-export function buildLaneDividers(roadbeds, suppress = new Map(), medianStrips = null, capPolys = null) {
+// furnPolys (issue #182): crosswalk band and stripe polygons as
+// point arrays — dash occluders of a different kind than the
+// caps. A dash QUAD is culled when its own geometry overlaps
+// one by more than DASH_FURN_OVERLAP_M2 (the cap tests are all
+// point tests, and the furniture sits off-cap, so a crossing
+// dash's centre can stay clean while its corner paints the
+// zebra); a dash STRIP is split at every segment whose
+// centreline crosses one. Callers that pass no furnPolys (the
+// synthetic unit beds) get neither rule — byte-identical.
+export function buildLaneDividers(roadbeds, suppress = new Map(), medianStrips = null, capPolys = null, furnPolys = null) {
   const capGrid = capPolys ? buildPolyGrid(capPolys) : null;
   const capBlocked = (p) => pointInAnyPoly(capGrid, capPolys, p);
+  const furnGrid = furnPolys ? buildPolyGrid(furnPolys, FURN_GRID_M) : null;
+  // Candidate furniture polys for a query bbox (grid cells the
+  // bbox touches) — the pair tests below stay local.
+  const furnCands = (minx, minz, maxx, maxz) => {
+    const out = [], seen = new Set();
+    for (let gx = Math.floor(minx / FURN_GRID_M); gx <= Math.floor(maxx / FURN_GRID_M); gx++)
+      for (let gz = Math.floor(minz / FURN_GRID_M); gz <= Math.floor(maxz / FURN_GRID_M); gz++) {
+        for (const ci of furnGrid.get(`${gx},${gz}`) || []) if (!seen.has(ci)) { seen.add(ci); out.push(ci); }
+      }
+    return out;
+  };
+  // Area of subject ∩ clip for convex quads (Sutherland–Hodgman
+  // against the clip's edges, side-tested against the clip
+  // centroid so either winding works — the same construction
+  // the #170 furniture pass and the sweep probes use).
+  const overlapArea = (subject, clip) => {
+    const ccx = clip.reduce((s, p) => s + p[0], 0) / clip.length;
+    const ccz = clip.reduce((s, p) => s + p[1], 0) / clip.length;
+    let poly = subject;
+    for (let e = 0; e < clip.length && poly.length; e++) {
+      const a = clip[e], b = clip[(e + 1) % clip.length];
+      const ex = b[0] - a[0], ez = b[1] - a[1];
+      const side = (p) => ex * (p[1] - a[1]) - ez * (p[0] - a[0]);
+      const ref = side([ccx, ccz]);
+      const inside = (p) => side(p) * ref >= 0;
+      const next = [];
+      for (let i = 0; i < poly.length; i++) {
+        const cur = poly[i], prv = poly[(i + poly.length - 1) % poly.length];
+        const ci = inside(cur), pi = inside(prv);
+        if (ci !== pi) {
+          const t = side(prv) / (side(prv) - side(cur));
+          next.push([prv[0] + (cur[0] - prv[0]) * t, prv[1] + (cur[1] - prv[1]) * t]);
+        }
+        if (ci) next.push(cur);
+      }
+      poly = next;
+    }
+    if (poly.length < 3) return 0;
+    let ar = 0;
+    for (let i = 0; i < poly.length; i++) { const [x1, z1] = poly[i], [x2, z2] = poly[(i + 1) % poly.length]; ar += x1 * z2 - x2 * z1; }
+    return Math.abs(ar) / 2;
+  };
+  // Largest single-pair overlap of a dash quad (flat [x,z]x4)
+  // with any furniture poly whose bbox meets the quad's.
+  const furnOverlap = (q) => {
+    const pts = [[q[0], q[1]], [q[2], q[3]], [q[4], q[5]], [q[6], q[7]]];
+    const xs = pts.map((p) => p[0]), zs = pts.map((p) => p[1]);
+    let worst = 0;
+    for (const ci of furnCands(Math.min(...xs), Math.min(...zs), Math.max(...xs), Math.max(...zs))) {
+      const a = overlapArea(pts, furnPolys[ci]);
+      if (a > worst) worst = a;
+    }
+    return worst;
+  };
+  // Does the segment a->b pass through a furniture poly's
+  // interior? An endpoint inside, or a proper crossing of any
+  // edge (the #173 strict-orientation test). A tangential touch
+  // or a run along an edge paints nothing inside and stays.
+  const orient2 = (ax, az, bx, bz, px, pz) => (bx - ax) * (pz - az) - (bz - az) * (px - ax);
+  const segCrossesFurn = (ax, az, bx, bz) => {
+    for (const ci of furnCands(Math.min(ax, bx), Math.min(az, bz), Math.max(ax, bx), Math.max(az, bz))) {
+      const poly = furnPolys[ci];
+      if (pointInPoly([ax, az], poly) || pointInPoly([bx, bz], poly)) return true;
+      for (let e = 0; e < poly.length; e++) {
+        const [px, pz] = poly[e], [qx, qz] = poly[(e + 1) % poly.length];
+        const d1 = orient2(ax, az, bx, bz, px, pz), d2 = orient2(ax, az, bx, bz, qx, qz);
+        const d3 = orient2(px, pz, qx, qz, ax, az), d4 = orient2(px, pz, qx, qz, bx, bz);
+        if (((d1 > 0 && d2 < 0) || (d1 < 0 && d2 > 0)) && ((d3 > 0 && d4 < 0) || (d3 < 0 && d4 > 0))) return true;
+      }
+    }
+    return false;
+  };
   const polys = roadbeds.map(ribbonPoly);
   const grid = new Map();
   polys.forEach((poly, i) => {
@@ -355,7 +465,7 @@ export function buildLaneDividers(roadbeds, suppress = new Map(), medianStrips =
     return false;
   };
 
-  const stats = { beds: 0, dashQuads: 0, dividerKm: 0, medianBlockedSamples: 0, deckBedsSkipped: 0, crossPairs: 0, crossBlockedSamples: 0, stripSegmentsClipped: 0 };
+  const stats = { beds: 0, dashQuads: 0, dividerKm: 0, medianBlockedSamples: 0, deckBedsSkipped: 0, crossPairs: 0, crossBlockedSamples: 0, stripSegmentsClipped: 0, furnBlockedQuads: 0, furnStripSegmentsClipped: 0 };
 
   // Pass 1: per divider bed, the densified frames and the base
   // occlusion flags per boundary offset (everything the pre-#173
@@ -476,12 +586,20 @@ export function buildLaneDividers(roadbeds, suppress = new Map(), medianStrips =
         const mid = [(f0.p[0] + f1.p[0]) / 2 + ((f0.nx + f1.nx) / 2) * off,
                      (f0.p[1] + f1.p[1]) / 2 + ((f0.nz + f1.nz) / 2) * off];
         if (foreignBlocked(mid, selfIdx, selfWays) || inMedianStrip(mid) || capBlocked(mid)) continue;
-        dashes.push([
+        const quad = [
           f0.p[0] + f0.nx * hi, f0.p[1] + f0.nz * hi,
           f1.p[0] + f1.nx * hi, f1.p[1] + f1.nz * hi,
           f1.p[0] + f1.nx * lo, f1.p[1] + f1.nz * lo,
           f0.p[0] + f0.nx * lo, f0.p[1] + f0.nz * lo,
-        ]);
+        ];
+        // Issue #182: the point tests above cannot see this dash
+        // painting a crosswalk — bands and stripes sit off-cap,
+        // so the mid stays clean while a corner of the quad lies
+        // across the zebra. Furniture outranks dashes: cull the
+        // quad when its own overlap with any band or stripe
+        // polygon exceeds the hairline.
+        if (furnGrid && furnOverlap(quad) > DASH_FURN_OVERLAP_M2) { stats.furnBlockedQuads++; continue; }
+        dashes.push(quad);
         stats.dashQuads++;
         stats.dividerKm += Math.hypot(f1.p[0] - f0.p[0], f1.p[1] - f0.p[1]) / 1000;
       }
@@ -534,15 +652,28 @@ export function buildLaneDividers(roadbeds, suppress = new Map(), medianStrips =
   // phase is per-section `along`, so a split cannot shift paint).
   // Only runs when capPolys were passed: standalone divider calls
   // (the #173 X-cull synthetics) stay byte-identical.
-  if (capGrid) {
+  // Issue #182: the same split clips at the crosswalk furniture.
+  // A segment is dropped when its centreline — the same section-
+  // centre line the sweep's strip census samples — crosses a
+  // band or stripe polygon. The midpoint test cannot be reused
+  // here: the furniture sits off-cap on the arm, so a segment
+  // can paint straight across a zebra with its midpoint on
+  // clean asphalt on either side. Both counters are kept
+  // separate so the #178 cap census stays exactly comparable.
+  if (capGrid || furnGrid) {
     const splitStrips = [];
     for (const strip of dashStrips) {
       let piece = [strip[0]];
       for (let k = 0; k + 1 < strip.length; k++) {
         const a = strip[k], b = strip[k + 1];
         const mid = [(a.hx + a.lx + b.hx + b.lx) / 4, (a.hz + a.lz + b.hz + b.lz) / 4];
-        if (capBlocked(mid)) {
-          stats.stripSegmentsClipped++;
+        const capHit = capGrid ? capBlocked(mid) : false;
+        const furnHit = furnGrid
+          ? segCrossesFurn((a.hx + a.lx) / 2, (a.hz + a.lz) / 2, (b.hx + b.lx) / 2, (b.hz + b.lz) / 2)
+          : false;
+        if (capHit || furnHit) {
+          if (capHit) stats.stripSegmentsClipped++;
+          if (furnHit) stats.furnStripSegmentsClipped++;
           if (piece.length >= 2) splitStrips.push(piece);
           piece = [b];
         } else piece.push(b);
@@ -1442,7 +1573,13 @@ export function buildRoadMarkings(roadbeds, medianStrips = null, caps = null, ju
   const sites = planRoundabouts(roadbeds, junctions);
   const capPolys = [...caps.flatMap((c) => capSurfacePolys(c)), ...roundaboutDashOccluders(sites, greenPolys)];
   const furniture = buildJunctionFurniture(roadbeds, junctions, caps);
-  const dividers = buildLaneDividers(roadbeds, furniture.suppress, medianStrips, capPolys);
+  // Issue #182: the placed crosswalk bands and stripes are dash
+  // occluders too — the furniture is final here (the #170 pass
+  // has already culled it), and the divider builder culls dash
+  // quads and splits dash strips against exactly these polygons.
+  const furnPolys = [...furniture.bands.map((b) => b.quad), ...furniture.stripes]
+    .map((q) => [[q[0], q[1]], [q[2], q[3]], [q[4], q[5]], [q[6], q[7]]]);
+  const dividers = buildLaneDividers(roadbeds, furniture.suppress, medianStrips, capPolys, furnPolys);
   return {
     junctions,
     caps,
@@ -1464,6 +1601,8 @@ export function buildRoadMarkings(roadbeds, medianStrips = null, caps = null, ju
       dividerKm: dividers.stats.dividerKm,
       crossPairs: dividers.stats.crossPairs,
       crossBlockedSamples: dividers.stats.crossBlockedSamples,
+      furnBlockedQuads: dividers.stats.furnBlockedQuads,
+      furnStripSegmentsClipped: dividers.stats.furnStripSegmentsClipped,
       medianBlockedSamples: dividers.stats.medianBlockedSamples,
       crosswalks: furniture.stats.crosswalks,
       stopLines: furniture.stats.stopLines,
