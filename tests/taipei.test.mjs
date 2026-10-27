@@ -571,6 +571,19 @@ test('landmark structures: true positions and heights, sites kept clear', (t) =>
     // Jan 2023); the position is the fitted centre of the cube
     // in the OSM building relation 13913132 (see registry).
     'taipei-performing-arts-center': { h: 55, x: -4115.4, z: -5777.2 },
+    // Batch 8 (issue #165): the Xinyi batch — Four Seasons
+    // (published coordinate; RSHP's 180 m), Farglory (OSM way
+    // 289834528 minimum-area-rect centre; the study's 208.3 m) and
+    // the four Shin Kong Mitsukoshi halls (OSM rect centres of
+    // ways 274647897 / 274647896 / 269773067 / 391309615; heights
+    // ESTIMATED from the zh-Wikipedia floor counts at 5.5 m per
+    // department-store floor — see the registry comments).
+    'four-seasons-hotel-taipei': { h: 180, x: -28.3, z: 55.4 },
+    'farglory-financial-center': { h: 208.3, x: -80.6, z: -731.8 },
+    'shin-kong-mitsukoshi-a4': { h: 33, x: 166.7, z: -739.2 },
+    'shin-kong-mitsukoshi-a8': { h: 38.5, x: 181.7, z: -584.0 },
+    'shin-kong-mitsukoshi-a9': { h: 49.5, x: 168.9, z: -403.3 },
+    'shin-kong-mitsukoshi-a11': { h: 33, x: 227.6, z: -403.3 },
   };
   assert.equal(plan.landmarkTowers.length, Object.keys(expected).length, 'all verified structures present');
   const partTop = (p) => (p.y0 || 0) + p.h + (p.type === 'ridge' ? p.ridgeH : 0);
@@ -702,9 +715,16 @@ test('landmark batch 3: two-slab Cathay rebuild, W, Songshan, Eslite, Arena', ()
     // national halls' 37 m is OSM-derived, not published. Batch 5
     // (issue #86) adds Beimen: its ~19 m overall height is the
     // accepted estimate — no published figure exists at all.
+    // Batch 8 (issue #165) adds the four Shin Kong Mitsukoshi
+    // halls: floor-count estimates (zh-Wikipedia floors x 5.5 m),
+    // no published metres — the Four Seasons (RSHP 180 m) and
+    // Farglory (208.3 m) heights in the same batch ARE published
+    // and stay unflagged.
     if (s.id !== 'eslite-spectrum-songyan' && s.id !== 'taipei-arena'
       && s.id !== 'national-concert-hall' && s.id !== 'national-theater'
-      && s.id !== 'beimen') {
+      && s.id !== 'beimen'
+      && s.id !== 'shin-kong-mitsukoshi-a4' && s.id !== 'shin-kong-mitsukoshi-a8'
+      && s.id !== 'shin-kong-mitsukoshi-a9' && s.id !== 'shin-kong-mitsukoshi-a11') {
       assert.equal(s.estimated, false, `${s.id} height is published, not estimated`);
     }
   }
@@ -1122,7 +1142,18 @@ test('taiwan types: family zoning, distribution and rooftop clamp', (t) => {
   // are not plan lots and cannot convert: glass 4,291 - 171 =
   // 4,120. District before/after counts live in
   // xinyiwhite-evidence/.
-  assert.equal(glass, 4120, 'glass family counts after #136 + #139 + #135 + #142, composed with #134 + #137 and #144');
+  // Issue #165 (Xinyi landmark batch), measured on this tree by
+  // lot-by-lot diff of the options lots against the pre-#165
+  // plan: the six new registry sites remove 31 plan lots (29 on
+  // the Four Seasons D3 parcel, 2 under the Mitsukoshi A4
+  // hall), 11 of them glass — the D3 parcel stands in the
+  // district's tall stock, so its mid-rise lots are glass by
+  // the height rule (F3 -5, F4 -2, F5 -4; the remaining
+  // removals are Taiwan -17 and masonry -3). The 8 neighbouring
+  // lots the field/frontage machinery re-rolls keep their
+  // families (two of them move their rects and persist as F4):
+  // glass 4,120 - 11 = 4,109.
+  assert.equal(glass, 4109, 'glass family counts after #136 + #139 + #135 + #142, composed with #134 + #137, #144 and #165');
   const masonry = opts.lots.filter((l) => l.mat <= 2).length;
   // Range re-based for issue #65: the exact ribbon exclusion removed
   // ~4,400 masonry lots that stood on ribbons or in medians; masonry

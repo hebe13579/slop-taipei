@@ -809,12 +809,18 @@ test('clearance (issue #139): census by counterfactual, audit exact', (t) => {
   // meets their tops (a proc lot, h 14.5 at (-1869, -3587),
   // and a door-tier lot, h 15.5 at (-2018, -3685); both
   // masonry family — diffed lot by lot at the #146 gate).
+  // Composed with issue #165 on this merged tree: the six new
+  // Xinyi registry sites exclude 31 lots in BOTH plans (the site
+  // rule is not a #139 input either), so both anchors drop by 31
+  // more (counterfactual 38,772) and the #139 delta below is
+  // unchanged at 463 — measured at the #165 gate by the same
+  // lot-by-lot diff as the shipped-plan re-pin below.
   const before = planTaipeiBuildings({
     ...TAIPEI_GEO,
     mrtDecks: undefined, mrtDepot: undefined,
     mrtStations: stations.filter((s) => s.kind !== 'at-grade' && s.kind !== 'wenhu' && s.kind !== 'entrance'),
   });
-  assert.equal(before.lots.length, 38803, 'counterfactual plan reproduces the pre-#139 lot count, less the #144 site lots (7) and the #135 parcel exclusions (47)');
+  assert.equal(before.lots.length, 38772, 'counterfactual plan reproduces the pre-#139 lot count, less the #144 site lots (7), the #135 parcel exclusions (47) and the #165 site exclusions (31)');
   // 463 lots removed on this tree (524 on the pre-expansion
   // tree): 433 inside the Beitou depot + at-grade station sites
   // (398 with centres inside the depot site rect alone; the rest
@@ -823,7 +829,13 @@ test('clearance (issue #139): census by counterfactual, audit exact', (t) => {
   // guideway (15 Red Line + the 2 Wenhu dive lots of issue #146;
   // planner counters below; classification by lot centre
   // against the site rects on this tree).
-  assert.equal(plan.lots.length, 38340, 'shipped plan lot count after the #139 removals, the #144 site exclusion, the #135 parcel exclusions and the #146 dive drops');
+  // Re-pinned for issue #165 (Xinyi landmark batch), measured by
+  // lot-by-lot diff against the pre-#165 plan on this tree: the six
+  // new registry sites exclude exactly 31 further lots (29 on the
+  // Four Seasons D3 parcel + 2 under the Mitsukoshi A4 hall; the
+  // Farglory / A8 / A9 / A11 sites exclude none — their blocks were
+  // already lot-free there).
+  assert.equal(plan.lots.length, 38309, 'shipped plan lot count after the #139 removals, the #144 site exclusion, the #135 parcel exclusions, the #146 dive drops and the #165 site exclusions');
   assert.equal(plan.stats.lotsDroppedTrackBed, 13, 'planner bed drops agree with the census');
   assert.equal(plan.stats.lotsDroppedTrackPierce, 17, 'planner pierce drops agree with the census (15 Red + 2 Wenhu, issue #146)');
   let bed = 0, pierce = 0, keptUnder = 0;

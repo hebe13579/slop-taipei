@@ -609,6 +609,166 @@ const LANDMARK_STRUCTURES = [
     ],
   },
   {
+    // Issue #165: the Four Seasons Hotel Taipei (Yuanta), on the
+    // Xinyi D3 block directly across Xinyi Road from Taipei 101 —
+    // modelled COMPLETED, the Twin Towers (#135) precedent: the
+    // tower topped out in 2026 and the hotel is due to open in 2028.
+    // 180 m architectural height, 31F above ground / 4 below, 260
+    // keys (RSHP project sheet: architects RSHP with C.C. Jen
+    // Architects, for Yuan Lih Construction 元利建設; site area
+    // 5,121 m2). CTBUH lists a tower GFA of 77,000 m2; the zh
+    // tall-buildings list's 181.4 m spire figure is the same tower
+    // measured to the louvre tips — the registry carries the
+    // architect's published 180 m.
+    // Position is the published coordinate (Wikipedia infobox /
+    // parcel centroid of the OSM construction parcel, way
+    // 186083333 信義計畫區D3街廓), and the site rect takes that
+    // parcel's measured extent (tile x -116..+34, z +29..+107: the
+    // full D3 block between Xinyi Rd Sec 5 and Songren Rd, fronting
+    // Songzhi Rd on the east). OSM carries no building outline for
+    // the tower yet, so the plate is design-derived, stated
+    // honestly: the RSHP cover render's east elevation is a
+    // six-bay glazed slab ~54 m long; the slab's depth reads
+    // ~0.55-0.6 of its length in the same render, giving the
+    // 32 x 54 m plate below, standing at the parcel's NE corner
+    // over a full-width glazed podium (~30 m in the renders: the
+    // exoskeleton-framed lobby/ballroom stack) that runs west
+    // along Xinyi Road. The signature crown — a slanted glass-
+    // louvre array leaning back (NW) over the top floors — is
+    // three thin slabs stepping NW, the stepped-taper idiom.
+    id: 'four-seasons-hotel-taipei', name: 'Four Seasons Hotel Taipei (Yuanta)', nameZh: '元利四季酒店',
+    lat: 25.0325, lon: 121.56472, realHeight: 180, color: 0x46586a,
+    site: { w: 150, d: 78, dx: -13.2, dz: 12.4 },
+    // Blue-grey curtain glass with the design's bronze accent tone
+    // in the frame colour (the twin bronze light strips carried
+    // over from the developer's One Park Taipei).
+    facade: { kind: 'curtain', glassTint: 0x3d4f5e, frameTint: 0xa8875a, windowWidth: 2.4, floorHeight: 5.6, litProbability: 0.35, warmth: 0.62, reflectivity: 0.92, seed: 165.11 },
+    parts: [
+      { type: 'box', w: 86, d: 54, h: 30, dx: -22, dz: 1.5 },
+      { type: 'box', w: 32, d: 54, h: 132, y0: 30 },
+      { type: 'box', w: 30, d: 50, h: 6, y0: 162, dx: -1.5, dz: -1.5 },
+      { type: 'box', w: 27, d: 46, h: 6, y0: 168, dx: -3, dz: -3 },
+      { type: 'box', w: 24, d: 42, h: 6, y0: 174, dx: -4.5, dz: -4.5 },
+    ],
+  },
+  {
+    // Issue #165: Farglory Financial Center, Songgao Rd 1 —
+    // completed 2013, the district's third tower at 208.3 m, 32F
+    // (tall-buildings study; OSM way 289834528 carries height 208).
+    // The axis is that outline's minimum-area-rect centre (tile
+    // (-80.5, -733.1); the rect measures 47.1 x 40.9 m, long axis
+    // 1.1 deg off the tile axes, so the plate is axis-aligned) and
+    // the shaft plate is the outline trimmed ~1 m a side, the #42
+    // convention. Esri satellite (z19) shows NO podium — the stone
+    // shaft meets the ground directly behind its Songgao Rd
+    // entrance canopy — so the massing is the shaft alone under
+    // the signature classical crown: a tapering cap and finial
+    // block (the real crown is a domed, temple-form cap; the
+    // frustum + finial is the registry's idiom for it).
+    id: 'farglory-financial-center', name: 'Farglory Financial Center', nameZh: '遠雄金融中心',
+    lat: 25.039606, lon: 121.564201, realHeight: 208.3, color: 0xc98a6d,
+    site: { w: 52, d: 46, dx: 0, dz: 0 },
+    // Salmon-pink stone (OSM building:colour #e9967a) on the
+    // prewar stone-grid factory.
+    facade: { kind: 'prewar', stoneColor: 0xd8a583, trimColor: 0xa87a5c, windowGlassColor: 0x2a3a4a, windowWidth: 2.6, floorHeight: 5.8, litProbability: 0.3, warmth: 0.6, seed: 165.21 },
+    parts: [
+      { type: 'box', w: 45, d: 39, h: 190 },
+      { type: 'frustum', wB: 45, dB: 39, wT: 30, dT: 26, h: 14, y0: 190 },
+      { type: 'box', w: 10, d: 10, h: 4.3, y0: 204 },
+    ],
+  },
+  {
+    // Issue #165: Shin Kong Mitsukoshi Xinyi Place A4, Songgao Rd
+    // 19 (opened 2005). One of the four department-store halls of
+    // the Xinyi Place cluster, registered per hall (the Songshan
+    // terminal pattern) so each hall's site rect hugs its own
+    // measured outline. Footprint: OSM way 274647897's
+    // minimum-area rect, 84.1 x 66.2 m axis-aligned at tile
+    // (166.5, -740.5); the plate is the rect trimmed ~1 m a side.
+    // Height is ESTIMATED (flagged): no published figure — the
+    // store is 6 floors above ground (zh-Wikipedia, Shin Kong
+    // Mitsukoshi article) at a 5.5 m department-store floor
+    // height = 33 m. Flat slab + thin roof cap, the cluster's
+    // shared simple roof form. The plate is trimmed harder than
+    // the usual ~1 m: unnamed service drives in the geodata reach
+    // into the outline's west strip (their roadbeds end at tile
+    // x 129.2 at z -740 and x 129.7 at z -768 — the real building
+    // arcades over them), so the slab is two boxes east of
+    // x 130.7: the main mass plus a narrower north strip — the
+    // #42 audit's trim convention, as on the batch-1 podiums.
+    id: 'shin-kong-mitsukoshi-a4', name: 'Shin Kong Mitsukoshi Xinyi Place A4', nameZh: '新光三越信義新天地A4館',
+    lat: 25.039673, lon: 121.566652, realHeight: 33, estimated: true, color: 0xb0aa9e,
+    site: { w: 86, d: 68, dx: 0, dz: 0 },
+    facade: { kind: 'prewar', stoneColor: 0xb5b0a6, trimColor: 0x8f8a80, windowGlassColor: 0x2c3e50, windowWidth: 3.4, floorHeight: 5.5, litProbability: 0.45, warmth: 0.6, seed: 165.31 },
+    parts: [
+      { type: 'box', w: 74, d: 57, h: 31.5, dx: 1, dz: 4.5 },
+      { type: 'box', w: 74, d: 9, h: 31.5, dx: 4, dz: -27.5 },
+      { type: 'box', w: 74, d: 57, h: 1.5, y0: 31.5, dx: 1, dz: 4.5 },
+      { type: 'box', w: 74, d: 9, h: 1.5, y0: 31.5, dx: 4, dz: -27.5 },
+    ],
+  },
+  {
+    // Issue #165: Shin Kong Mitsukoshi Xinyi Place A8, Songgao Rd
+    // 12 (opened 2002) — the cluster's long slab south of Songgao
+    // Rd: OSM way 274647896's minimum-area rect, 48.9 x 137.9 m
+    // axis-aligned at tile (181.4, -585.0); plate trimmed ~1 m a
+    // side. Height ESTIMATED (flagged): 7 floors above ground
+    // (zh-Wikipedia) x 5.5 m = 38.5 m.
+    id: 'shin-kong-mitsukoshi-a8', name: 'Shin Kong Mitsukoshi Xinyi Place A8', nameZh: '新光三越信義新天地A8館',
+    lat: 25.038272, lon: 121.5668, realHeight: 38.5, estimated: true, color: 0xb5ab97,
+    site: { w: 53, d: 151, dx: 0, dz: 0 },
+    facade: { kind: 'prewar', stoneColor: 0xbfb49e, trimColor: 0x968d78, windowGlassColor: 0x2c3e50, windowWidth: 3.4, floorHeight: 5.5, litProbability: 0.45, warmth: 0.6, seed: 165.32 },
+    parts: [
+      { type: 'box', w: 49, d: 147, h: 37 },
+      { type: 'box', w: 49, d: 149, h: 1.5, y0: 37 },
+    ],
+  },
+  {
+    // Issue #165: Shin Kong Mitsukoshi Xinyi Place A9, Songshou Rd
+    // 9 (opened 2003) — the west slab of the Xiangti Ave pair:
+    // OSM way 269773067's minimum-area rect, 38.2 x 137.1 m
+    // axis-aligned at tile (168.7, -404.0); plate trimmed ~1 m a
+    // side. (The neighbouring way 269773066 is NAMED "A9" in OSM
+    // but its address/amenity tags are Songshou Rd 20, the VieShow
+    // Cinemas building — not part of this cluster.) Height
+    // ESTIMATED (flagged): 9 floors above ground (zh-Wikipedia)
+    // x 5.5 m = 49.5 m — the cluster's tallest hall. The plate
+    // is shifted east inside the outline: a service drive in the
+    // geodata runs under the hall's west arcade (its roadbed
+    // reaches tile x 152.2 at z -367), so the west face stops
+    // east of it — the #42 trim convention.
+    id: 'shin-kong-mitsukoshi-a9', name: 'Shin Kong Mitsukoshi Xinyi Place A9', nameZh: '新光三越信義新天地A9館',
+    lat: 25.036641, lon: 121.566674, realHeight: 49.5, estimated: true, color: 0xc2b8a4,
+    site: { w: 41, d: 149, dx: 0, dz: 0 },
+    facade: { kind: 'prewar', stoneColor: 0xcac0ae, trimColor: 0x9d9480, windowGlassColor: 0x2c3e50, windowWidth: 3.4, floorHeight: 5.5, litProbability: 0.45, warmth: 0.6, seed: 165.33 },
+    parts: [
+      { type: 'box', w: 34, d: 145, h: 48, dx: 2.5 },
+      { type: 'box', w: 35, d: 147, h: 1.5, y0: 48, dx: 2 },
+    ],
+  },
+  {
+    // Issue #165: Shin Kong Mitsukoshi Xinyi Place A11, Songsou
+    // Rd 11 (opened 1997, the cluster's first hall) — the east
+    // slab of the Xiangti Ave pair: OSM way 391309615's main-body
+    // rect, 51.7 x 148 m axis-aligned at tile (227.2, -404.0).
+    // The outline's narrow south tab is the skybridge toward
+    // VieShow across Songshou Rd — NOT modelled (it would cross
+    // the roadbed). Height ESTIMATED (flagged): 6 floors above
+    // ground (zh-Wikipedia) x 5.5 m = 33 m. The plate is shifted
+    // west inside the outline: the skybridge drive's roadbed
+    // crosses the outline's east face at z -370 (it reaches tile
+    // x 248.8), so the east face stops west of it — the #42 trim
+    // convention.
+    id: 'shin-kong-mitsukoshi-a11', name: 'Shin Kong Mitsukoshi Xinyi Place A11', nameZh: '新光三越信義新天地A11館',
+    lat: 25.036641, lon: 121.567255, realHeight: 33, estimated: true, color: 0xcfc5ab,
+    site: { w: 54, d: 150, dx: 0, dz: 0 },
+    facade: { kind: 'prewar', stoneColor: 0xd8cdb4, trimColor: 0xa79b7f, windowGlassColor: 0x2c3e50, windowWidth: 3.4, floorHeight: 5.5, litProbability: 0.45, warmth: 0.6, seed: 165.34 },
+    parts: [
+      { type: 'box', w: 44, d: 146, h: 31.5, dx: -3 },
+      { type: 'box', w: 46, d: 148, h: 1.5, y0: 31.5, dx: -3 },
+    ],
+  },
+  {
     // 64 m above ground, built 2023 (Wikipedia / Farglory). The
     // great shallow dome over an elliptical drum — the signature is
     // the dome itself. The published structural height, 74.5 m,
