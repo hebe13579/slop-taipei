@@ -138,6 +138,86 @@ function formOfTags(t) {
   return null;
 }
 
+// Issue #180: twin vs shared-formation classification, shared by
+// both digests. A way is TWIN (one track on its centreline) when a
+// sibling way carries the other track alongside it, or when OSM
+// tags it service=crossover — a crossover way IS one connecting
+// track by definition. It is a SHARED FORMATION (both tracks on
+// one way, drawn at the track spacing) only when no sibling runs
+// alongside it anywhere.
+//
+// The pre-#180 test — the MEDIAN nearest-sibling distance over a
+// handful of samples — could not tell "a sibling runs alongside"
+// from "siblings meet here": a crossover diagonal is never more
+// than half the track spacing from a through track, so its median
+// distance read ~0-2 m (Wenhu: always under the 2.5 m twin band)
+// and single connecting tracks were drawn as two-track formations
+// — two strips slashing across the formation where one diagonal
+// track belongs, and two parallel ways at a throat (the Minquan
+// pair) each drew a pair, doubling the strips. The same failure
+// hit every parallel pair whose ways converge (sidings, throats).
+//
+// The replacement measures COVERAGE: the share of the way's arc
+// (samples every ~4 m, ends trimmed, coincident joints excluded)
+// whose nearest sibling is 2.5..10 m away AND parallel
+// (|cos| >= 0.9). Tile-wide the two populations are far apart —
+// true shared formations measure <= 0.18, every one-track way
+// with a mapped mate measures >= 0.38 — so the 0.34 threshold
+// sits in an empty band (census: trackjunction-evidence).
+const TWIN_COVERAGE_MIN = 0.34;
+function classifyTwin(w, lineList) {
+  if (((w.tags || {}).service || '') === 'crossover') return true;
+  const pts = w.pts;
+  let total = 0;
+  const cum = [0];
+  for (let i = 1; i < pts.length; i++) {
+    total += Math.hypot(pts[i][0] - pts[i - 1][0], pts[i][1] - pts[i - 1][1]);
+    cum.push(total);
+  }
+  const sampleAt = (d) => {
+    for (let i = 1; i < pts.length; i++) {
+      if (cum[i] >= d) {
+        const L = cum[i] - cum[i - 1] || 1e-9;
+        const t = (d - cum[i - 1]) / L;
+        return {
+          p: [pts[i - 1][0] + (pts[i][0] - pts[i - 1][0]) * t, pts[i - 1][1] + (pts[i][1] - pts[i - 1][1]) * t],
+          dir: [pts[i][0] - pts[i - 1][0], pts[i][1] - pts[i - 1][1]],
+        };
+      }
+    }
+    return { p: pts[pts.length - 1], dir: [pts[pts.length - 1][0] - pts[0][0], pts[pts.length - 1][1] - pts[0][1]] };
+  };
+  const samples = [];
+  if (total > 6) {
+    for (let d = 3; d < total - 3; d += 4) samples.push(sampleAt(d));
+  }
+  if (!samples.length) samples.push(sampleAt(total / 2));
+  let valid = 0, alongside = 0;
+  for (const s of samples) {
+    let best = null;
+    for (const o of lineList) {
+      if (o === w) continue;
+      for (let i = 1; i < o.pts.length; i++) {
+        const ax = o.pts[i - 1][0], az = o.pts[i - 1][1];
+        const bx = o.pts[i][0], bz = o.pts[i][1];
+        const dx = bx - ax, dz = bz - az;
+        const L2 = dx * dx + dz * dz || 1e-9;
+        let t = ((s.p[0] - ax) * dx + (s.p[1] - az) * dz) / L2;
+        t = Math.max(0, Math.min(1, t));
+        const d = Math.hypot(ax + t * dx - s.p[0], az + t * dz - s.p[1]);
+        if (!best || d < best.d) {
+          const sd = Math.hypot(s.dir[0], s.dir[1]) || 1, od = Math.hypot(dx, dz) || 1;
+          best = { d, cos: Math.abs((s.dir[0] * dx + s.dir[1] * dz) / (sd * od)) };
+        }
+      }
+    }
+    if (!best || best.d < 1.0) continue;
+    valid++;
+    if (best.d >= 2.5 && best.d <= 10 && best.cos >= 0.9) alongside++;
+  }
+  return valid > 0 && alongside / valid >= TWIN_COVERAGE_MIN;
+}
+
 function dijkstra(adj, src, dst, banned) {
   const dist = new Map([[src, 0]]);
   const prev = new Map();
@@ -461,34 +541,9 @@ export function digestRedLine(elements, project) {
     formOf.set(wid, f);
   }
 
-  // widths: twin where a sibling line way runs 2.5..10 m alongside
+  // widths: twin where a sibling line way runs alongside (the
+  // coverage classification at classifyTwin, issue #180)
   const lineList = [...lineWays.keys()].map((id) => wayById.get(id));
-  const nearestSibling = (w) => {
-    const samples = [];
-    for (let i = 0; i < w.pts.length; i += Math.max(1, Math.floor(w.pts.length / 6))) {
-      samples.push(w.pts[i]);
-    }
-    const ds = [];
-    for (const s of samples) {
-      let best = Infinity;
-      for (const o of lineList) {
-        if (o === w) continue;
-        for (let i = 1; i < o.pts.length; i++) {
-          const ax = o.pts[i - 1][0], az = o.pts[i - 1][1];
-          const bx = o.pts[i][0], bz = o.pts[i][1];
-          const dx = bx - ax, dz = bz - az;
-          const L2 = dx * dx + dz * dz || 1e-9;
-          let t = ((s[0] - ax) * dx + (s[1] - az) * dz) / L2;
-          t = Math.max(0, Math.min(1, t));
-          const d = Math.hypot(ax + t * dx - s[0], az + t * dz - s[1]);
-          if (d < best) best = d;
-        }
-      }
-      ds.push(best);
-    }
-    ds.sort((a, b) => a - b);
-    return ds[Math.floor(ds.length / 2)];
-  };
 
   const records = [];
   const byForm = { elevated: 0, 'at-grade': 0, tunnel: 0 };
@@ -497,8 +552,7 @@ export function digestRedLine(elements, project) {
     byForm[f] += w.len;
     const pairSet = lineWays.get(w.id);
     const branch = [...pairSet].some((p) => p === '北投>新北投');
-    const sib = nearestSibling(w);
-    const twin = sib >= 2.5 && sib <= 10;
+    const twin = classifyTwin(w, lineList);
     records.push({
       id: w.id,
       nodeIds: w.nodes || [],
@@ -1093,59 +1147,20 @@ export function digestWenhuLine(elements, project) {
     formOf.set(wid, f);
   }
 
-  // widths: twin where a sibling line way runs 2.5..10 m alongside.
-  // Samples are taken at interior arc-length fractions (0.2..0.8):
-  // this line's OSM ways carry as few as 3 vertices, so the Red
-  // digest's vertex sampling puts most samples on chain joints —
-  // where the SAME track's next way sits at distance 0 and every
-  // short throat way misreads as a shared formation (measured in
-  // the #146 probe: sibling 0.0 for the whole Fuxing chain).
+  // widths: twin where a sibling line way runs alongside (the
+  // coverage classification at classifyTwin, issue #180 — it
+  // supersedes this digest's arc-fraction sibling sampling, whose
+  // median distance still read a crossover diagonal as a shared
+  // formation: the diagonal is never more than half the 4.3 m
+  // track spacing from a through track).
   const lineList = [...lineWays.keys()].map((id) => wayById.get(id));
-  const nearestSibling = (w) => {
-    const samples = [];
-    for (const f of [0.2, 0.35, 0.5, 0.65, 0.8]) {
-      const target = w.len * f;
-      let acc = 0, pt = w.pts[w.pts.length - 1];
-      for (let i = 1; i < w.pts.length; i++) {
-        if (acc + w.segLen[i - 1] >= target) {
-          const t = (target - acc) / (w.segLen[i - 1] || 1e-9);
-          pt = [w.pts[i - 1][0] + (w.pts[i][0] - w.pts[i - 1][0]) * t,
-                w.pts[i - 1][1] + (w.pts[i][1] - w.pts[i - 1][1]) * t];
-          break;
-        }
-        acc += w.segLen[i - 1];
-      }
-      samples.push(pt);
-    }
-    const ds = [];
-    for (const s of samples) {
-      let best = Infinity;
-      for (const o of lineList) {
-        if (o === w) continue;
-        for (let i = 1; i < o.pts.length; i++) {
-          const ax = o.pts[i - 1][0], az = o.pts[i - 1][1];
-          const bx = o.pts[i][0], bz = o.pts[i][1];
-          const dx = bx - ax, dz = bz - az;
-          const L2 = dx * dx + dz * dz || 1e-9;
-          let t = ((s[0] - ax) * dx + (s[1] - az) * dz) / L2;
-          t = Math.max(0, Math.min(1, t));
-          const d = Math.hypot(ax + t * dx - s[0], az + t * dz - s[1]);
-          if (d < best) best = d;
-        }
-      }
-      ds.push(best);
-    }
-    ds.sort((a, b) => a - b);
-    return ds[Math.floor(ds.length / 2)];
-  };
 
   const records = [];
   const byForm = { elevated: 0, 'at-grade': 0, tunnel: 0 };
   for (const w of lineList) {
     const f = formOf.get(w.id);
     byForm[f] += w.len;
-    const sib = nearestSibling(w);
-    const twin = sib >= 2.5 && sib <= 10;
+    const twin = classifyTwin(w, lineList);
     records.push({
       id: w.id,
       nodeIds: w.nodes || [],
