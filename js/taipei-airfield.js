@@ -28,6 +28,8 @@
 //   threshold markings are inset 14 m from the centreline
 //   ends, onto full-width pavement.
 
+import { PORTAL_HEADWALL_H, PORTAL_OPENING_H, PORTAL_WING_M } from './taipei-viaduct.js';
+
 // Terminal car parks, measured on the satellite stitch in
 // twin-evidence/ (Esri World Imagery, 2026-10): the open-air
 // lots between the terminal frontage and the service roads
@@ -253,6 +255,80 @@ function padPaint(pads, white) {
       white.push([p.x0 + 0.5, mid + 0.075, p.x1 - 0.5, mid + 0.075, p.x1 - 0.5, mid - 0.075, p.x0 + 0.5, mid - 0.075]);
     }
   }
+}
+
+// ---------------------------------------------------------------------
+// Road tunnel portals (issue #183): the mouths where a suppressed
+// airfield tunnel bed （復北地下道） dives under the field. The
+// generation map (rework v5) emits airfield.roadTunnels with one
+// mouth record per site-boundary crossing: { x, z, tx, tz } with
+// (tx, tz) the unit direction INTO the tunnel, plus the bed width.
+// The form is the MRT dive-portal form from js/taipei-viaduct.js
+// (#173) — same headwall/opening/wing dimensions, one mechanism —
+// widened to the road's twin-bore section: two dark openings split
+// by a centre pier (the real underpass is two bores), concrete
+// jambs + lintel across the full bed width, and wing walls flanking
+// the surface apron back along the approach. Pure geometry in the
+// buildDeckGeometry sink format ({ positions, normals } triangle
+// soup), so the node suite audits it and the boot wraps it with
+// deckPartGeometry exactly like the MRT portals.
+export const ROAD_PORTAL_JAMB_M = 0.6;   // concrete at each side of the twin bores
+export const ROAD_PORTAL_PIER_M = 0.55;  // half width of the centre pier between bores
+
+export function buildRoadTunnelPortals(airfield) {
+  const concrete = { pos: [], nor: [] };
+  const dark = { pos: [], nor: [] };
+  // One quad (corners in boundary order) as two flat-shaded
+  // triangles — the buildDeckGeometry construction verbatim.
+  const quad3 = (sink, a, b, c, d) => {
+    const ux = b[0] - a[0], uy = b[1] - a[1], uz = b[2] - a[2];
+    const vx = c[0] - a[0], vy = c[1] - a[1], vz = c[2] - a[2];
+    let nx = uy * vz - uz * vy, ny = uz * vx - ux * vz, nz = ux * vy - uy * vx;
+    const L = Math.hypot(nx, ny, nz) || 1;
+    nx /= L; ny /= L; nz /= L;
+    for (const p of [a, b, c, a, c, d]) { sink.pos.push(p[0], p[1], p[2]); sink.nor.push(nx, ny, nz); }
+  };
+  let mouths = 0;
+  for (const t of (airfield && airfield.roadTunnels) || []) {
+    const half = Math.max((t.width || 0) / 2, 1);
+    const oHalf = half - ROAD_PORTAL_JAMB_M;
+    for (const m of t.mouths || []) {
+      mouths++;
+      // Frame: u points OUT of the tunnel (against the mouth's
+      // into-tunnel direction), n is its left normal. The
+      // taipei-viaduct portal frame points INTO its dive, so the
+      // headwall and bore quads below wind b<->d against that
+      // code's orders — their faces point OUT of the tunnel,
+      // toward the approaching driver (the wing walls keep the
+      // viaduct orders; their outward faces are the ±n sides).
+      const ux = -m.tx, uz = -m.tz;
+      const nx = -uz, nz = ux;
+      const at = (off, y, out = 0) => [m.x + nx * off + ux * out, y, m.z + nz * off + uz * out];
+      // Headwall: side jambs, centre pier, lintel.
+      quad3(concrete, at(-half, 0), at(-half, PORTAL_HEADWALL_H), at(-oHalf, PORTAL_HEADWALL_H), at(-oHalf, 0));
+      quad3(concrete, at(oHalf, 0), at(oHalf, PORTAL_HEADWALL_H), at(half, PORTAL_HEADWALL_H), at(half, 0));
+      quad3(concrete, at(-ROAD_PORTAL_PIER_M, 0), at(-ROAD_PORTAL_PIER_M, PORTAL_OPENING_H), at(ROAD_PORTAL_PIER_M, PORTAL_OPENING_H), at(ROAD_PORTAL_PIER_M, 0));
+      quad3(concrete, at(-oHalf, PORTAL_OPENING_H), at(-oHalf, PORTAL_HEADWALL_H), at(oHalf, PORTAL_HEADWALL_H), at(oHalf, PORTAL_OPENING_H));
+      // The two dark bores, recessed just behind the face.
+      const dk = (off, y) => at(off, y, -0.06);
+      quad3(dark, dk(-oHalf, 0), dk(-oHalf, PORTAL_OPENING_H), dk(-ROAD_PORTAL_PIER_M, PORTAL_OPENING_H), dk(-ROAD_PORTAL_PIER_M, 0));
+      quad3(dark, dk(ROAD_PORTAL_PIER_M, 0), dk(ROAD_PORTAL_PIER_M, PORTAL_OPENING_H), dk(oHalf, PORTAL_OPENING_H), dk(oHalf, 0));
+      // Wing walls flanking the approach apron, sloping from
+      // headwall height down to 0.6 m at PORTAL_WING_M out.
+      for (const s of [-1, 1]) {
+        const fb = at(s * (half + 0.35), 0, 0), bb = at(s * (half + 0.35), 0, PORTAL_WING_M);
+        const bt = at(s * (half + 0.35), 0.6, PORTAL_WING_M), ft = at(s * (half + 0.35), PORTAL_HEADWALL_H, 0);
+        if (s < 0) quad3(concrete, fb, ft, bt, bb);
+        else quad3(concrete, fb, bb, bt, ft);
+      }
+    }
+  }
+  const quads = mouths * 8;
+  return {
+    concrete: { positions: new Float32Array(concrete.pos), normals: new Float32Array(concrete.nor) },
+    dark: { positions: new Float32Array(dark.pos), normals: new Float32Array(dark.nor) },
+    stats: { tunnels: ((airfield && airfield.roadTunnels) || []).length, mouths, quads, triangles: quads * 2 },
+  };
 }
 
 export function buildAirfieldPaint(airfield) {

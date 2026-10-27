@@ -142,9 +142,28 @@ const statsDelta = Math.abs(gm.stats.carriagewayLength - preMergeM) / preMergeM;
 check(statsDelta < 0.01, 'generation-map carriageway length matches geodata roads (same raw extract)', `stats ${(gm.stats.carriagewayLength / 1000).toFixed(1)} km vs roads ${(preMergeM / 1000).toFixed(1)} km`);
 let roadbedM = 0;
 for (const b of G.roadbeds || []) roadbedM += flatLen(b.pts);
-const accounted = roadbedM + gm.stats.excludedLinkLength + gm.stats.mergedConstituentOverlapLength - gm.stats.mergedLength + gm.stats.droppedScrapLength + (gm.stats.suppressedLength || 0) + (gm.stats.parkServiceExcludedLength || 0) + (gm.stats.simplificationShorteningM || 0);
+const accounted = roadbedM + gm.stats.excludedLinkLength + gm.stats.mergedConstituentOverlapLength - gm.stats.mergedLength + gm.stats.droppedScrapLength + (gm.stats.suppressedLength || 0) + (gm.stats.parkServiceExcludedLength || 0) + (gm.stats.airfieldTunnelLength || 0) + (gm.stats.simplificationShorteningM || 0);
 const acctDelta = Math.abs(accounted - preMergeM) / preMergeM;
-check(acctDelta < 0.015, 'rendered roadbed length accounts for pre-merge carriageway length within 1.5%', `roadbeds ${(roadbedM / 1000).toFixed(1)} km + excluded links ${(gm.stats.excludedLinkLength / 1000).toFixed(2)} km + merged overlap ${(gm.stats.mergedConstituentOverlapLength / 1000).toFixed(1)} km - merged ${(gm.stats.mergedLength / 1000).toFixed(1)} km + scrap ${(gm.stats.droppedScrapLength / 1000).toFixed(2)} km + suppressed ${((gm.stats.suppressedLength || 0) / 1000).toFixed(2)} km + park service ${((gm.stats.parkServiceExcludedLength || 0) / 1000).toFixed(2)} km + simplify shortening ${((gm.stats.simplificationShorteningM || 0) / 1000).toFixed(2)} km = ${(accounted / 1000).toFixed(1)} km vs ${(preMergeM / 1000).toFixed(1)} km`);
+check(acctDelta < 0.015, 'rendered roadbed length accounts for pre-merge carriageway length within 1.5%', `roadbeds ${(roadbedM / 1000).toFixed(1)} km + excluded links ${(gm.stats.excludedLinkLength / 1000).toFixed(2)} km + merged overlap ${(gm.stats.mergedConstituentOverlapLength / 1000).toFixed(1)} km - merged ${(gm.stats.mergedLength / 1000).toFixed(1)} km + scrap ${(gm.stats.droppedScrapLength / 1000).toFixed(2)} km + suppressed ${((gm.stats.suppressedLength || 0) / 1000).toFixed(2)} km + park service ${((gm.stats.parkServiceExcludedLength || 0) / 1000).toFixed(2)} km + airfield tunnel ${((gm.stats.airfieldTunnelLength || 0) / 1000).toFixed(2)} km + simplify shortening ${((gm.stats.simplificationShorteningM || 0) / 1000).toFixed(2)} km = ${(accounted / 1000).toFixed(1)} km vs ${(preMergeM / 1000).toFixed(1)} km`);
+// Issue #183: the airfield tunnel records ride the generation map's
+// roadTunnels list into the geodata's airfield field; the suppressed
+// runs must sit inside the aerodrome site and out of the roadbeds.
+{
+  const gmTunnels = gm.roadTunnels || [];
+  const geoTunnels = (G.airfield && G.airfield.roadTunnels) || [];
+  check(gmTunnels.length > 0 && geoTunnels.length === gmTunnels.length, 'airfield road tunnels present in generation map and geodata (issue #183)', `${gmTunnels.length} tunnel(s), ${((gm.stats.airfieldTunnelLength || 0) / 1000).toFixed(2)} km suppressed`);
+  const siteRings = ((G.airfield && G.airfield.site) || []).map((s) => s.ring);
+  const inRing = (ring, x, z) => { let c = false; for (let i = 0, j = ring.length - 2; i < ring.length; j = i, i += 2) { const xi = ring[i], zi = ring[i + 1], xj = ring[j], zj = ring[j + 1]; if (((zi > z) !== (zj > z)) && (x < (xj - xi) * (z - zi) / (zj - zi) + xi)) c = !c; } return c; };
+  let runPtsOutside = 0, mouthsBad = 0;
+  for (const t of geoTunnels) {
+    for (const run of t.runs || []) for (let i = 0; i + 3 < run.length; i += 2) {
+      const mx = (run[i] + run[i + 2]) / 2, mz = (run[i + 1] + run[i + 3]) / 2;
+      if (!siteRings.some((r) => inRing(r, mx, mz))) runPtsOutside++;
+    }
+    for (const m of t.mouths || []) if (!(Math.abs(Math.hypot(m.tx, m.tz) - 1) < 0.15)) mouthsBad++;
+  }
+  check(runPtsOutside === 0 && mouthsBad === 0, 'suppressed tunnel runs lie inside the airfield site; mouths carry unit directions', `${runPtsOutside} outside segments, ${mouthsBad} bad mouths`);
+}
 check(roadbedM < preMergeM, 'rendered carriageway is shorter than pre-merge (merges + link exclusion only remove)', `${(roadbedM / 1000).toFixed(1)} km < ${(preMergeM / 1000).toFixed(1)} km`);
 
 // 8. Elevated decks (issue #61): the deck set's provenance, height

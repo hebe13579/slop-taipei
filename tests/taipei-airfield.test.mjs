@@ -20,7 +20,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { TAIPEI_GEO } from '../js/taipei-geodata.js';
 import { planTaipeiBuildings, taipeiLandmarkStructures } from '../js/taipei-buildings.js';
-import { buildAirfieldPaint, AIRPORT_PARKING_PADS } from '../js/taipei-airfield.js';
+import { buildAirfieldPaint, buildRoadTunnelPortals, AIRPORT_PARKING_PADS } from '../js/taipei-airfield.js';
 
 const plan = planTaipeiBuildings(TAIPEI_GEO);
 const paint = buildAirfieldPaint(TAIPEI_GEO.airfield);
@@ -103,6 +103,96 @@ test('both runway designators are painted, thresholds keyed', () => {
 test('the #134 site exclusion does not regress', () => {
   assert.equal(plan.stats.blocksSkippedAirfield, 45, 'airfield blocks skipped, as #134');
   assert.equal(plan.stats.lotsDroppedAirfield, 218, 'airfield lots dropped, as #134');
+});
+
+// Issue #183: 復興北路 dives UNDER the field through the
+// 復興北路車行地下道 (OSM ways 95015334 + 137317902, tunnel=yes,
+// layer=-1). The generation map's rework v5 suppresses the bed's
+// run inside the aerodrome site (the MRT digest's emit:false
+// treatment for tunnel records) and records it in
+// airfield.roadTunnels; the surface aprons outside the site stay
+// as beds, both mouths get the #173 portal form, and the drive
+// graph (built from the raw roads) keeps the route whole.
+test('airfield road tunnel: the dive is suppressed, the mouths dressed, the route whole (issue #183)', () => {
+  const tunnels = TAIPEI_GEO.airfield.roadTunnels;
+  assert.ok(Array.isArray(tunnels), 'airfield.roadTunnels emitted by the geodata builder');
+  assert.equal(tunnels.length, 1, 'exactly one road tunnel crosses the airfield site (the census: every other site road is at grade)');
+  const t = tunnels[0];
+  assert.equal(t.name, '復北地下道');
+  assert.deepEqual(t.sourceWayIds, [95015334, 137317902], 'the two tunnel=yes carriageways');
+  assert.equal(t.runs.length, 1, 'one suppressed run');
+  assert.equal(t.mouths.length, 2, 'a mouth at each site-boundary crossing');
+  assert.ok(t.lengthM > 470 && t.lengthM < 480, `suppressed length ${t.lengthM} m (473.2 m of run + the sub-apron scrap at the south fence)`);
+  // The suppressed run lies inside the site ring.
+  const ring = TAIPEI_GEO.airfield.site[0].ring;
+  const run = t.runs[0];
+  for (let i = 0; i + 3 < run.length; i += 2) {
+    const mx = (run[i] + run[i + 2]) / 2, mz = (run[i + 1] + run[i + 3]) / 2;
+    assert.ok(inRing(ring, mx, mz), `suppressed segment midpoint (${mx}, ${mz}) inside the site`);
+  }
+  // No bed carrying the tunnel ways paints inside the site: the
+  // only surviving bed is the north apron stub, wholly outside.
+  const beds = TAIPEI_GEO.roadbeds.filter((b) => b.sourceWayIds.some((w) => t.sourceWayIds.includes(w)));
+  assert.equal(beds.length, 1, 'one surface apron stub survives (the 1.9 m south scrap folds into the tunnel length)');
+  const stub = beds[0];
+  for (let i = 0; i + 3 < stub.pts.length; i += 2) {
+    const mx = (stub.pts[i] + stub.pts[i + 2]) / 2, mz = (stub.pts[i + 1] + stub.pts[i + 3]) / 2;
+    assert.ok(!inRing(ring, mx, mz), `apron segment midpoint (${mx}, ${mz}) outside the site`);
+  }
+  const stubLen = Math.hypot(stub.pts[2] - stub.pts[0], stub.pts[3] - stub.pts[1]);
+  assert.ok(stubLen > 15 && stubLen < 25, `north apron stub ${stubLen.toFixed(1)} m`);
+  // Portal geometry: 2 mouths × (4 headwall + 2 wing) concrete
+  // quads and 2 dark bores, every face pointing the right way.
+  const portals = buildRoadTunnelPortals(TAIPEI_GEO.airfield);
+  assert.equal(portals.stats.tunnels, 1);
+  assert.equal(portals.stats.mouths, 2);
+  assert.equal(portals.concrete.positions.length, 2 * 6 * 6 * 3, 'concrete soup: 6 quads per mouth');
+  assert.equal(portals.dark.positions.length, 2 * 2 * 6 * 3, 'dark soup: 2 bores per mouth');
+  const quadNormal = (arr, qi) => {
+    const o = qi * 18;
+    return [arr[o], arr[o + 1], arr[o + 2]];
+  };
+  t.mouths.forEach((m, mi) => {
+    const ux = -m.tx, uz = -m.tz; // out of the tunnel
+    const nx = -uz, nz = ux;
+    for (let qi = 0; qi < 4; qi++) {
+      const n = quadNormal(portals.concrete.normals, mi * 6 + qi);
+      assert.ok(n[0] * ux + n[2] * uz > 0.99, `mouth ${mi} headwall quad ${qi} faces out of the tunnel`);
+    }
+    for (let qi = 0; qi < 2; qi++) {
+      const n = quadNormal(portals.dark.normals, mi * 2 + qi);
+      assert.ok(n[0] * ux + n[2] * uz > 0.99, `mouth ${mi} bore ${qi} faces out of the tunnel`);
+    }
+    // Wing walls: normals point away from the road (±n by side).
+    const w0 = quadNormal(portals.concrete.normals, mi * 6 + 4);
+    const w1 = quadNormal(portals.concrete.normals, mi * 6 + 5);
+    assert.ok(w0[0] * -nx + w0[2] * -nz > 0.9, `mouth ${mi} west wing faces outward`);
+    assert.ok(w1[0] * nx + w1[2] * nz > 0.9, `mouth ${mi} east wing faces outward`);
+  });
+  // The drive graph never lost the route: both tunnel carriageway
+  // edges exist and each connects its south portal node to its
+  // north portal node inside the main component.
+  const g = TAIPEI_GEO.roadGraph;
+  const tun = g.edges.filter((e) => e.name === '復北地下道');
+  assert.equal(tun.length, 2, 'both carriageways are graph edges');
+  const adj = new Map();
+  for (const e of g.edges) {
+    if (!adj.has(e.a)) adj.set(e.a, []);
+    if (!adj.has(e.b)) adj.set(e.b, []);
+    adj.get(e.a).push(e.b);
+    adj.get(e.b).push(e.a);
+  }
+  for (const e of tun) {
+    const za = g.nodes[e.a * 2 + 1], zb = g.nodes[e.b * 2 + 1];
+    const south = za > zb ? e.a : e.b, north = south === e.a ? e.b : e.a;
+    const seen = new Set([south]);
+    const queue = [south];
+    while (queue.length) {
+      const n = queue.pop();
+      for (const m of adj.get(n) || []) if (!seen.has(m)) { seen.add(m); queue.push(m); }
+    }
+    assert.ok(seen.has(north), 'south portal node reaches the north portal node (graph unbroken end to end)');
+  }
 });
 
 test('terminal site structures: placed, topped, lot-free, off the registry', () => {

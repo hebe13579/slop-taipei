@@ -4,7 +4,7 @@ import { planTaipeiBuildings, taipeiCityBlocksOptions, createTaipei101, createTa
 import { buildSidewalkBands, planStreetTrees, planParkTrees } from './taipei-streetscape.js';
 import { AvatarFigure } from './avatar-figure.js';
 import { buildPaintedBands } from './taipei-painted.js';
-import { buildAirfieldPaint } from './taipei-airfield.js';
+import { buildAirfieldPaint, buildRoadTunnelPortals } from './taipei-airfield.js';
 import { SURFACE_TONES, surfaceClass, buildMedianStrips, isPlazaPark, isPodiumBlock, podiumCentresOf, memorialPaving, MEMORIAL_GRID_TONE } from './taipei-surfaces.js';
 import { buildRoadMarkings, detectJunctions, DASH_LEN, DASH_GAP, STRIPE_W, STRIPE_PITCH } from './taipei-markings.js';
 import { planJunctionCaps, planRoundabouts, ringPoints, capSurfacePolys, capClipPolys, CAP_Y, ISLAND_Y } from './taipei-junctions.js';
@@ -699,6 +699,17 @@ export async function buildTaipeiGround(scene, tile, deps = {}) {
     if (paint.yellowEdge.length) addLayer(quadsGeometry(paint.yellowEdge, 0.026), mat(0xd9a514, 0.9), 'TaipeiAirfieldTaxiwayEdges');
     if (paint.yellowCentre.length) addLayer(quadsGeometry(paint.yellowCentre, 0.027), mat(0xd9a514, 0.9), 'TaipeiAirfieldTaxiwayCentres');
     if (paint.white.length) addLayer(quadsGeometry(paint.white, 0.028), mat(0xe9e9e2, 0.9), 'TaipeiAirfieldRunwayPaint');
+    // Issue #183: the 復北地下道 portals — where the suppressed
+    // tunnel bed dives under the field, dressed in the #173 MRT
+    // portal form (deck concrete tone, near-black bores) by
+    // js/taipei-airfield.js. The bed itself emits nothing at grade
+    // inside the site (generation-map rework v5).
+    const roadPortals = buildRoadTunnelPortals(geo.airfield);
+    if (roadPortals.concrete.positions.length) {
+      const portalMesh = addLayer(deckPartGeometry(roadPortals.concrete), mat(0x98958a, 0.95), 'TaipeiRoadTunnelPortals');
+      portalMesh.castShadow = true;
+    }
+    if (roadPortals.dark.positions.length) addLayer(deckPartGeometry(roadPortals.dark), mat(0x14161a, 1.0), 'TaipeiRoadTunnelOpenings');
   }
   // Tamsui riverside band (issue #137): bank-offset rings at 0.025 in
   // the park tone — under the water layer (0.03), so the channel stays

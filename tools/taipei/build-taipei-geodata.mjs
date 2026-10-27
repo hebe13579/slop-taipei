@@ -333,6 +333,7 @@ const graphStats = (() => {
 // is absent, roadbeds is null and the boot falls back to per-way ribbons,
 // so the pipeline still builds from a bare extract.
 let roadbeds = null;
+let roadTunnels = null;
 {
   const gmPath = path.join(DATA, 'generation-map.json');
   if (fs.existsSync(gmPath)) {
@@ -342,7 +343,12 @@ let roadbeds = null;
       pts: b.centreline, sourceWayIds: b.sourceWayIds, ...(b.merged ? { merged: true } : {}),
       ...(b.deck ? { deck: true } : {}),
     }));
-    console.log(`[taipei-geodata] roadbeds: ${roadbeds.length} from generation map (${gm.stats.mergeGroups} merged boulevard groups, ${gm.stats.linkWaysExcluded} short link ways excluded)`);
+    // Issue #183: the generation map's airfield tunnel records
+    // (suppressed underpass runs + portal mouths) ride along and are
+    // hung on the airfield field below, next to the site they dive
+    // under.
+    roadTunnels = Array.isArray(gm.roadTunnels) && gm.roadTunnels.length ? gm.roadTunnels : null;
+    console.log(`[taipei-geodata] roadbeds: ${roadbeds.length} from generation map (${gm.stats.mergeGroups} merged boulevard groups, ${gm.stats.linkWaysExcluded} short link ways excluded)${roadTunnels ? `; ${roadTunnels.length} airfield road tunnel(s) suppressed (issue #183)` : ''}`);
   } else {
     console.warn('[taipei-geodata] WARNING: generation-map.json missing — roadbeds null (run tools/taipei/build-generation-map.mjs). Boot falls back to per-way road ribbons.');
   }
@@ -680,7 +686,7 @@ if (fs.existsSync(path.join(DATA, 'osm_aeroway.json'))) {
     }
   }
   if (site.length) {
-    airfield = { site, surfaces, paint: { runway: paintRunway, taxiways: paintTaxiways, stands: paintStands } };
+    airfield = { site, surfaces, paint: { runway: paintRunway, taxiways: paintTaxiways, stands: paintStands }, ...(roadTunnels ? { roadTunnels } : {}) };
     console.log(`[taipei-geodata] airfield: Songshan site ${site.length} ring(s), ${surfaces.length} hard-surface polygons (issue #134); paint: ${paintRunway.length} runway, ${paintTaxiways.length} taxiway centrelines, ${paintStands.length} stands (issue #135)`);
   } else {
     console.warn('[taipei-geodata] WARNING: osm_aeroway.json present but no aerodrome site ring — airport exclusion inactive');

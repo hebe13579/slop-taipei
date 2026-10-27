@@ -90,6 +90,22 @@
 //      it only tells the boot not to draw the bed as a ground ribbon —
 //      tools/taipei/build-elevated.mjs builds its real deck instead.
 //
+// Rework v5 (issue #183):
+//  11. AIRFIELD TUNNEL SUPPRESSION — a roadbed whose source ways are
+//      ALL tunnel=yes and whose centreline crosses the Songshan
+//      airfield site is not a surface road: it dives under the field
+//      （復興北路車行地下道， OSM ways 95015334 + 137317902,
+//      tunnel=yes / layer=-1). The inside run leaves `roadbeds` and
+//      is recorded in the top-level `roadTunnels` list (never emitted
+//      as a surface bed — the same emit:false treatment the MRT
+//      digest gives tunnel records in tools/taipei/build-mrt.mjs);
+//      the outside runs stay as surface beds (the portal aprons) and
+//      the geodata builder hangs the records on the airfield so the
+//      boot can dress the two mouths. Scoped to the airfield site on
+//      purpose: tile-wide underpass ways stay ordinary surface roads
+//      (rule 8 above; the #29 directive), this is the one place a
+//      "surface" tunnel bed paints a road across a runway.
+//
 // usage: node tools/taipei/build-generation-map.mjs
 import fs from 'node:fs';
 import path from 'node:path';
@@ -1108,6 +1124,136 @@ let suppressedLength = dedupedLength;
   }
 }
 
+// ---- airfield tunnel suppression (issue #183, rework v5) -------------------
+// Runs last, over the final bed set. A bed qualifies when EVERY source
+// way is tunnel=yes in the raw extract AND its centreline crosses the
+// Songshan aerodrome site (osm_aeroway.json relation rings — the same
+// assembly build-taipei-geodata.mjs uses for the #134 site). The census
+// behind the rule (2026-10): exactly one bed qualifies — the merged
+// 復北地下道 bed (ways 95015334 + 137317902, 473.3 of its 494.6 m inside
+// the site). Every other bed inside the site is a real at-grade road
+// (敦化北路 terminal frontage, airside service roads, the taxi queue)
+// and stays. The suppressed length books into airfieldTunnelLength so
+// the length identity below stays closed; sub-apron scraps shorter
+// than TUNNEL_APRON_MIN_M fold into the tunnel length instead of
+// shipping as sliver beds.
+const TUNNEL_APRON_MIN_M = 3;
+const roadTunnels = [];
+let airfieldTunnelLength = 0;
+{
+  const aeroPath = path.join(DATA, 'osm_aeroway.json');
+  if (fs.existsSync(aeroPath)) {
+    const siteRings = [];
+    for (const el of load('osm_aeroway.json').elements) {
+      if (el.type !== 'relation') continue;
+      const rings = el.rings ? el.rings.map((r) => r.map((g) => toWorld(g.lon, g.lat))) : [];
+      for (const ring of rings) if (ring.length >= 4) siteRings.push(ring);
+    }
+    if (!siteRings.length) {
+      console.error('[generation-map] FATAL: osm_aeroway.json present but no aerodrome site ring assembled — the airfield tunnel rule has rotted. Fix or remove it.');
+      process.exit(1);
+    }
+    const wayTags = new Map();
+    for (const el of load('osm_roads.json').elements) if (el.type === 'way') wayTags.set(el.id, el.tags || {});
+    const inSite = (p) => siteRings.some((ring) => pip(p, ring));
+    // Arc-length intervals of a centreline inside the site rings:
+    // collect every segment/ring-edge crossing, then test the
+    // midpoint of each elementary span.
+    const insideIntervals = (pts, cum) => {
+      const cuts = new Set([0, cum[cum.length - 1]]);
+      for (let i = 0; i + 1 < pts.length; i++) {
+        const [ax, az] = pts[i], [bx, bz] = pts[i + 1];
+        const dx = bx - ax, dz = bz - az;
+        for (const ring of siteRings) {
+          for (let j = 0, k = ring.length - 1; j < ring.length; k = j++) {
+            const [x1, z1] = ring[k], [x2, z2] = ring[j];
+            const ex = x2 - x1, ez = z2 - z1, den = dx * ez - dz * ex;
+            if (Math.abs(den) < 1e-12) continue;
+            const t = ((x1 - ax) * ez - (z1 - az) * ex) / den, u = ((x1 - ax) * dz - (z1 - az) * dx) / den;
+            if (t > 0 && t < 1 && u >= 0 && u <= 1) cuts.add(cum[i] + t * (cum[i + 1] - cum[i]));
+          }
+        }
+      }
+      const sorted = [...cuts].sort((a, b) => a - b);
+      const intervals = [];
+      for (let i = 0; i + 1 < sorted.length; i++) {
+        if (sorted[i + 1] - sorted[i] < 0.01) continue;
+        const mid = pointAt(pts, cum, (sorted[i] + sorted[i + 1]) / 2);
+        if (inSite([mid.x, mid.z])) {
+          const last = intervals[intervals.length - 1];
+          if (last && sorted[i] - last[1] < 0.01) last[1] = sorted[i + 1];
+          else intervals.push([sorted[i], sorted[i + 1]]);
+        }
+      }
+      return intervals;
+    };
+    // The sub-polyline between arc lengths a..b (splitAt's inner
+    // construction, generalised to any range).
+    const subline = (pts, cum, a, b) => {
+      if (b - a < 0.01) return null;
+      const out = [];
+      const pa = pointAt(pts, cum, a);
+      out.push([pa.x, pa.z]);
+      for (let i = 0; i < pts.length; i++) if (cum[i] > a + 0.01 && cum[i] < b - 0.01) out.push(pts[i]);
+      const pb = pointAt(pts, cum, b);
+      const last = out[out.length - 1];
+      if (Math.hypot(pb.x - last[0], pb.z - last[1]) > 0.01) out.push([pb.x, pb.z]);
+      return out.length >= 2 ? out : null;
+    };
+    const kept = [];
+    for (const b of roadbeds) {
+      const allTunnel = b.sourceWayIds.length > 0 && b.sourceWayIds.every((w) => (wayTags.get(w) || {}).tunnel === 'yes');
+      if (!allTunnel) { kept.push(b); continue; }
+      const pts = pairsOf(b.centreline);
+      const cum = cumLen(pts);
+      const intervals = insideIntervals(pts, cum);
+      if (!intervals.length) { kept.push(b); continue; }
+      const total = cum[cum.length - 1];
+      const bedLen = flatLength(b.centreline);
+      let keptLen = 0, tunnelGeoLen = 0;
+      const runs = [], mouths = [];
+      for (const [s0, s1] of intervals) {
+        const mid = subline(pts, cum, s0, s1);
+        if (mid) { const f = flatQ(mid); runs.push(f); tunnelGeoLen += flatLength(f); }
+        const pa = pointAt(pts, cum, s0), pb = pointAt(pts, cum, s1);
+        // (tx, tz) always points INTO the tunnel from the mouth.
+        mouths.push({ x: q(pa.x), z: q(pa.z), tx: q(pa.tx), tz: q(pa.tz) });
+        mouths.push({ x: q(pb.x), z: q(pb.z), tx: q(-pb.tx), tz: q(-pb.tz) });
+      }
+      const outside = [];
+      let cursor = 0;
+      for (const [s0, s1] of intervals) { if (s0 > cursor + 0.01) outside.push([cursor, s0]); cursor = Math.max(cursor, s1); }
+      if (cursor < total - 0.01) outside.push([cursor, total]);
+      const stubs = [];
+      for (const [s0, s1] of outside) {
+        if (s1 - s0 < TUNNEL_APRON_MIN_M) continue; // scrap: folds into the tunnel length below
+        const part = subline(pts, cum, s0, s1);
+        if (!part) continue;
+        const stub = { ...b, centreline: flatQ(part) };
+        stubs.push(stub);
+        keptLen += flatLength(stub.centreline);
+      }
+      roadbedLength -= bedLen - keptLen;
+      airfieldTunnelLength += bedLen - keptLen;
+      roadTunnels.push({
+        name: b.name, highway: b.highway, width: b.width, sourceWayIds: b.sourceWayIds,
+        runs, mouths, lengthM: Math.round((bedLen - keptLen) * 10) / 10,
+        ...(tunnelGeoLen > 0 ? { pavedM: Math.round(tunnelGeoLen * 10) / 10 } : {}),
+      });
+      kept.push(...stubs);
+    }
+    if (!roadTunnels.length) {
+      console.error('[generation-map] FATAL: airfield tunnel suppression matched zero roadbeds — the rule has rotted (the 復北地下道 ways retagged or the site ring moved?). Fix or remove it.');
+      process.exit(1);
+    }
+    roadbeds.length = 0;
+    roadbeds.push(...kept);
+    for (const t of roadTunnels) {
+      console.log(`[generation-map] airfield tunnel (issue #183): "${t.name}" (${t.highway}, ${t.width} m, ways [${t.sourceWayIds.join(', ')}]) — ${t.lengthM} m suppressed inside the Songshan site, ${t.mouths.length} portal mouths, surface aprons kept`);
+    }
+  }
+}
+
 // ---- stats + output ----------------------------------------------------------
 const stats = {
   carriagewayRuns: segments.length,
@@ -1125,6 +1271,8 @@ const stats = {
   suppressedBeds: suppressedReport,
   parkServiceExcludedLength: Math.round(parkServiceExcludedLength * 10) / 10,
   parkServiceExcludedBeds: parkServiceReport,
+  airfieldTunnelLength: Math.round(airfieldTunnelLength * 10) / 10,
+  airfieldTunnels: roadTunnels.map((t) => ({ name: t.name, highway: t.highway, width: t.width, sourceWayIds: t.sourceWayIds, lengthM: t.lengthM, mouths: t.mouths.length })),
   parkServiceNamedExemptions: parkServiceExemptions,
   underpassFamilies: [...familyParent.entries()].map(([underpass, parent]) => ({ underpass, parent })),
   underpassDedupBeds: dedupedReport,
@@ -1136,14 +1284,15 @@ const stats = {
   overrides: [...overrideMatched.entries()].map(([name, matchedWays]) => ({ name, width: OVERRIDES[name], matchedWays })),
   mergedRoads: mergedReport,
 };
-const identity = stats.roadbedLength + stats.excludedLinkLength + stats.mergedConstituentOverlapLength - stats.mergedLength + stats.droppedScrapLength + stats.suppressedLength + stats.parkServiceExcludedLength + stats.simplificationShorteningM;
-console.log(`[generation-map] length identity: roadbeds ${stats.roadbedLength} + excludedLinks ${stats.excludedLinkLength} + mergedOverlap ${stats.mergedConstituentOverlapLength} - merged ${stats.mergedLength} + scrap ${stats.droppedScrapLength} + suppressed ${stats.suppressedLength} + parkService ${stats.parkServiceExcludedLength} + simplifyShortening ${stats.simplificationShorteningM} = ${identity.toFixed(1)} vs carriageway ${stats.carriagewayLength} (delta ${(identity - stats.carriagewayLength).toFixed(1)} m)`);
+const identity = stats.roadbedLength + stats.excludedLinkLength + stats.mergedConstituentOverlapLength - stats.mergedLength + stats.droppedScrapLength + stats.suppressedLength + stats.parkServiceExcludedLength + stats.airfieldTunnelLength + stats.simplificationShorteningM;
+console.log(`[generation-map] length identity: roadbeds ${stats.roadbedLength} + excludedLinks ${stats.excludedLinkLength} + mergedOverlap ${stats.mergedConstituentOverlapLength} - merged ${stats.mergedLength} + scrap ${stats.droppedScrapLength} + suppressed ${stats.suppressedLength} + parkService ${stats.parkServiceExcludedLength} + airfieldTunnel ${stats.airfieldTunnelLength} + simplifyShortening ${stats.simplificationShorteningM} = ${identity.toFixed(1)} vs carriageway ${stats.carriagewayLength} (delta ${(identity - stats.carriagewayLength).toFixed(1)} m)`);
 const out = {
   version: 1,
   generatedBy: 'tools/taipei/build-generation-map.mjs',
   issue: 'https://github.com/hebe13579/slop-taipei/issues/6',
   frame: { origin: 'Taipei 101 (25.0330, 121.5650)', originLatLon: [LAT0, LON0], bearingDeg: 0, units: 'm', bbox: BBOX, boxes: BOXES_WORLD },
   roadbeds,
+  roadTunnels,
   stats,
 };
 fs.writeFileSync(OUT, JSON.stringify(out) + '\n');
