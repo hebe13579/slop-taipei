@@ -46,6 +46,15 @@ const EXPECTED_FACADES = {
   // glass takes the curtain factory; the sphere and theatre
   // boxes are matte aluminium flat overrides on their parts.
   'taipei-performing-arts-center': 'curtain',
+  // Batch 8 (issue #165): the Four Seasons' blue-grey curtain
+  // glass; Farglory's salmon stone and the Mitsukoshi halls'
+  // stone cladding take the prewar grid.
+  'four-seasons-hotel-taipei': 'curtain', // blue-grey hotel glass
+  'farglory-financial-center': 'prewar', // salmon-pink stone shaft
+  'shin-kong-mitsukoshi-a4': 'prewar', // grey stone cladding
+  'shin-kong-mitsukoshi-a8': 'prewar', // beige stone cladding
+  'shin-kong-mitsukoshi-a9': 'prewar', // light stone cladding
+  'shin-kong-mitsukoshi-a11': 'prewar', // cream stone cladding
 };
 
 // The only Latin wordmarks a landmark sign may carry — the ones the
