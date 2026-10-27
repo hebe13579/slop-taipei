@@ -307,13 +307,17 @@ check(roadbedM < preMergeM, 'rendered carriageway is shorter than pre-merge (mer
 }
 
 
-// 9. Terrain skin (issue #129): the baked DEM backdrop grids. Pure
-// visual data — the checks pin its shape and its two honesty rules:
-// the grids share their seam postings, and the Guandu plain (DEM
-// ~0-3 m) carries no rise.
+// 9. Terrain skin (issues #129 + #187): the baked DEM backdrop
+// grids. Pure visual data — the checks pin its shape and its
+// honesty rules: grids share their seam postings, the Guandu plain
+// (DEM ~0-3 m) carries no rise, and no grid covers the National
+// Palace Museum grounds (the #186 strip stays flat-convention).
 {
   const T = G.terrain;
-  check(!!T && Array.isArray(T.grids) && T.grids.length === 2, 'terrain skin grids present', T ? `${T.grids.length} grids` : 'missing');
+  const cfg = JSON.parse(fs.readFileSync(new URL('./tile-boxes.json', import.meta.url), 'utf8'));
+  const enabled = cfg.boxes.filter((b) => b.terrain?.grid).map((b) => b.name).sort();
+  check(!!T && Array.isArray(T.grids) && JSON.stringify(T.grids.map((g) => g.box).sort()) === JSON.stringify(enabled),
+    'terrain skin grids present (one per terrain-enabled box)', T ? `${T.grids.length} grids: ${T.grids.map((g) => g.box).join(', ')}` : 'missing');
   if (T) {
     let sane = true, maxH = 0;
     for (const g of T.grids) {
@@ -325,6 +329,11 @@ check(roadbedM < preMergeM, 'rendered carriageway is shorter than pre-merge (mer
     const bei = T.grids.find((g) => g.box === '4-beitou'), cor = T.grids.find((g) => g.box === '3-corridor');
     check(!!bei && !!cor && Math.abs(bei.x1 - cor.x0) < 0.01 && Math.abs(bei.z0 - cor.z0) < 0.01 && Math.abs(bei.z1 - cor.z1) < 0.01,
       'terrain grids share the beitou/corridor seam', bei && cor ? `beitou x1 ${bei.x1} = corridor x0 ${cor.x0}` : 'grid missing');
+    const ap = T.grids.find((g) => g.box === '6-airport');
+    check(!!ap && !!cor && Math.abs(ap.x0 - cor.x1) < 0.01 && Math.abs(ap.z0 - cor.z0) < 0.01 && ap.fade.w === false && cor.fade.e === false,
+      'terrain grids share the corridor/airport north-rim seam (#187)', ap && cor ? `corridor x1 ${cor.x1} = airport x0 ${ap.x0}` : 'grid missing');
+    check(!T.grids.some((g) => 121.5483 >= g.w && 121.5483 <= g.e && 25.1023 >= g.s && 25.1023 <= g.n),
+      'no terrain grid covers the National Palace Museum grounds (#187)', 'NPM point 121.5483, 25.1023 uncovered');
     if (bei) { // Guandu plain interior postings (inset from the confluence bluff at the box's NW rim)
       let n = 0, over = 0;
       for (let r = 0; r < bei.rows; r++) for (let c = 0; c < bei.cols; c++) {
