@@ -678,8 +678,52 @@ test('portal (issue #173): the real tile has exactly the four dive mouths (Minqu
   // identically — 2 more mouths, measured at the gate as portal
   // clusters at (-4633, -3507) (Minquan) and (-1858, -3564)
   // (Wenhu), 20 triangles each. 4 mouths total.
-  assert.equal(tracked.portal.positions.length / 9, 40, 'portal concrete triangles (4 mouths × 5 quads)');
+  // Issue #184 re-pin (portal 40 -> 48 triangles, openings stay
+  // 8): the Wenhu pair no longer takes #173's per-line fin. The
+  // 2.6 m single-track ribbons paired into ONE combined block —
+  // face 4 + cap 1 + cheeks 2 + apron 5 + wings 2 = 14 quads =
+  // 28 triangles — replacing 2 fins × 5 quads = 20 triangles
+  // (delta +8 triangles = +4 quads: block depth + apron added,
+  // faces/wings consolidated). The Red mouths are byte-identical
+  // (hash-verified at the gate against the pre-#184 emitter), and
+  // each mouth still carries exactly one dark opening quad.
+  assert.equal(tracked.portal.positions.length / 9, 48, 'portal concrete triangles (Red 2 × 5 quads + Wenhu combined block 14 quads)');
   assert.equal(tracked.portalDark.positions.length / 9, 8, 'portal opening triangles (4 mouths × 1 quad)');
+});
+
+test('portal block (issue #184): twin guideway dive ends share one seated block; a lone guideway end keeps the fin form', () => {
+  const twin = {
+    lines: [
+      { pts: [0, 0, 100, 0, 200, 0], width: 2.6, h: [9, 9, 0], tracks: [0], trackStyle: 'guideway' },
+      { pts: [0, 4.6, 100, 4.6, 200, 4.6], width: 2.6, h: [9, 9, 0], tracks: [0], trackStyle: 'guideway' },
+    ],
+    piers: [], deckDepth: 1.8,
+  };
+  const g = buildDeckGeometry(twin, { tracks: true });
+  // One combined block: face 4 + cap 1 + cheeks 2 + apron 5 +
+  // wings 2 = 14 quads = 28 triangles; one dark opening per track.
+  assert.equal(g.portal.positions.length / 9, 28, 'combined block quads (14 × 2 triangles)');
+  assert.equal(g.portalDark.positions.length / 9, 4, 'two dark openings (2 quads)');
+  // Carried to grade, headwall crest at the module's portal height.
+  let minY = Infinity, maxY = 0;
+  for (let i = 1; i < g.portal.positions.length; i += 3) { minY = Math.min(minY, g.portal.positions[i]); maxY = Math.max(maxY, g.portal.positions[i]); }
+  assert.equal(minY, 0, 'the block sits on the ground');
+  assert.ok(Math.abs(maxY - 5.2) < 1e-6, `headwall tops at ${maxY} m`);
+  // Each dark opening is centred on its own trackway (z = 0 / 4.6).
+  const cz = [];
+  for (let i = 0; i < g.portalDark.positions.length; i += 18) {
+    let s = 0; for (let v = 0; v < 6; v++) s += g.portalDark.positions[i + v * 3 + 2];
+    cz.push(+(s / 6).toFixed(2));
+  }
+  assert.deepEqual(cz.sort(), [0, 4.6], 'openings centred on the twin trackways');
+  // A lone narrow guideway end has no partner: #173's fin form.
+  const lone = {
+    lines: [{ pts: [0, 0, 100, 0, 200, 0], width: 2.6, h: [9, 9, 0], tracks: [0], trackStyle: 'guideway' }],
+    piers: [], deckDepth: 1.8,
+  };
+  const gl = buildDeckGeometry(lone, { tracks: true });
+  assert.equal(gl.portal.positions.length / 9, 10, 'lone guideway end keeps the 5-quad fin');
+  assert.equal(gl.portalDark.positions.length / 9, 2, 'lone opening (1 quad)');
 });
 
 test('portal trees (issue #173): ground-contact polygons cover at-grade and dive segments only', () => {

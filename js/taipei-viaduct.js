@@ -66,6 +66,22 @@ export const PORTAL_HEADWALL_H = 5.2;  // headwall height above grade, m
 export const PORTAL_OPENING_H = 4.4;   // dark opening height, m
 export const PORTAL_WING_M = 9;        // wing wall run back along the ramp, m
 export const PORTAL_JOIN_TOL_M = 2;    // an end this close to another line's end is a join, not a portal
+// Issue #184: a narrow single-track guideway ribbon (2.6 m) cannot
+// seat #173's portal surround on its own — the per-line fin reads as
+// a floating black door (the Wenhu dive). When two such guideway
+// dive ends sit close together (the Wenhu twin trackways), they
+// share ONE portal block: a concrete headwall spanning both
+// trackways with one dark opening per track, a base apron carried
+// to grade, and wing walls on the combined flanks. Formations wide
+// enough to seat their own surround (the Red Line's ballast
+// formations) keep #173's form byte-identical.
+export const PORTAL_PAIR_DIST_M = 10;   // twin guideway ends this close share one block, m
+export const PORTAL_PAIR_MAX_W = 4;     // a line narrower than this is a single-track ribbon, m
+export const PORTAL_BLOCK_D = 1.5;      // headwall block depth behind the face, m
+export const PORTAL_APRON_H = 0.1;      // base apron slab height, m
+export const PORTAL_APRON_RUN_M = 10;   // apron + wing run back along the ramp, m
+export const PORTAL_GUIDE_OPEN_HALF = 1.4; // dark opening half width around a guideway track centre, m
+export const PORTAL_SURROUND_M = 1.1;   // concrete surround beyond the outer trackway edge, m
 export const MRT_TREE_MARGIN_M = 1;    // tree-exclusion margin around ground-contact MRT beds, m
 
 const ptsOf = (line) => {
@@ -160,6 +176,130 @@ export function buildDeckGeometry(elevated, opts = {}) {
       const rbL = corner(pB, nB, o + s + BAR_W / 2, yB + GUIDE_H + BAR_LIFT);
       const rbR = corner(pB, nB, o + s - BAR_W / 2, yB + GUIDE_H + BAR_LIFT);
       quad(rails, raL, rbL, rbR, raR);
+    }
+  };
+
+  // Issue #184: pair up narrow guideway dive ends that share one
+  // portal block. A firing end passes #173's test (at grade, the
+  // neighbour elevated, no other line continuing it); two firing
+  // ends pair when both lines are narrow guideway ribbons, their
+  // ends sit within PORTAL_PAIR_DIST_M, and the pair leaves a real
+  // centre pier between the two openings. Pairing is deterministic:
+  // ends sorted by position, each end pairs with its nearest
+  // unpaired neighbour. The map is line -> endIdx -> { partner,
+  // emitter } so the main loop emits the combined block once (from
+  // the emitter) and skips the partner's own fin. Wide formations
+  // never pair — the Red Line keeps #173's form byte-identical.
+  const portalPairs = (() => {
+    if (!tracks) return new Map();
+    const firing = [];
+    for (const line of lines) {
+      const pts = ptsOf(line);
+      if (pts.length < 2) continue;
+      for (const endIdx of [0, pts.length - 1]) {
+        const hEnd = line.h?.[endIdx] ?? 0;
+        const nIdx = endIdx === 0 ? 1 : pts.length - 2;
+        const hNbr = line.h?.[nIdx] ?? 0;
+        if (!(hEnd < LOW_BED_MAX && hNbr >= LOW_BED_MAX)) continue;
+        const E = pts[endIdx];
+        const joined = lines.some((l2) => {
+          if (l2 === line) return false;
+          const p2 = ptsOf(l2);
+          if (p2.length < 2) return false;
+          return [p2[0], p2[p2.length - 1]].some((q) => Math.hypot(q[0] - E[0], q[1] - E[1]) <= PORTAL_JOIN_TOL_M);
+        });
+        if (joined) continue;
+        if (line.trackStyle !== 'guideway' || (line.width || 6) >= PORTAL_PAIR_MAX_W) continue;
+        firing.push({ line, endIdx, E, P: pts[nIdx], hEnd, hNbr, segLen: Math.hypot(pts[nIdx][0] - E[0], pts[nIdx][1] - E[1]) });
+      }
+    }
+    firing.sort((a, b) => (a.E[0] - b.E[0]) || (a.E[1] - b.E[1]));
+    const used = new Set();
+    const map = new Map();
+    const put = (rec, partner, emitter) => {
+      let m = map.get(rec.line);
+      if (!m) { m = new Map(); map.set(rec.line, m); }
+      m.set(rec.endIdx, { partner, emitter });
+    };
+    for (let i = 0; i < firing.length; i++) {
+      if (used.has(i)) continue;
+      let best = -1, bd = PORTAL_PAIR_DIST_M;
+      for (let j = 0; j < firing.length; j++) {
+        if (i === j || used.has(j)) continue;
+        const d = Math.hypot(firing[j].E[0] - firing[i].E[0], firing[j].E[1] - firing[i].E[1]);
+        if (d <= bd) { bd = d; best = j; }
+      }
+      if (best < 0) continue;
+      // The centre pier between the two openings must stay real.
+      if (bd < 2 * PORTAL_GUIDE_OPEN_HALF + 0.5) continue;
+      used.add(i); used.add(best);
+      put(firing[i], firing[best], true);
+      put(firing[best], firing[i], false);
+    }
+    return map;
+  })();
+
+  // Issue #184: one portal block for a paired twin dive. The face
+  // plane runs through the midpoint of the two ends, perpendicular
+  // to their mean descent tangent; each trackway gets its own dark
+  // opening centred where its centreline meets the plane, and the
+  // concrete surround, block depth, base apron and wings make it a
+  // single structure carried to grade. Corner orders mirror #173's
+  // (face normal back along the descent, cap/apron tops +y, cheeks
+  // and skirts outward per side). Quad tally for the combined
+  // block: face 4 + cap 1 + cheeks 2 + apron 5 + wings 2 = 14 quads
+  // (28 triangles) in the portal sink, 2 opening quads (4 triangles)
+  // in portalDark.
+  const emitPortalBlock = (a, b) => {
+    let tx = (a.E[0] - a.P[0]) + (b.E[0] - b.P[0]);
+    let tz = (a.E[1] - a.P[1]) + (b.E[1] - b.P[1]);
+    const tl = Math.hypot(tx, tz) || 1;
+    tx /= tl; tz /= tl;
+    const nx = -tz, nz = tx;
+    const M = [(a.E[0] + b.E[0]) / 2, (a.E[1] + b.E[1]) / 2];
+    const at2 = (off, y, back = 0) => [M[0] + nx * off - tx * back, y, M[1] + nz * off - tz * back];
+    const ends = [a, b].map((e) => ({
+      c: (e.E[0] - M[0]) * nx + (e.E[1] - M[1]) * nz,
+      w: e.line.width || 6,
+    })).sort((p, q) => p.c - q.c);
+    const formHalf = Math.max(...ends.map((e) => Math.abs(e.c) + e.w / 2)) + PORTAL_SURROUND_M;
+    const open = ends.map((e) => [e.c - PORTAL_GUIDE_OPEN_HALF, e.c + PORTAL_GUIDE_OPEN_HALF]);
+    const piers = [];
+    let lo = -formHalf;
+    for (const [oLo, oHi] of open) { piers.push([lo, oLo]); lo = oHi; }
+    piers.push([lo, formHalf]);
+    for (const [pLo, pHi] of piers) quad(portal, at2(pLo, 0), at2(pHi, 0), at2(pHi, PORTAL_HEADWALL_H), at2(pLo, PORTAL_HEADWALL_H));
+    quad(portal, at2(-formHalf, PORTAL_OPENING_H), at2(formHalf, PORTAL_OPENING_H), at2(formHalf, PORTAL_HEADWALL_H), at2(-formHalf, PORTAL_HEADWALL_H));
+    for (const [oLo, oHi] of open) {
+      const dk = (off, y) => at2(off, y, -0.06);
+      quad(portalDark, dk(oLo, 0), dk(oHi, 0), dk(oHi, PORTAL_OPENING_H), dk(oLo, PORTAL_OPENING_H));
+    }
+    // Block top cap (face back into the tunnel side) and end cheeks.
+    quad(portal, at2(-formHalf, PORTAL_HEADWALL_H, 0), at2(formHalf, PORTAL_HEADWALL_H, 0),
+      at2(formHalf, PORTAL_HEADWALL_H, -PORTAL_BLOCK_D), at2(-formHalf, PORTAL_HEADWALL_H, -PORTAL_BLOCK_D));
+    for (const s of [-1, 1]) {
+      const off = s * formHalf;
+      if (s < 0) quad(portal, at2(off, 0, -PORTAL_BLOCK_D), at2(off, 0, 0), at2(off, PORTAL_HEADWALL_H, 0), at2(off, PORTAL_HEADWALL_H, -PORTAL_BLOCK_D));
+      else quad(portal, at2(off, 0, 0), at2(off, 0, -PORTAL_BLOCK_D), at2(off, PORTAL_HEADWALL_H, -PORTAL_BLOCK_D), at2(off, PORTAL_HEADWALL_H, 0));
+    }
+    // Base apron: a slab under the whole structure and the ramp
+    // feet, with skirts so it reads as a slab from every angle.
+    const aw = formHalf + 0.8;
+    quad(portal, at2(-aw, PORTAL_APRON_H, PORTAL_APRON_RUN_M), at2(aw, PORTAL_APRON_H, PORTAL_APRON_RUN_M),
+      at2(aw, PORTAL_APRON_H, -PORTAL_BLOCK_D), at2(-aw, PORTAL_APRON_H, -PORTAL_BLOCK_D));
+    quad(portal, at2(aw, 0, -PORTAL_BLOCK_D), at2(-aw, 0, -PORTAL_BLOCK_D), at2(-aw, PORTAL_APRON_H, -PORTAL_BLOCK_D), at2(aw, PORTAL_APRON_H, -PORTAL_BLOCK_D));
+    quad(portal, at2(-aw, 0, PORTAL_APRON_RUN_M), at2(aw, 0, PORTAL_APRON_RUN_M), at2(aw, PORTAL_APRON_H, PORTAL_APRON_RUN_M), at2(-aw, PORTAL_APRON_H, PORTAL_APRON_RUN_M));
+    quad(portal, at2(aw, 0, PORTAL_APRON_RUN_M), at2(aw, 0, -PORTAL_BLOCK_D), at2(aw, PORTAL_APRON_H, -PORTAL_BLOCK_D), at2(aw, PORTAL_APRON_H, PORTAL_APRON_RUN_M));
+    quad(portal, at2(-aw, 0, -PORTAL_BLOCK_D), at2(-aw, 0, PORTAL_APRON_RUN_M), at2(-aw, PORTAL_APRON_H, PORTAL_APRON_RUN_M), at2(-aw, PORTAL_APRON_H, -PORTAL_BLOCK_D));
+    // Wing walls on the combined flanks, sloping with the ramp cut.
+    const back = Math.min(PORTAL_APRON_RUN_M, 0.9 * Math.min(a.segLen, b.segLen));
+    const hAt = (e) => e.hEnd + (e.hNbr - e.hEnd) * Math.min(back / e.segLen, 1);
+    const yBack = Math.max(Math.max(hAt(a), hAt(b)), LOW_BED_H) + 0.5;
+    for (const s of [-1, 1]) {
+      const fb = at2(s * formHalf, 0), bb = at2(s * (formHalf + 0.8), 0, back);
+      const bt = at2(s * (formHalf + 0.8), yBack, back), ft = at2(s * formHalf, PORTAL_HEADWALL_H);
+      if (s < 0) quad(portal, fb, bb, bt, ft);
+      else quad(portal, fb, ft, bt, bb);
     }
   };
 
@@ -261,6 +401,14 @@ export function buildDeckGeometry(elevated, opts = {}) {
           return [p2[0], p2[p2.length - 1]].some((q) => Math.hypot(q[0] - E[0], q[1] - E[1]) <= PORTAL_JOIN_TOL_M);
         });
         if (joined) continue;
+        // Issue #184: a paired twin dive emits ONE combined block
+        // from the emitter end; the partner end emits nothing here.
+        const pair = portalPairs.get(line)?.get(endIdx);
+        if (pair && !pair.emitter) continue;
+        if (pair) {
+          emitPortalBlock({ line, E, P, hEnd, hNbr, segLen: Math.hypot(P[0] - E[0], P[1] - E[1]) }, pair.partner);
+          continue;
+        }
         let tx = E[0] - P[0], tz = E[1] - P[1];
         const tl = Math.hypot(tx, tz) || 1;
         tx /= tl; tz /= tl;
