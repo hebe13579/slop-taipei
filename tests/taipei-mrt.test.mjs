@@ -611,7 +611,22 @@ test('tracks (issue #139): the renderer draws ballast + rails only in track mode
   assert.ok(tracked.ballast.positions.length > 0, 'ballast strips emitted');
   assert.ok(tracked.rails.positions.length > 0, 'rail ribbons emitted');
   assert.equal(tracked.asphalt.positions.length, 0, 'track mode replaces the asphalt ribbon');
-  assert.deepEqual([...tracked.concrete.positions], [...plain.concrete.positions], 'concrete sink identical — the road deck path is byte-stable');
+  // Issue #196: this used to deep-compare the whole tile's tracked
+  // vs plain concrete. Track mode now re-profiles the four dive
+  // ramps (their slabs descend into the portal trenches), so
+  // tile-wide equality no longer holds by design. The invariant's
+  // content — track mode leaves non-dive geometry alone, and the
+  // road-deck path (plain mode) never re-profiles — is pinned on a
+  // synthetic set with no firing end:
+  const noDive = {
+    lines: [
+      { pts: [0, 0, 100, 0], width: 10.4, h: [9, 9], tracks: [-3, 3] },
+      { pts: [0, 50, 100, 50], width: 10.4, h: [0, 0], tracks: [-3, 3] },
+    ],
+    piers: [], deckDepth: 1.8,
+  };
+  assert.deepEqual([...buildDeckGeometry(noDive, { tracks: true }).concrete.positions],
+    [...buildDeckGeometry(noDive).concrete.positions], 'concrete sink identical where no dive fires');
   assert.equal(tracked.lineCount, plain.lineCount, 'same line count');
   for (let i = 0; i < tracked.ballast.positions.length; i++) assert.ok(Number.isFinite(tracked.ballast.positions[i]), 'finite ballast');
   for (let i = 0; i < tracked.rails.positions.length; i++) assert.ok(Number.isFinite(tracked.rails.positions[i]), 'finite rails');
@@ -634,22 +649,26 @@ test('tracks (issue #139): the renderer draws ballast + rails only in track mode
   for (let i = 0; i < tracked.guideway.positions.length; i++) assert.ok(Number.isFinite(tracked.guideway.positions[i]), 'finite guideway');
 });
 
-test('portal (issue #173): a lone dive end gets a shaped portal mouth; a grade join and road mode do not', () => {
+test('portal (issue #173, re-seated by #196): a lone dive end gets a trench portal; a grade join and road mode do not', () => {
   const dive = {
     lines: [{ pts: [0, 0, 100, 0], width: 10.4, h: [9, 0], tracks: [-3, 3] }],
     piers: [], deckDepth: 1.8,
   };
   const g = buildDeckGeometry(dive, { tracks: true });
-  assert.ok(g.portal.positions.length > 0, 'headwall + wing geometry emitted at the dive end');
+  assert.ok(g.portal.positions.length > 0, 'headwall + trench geometry emitted at the dive end');
   assert.ok(g.portalDark.positions.length > 0, 'dark opening emitted');
   // The headwall faces back along the line (the line runs +x and
   // dives at x=100): the first portal quad's flat normal is -x.
   assert.ok(g.portal.normals[0] < -0.99 && Math.abs(g.portal.normals[1]) < 0.01 && Math.abs(g.portal.normals[2]) < 0.01,
     `headwall normal (${g.portal.normals[0]}, ${g.portal.normals[1]}, ${g.portal.normals[2]}) faces -x`);
-  // Headwall height is the module's portal height.
-  let maxY = 0;
-  for (let i = 1; i < g.portal.positions.length; i += 3) maxY = Math.max(maxY, g.portal.positions[i]);
-  assert.ok(Math.abs(maxY - 5.2) < 1e-6, `headwall tops at ${maxY} m`);
+  // Issue #196: the headwall is re-seated at the trench bottom —
+  // its crest sits at about grade (PORTAL_FACE_TOP_M, not the old
+  // 5.2 m free-standing height) and its foot reaches the trench
+  // floor (running surface -5.2 minus the face base).
+  let maxY = -Infinity, minY = Infinity;
+  for (let i = 1; i < g.portal.positions.length; i += 3) { maxY = Math.max(maxY, g.portal.positions[i]); minY = Math.min(minY, g.portal.positions[i]); }
+  assert.ok(Math.abs(maxY - 0.35) < 1e-6, `headwall crest at ${maxY} m (about grade)`);
+  assert.ok(Math.abs(minY - -5.75) < 1e-6, `headwall foot at ${minY} m (the trench bottom)`);
   // A continuation line ending at the same point makes it a grade
   // join (the Beitou descent pattern), not a portal.
   const joined = {
@@ -687,11 +706,21 @@ test('portal (issue #173): the real tile has exactly the four dive mouths (Minqu
   // faces/wings consolidated). The Red mouths are byte-identical
   // (hash-verified at the gate against the pre-#184 emitter), and
   // each mouth still carries exactly one dark opening quad.
-  assert.equal(tracked.portal.positions.length / 9, 48, 'portal concrete triangles (Red 2 × 5 quads + Wenhu combined block 14 quads)');
+  // Issue #196 re-pin (tally unchanged at 48, composition fully
+  // replaced — measured at the gate): both pairs now dive into a
+  // shared open cut; #184's byte-identical Red control is
+  // deliberately superseded. Red cluster (one cutting, 2 stations
+  // below grade): face 4 quads + walls/coping 4 quads = 8 quads =
+  // 16 triangles. Wenhu cluster (4 below-grade stations): face 4
+  // quads + 3 wall segments × 2 sides × (wall + coping) 12 quads
+  // = 16 quads = 32 triangles. 16 + 32 = 48. The trench floors
+  // ride the ballast/guideway sinks, not this one; each of the 4
+  // mouths still carries exactly one dark opening quad.
+  assert.equal(tracked.portal.positions.length / 9, 48, 'portal concrete triangles (Red trench 8 quads + Wenhu trench 16 quads, issue #196)');
   assert.equal(tracked.portalDark.positions.length / 9, 8, 'portal opening triangles (4 mouths × 1 quad)');
 });
 
-test('portal block (issue #184): twin guideway dive ends share one seated block; a lone guideway end keeps the fin form', () => {
+test('portal block (issue #184, trench form by #196): twin guideway dive ends share one cutting; a lone guideway end gets its own', () => {
   const twin = {
     lines: [
       { pts: [0, 0, 100, 0, 200, 0], width: 2.6, h: [9, 9, 0], tracks: [0], trackStyle: 'guideway' },
@@ -700,15 +729,19 @@ test('portal block (issue #184): twin guideway dive ends share one seated block;
     piers: [], deckDepth: 1.8,
   };
   const g = buildDeckGeometry(twin, { tracks: true });
-  // One combined block: face 4 + cap 1 + cheeks 2 + apron 5 +
-  // wings 2 = 14 quads = 28 triangles; one dark opening per track.
-  assert.equal(g.portal.positions.length / 9, 28, 'combined block quads (14 × 2 triangles)');
+  // Issue #196: one shared cutting instead of #184's block — face
+  // 4 quads (3 piers + lintel for 2 openings) + 1 below-grade wall
+  // segment × 2 sides × (wall + coping) 4 quads = 8 quads = 16
+  // triangles; one dark opening per track. (The trench floor rides
+  // the guideway sink.)
+  assert.equal(g.portal.positions.length / 9, 16, 'shared cutting quads (8 × 2 triangles)');
   assert.equal(g.portalDark.positions.length / 9, 4, 'two dark openings (2 quads)');
-  // Carried to grade, headwall crest at the module's portal height.
+  // The face is seated at the trench bottom: foot at the running
+  // surface minus the face base, crest at about grade.
   let minY = Infinity, maxY = 0;
   for (let i = 1; i < g.portal.positions.length; i += 3) { minY = Math.min(minY, g.portal.positions[i]); maxY = Math.max(maxY, g.portal.positions[i]); }
-  assert.equal(minY, 0, 'the block sits on the ground');
-  assert.ok(Math.abs(maxY - 5.2) < 1e-6, `headwall tops at ${maxY} m`);
+  assert.ok(Math.abs(minY - -5.75) < 1e-6, `face foot at ${minY} m (the trench bottom)`);
+  assert.ok(Math.abs(maxY - 0.35) < 1e-6, `headwall crest at ${maxY} m (about grade)`);
   // Each dark opening is centred on its own trackway (z = 0 / 4.6).
   const cz = [];
   for (let i = 0; i < g.portalDark.positions.length; i += 18) {
@@ -716,13 +749,15 @@ test('portal block (issue #184): twin guideway dive ends share one seated block;
     cz.push(+(s / 6).toFixed(2));
   }
   assert.deepEqual(cz.sort(), [0, 4.6], 'openings centred on the twin trackways');
-  // A lone narrow guideway end has no partner: #173's fin form.
+  // A lone narrow guideway end has no partner: its own cutting —
+  // face 3 quads (2 piers + lintel) + walls/coping 4 quads = 7
+  // quads = 14 triangles (issue #196; #173's fin is gone).
   const lone = {
     lines: [{ pts: [0, 0, 100, 0, 200, 0], width: 2.6, h: [9, 9, 0], tracks: [0], trackStyle: 'guideway' }],
     piers: [], deckDepth: 1.8,
   };
   const gl = buildDeckGeometry(lone, { tracks: true });
-  assert.equal(gl.portal.positions.length / 9, 10, 'lone guideway end keeps the 5-quad fin');
+  assert.equal(gl.portal.positions.length / 9, 14, 'lone guideway cutting quads (7 × 2 triangles)');
   assert.equal(gl.portalDark.positions.length / 9, 2, 'lone opening (1 quad)');
 });
 
@@ -738,7 +773,14 @@ test('portal trees (issue #173): ground-contact polygons cover at-grade and dive
   // exactly one ground-touching segment at its foot (h starts at
   // 0), so the Wenhu dive contributes one contact polygon per
   // trackway.
-  assert.equal(real.length, 126, 'real-tile ground-contact segments (at-grade Beitou + the portal ramps + the Wenhu dive feet)');
+  // Issue #196 re-pin (126 -> 134, delta +8, measured per line at
+  // the gate): contact is now judged on the re-profiled dive
+  // descents, and the inserted grade-crossing point splits each
+  // dive's contact run at y=0. Each Red trackway: 1 -> 2 segments
+  // (trench + ramp foot). Each Wenhu trackway: 1 -> 4 (three
+  // descent segments under the crossing plus the segment leaving
+  // it, whose low end still touches at h=0).
+  assert.equal(real.length, 134, 'real-tile ground-contact segments (at-grade Beitou + the re-profiled dive descents)');
   // Every polygon is a quad around its segment.
   for (const p of real) assert.equal(p.length, 4);
 });

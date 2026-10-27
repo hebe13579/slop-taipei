@@ -256,15 +256,19 @@ test('ground network unchanged: beds, junctions and caps exactly as before decks
   // Census re-pinned for issue #134: roadbeds 11,804 -> 13,578,
   // junctions 2,361 -> 2,701 and caps 2,354 -> 2,694 (still
   // junctions - 7 roundabout-claimed) on the enlarged tile.
-  assert.equal(TAIPEI_GEO.roadbeds.length, 13578, 'roadbed count unchanged (deck beds are flagged, not removed)');
+  // Census re-pinned for issue #196: roadbeds 13,578 -> 13,577
+  // (the 復北地下道 north apron stub is clipped into its portal
+  // approach cut; generation-map rework v6), junctions 2,701 ->
+  // 2,699 (the two portal-mouth stub clusters dissolve).
+  assert.equal(TAIPEI_GEO.roadbeds.length, 13577, 'roadbed count unchanged (deck beds are flagged, not removed)');
   const junctions = detectJunctions(carriageways);
-  assert.equal(junctions.length, 2701, 'ground junction detection unchanged');
+  assert.equal(junctions.length, 2699, 'ground junction detection unchanged');
   const caps = planJunctionCaps(carriageways, junctions);
   // Gate re-pin (PR #78 onto post-#77 main): caps = junctions minus the 7
   // junctions claimed by #77's handcrafted roundabout sites (Renai 4 +
   // Dongmen 3). The invariant this test protects is unchanged: decks do not
   // remove a single cap — the delta is #77's, documented in its audit.
-  assert.equal(caps.length, 2623, 'junction caps still planned over the full bed set, deck beds included (2701 detected − 7 roundabout-claimed, #77; − 71 groundless phantoms dropped by the issue #178 ORPHAN rule — 20 of them the deck-interchange clusters this layer sits on)');
+  assert.equal(caps.length, 2621, 'junction caps still planned over the full bed set, deck beds included (2699 detected − 7 roundabout-claimed, #77; − 71 groundless phantoms dropped by the issue #178 ORPHAN rule — 20 of them the deck-interchange clusters this layer sits on; − 2 portal-mouth caps dissolved by the issue #196 approach cuts)');
 });
 
 test('viaduct renderer: synthetic box section with parapets', () => {
