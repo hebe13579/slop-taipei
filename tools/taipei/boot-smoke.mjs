@@ -87,8 +87,8 @@ import { homedir, tmpdir } from 'node:os';
 const TOOL_DIR = dirname(fileURLToPath(import.meta.url));
 const DEFAULT_ROOT = resolve(TOOL_DIR, '..', '..');
 const STAGE_URL_PATH = '/__boot_smoke_stage.html';
-const CDN_BUILD = 'https://cdn.jsdelivr.net/gh/mrdoob/three.js@dev/build/';
-const CDN_ADDONS = 'https://cdn.jsdelivr.net/gh/mrdoob/three.js@dev/examples/jsm/';
+const CDN_BUILD = 'https://cdn.jsdelivr.net/gh/mrdoob/three.js@f17eb5d689094a3fbd4cd0d64d54729a48036ce0/build/';
+const CDN_ADDONS = 'https://cdn.jsdelivr.net/gh/mrdoob/three.js@f17eb5d689094a3fbd4cd0d64d54729a48036ce0/examples/jsm/';
 
 // Canonical stage list: js/taipei-progress.js TAIPEI_BUILD_STAGES,
 // pinned by tests/taipei-progress.test.mjs. If the boot's stages ever
