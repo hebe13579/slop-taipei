@@ -421,6 +421,84 @@ function taoZhuParts() {
   return parts;
 }
 
+// Issue #166 (Tianmu/Beitou batch): a school running track as flat
+// painted parts — a capsule (one rotated box for the straights plus
+// unrotated discs at the ends, since cylinder parts cannot rotate)
+// in rust red with a narrower green infield capsule on top. (cx, cz)
+// is the capsule centre in structure space, `straight` the distance
+// between the end-disc centres, `width` the full track width and
+// `fieldWidth` the infield width.
+function trackCapsuleParts(cx, cz, straight, width, fieldWidth, rotY, trackColor, fieldColor) {
+  const ex = (straight / 2) * Math.cos(rotY), ez = (straight / 2) * Math.sin(rotY);
+  const capsule = (w, h) => [
+    { type: 'box', w: straight, d: w, h, y0: 0.02, dx: cx, dz: cz, rotY, flat: trackColor },
+    { type: 'cylinder', r: w / 2, h, y0: 0.02, dx: cx + ex, dz: cz + ez, flat: trackColor },
+    { type: 'cylinder', r: w / 2, h, y0: 0.02, dx: cx - ex, dz: cz - ez, flat: trackColor },
+  ];
+  const field = capsule(fieldWidth, 0.36).map((p) => ({ ...p, flat: fieldColor }));
+  return [...capsule(width, 0.3), ...field];
+}
+
+// Tianmu Baseball Stadium (issue #166): the project's first
+// stadium form — an elliptical stepped bowl of tangent segment
+// boxes around an open field, generated like taoZhuParts().
+// Siting is measured, not eyeballed (posted on issue #166): the
+// OSM stadium-grounds way 172953503 spans lon 121.53163–121.53446
+// and the Red Line corridor's east edge is lon 121.533, so the
+// bowl straddles the tile edge (≈90% of the grounds east of it).
+// Per the decision recorded on the issue, the bowl is modelled
+// COMPLETE at its true position — only drawn geometry crosses
+// the edge; no ground, lots or roads are generated past it. The
+// field centre (satellite digitisation, Esri z18) is
+// (25.11380, 121.53360) — dx 46.4, dz −17.7 in structure space;
+// the OSM stands outline (way 518853867) spans lon
+// 121.53213–121.53415, lat 25.11278–25.11450 around it.
+function tianmuStadiumParts() {
+  const FC = { x: 46.4, z: -17.7 }; // measured field centre
+  const parts = [
+    // Warning-track ring (rust) under the grass ellipse, then the
+    // dirt infield diamond (axis home→centre-field at +37°).
+    { type: 'cylinder', r: 67, rz: 63, h: 0.3, y0: 0.02, dx: FC.x, dz: FC.z, flat: 0x9c5a40 },
+    { type: 'cylinder', r: 62, rz: 58, h: 0.36, y0: 0.02, dx: FC.x, dz: FC.z, flat: 0x4e7d32 },
+    { type: 'box', w: 50, d: 50, h: 0.14, y0: 0.36, dx: 10.1, dz: -15.5, rotY: -0.646, flat: 0xc2a06b },
+  ];
+  const seg = (a, b, h, d, w, phiDeg, flat) => {
+    const phi = (phiDeg * Math.PI) / 180;
+    // Ellipse tangent direction (map angle) -> authored rotY.
+    const alphaT = Math.atan2(b * Math.cos(phi), -a * Math.sin(phi));
+    parts.push({ type: 'box', w, d, h, dx: FC.x + a * Math.cos(phi), dz: FC.z - b * Math.sin(phi), rotY: -alphaT, flat });
+  };
+  // Main bowl: two stepped tiers wrapping home plate (west) and
+  // both foul lines; phi is CCW from east in map space. The NE
+  // outfield stays low, as on the real bowl.
+  for (let phi = 95; phi <= 335; phi += 15) {
+    seg(76, 64, 8.5, 13, 22, phi, 0xd6d0c2);
+    seg(89, 76, 14, 13, 25, phi, 0xcac3b2);
+  }
+  // Outfield berm seating: one low tier.
+  for (let phi = -30; phi <= 90; phi += 15) seg(82, 68, 5, 10, 23, phi, 0xd6d0c2);
+  // The white scalloped shell canopy over the main stand behind
+  // home (phi ≈ 196°): three flattened domes centred on the
+  // mid-tier line so they roof the stands instead of hovering
+  // over the outer wall, the middle shell a step higher.
+  for (const [phi, y0] of [[178, 14], [196, 14.8], [214, 14]]) {
+    const p = (phi * Math.PI) / 180;
+    parts.push({ type: 'dome', rx: 15, rz: 10, h: 7, y0, dx: FC.x + 82 * Math.cos(p), dz: FC.z - 69 * Math.sin(p), flat: { color: 0xf4f1ea, roughness: 0.6, metalness: 0.05 } });
+  }
+  // Centre-field scoreboard on the berm.
+  parts.push({ type: 'box', w: 18, d: 2.5, h: 9, y0: 5, dx: FC.x + 65.5, dz: FC.z - 40.9, rotY: -2.216, flat: 0x1c2733 });
+  // Four light towers at the rim; the 30 m overall height is an
+  // estimate from photographs (no published figure).
+  for (const phi of [-40, 40, 150, 232]) {
+    const p = (phi * Math.PI) / 180;
+    const ex = 95 * Math.cos(p), nz = 82 * Math.sin(p);
+    const alphaT = Math.atan2(82 * Math.cos(p), -95 * Math.sin(p));
+    parts.push({ type: 'box', w: 1.8, d: 1.8, h: 30, dx: FC.x + ex, dz: FC.z - nz, flat: 0x8f979e });
+    parts.push({ type: 'box', w: 8, d: 3, h: 3, y0: 27, dx: FC.x + ex, dz: FC.z - nz, rotY: -alphaT, flat: 0xd8dde2 });
+  }
+  return parts;
+}
+
 const LANDMARK_STRUCTURES = [
   {
     // 272 m, 48F, completed 2018 (Wikipedia / CTBUH). Dark tapered
@@ -1827,6 +1905,160 @@ const LANDMARK_STRUCTURES = [
       { type: 'box', w: 32.8, d: 27.9, h: 20, y0: 9, dx: -13.9, dz: -39.7, rotY: -0.159, flat: { color: 0xb7bbbd, roughness: 0.5, metalness: 0.3 } },
       { type: 'dome', rx: 22, rz: 22, h: 17, y0: 36, dx: 29.6, dz: -4.5, flat: { color: 0xc2c5c7, roughness: 0.55, metalness: 0.25 } },
       { type: 'dome', rx: 22, rz: 22, h: 17, y0: 36, dx: 29.6, dz: -4.5, flip: true, flat: { color: 0xc2c5c7, roughness: 0.55, metalness: 0.25 } },
+    ],
+  },
+  // Batch 8 (issue #166, Tianmu/Beitou): five registry entries —
+  // a department store, the project's first stadium, and three
+  // school campuses. All siting is measured from OSM footprints
+  // (PBF extract) cross-checked against Esri satellite; heights
+  // are floors × 3.6 m unless a figure is published, and every
+  // height in this batch is flagged estimated except where the
+  // registry comment says otherwise.
+  {
+    // Dayeh Takashimaya, 忠誠路二段 55號 — the Tianmu department
+    // store inside the Red Line corridor strip. One slab on the
+    // OSM outline (relation 6821492, lon 121.53111–121.53224,
+    // lat 25.11118–25.11236): a 5F retail podium (21 m) fitted to
+    // the outline's tilted frame (−0.175 rad — the corners are
+    // pulled inboard of the outline so nothing crosses the
+    // 忠誠路二段 / 53巷 carriageways), a lower NE shoulder block
+    // (15 m, the parking annex under the outline's diagonal
+    // north edge) and the taller east slab (parking + 12F top,
+    // Wikipedia: 12 floors above ground) at 47 m ≈ 12 × 3.9 m —
+    // no published metric height, so estimated. The mass split
+    // is the satellite read (grey podium roof west, taller
+    // slab east).
+    id: 'dayeh-takashimaya', name: 'Dayeh Takashimaya', nameZh: '大葉高島屋',
+    lat: 25.11177, lon: 121.531675, realHeight: 47, estimated: true, color: 0xd8c49c,
+    site: { w: 122, d: 139, dx: 0, dz: 0 },
+    facade: { kind: 'prewar', stoneColor: 0xd8c49c, trimColor: 0xb39b74, windowGlassColor: 0x2c3844, windowWidth: 3.4, floorHeight: 3.9, litProbability: 0.35, warmth: 0.6, seed: 57.41 },
+    parts: [
+      { type: 'box', w: 92, d: 110, h: 21, dx: 0, dz: -1, rotY: -0.175 },
+      { type: 'box', w: 42, d: 26, h: 15, dx: 22, dz: -44, rotY: -0.175 },
+      { type: 'box', w: 34, d: 108, h: 47, dx: 30, dz: -2, rotY: -0.175 },
+    ],
+  },
+  {
+    // Tianmu Baseball Stadium — stands bowl + light towers +
+    // open field, generated by tianmuStadiumParts() (measured
+    // siting and the tile-edge straddle are documented there and
+    // on issue #166). 30 m is the light-tower estimate.
+    id: 'tianmu-stadium', name: 'Tianmu Baseball Stadium', nameZh: '天母棒球場',
+    lat: 25.11364, lon: 121.53314, realHeight: 30, estimated: true, color: 0xcfc8bb,
+    site: { w: 190, d: 172, dx: 42, dz: -18 },
+    facade: { kind: 'prewar', stoneColor: 0xcfc8bb, trimColor: 0xa9a294, windowGlassColor: 0x2e3a46, windowWidth: 4.5, floorHeight: 4.2, litProbability: 0.15, warmth: 0.5, seed: 57.42 },
+    parts: tianmuStadiumParts(),
+  },
+  {
+    // Shipai Junior High School — the eastern of the two Shipai
+    // campuses (relation 4630268); the named OSM buildings are
+    // modelled at their measured rects: 勤學樓 (way 202909351),
+    // 七年級教室 (202909352), 八年級教室 (202909364), 辦公室
+    // (202909365), 廁所大樓 (202909246), 活動中心 (sports_centre
+    // 202909073) and the 風雨操場 roof (202909083) as posts + a
+    // slab. The 操場 (202909068) is the flat painted track
+    // capsule; 籃球場 (202909060) and 游泳池 (202909082) are flat
+    // slabs. No OSM levels tags — classroom blocks at an
+    // estimated 4F × 3.6 m.
+    id: 'shipai-junior-high', name: 'Shipai Junior High School', nameZh: '石牌國中',
+    lat: 25.1159, lon: 121.5136, realHeight: 14.4, estimated: true, color: 0xd9cfc0,
+    site: { w: 212, d: 208, dx: 3, dz: 4 },
+    facade: { kind: 'prewar', stoneColor: 0xd9cfc0, trimColor: 0xb0a58e, windowGlassColor: 0x2e3a46, windowWidth: 2.6, floorHeight: 3.6, litProbability: 0.25, warmth: 0.55, seed: 57.43 },
+    parts: [
+      { type: 'box', w: 86.4, d: 10.9, h: 14.4, dx: -20.2, dz: 65.3, rotY: -0.433 },
+      { type: 'box', w: 100, d: 15, h: 14.4, dx: -31.8, dz: 34.2, rotY: -0.443 },
+      { type: 'box', w: 113, d: 10.9, h: 14.4, dx: 11.1, dz: 89.7, rotY: -0.447 },
+      { type: 'box', w: 62.7, d: 10.8, h: 14.4, dx: 23.2, dz: 44.3, rotY: 1.108 },
+      { type: 'box', w: 14.5, d: 10.3, h: 7.2, dx: -47.5, dz: 96.4, rotY: 1.072 },
+      { type: 'box', w: 30.7, d: 19.6, h: 10, dx: 50.4, dz: 11.1, rotY: 0.984 },
+      { type: 'box', w: 0.9, d: 0.9, h: 6.5, dx: 49.6, dz: 30, flat: 0xb9bcbe },
+      { type: 'box', w: 0.9, d: 0.9, h: 6.5, dx: 62, dz: 56.4, flat: 0xb9bcbe },
+      { type: 'box', w: 0.9, d: 0.9, h: 6.5, dx: 30.8, dz: 38.8, flat: 0xb9bcbe },
+      { type: 'box', w: 0.9, d: 0.9, h: 6.5, dx: 43.2, dz: 65.2, flat: 0xb9bcbe },
+      { type: 'box', w: 31.3, d: 22.8, h: 0.7, y0: 6.5, dx: 46.4, dz: 47.6, rotY: 1.129, flat: 0x8a8d90 },
+      ...trackCapsuleParts(-8.1, -45.4, 44, 48, 40, -2.107, 0xa04a30, 0x4e7d32),
+      { type: 'box', w: 38.5, d: 57.3, h: 0.25, y0: 0.02, dx: -70.7, dz: -3.3, rotY: -0.419, flat: 0x3f6d8e },
+      { type: 'box', w: 43.7, d: 29.3, h: 0.35, y0: 0.02, dx: 82.7, dz: 68.7, rotY: 1.117, flat: 0x3f8fbf },
+    ],
+  },
+  {
+    // Qingjiang Elementary School — campus fully inside the
+    // tile (buildings span lon 121.50628–121.50783, lat
+    // 25.12569–25.12721, west of the corridor's heart but well
+    // east of its 121.494 edge). The five named 樓 at their OSM
+    // rects: 丹鳳樓 (way 224819890), 陽明樓 (224823940, the only
+    // one with an OSM levels tag: 4), 觀音樓 (224825864), 七星樓
+    // (224826063), 大屯樓 (224826217), plus 活動中心 (224828172),
+    // 幼兒園 (224826611) and the 小操場 (224826678) as a flat
+    // painted field. Blocks at 4F × 3.6 m following 陽明樓's tag.
+    id: 'qingjiang-elementary', name: 'Qingjiang Elementary School', nameZh: '清江國小',
+    lat: 25.12645, lon: 121.50705, realHeight: 14.4, estimated: true, color: 0xd6c8b4,
+    site: { w: 152, d: 168, dx: -5, dz: 3 },
+    facade: { kind: 'prewar', stoneColor: 0xd6c8b4, trimColor: 0xab9c80, windowGlassColor: 0x2e3a46, windowWidth: 2.6, floorHeight: 3.6, litProbability: 0.25, warmth: 0.55, seed: 57.44 },
+    parts: [
+      { type: 'box', w: 40, d: 10.9, h: 14.4, dx: 52.5, dz: -15.5, rotY: 1.012 },
+      { type: 'box', w: 26.4, d: 12.7, h: 14.4, dx: 22.2, dz: -27.7, rotY: -0.555 },
+      { type: 'box', w: 44.8, d: 7.8, h: 14.4, dx: -4, dz: -32.1, rotY: 1.009 },
+      { type: 'box', w: 57.9, d: 10.9, h: 14.4, dx: 26.2, dz: -56.5, rotY: 1.012 },
+      { type: 'box', w: 43.8, d: 10.2, h: 14.4, dx: -10.1, dz: -63.1, rotY: -0.555 },
+      { type: 'box', w: 44.8, d: 27.6, h: 10, dx: -51.5, dz: 61, rotY: -0.55 },
+      { type: 'box', w: 29.4, d: 7.2, h: 7.2, dx: 14.1, dz: 31.2, rotY: -0.616 },
+      { type: 'box', w: 36, d: 30, h: 0.25, y0: 0.02, dx: 31.3, dz: -3.3, rotY: 0.601, flat: 0xa04a30 },
+      { type: 'box', w: 31, d: 25, h: 0.32, y0: 0.02, dx: 31.3, dz: -3.3, rotY: 0.601, flat: 0x4e7d32 },
+    ],
+  },
+  {
+    // Jianguo High School — full campus (relation 3392608),
+    // INSIDE the tile per the user's correction on this issue:
+    // the 紅樓 (way 202768775) stands at lat 25.03065–25.03101,
+    // north of box A's 25.0285 south edge. The Red Building is
+    // the centrepiece: brick slab (99 × 17 m on the OSM outline,
+    // axis −15°) with its two end towers and grey caps; ~17 m
+    // overall from photo proportions (no published figure —
+    // estimated). (A porch/fountain flourish was cut at the
+    // render gate: unverifiable at this scale and colliding
+    // with 莊敬樓's footprint.)
+    // Classroom blocks at their OSM rects and tagged levels:
+    // 正誼樓 4F (202768950, an L of two slabs on its outline),
+    // 莊敬樓 4F (202768788), 科學館 4F (202768580), 自強樓 4F
+    // (202768582), 明道樓 3F (202768758), 格物樓 3F (202768744),
+    // 活動中心 4F (202768754), 資源大樓 (1158623539, L of two
+    // slabs, 5F estimated) and 夢紅樓 7F (252994053). The track
+    // is the flat capsule around the rugby pitch (202768453).
+    id: 'jianguo-high-school', name: 'Jianguo High School', nameZh: '建國中學',
+    lat: 25.0303, lon: 121.5126, realHeight: 25.2, estimated: true, color: 0xd9d2c4,
+    site: { w: 246, d: 232, dx: 6, dz: 8 },
+    facade: { kind: 'prewar', stoneColor: 0xd9d2c4, trimColor: 0xb3aa97, windowGlassColor: 0x2e3a46, windowWidth: 2.8, floorHeight: 3.6, litProbability: 0.25, warmth: 0.55, seed: 57.45 },
+    parts: [
+      { type: 'box', w: 99, d: 17, h: 11, dx: -34.3, dz: -56.5, rotY: -0.262, flat: { color: 0x9c4a36, roughness: 0.92, metalness: 0.02 } },
+      { type: 'box', w: 100, d: 18, h: 0.8, y0: 11, dx: -34.3, dz: -56.5, rotY: -0.262, flat: 0x67635c },
+      { type: 'box', w: 13, d: 19, h: 16, dx: -72.9, dz: -46.1, rotY: -0.262, flat: { color: 0x9c4a36, roughness: 0.92, metalness: 0.02 } },
+      { type: 'box', w: 14.5, d: 20.5, h: 1.1, y0: 16, dx: -72.9, dz: -46.1, rotY: -0.262, flat: 0x67635c },
+      { type: 'box', w: 13, d: 19, h: 16, dx: 4.3, dz: -66.9, rotY: -0.262, flat: { color: 0x9c4a36, roughness: 0.92, metalness: 0.02 } },
+      { type: 'box', w: 14.5, d: 20.5, h: 1.1, y0: 16, dx: 4.3, dz: -66.9, rotY: -0.262, flat: 0x67635c },
+      { type: 'box', w: 61, d: 11, h: 14.4, dx: -65.1, dz: -18.3, rotY: -0.266 },
+      { type: 'box', w: 38, d: 11, h: 14.4, dx: -97.6, dz: -29.8, rotY: 1.29 },
+      { type: 'box', w: 33.2, d: 23, h: 14.4, dx: -27.2, dz: -32.1, rotY: 1.299 },
+      { type: 'box', w: 30.3, d: 28, h: 14.4, dx: 90.9, dz: -16.6, rotY: 1.33 },
+      { type: 'box', w: 41.2, d: 11.3, h: 14.4, dx: 94.9, dz: 27.7, rotY: 1.302 },
+      { type: 'box', w: 72.7, d: 11, h: 10.8, dx: -95.8, dz: 56.5, rotY: 1.299 },
+      { type: 'box', w: 64, d: 12.2, h: 10.8, dx: 61.2, dz: 90.3, rotY: -0.246 },
+      { type: 'box', w: 56.9, d: 44.2, h: 14.4, dx: -13.1, dz: 93, rotY: -0.244 },
+      { type: 'box', w: 64, d: 15, h: 18, dx: 114.1, dz: -42.1, rotY: 1.512 },
+      { type: 'box', w: 36, d: 13, h: 18, dx: 90.9, dz: -62, rotY: 0.297 },
+      { type: 'box', w: 48, d: 26.6, h: 25.2, dx: 74.7, dz: -86.4, rotY: -0.213 },
+      // The courts east of the track, from the OSM pitch ways,
+      // one painted slab per row (a single union rect overshoots
+      // the diagonal band and clips the campus east drive):
+      // volleyball 1087155062-63 north, acrylic basketball
+      // 202768713 / 1087155058-60 south, the two tennis courts
+      // 202768661 / 1087550733 east, and the baseball practice
+      // ground (1271725984) at the SE.
+      { type: 'box', w: 24, d: 55, h: 0.25, y0: 0.02, dx: 60.6, dz: 10.5, rotY: -0.265, flat: 0x3f6d8e },
+      { type: 'box', w: 63, d: 37, h: 0.25, y0: 0.02, dx: 52.5, dz: 60.3, rotY: -0.265, flat: 0x3f6d8e },
+      { type: 'box', w: 32, d: 33, h: 0.25, y0: 0.02, dx: 118.6, dz: 16, rotY: -0.265, flat: 0x3f7d6b },
+      { type: 'box', w: 26, d: 21, h: 0.25, y0: 0.02, dx: 123.1, dz: 64.1, rotY: -0.265, flat: 0x4e7d32 },
+      ...trackCapsuleParts(-9.1, 28.8, 68, 60, 47.7, -0.265, 0xa04a30, 0x4e7d32),
     ],
   },
 ];
