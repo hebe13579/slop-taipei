@@ -28,7 +28,7 @@
 //   threshold markings are inset 14 m from the centreline
 //   ends, onto full-width pavement.
 
-import { PORTAL_HEADWALL_H, PORTAL_OPENING_H, PORTAL_WING_M } from './taipei-viaduct.js';
+import { PORTAL_HEADWALL_H, PORTAL_OPENING_H, PORTAL_WING_M, PORTAL_FACE_TOP_M, PORTAL_WALL_OFF_M, PORTAL_WALL_TOP_M, PORTAL_COPING_M } from './taipei-viaduct.js';
 
 // Terminal car parks, measured on the satellite stitch in
 // twin-evidence/ (Esri World Imagery, 2026-10): the open-air
@@ -274,10 +274,20 @@ function padPaint(pads, white) {
 // deckPartGeometry exactly like the MRT portals.
 export const ROAD_PORTAL_JAMB_M = 0.6;   // concrete at each side of the twin bores
 export const ROAD_PORTAL_PIER_M = 0.55;  // half width of the centre pier between bores
+// Issue #196: the trench a cut mouth sits in — the road surface at
+// the face sits ROAD_TRENCH_DEPTH_M below grade (bore clearance
+// ROAD_TRENCH_CLEARANCE_M under the lintel), the face foot reaches
+// ROAD_TRENCH_FACE_BASE_M below the surface, and the floor meets
+// the surface beds at the carriageway layer height.
+export const ROAD_TRENCH_DEPTH_M = 5.35;
+export const ROAD_TRENCH_CLEARANCE_M = 4.6;
+export const ROAD_TRENCH_FACE_BASE_M = 0.55;
+export const ROAD_SURFACE_Y = 0.06;
 
 export function buildRoadTunnelPortals(airfield) {
   const concrete = { pos: [], nor: [] };
   const dark = { pos: [], nor: [] };
+  const floor = { pos: [], nor: [] };
   // One quad (corners in boundary order) as two flat-shaded
   // triangles — the buildDeckGeometry construction verbatim.
   const quad3 = (sink, a, b, c, d) => {
@@ -288,7 +298,7 @@ export function buildRoadTunnelPortals(airfield) {
     nx /= L; ny /= L; nz /= L;
     for (const p of [a, b, c, a, c, d]) { sink.pos.push(p[0], p[1], p[2]); sink.nor.push(nx, ny, nz); }
   };
-  let mouths = 0;
+  let mouths = 0, quads = 0;
   for (const t of (airfield && airfield.roadTunnels) || []) {
     const half = Math.max((t.width || 0) / 2, 1);
     const oHalf = half - ROAD_PORTAL_JAMB_M;
@@ -299,36 +309,102 @@ export function buildRoadTunnelPortals(airfield) {
       // taipei-viaduct portal frame points INTO its dive, so the
       // headwall and bore quads below wind b<->d against that
       // code's orders — their faces point OUT of the tunnel,
-      // toward the approaching driver (the wing walls keep the
-      // viaduct orders; their outward faces are the ±n sides).
+      // toward the approaching driver.
       const ux = -m.tx, uz = -m.tz;
       const nx = -uz, nz = ux;
       const at = (off, y, out = 0) => [m.x + nx * off + ux * out, y, m.z + nz * off + uz * out];
-      // Headwall: side jambs, centre pier, lintel.
-      quad3(concrete, at(-half, 0), at(-half, PORTAL_HEADWALL_H), at(-oHalf, PORTAL_HEADWALL_H), at(-oHalf, 0));
-      quad3(concrete, at(oHalf, 0), at(oHalf, PORTAL_HEADWALL_H), at(half, PORTAL_HEADWALL_H), at(half, 0));
-      quad3(concrete, at(-ROAD_PORTAL_PIER_M, 0), at(-ROAD_PORTAL_PIER_M, PORTAL_OPENING_H), at(ROAD_PORTAL_PIER_M, PORTAL_OPENING_H), at(ROAD_PORTAL_PIER_M, 0));
-      quad3(concrete, at(-oHalf, PORTAL_OPENING_H), at(-oHalf, PORTAL_HEADWALL_H), at(oHalf, PORTAL_HEADWALL_H), at(oHalf, PORTAL_OPENING_H));
-      // The two dark bores, recessed just behind the face.
-      const dk = (off, y) => at(off, y, -0.06);
-      quad3(dark, dk(-oHalf, 0), dk(-oHalf, PORTAL_OPENING_H), dk(-ROAD_PORTAL_PIER_M, PORTAL_OPENING_H), dk(-ROAD_PORTAL_PIER_M, 0));
-      quad3(dark, dk(ROAD_PORTAL_PIER_M, 0), dk(ROAD_PORTAL_PIER_M, PORTAL_OPENING_H), dk(oHalf, PORTAL_OPENING_H), dk(oHalf, 0));
-      // Wing walls flanking the approach apron, sloping from
-      // headwall height down to 0.6 m at PORTAL_WING_M out.
-      for (const s of [-1, 1]) {
-        const fb = at(s * (half + 0.35), 0, 0), bb = at(s * (half + 0.35), 0, PORTAL_WING_M);
-        const bt = at(s * (half + 0.35), 0.6, PORTAL_WING_M), ft = at(s * (half + 0.35), PORTAL_HEADWALL_H, 0);
-        if (s < 0) quad3(concrete, fb, ft, bt, bb);
-        else quad3(concrete, fb, bb, bt, ft);
+      if (!m.cut) {
+        // Legacy #183 form (no approach cut recorded): the
+        // headwall stands on grade with wing walls on the apron.
+        quad3(concrete, at(-half, 0), at(-half, PORTAL_HEADWALL_H), at(-oHalf, PORTAL_HEADWALL_H), at(-oHalf, 0));
+        quad3(concrete, at(oHalf, 0), at(oHalf, PORTAL_HEADWALL_H), at(half, PORTAL_HEADWALL_H), at(half, 0));
+        quad3(concrete, at(-ROAD_PORTAL_PIER_M, 0), at(-ROAD_PORTAL_PIER_M, PORTAL_OPENING_H), at(ROAD_PORTAL_PIER_M, PORTAL_OPENING_H), at(ROAD_PORTAL_PIER_M, 0));
+        quad3(concrete, at(-oHalf, PORTAL_OPENING_H), at(-oHalf, PORTAL_HEADWALL_H), at(oHalf, PORTAL_HEADWALL_H), at(oHalf, PORTAL_OPENING_H));
+        const dk = (off, y) => at(off, y, -0.06);
+        quad3(dark, dk(-oHalf, 0), dk(-oHalf, PORTAL_OPENING_H), dk(-ROAD_PORTAL_PIER_M, PORTAL_OPENING_H), dk(-ROAD_PORTAL_PIER_M, 0));
+        quad3(dark, dk(ROAD_PORTAL_PIER_M, 0), dk(ROAD_PORTAL_PIER_M, PORTAL_OPENING_H), dk(oHalf, PORTAL_OPENING_H), dk(oHalf, 0));
+        for (const s of [-1, 1]) {
+          const fb = at(s * (half + 0.35), 0, 0), bb = at(s * (half + 0.35), 0, PORTAL_WING_M);
+          const bt = at(s * (half + 0.35), 0.6, PORTAL_WING_M), ft = at(s * (half + 0.35), PORTAL_HEADWALL_H, 0);
+          if (s < 0) quad3(concrete, fb, ft, bt, bb);
+          else quad3(concrete, fb, bb, bt, ft);
+        }
+        quads += 8;
+        continue;
       }
+      // Issue #196: the mouth is the bottom of an open cut (the
+      // generation map's rework v6 clipped the flat approach beds
+      // along m.cut and the boot slots the ground there). The road
+      // surface ramps from grade at the cut end down to
+      // ROAD_TRENCH_DEPTH_M below grade at the face; retaining
+      // walls flank the cut, following the ramp; the #183 headwall
+      // form is re-seated at the trench bottom with its crest at
+      // about grade, the twin bores opening off the trench floor.
+      const lenM = m.cut.lenM;
+      const surfFace = -ROAD_TRENCH_DEPTH_M;
+      const baseY = surfFace - ROAD_TRENCH_FACE_BASE_M;
+      const openTop = surfFace + ROAD_TRENCH_CLEARANCE_M;
+      // Headwall: side jambs, centre pier, lintel (the #183 corner
+      // orders — faces point out of the tunnel).
+      quad3(concrete, at(-half, baseY), at(-half, PORTAL_FACE_TOP_M), at(-oHalf, PORTAL_FACE_TOP_M), at(-oHalf, baseY));
+      quad3(concrete, at(oHalf, baseY), at(oHalf, PORTAL_FACE_TOP_M), at(half, PORTAL_FACE_TOP_M), at(half, baseY));
+      quad3(concrete, at(-ROAD_PORTAL_PIER_M, baseY), at(-ROAD_PORTAL_PIER_M, openTop), at(ROAD_PORTAL_PIER_M, openTop), at(ROAD_PORTAL_PIER_M, baseY));
+      quad3(concrete, at(-oHalf, openTop), at(-oHalf, PORTAL_FACE_TOP_M), at(oHalf, PORTAL_FACE_TOP_M), at(oHalf, openTop));
+      // The two dark bores, recessed just behind the face, their
+      // sills on the trench floor.
+      const dk = (off, y) => at(off, y, -0.06);
+      quad3(dark, dk(-oHalf, surfFace), dk(-oHalf, openTop), dk(-ROAD_PORTAL_PIER_M, openTop), dk(-ROAD_PORTAL_PIER_M, surfFace));
+      quad3(dark, dk(ROAD_PORTAL_PIER_M, surfFace), dk(ROAD_PORTAL_PIER_M, openTop), dk(oHalf, openTop), dk(oHalf, surfFace));
+      // Trench floor: one asphalt strip from the face back to the
+      // cut end, where it meets the surface beds at grade.
+      const fh = half + PORTAL_WALL_OFF_M + 0.3;
+      quad3(floor, at(-fh, surfFace, 0), at(fh, surfFace, 0), at(fh, ROAD_SURFACE_Y, lenM), at(-fh, ROAD_SURFACE_Y, lenM));
+      // Retaining walls + coping, following the ramp on both
+      // flanks (corner orders per side so the visible face points
+      // into the cutting, the coping up).
+      for (const s of [-1, 1]) {
+        const wallOff = s * (half + PORTAL_WALL_OFF_M);
+        const botF = at(wallOff, surfFace - 0.5, 0), botB = at(wallOff, ROAD_SURFACE_Y - 0.5, lenM);
+        const topF = at(wallOff, PORTAL_WALL_TOP_M, 0), topB = at(wallOff, PORTAL_WALL_TOP_M, lenM);
+        if (s < 0) quad3(concrete, botF, botB, topB, topF);
+        else quad3(concrete, botF, topF, topB, botB);
+        const copOff = wallOff + s * PORTAL_COPING_M;
+        const inF = topF, inB = topB;
+        const outF = at(copOff, PORTAL_WALL_TOP_M, 0), outB = at(copOff, PORTAL_WALL_TOP_M, lenM);
+        if (s < 0) quad3(concrete, inF, inB, outB, outF);
+        else quad3(concrete, inF, outF, outB, inB);
+      }
+      quads += 11;
     }
   }
-  const quads = mouths * 8;
   return {
     concrete: { positions: new Float32Array(concrete.pos), normals: new Float32Array(concrete.nor) },
     dark: { positions: new Float32Array(dark.pos), normals: new Float32Array(dark.nor) },
+    floor: { positions: new Float32Array(floor.pos), normals: new Float32Array(floor.nor) },
     stats: { tunnels: ((airfield && airfield.roadTunnels) || []).length, mouths, quads, triangles: quads * 2 },
   };
+}
+
+// The trench footprints of every road portal mouth with an
+// approach cut (issue #196): the slot the flat ground layers must
+// leave open, from the mouth along the cut, a wall's width beyond
+// the roadbed on both flanks. Point-array quads.
+export function roadTrenchSlots(airfield) {
+  const out = [];
+  for (const t of (airfield && airfield.roadTunnels) || []) {
+    const half = Math.max((t.width || 0) / 2, 1) + PORTAL_WALL_OFF_M + 0.7;
+    for (const m of t.mouths || []) {
+      if (!m.cut) continue;
+      const ux = -m.tx, uz = -m.tz;
+      const nx = -uz, nz = ux;
+      const ex = m.x + ux * m.cut.lenM, ez = m.z + uz * m.cut.lenM;
+      out.push([
+        [m.x + nx * half, m.z + nz * half], [ex + nx * half, ez + nz * half],
+        [ex - nx * half, ez - nz * half], [m.x - nx * half, m.z - nz * half],
+      ]);
+    }
+  }
+  return out;
 }
 
 export function buildAirfieldPaint(airfield) {

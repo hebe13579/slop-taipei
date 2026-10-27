@@ -78,7 +78,11 @@ test('geodata: class populations cover every roadbed exactly once', () => {
   // take roadbeds 11,804 -> 13,578 — deck 181 -> 207 (the
   // riverside expressway system), arterial 905 -> 1,130,
   // collector 899 -> 1,015, lane 9,819 -> 11,226.
-  assert.deepEqual(counts, { deck: 207, arterial: 1130, collector: 1015, lane: 11226 });
+  // Re-pinned for issue #196: roadbeds 13,578 -> 13,577, arterial
+  // 1,130 -> 1,129 — the single removed bed is the 復北地下道
+  // north apron stub (secondary), clipped into the portal
+  // approach cut (generation-map rework v6).
+  assert.deepEqual(counts, { deck: 207, arterial: 1129, collector: 1015, lane: 11226 });
 });
 
 test('medianKind: merged + width rule, planted only on wide secondary', () => {
@@ -167,7 +171,12 @@ test('geodata: median bed counts match the regenerated evidence list', () => {
   assert.equal(stats.plantedBeds, 189);
   assert.equal(stats.plainBeds, 402);
   assert.equal(stats.deckBedsSkipped, 68);
-  assert.equal(stats.excludedUnderpass, 4); // 象山隧道 x3 + 復北地下道
+  // Issue #196: excludedUnderpass 4 -> 3 — the 復北地下道 bed no
+  // longer exists as a bed at all (its surviving apron was
+  // clipped into the portal approach cut), so only the 象山隧道
+  // x3 remain name-excluded. The eligibility census above is
+  // unchanged (the tunnel bed was excluded, never counted).
+  assert.equal(stats.excludedUnderpass, 3); // 象山隧道 x3
   assert.ok(stats.plantedKm > 28 && stats.plantedKm < 30, `planted rendered ${stats.plantedKm} km`);
   assert.ok(stats.plainKm > 68 && stats.plainKm < 71, `plain rendered ${stats.plainKm} km`);
 });

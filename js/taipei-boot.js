@@ -4,11 +4,11 @@ import { planTaipeiBuildings, taipeiCityBlocksOptions, createTaipei101, createTa
 import { buildSidewalkBands, planStreetTrees, planParkTrees } from './taipei-streetscape.js';
 import { AvatarFigure } from './avatar-figure.js';
 import { buildPaintedBands } from './taipei-painted.js';
-import { buildAirfieldPaint, buildRoadTunnelPortals } from './taipei-airfield.js';
+import { buildAirfieldPaint, buildRoadTunnelPortals, roadTrenchSlots } from './taipei-airfield.js';
 import { SURFACE_TONES, surfaceClass, buildMedianStrips, isPlazaPark, isPodiumBlock, podiumCentresOf, memorialPaving, MEMORIAL_GRID_TONE } from './taipei-surfaces.js';
 import { buildRoadMarkings, detectJunctions, DASH_LEN, DASH_GAP, STRIPE_W, STRIPE_PITCH } from './taipei-markings.js';
 import { planJunctionCaps, planRoundabouts, ringPoints, capSurfacePolys, capClipPolys, CAP_Y, ISLAND_Y } from './taipei-junctions.js';
-import { buildDeckGeometry, groundContactPolys, PIER_W, PIER_D } from './taipei-viaduct.js';
+import { buildDeckGeometry, groundContactPolys, portalTrenchSlots, diveAdjustedPiers, PIER_W, PIER_D } from './taipei-viaduct.js';
 import { ribbonsQuads, jointFramesFor } from './taipei-ribbons.js';
 import { buildMrtStationGeometry, buildMrtDepotGeometry } from './taipei-mrt-stations.js';
 import { buildTerrainSkinGeometry } from './taipei-terrain.js';
@@ -591,6 +591,93 @@ const yieldForPaint = () => new Promise((resolve) => {
 // deps.onProgress and yielding for a paint between stages. The stage
 // boundaries below sit exactly where the builders' own console.info
 // lines already divided the work — no builder is restructured.
+// Issue #196: the portal trenches are open cuts in the flat
+// ground — every flat layer that crosses a trench footprint must
+// leave the slot open (no ground surface may bridge the cut). The
+// helpers below do exact polygon differences against the slot
+// quads (convex): a ring that touches no slot passes through
+// unchanged, so the rest of the tile renders byte-identically.
+const ringPairs = (ring) => { const p = []; for (let i = 0; i + 1 < ring.length; i += 2) p.push([ring[i], ring[i + 1]]); return p; };
+const pipXZ = (p, poly) => {
+  let inside = false;
+  for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
+    const [xi, zi] = poly[i], [xj, zj] = poly[j];
+    if (((zi > p[1]) !== (zj > p[1])) && (p[0] < ((xj - xi) * (p[1] - zi)) / (zj - zi) + xi)) inside = !inside;
+  }
+  return inside;
+};
+const quadIntersectsPts = (quad, pts) => {
+  const qb = [Math.min(...quad.map((p) => p[0])), Math.min(...quad.map((p) => p[1])), Math.max(...quad.map((p) => p[0])), Math.max(...quad.map((p) => p[1]))];
+  const pb = [Math.min(...pts.map((p) => p[0])), Math.min(...pts.map((p) => p[1])), Math.max(...pts.map((p) => p[0])), Math.max(...pts.map((p) => p[1]))];
+  if (qb[0] > pb[2] || qb[2] < pb[0] || qb[1] > pb[3] || qb[3] < pb[1]) return false;
+  if (pts.some((p) => pipXZ(p, quad)) || quad.some((p) => pipXZ(p, pts))) return true;
+  const mid = (a, b) => [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2];
+  if (pts.some((p, i) => pipXZ(mid(p, pts[(i + 1) % pts.length]), quad))) return true;
+  if (quad.some((p, i) => pipXZ(mid(p, quad[(i + 1) % 4]), pts))) return true;
+  const segX = (a, b, c, d) => {
+    const den = (b[0] - a[0]) * (d[1] - c[1]) - (b[1] - a[1]) * (d[0] - c[0]);
+    if (Math.abs(den) < 1e-12) return false;
+    const t = ((c[0] - a[0]) * (d[1] - c[1]) - (c[1] - a[1]) * (d[0] - c[0])) / den;
+    const u = ((c[0] - a[0]) * (b[1] - a[1]) - (c[1] - a[1]) * (b[0] - a[0])) / -den;
+    return t > 0 && t < 1 && u > 0 && u < 1;
+  };
+  return pts.some((p, i) => quad.some((q, j) => segX(p, pts[(i + 1) % pts.length], q, quad[(j + 1) % 4])));
+};
+// Sutherland–Hodgman half-plane clip: keep the side of the line
+// a->b where cross(b-a, p-a) has the requested sign.
+const clipHalfPlane = (poly, a, b, sign) => {
+  const cross = (p) => (b[0] - a[0]) * (p[1] - a[1]) - (b[1] - a[1]) * (p[0] - a[0]);
+  const out = [];
+  for (let i = 0; i < poly.length; i++) {
+    const p = poly[i], q = poly[(i + 1) % poly.length];
+    const cp = cross(p) * sign, cq = cross(q) * sign;
+    if (cp >= -1e-9) out.push(p);
+    if ((cp > 1e-9 && cq < -1e-9) || (cp < -1e-9 && cq > 1e-9)) {
+      const t = cp / (cp - cq);
+      out.push([p[0] + (q[0] - p[0]) * t, p[1] + (q[1] - p[1]) * t]);
+    }
+  }
+  return out;
+};
+// ring (point array) minus a convex quad -> simple-polygon pieces.
+const subtractQuad = (pts, quad) => {
+  let inside = [pts];
+  const pieces = [];
+  const cen = [quad.reduce((s, p) => s + p[0], 0) / 4, quad.reduce((s, p) => s + p[1], 0) / 4];
+  for (let e = 0; e < 4; e++) {
+    const a = quad[e], b = quad[(e + 1) % 4];
+    const sideCen = Math.sign((b[0] - a[0]) * (cen[1] - a[1]) - (b[1] - a[1]) * (cen[0] - a[0])) || 1;
+    const next = [];
+    for (const poly of inside) {
+      const outPart = clipHalfPlane(poly, a, b, -sideCen);
+      if (outPart.length >= 3) pieces.push(outPart);
+      const inPart = clipHalfPlane(poly, a, b, sideCen);
+      if (inPart.length >= 3) next.push(inPart);
+    }
+    inside = next;
+    if (!inside.length) break;
+  }
+  return pieces;
+};
+// Flat rings minus every slot quad -> flat rings (identity when a
+// ring touches no slot).
+const clipRingsToSlots = (rings, slots) => {
+  if (!slots.length) return rings;
+  const out = [];
+  for (const ring of rings) {
+    const pts = ringPairs(ring);
+    if (!slots.some((s) => quadIntersectsPts(s, pts))) { out.push(ring); continue; }
+    let polys = [pts];
+    for (const s of slots) {
+      const next = [];
+      for (const p of polys) { if (quadIntersectsPts(s, p)) next.push(...subtractQuad(p, s)); else next.push(p); }
+      polys = next;
+    }
+    for (const p of polys) out.push(p.flatMap((pt) => pt));
+  }
+  return out;
+};
+
 export async function buildTaipeiGround(scene, tile, deps = {}) {
   const geo = tile.geodata;
   const bb = geo.frame.bbox;
@@ -613,13 +700,42 @@ export async function buildTaipeiGround(scene, tile, deps = {}) {
   // the dropped bands between/around the boxes show sky/void like any
   // other tile edge instead of fake ground. A geodata without boxes
   // falls back to the single bounding-rect plane.
+  // Issue #196: the portal trenches (the MRT dive cuttings + the
+  // 復北地下道 approach cuts) are slots in this plane — a box a
+  // slot touches is built as a shape with holes instead of a plane,
+  // so no ground surface bridges a cut.
+  const trenchSlots = [
+    ...portalTrenchSlots(geo.mrtDecks || { lines: [] }),
+    ...roadTrenchSlots(geo.airfield),
+  ];
   const landRects = Array.isArray(geo.frame.boxes) && geo.frame.boxes.length ? geo.frame.boxes : [bb];
   for (const r of landRects) {
-    const land = new THREE.Mesh(
-      new THREE.PlaneGeometry(r.maxX - r.minX, r.maxZ - r.minZ).rotateX(-Math.PI / 2),
-      mat(0x77796c, 1.0)
-    );
-    land.position.set((r.minX + r.maxX) / 2, 0, (r.minZ + r.maxZ) / 2);
+    const rectPts = [[r.minX, r.minZ], [r.maxX, r.minZ], [r.maxX, r.maxZ], [r.minX, r.maxZ]];
+    const holes = trenchSlots.filter((s) => quadIntersectsPts(s, rectPts));
+    if (!holes.length) {
+      const land = new THREE.Mesh(
+        new THREE.PlaneGeometry(r.maxX - r.minX, r.maxZ - r.minZ).rotateX(-Math.PI / 2),
+        mat(0x77796c, 1.0)
+      );
+      land.position.set((r.minX + r.maxX) / 2, 0, (r.minZ + r.maxZ) / 2);
+      land.receiveShadow = true;
+      group.add(land);
+      continue;
+    }
+    // Shape (x, -z) -> world (x, 0, z) under rotateX(-PI/2).
+    const shape = new THREE.Shape();
+    shape.moveTo(r.minX, -r.minZ);
+    shape.lineTo(r.maxX, -r.minZ);
+    shape.lineTo(r.maxX, -r.maxZ);
+    shape.lineTo(r.minX, -r.maxZ);
+    shape.closePath();
+    for (const s of holes) {
+      const hole = new THREE.Path();
+      s.forEach(([x, z], i) => { if (i) hole.lineTo(x, -z); else hole.moveTo(x, -z); });
+      hole.closePath();
+      shape.holes.push(hole);
+    }
+    const land = new THREE.Mesh(new THREE.ShapeGeometry(shape).rotateX(-Math.PI / 2), mat(0x77796c, 1.0));
     land.receiveShadow = true;
     group.add(land);
   }
@@ -658,8 +774,27 @@ export async function buildTaipeiGround(scene, tile, deps = {}) {
     for (const rect of clipRectToBoxes(b.bbox, geo.frame.boxes)) groundBlocks.push({ bbox: rect });
   }
   for (const b of groundBlocks) (isPodiumBlock(b, centres) ? podiumBlocks : ordinaryBlocks).push(b);
-  addLayer(rectsGeometry(ordinaryBlocks, 0.02), mat(SURFACE_TONES.block), 'TaipeiBlocks');
-  if (podiumBlocks.length) addLayer(rectsGeometry(podiumBlocks, 0.021), mat(SURFACE_TONES.podium), 'TaipeiPodiumBlocks');
+  // Issue #196: a block rect a trench slot crosses is replaced by
+  // the rect-minus-slot polygons at the same height and tone.
+  const addBlockLayer = (blocks, y, tone, name) => {
+    const plainRects = [], pieces = [];
+    for (const b of blocks) {
+      const { minX, maxX, minZ, maxZ } = b.bbox;
+      const rectPts = [[minX, minZ], [maxX, minZ], [maxX, maxZ], [minX, maxZ]];
+      if (!trenchSlots.some((s) => quadIntersectsPts(s, rectPts))) { plainRects.push(b); continue; }
+      let polys = [rectPts];
+      for (const s of trenchSlots) {
+        const next = [];
+        for (const p of polys) { if (quadIntersectsPts(s, p)) next.push(...subtractQuad(p, s)); else next.push(p); }
+        polys = next;
+      }
+      for (const p of polys) pieces.push(p.flatMap((pt) => pt));
+    }
+    if (plainRects.length) addLayer(rectsGeometry(plainRects, y), mat(tone), name);
+    if (pieces.length) addLayer(flatPolygonGeometry(pieces, y), mat(tone), name);
+  };
+  addBlockLayer(ordinaryBlocks, 0.02, SURFACE_TONES.block, 'TaipeiBlocks');
+  if (podiumBlocks.length) addBlockLayer(podiumBlocks, 0.021, SURFACE_TONES.podium, 'TaipeiPodiumBlocks');
   // Green-layer ground tint (issue #141, js/taipei-green.js): the
   // #114 green land (farmland, wood, wetland, reserves) finally
   // renders its own colours instead of the block grey — the Guandu
@@ -672,7 +807,7 @@ export async function buildTaipeiGround(scene, tile, deps = {}) {
   // pinned in tests/green-tint.test.mjs).
   const greenTint = buildGreenTintLayers(geo.green);
   for (const layer of greenTint) {
-    addLayer(flatPolygonGeometry(layer.rings, GREEN_TINT_Y), mat(layer.tone, 0.95), 'TaipeiGreenTint');
+    addLayer(flatPolygonGeometry(clipRingsToSlots(layer.rings, trenchSlots), GREEN_TINT_Y), mat(layer.tone, 0.95), 'TaipeiGreenTint');
   }
   if (greenTint.length) {
     const ringCount = greenTint.reduce((s, l) => s + l.rings.length, 0);
@@ -685,8 +820,8 @@ export async function buildTaipeiGround(scene, tile, deps = {}) {
   // so the raster blocks under the field stay hidden. The planner
   // keeps the site lot-free; the terminal/parking structures are #135.
   if (geo.airfield?.site?.length) {
-    addLayer(flatPolygonGeometry(geo.airfield.site.map((s) => s.ring), 0.022), mat(0x7f9673, 0.95), 'TaipeiAirfieldSite');
-    if (geo.airfield.surfaces?.length) addLayer(flatPolygonGeometry(geo.airfield.surfaces, 0.024), mat(0x9d9d97, 0.6), 'TaipeiAirfieldSurfaces');
+    addLayer(flatPolygonGeometry(clipRingsToSlots(geo.airfield.site.map((s) => s.ring), trenchSlots), 0.022), mat(0x7f9673, 0.95), 'TaipeiAirfieldSite');
+    if (geo.airfield.surfaces?.length) addLayer(flatPolygonGeometry(clipRingsToSlots(geo.airfield.surfaces, trenchSlots), 0.024), mat(0x9d9d97, 0.6), 'TaipeiAirfieldSurfaces');
     // Airfield detail (issue #135): the terminal car-park pads in
     // asphalt at 0.0255 and the paint layer (js/taipei-airfield.js)
     // — taxiway edge lines 0.026, centrelines + stand lead-ins
@@ -703,28 +838,35 @@ export async function buildTaipeiGround(scene, tile, deps = {}) {
     // tunnel bed dives under the field, dressed in the #173 MRT
     // portal form (deck concrete tone, near-black bores) by
     // js/taipei-airfield.js. The bed itself emits nothing at grade
-    // inside the site (generation-map rework v5).
+    // inside the site (generation-map rework v5). Issue #196: the
+    // mouths sit at the bottom of open approach cuts (rework v6
+    // clipped the flat approach beds; the trench floors below
+    // replace them).
     const roadPortals = buildRoadTunnelPortals(geo.airfield);
     if (roadPortals.concrete.positions.length) {
       const portalMesh = addLayer(deckPartGeometry(roadPortals.concrete), mat(0x98958a, 0.95), 'TaipeiRoadTunnelPortals');
       portalMesh.castShadow = true;
     }
     if (roadPortals.dark.positions.length) addLayer(deckPartGeometry(roadPortals.dark), mat(0x14161a, 1.0), 'TaipeiRoadTunnelOpenings');
+    // Issue #196: the approach cuts' asphalt floors, descending
+    // from grade to the re-seated faces (arterial tone — the
+    // underpass is a secondary road).
+    if (roadPortals.floor.positions.length) addLayer(deckPartGeometry(roadPortals.floor), mat(0x33363b, 0.95), 'TaipeiRoadTunnelFloors');
   }
   // Tamsui riverside band (issue #137): bank-offset rings at 0.025 in
   // the park tone — under the water layer (0.03), so the channel stays
   // water and only the land-side strip reads green from the air.
   if (geo.riverside?.polys?.length) {
-    addLayer(flatPolygonGeometry(geo.riverside.polys.map((p) => p.ring), 0.025), mat(SURFACE_TONES.park, 0.9), 'TaipeiRiverside');
+    addLayer(flatPolygonGeometry(clipRingsToSlots(geo.riverside.polys.map((p) => p.ring), trenchSlots), 0.025), mat(SURFACE_TONES.park, 0.9), 'TaipeiRiverside');
   }
-  addLayer(flatPolygonGeometry(geo.water.map((w) => w.ring), 0.03), mat(0x2f6d96, 0.35), 'TaipeiWater');
+  addLayer(flatPolygonGeometry(clipRingsToSlots(geo.water.map((w) => w.ring), trenchSlots), 0.03), mat(0x2f6d96, 0.35), 'TaipeiWater');
   // Parks stay lawn-green; polygons named 廣場 are paved civic squares
   // in reality （市民廣場, 松壽廣場, 世貿廣場…) and render in the plaza
   // paving tone on their own layer (issue #29).
   const lawnParks = geo.parks.filter((p) => !isPlazaPark(p));
   const plazaParks = geo.parks.filter(isPlazaPark);
-  addLayer(flatPolygonGeometry(lawnParks.map((p) => p.ring), 0.04), mat(SURFACE_TONES.park, 0.9), 'TaipeiParks');
-  if (plazaParks.length) addLayer(flatPolygonGeometry(plazaParks.map((p) => p.ring), 0.041), mat(SURFACE_TONES.plaza, 0.95), 'TaipeiPlazas');
+  addLayer(flatPolygonGeometry(clipRingsToSlots(lawnParks.map((p) => p.ring), trenchSlots), 0.04), mat(SURFACE_TONES.park, 0.9), 'TaipeiParks');
+  if (plazaParks.length) addLayer(flatPolygonGeometry(clipRingsToSlots(plazaParks.map((p) => p.ring), trenchSlots), 0.041), mat(SURFACE_TONES.plaza, 0.95), 'TaipeiPlazas');
   // CKS Memorial grounds (issue #98 follow-up): Liberty Square, its
   // forecourt, the Boulevard of Homage strip and the terrace apron
   // are paved stone inside the lawn-green memorial park — flat plaza
@@ -939,7 +1081,10 @@ export async function buildTaipeiGround(scene, tile, deps = {}) {
     if (mrtGeo.portalDark.positions.length) {
       addLayer(deckPartGeometry(mrtGeo.portalDark), mat(0x14161a, 1.0), 'TaipeiMrtPortalOpenings');
     }
-    const mrtPiers = buildDeckPierMesh(geo.mrtDecks.piers || []);
+    // Issue #196: piers under the re-profiled dive ramps are
+    // clamped to the lowered deck underside (the records in
+    // geodata keep their digest heights).
+    const mrtPiers = buildDeckPierMesh(diveAdjustedPiers(geo.mrtDecks));
     if (mrtPiers) { mrtPiers.name = 'TaipeiMrtDeckPiers'; group.add(mrtPiers); }
     const stationMesh = buildMrtStationMesh(geo.mrtStations || []);
     if (stationMesh) group.add(stationMesh);
@@ -1034,6 +1179,11 @@ export async function buildTaipeiGround(scene, tile, deps = {}) {
     // at the s09 dive in the #169 sweep; the corridors are not
     // roadbeds, so the bed grid never covered them.
     ...groundContactPolys(geo.mrtDecks || { lines: [] }).map((p) => p.flatMap((pt) => pt)),
+    // Issue #196: the trench slots themselves — a tree at grade
+    // beside a dive must not land inside the open cut (the road
+    // cuts' corridors are roadbeds, already excluded via the beds;
+    // the MRT cuttings are not).
+    ...trenchSlots.map((s) => s.flatMap((pt) => pt)),
   ];
   const treePlan = planStreetTrees(geo, plan, { exclusions: treeExclusions });
   const parkTreePlan = planParkTrees(geo, plan, { exclusions: treeExclusions });

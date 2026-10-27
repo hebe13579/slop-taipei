@@ -371,9 +371,19 @@ test('geodata: tile-wide marking counts are in the audited bands', () => {
   // #182 culls are nowhere near the airfield — measured on the
   // merged tree: 157,589 - 501 - 7 = 157,081 quads and
   // 234.550 - 0.751 - 0.011 = 233.788 km (band assert below).
-  assert.equal(r.stats.dashQuads, 157081, `dash quads ${r.stats.dashQuads}`);
+  // Issue #196 re-pin (on top of #183's): the 復北地下道 north
+  // apron stub — a divider bed — is clipped into the portal
+  // approach cut (dividerBeds 1,010 -> 1,009), and the two
+  // junctions flanking the cuts (民族東路, 濱江街) re-plan
+  // around the shortened stubs: their reshaped cap surfaces
+  // occlude two fewer dash quads than the stub carried away, so
+  // dashQuads 157,081 -> 157,083 (+2 net) and dividerKm 233.788
+  // -> 233.791 (inside the band below). Old-vs-new census with
+  // identical code: every changed dash/signal/stop-line lies at
+  // those two junctions; signalized stays 392, crossPairs 258.
+  assert.equal(r.stats.dashQuads, 157083, `dash quads ${r.stats.dashQuads}`);
   assert.equal(r.stats.crossPairs, 258, `X pairs culled ${r.stats.crossPairs}`);
-  assert.equal(r.stats.dividerBeds, 1010, `divider beds ${r.stats.dividerBeds}`);
+  assert.equal(r.stats.dividerBeds, 1009, `divider beds ${r.stats.dividerBeds}`);
   assert.equal(r.stats.deckDividerBedsSkipped, 91, `deck divider beds skipped ${r.stats.deckDividerBedsSkipped}`);
   assert.ok(Math.abs(r.stats.dividerKm - 233.80) < 0.05, `divider km ${r.stats.dividerKm}`);
   assert.ok(r.stats.crosswalks > 400, `crosswalks ${r.stats.crosswalks}`);
@@ -468,10 +478,18 @@ test('geodata (issue #64): no signal stands on a carriageway; mast-arms only on 
   // take units 1,489 -> 1,686 (mast 506 -> 579, pole 983 ->
   // 1,107); the airport box's riverside expressway arms take
   // deckArmsSkipped 127 -> 147. Same invariants, unchanged.
+  // Re-pinned for issue #196: the two junctions flanking the
+  // 復北地下道 approach cuts (民族東路 x 復興北路, 濱江街 x
+  // 復興北路) re-plan their furniture around the shortened
+  // stubs — units 1,686 -> 1,689, all three net-new units corner
+  // poles (mast unchanged at 579, pole 1,107 -> 1,110); the
+  // 0-inside and clearance invariants above are unchanged and
+  // pass tile-wide (old-vs-new signal diff: every moved unit
+  // sits at those two junctions).
   assert.equal(r.stats.signalMast + r.stats.signalPole, r.stats.signalUnits);
-  assert.equal(r.stats.signalUnits, 1686, `signal units ${r.stats.signalUnits}`);
+  assert.equal(r.stats.signalUnits, 1689, `signal units ${r.stats.signalUnits}`);
   assert.equal(r.stats.signalMast, 579, `mast units ${r.stats.signalMast}`);
-  assert.equal(r.stats.signalPole, 1107, `pole units ${r.stats.signalPole}`);
+  assert.equal(r.stats.signalPole, 1110, `pole units ${r.stats.signalPole}`);
   assert.equal(r.stats.deckArmsSkipped, 147, `deck arms skipped ${r.stats.deckArmsSkipped}`);
   // Mast ⟺ divided, recomputed independently of the planner's own
   // helper: the approach bed splits at a drawn median, or a
