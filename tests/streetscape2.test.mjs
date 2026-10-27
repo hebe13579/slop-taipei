@@ -394,6 +394,17 @@ test('issue #178: with boot-exact exclusions (full cap surface), no tree stands 
   // after: 0, with both planners still filling their caps — the
   // rejected candidate's slot is taken by a later candidate, so
   // the tree relocates by the ordinary exclusion rule.
+  // Re-pinned for issue #185: the old-exclusions count is 0, not
+  // 1. The street-wall pull moves 2,433 lots onto their section
+  // edges; 15 more tree candidates land inside lot footprints on
+  // this wiring (rejected.lot 28 -> 43), and a candidate's jitter
+  // is seeded by the running acceptance count, so every later
+  // candidate on the same bed re-rolls its position — the ji1029
+  // sentinel (at -10165.6,-10044.5 on the pre-#185 plan) is one
+  // of the re-rolled casualties, and the cap thinning reshuffles
+  // the rest. The invariant below is untouched and still
+  // measured on this wiring: with the boot-exact exclusions, 0
+  // trees stand on the full surface and both caps still fill.
   const { groundContactPolys } = await import('../js/taipei-viaduct.js');
   const geo = TAIPEI_GEO;
   const plan = planTaipeiBuildings(geo);
@@ -410,8 +421,8 @@ test('issue #178: with boot-exact exclusions (full cap surface), no tree stands 
   ];
   const before = [...planStreetTrees(geo, plan, { exclusions: oldExclusions }).trees,
     ...planParkTrees(geo, plan, { exclusions: oldExclusions }).trees];
-  assert.equal(before.filter((t) => pointInAnyPoly(surfGrid, surfPolys, [t.x, t.z])).length, 1,
-    'one tree stands on the full surface under the old ring+extras exclusions');
+  assert.equal(before.filter((t) => pointInAnyPoly(surfGrid, surfPolys, [t.x, t.z])).length, 0,
+    'no tree stands on the full surface under the old ring+extras exclusions (the #178 sentinel was re-rolled away by #185 — see the comment above)');
   const exclusions = [
     ...caps.flatMap((c) => capSurfacePolys(c).map((p) => p.flatMap((pt) => pt))),
     ...sites.flatMap((s) => [s.disc.ring, ...s.aprons.map((a) => a.ring)]),
