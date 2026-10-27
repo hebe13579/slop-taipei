@@ -188,11 +188,20 @@ test('real tile: exactly one cap per grounded multi-arm junction, centres and ar
   // ring area 660,401 -> 650,771 m² (fitted 161,862 -> 159,678).
   // The capByJ maps in this file now match caps by centre:
   // the plan no longer lines up 1:1 with qualifying junctions.
+  // Census re-pinned for issue #183 (airport underpass): counts
+  // and kind split unchanged; the ring total moves +67 m²,
+  // attributed per-junction by an old-vs-new geodata cap diff —
+  // the whole delta sits at the two 復北地下道 portal junctions:
+  // the south portal cap 135.0 -> 75.0 m² (the tunnel arm leaves
+  // the junction; the surface streets' own overlap remains) and
+  // the north portal cap 204.0 -> 331.0 m² (the junction re-plans
+  // around the surviving 19.5 m stub arm). Fitted total unchanged
+  // at 159,678 m²; every other cap in the tile is identical.
   assert.equal(junctions.length, 2701, `junctions ${junctions.length}`);
   assert.equal(caps.length, 2623, `caps ${caps.length}`);
   assert.equal(caps.filter((c) => c.kind === 'box').length, 559, 'box caps');
   assert.equal(caps.filter((c) => c.kind === 'fitted').length, 2064, 'fitted caps');
-  assert.equal(Math.round(caps.reduce((s, c) => s + c.area, 0)), 650771, 'cap area census');
+  assert.equal(Math.round(caps.reduce((s, c) => s + c.area, 0)), 650838, 'cap area census');
   assert.equal(Math.round(caps.filter((c) => c.kind === 'fitted').reduce((s, c) => s + c.area, 0)), 159678,
     'fitted cap area census (overlap construction since #145)');
   // Census addition for issue #163 (junction fix v2): the ring

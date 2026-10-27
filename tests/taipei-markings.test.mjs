@@ -361,11 +361,21 @@ test('geodata: tile-wide marking counts are in the audited bands', () => {
   // 6,986: 5 strips fully crossed, 2 split). The sweep probes
   // re-measure the class at zero: dash x band/stripe 20 pairs ->
   // 0, strip paint over bands/stripes 16.43 m -> 0 m.
-  assert.equal(r.stats.dashQuads, 157582, `dash quads ${r.stats.dashQuads}`);
+  // Issue #183 re-pin (on top of #182's, composed tree): the
+  // 復北地下道 bed's in-airfield run (473.2 m of divided
+  // secondary) leaves the surface plan for the road-tunnel
+  // suppression, so its divider dashes go with it. Proven delta,
+  // buildRoadMarkings on pre-#183 vs post-#183 geodata with
+  // identical code: -501 quads / -0.751 km, every other statistic
+  // unchanged. The two re-pins compose exactly additively — the
+  // #182 culls are nowhere near the airfield — measured on the
+  // merged tree: 157,589 - 501 - 7 = 157,081 quads and
+  // 234.550 - 0.751 - 0.011 = 233.788 km (band assert below).
+  assert.equal(r.stats.dashQuads, 157081, `dash quads ${r.stats.dashQuads}`);
   assert.equal(r.stats.crossPairs, 258, `X pairs culled ${r.stats.crossPairs}`);
   assert.equal(r.stats.dividerBeds, 1010, `divider beds ${r.stats.dividerBeds}`);
   assert.equal(r.stats.deckDividerBedsSkipped, 91, `deck divider beds skipped ${r.stats.deckDividerBedsSkipped}`);
-  assert.ok(Math.abs(r.stats.dividerKm - 234.55) < 0.05, `divider km ${r.stats.dividerKm}`);
+  assert.ok(Math.abs(r.stats.dividerKm - 233.80) < 0.05, `divider km ${r.stats.dividerKm}`);
   assert.ok(r.stats.crosswalks > 400, `crosswalks ${r.stats.crosswalks}`);
   assert.ok(r.stats.signalUnits >= r.stats.stopLines && r.stats.stopLines > 600,
     `signals ${r.stats.signalUnits} / stop lines ${r.stats.stopLines}`);
