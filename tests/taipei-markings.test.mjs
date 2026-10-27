@@ -299,7 +299,9 @@ test('geodata: tile-wide marking counts are in the audited bands', () => {
   // subset census attributes 40 signalized junctions to the
   // airport box and 16 to the corridor strip; seam junctions
   // account for the difference against the tile-wide delta.
-  assert.equal(r.stats.signalized, 392, `signalized census ${r.stats.signalized}`);
+  // Re-pinned for issue #186: exactly 406 (+14) — the strip's
+  // arterial grid （北安路 x 敬業三路/明水路， 內湖路， 至善路） signalizes.
+  assert.equal(r.stats.signalized, 406, `signalized census ${r.stats.signalized}`);
   assert.ok(r.stats.dividerKm > 50, `divider km ${r.stats.dividerKm}`);
   // Issue #162 re-pin: lane dividers are no longer planned for
   // deck-flagged beds (they painted at ground Y under their own
@@ -371,11 +373,17 @@ test('geodata: tile-wide marking counts are in the audited bands', () => {
   // #182 culls are nowhere near the airfield — measured on the
   // merged tree: 157,589 - 501 - 7 = 157,081 quads and
   // 234.550 - 0.751 - 0.011 = 233.788 km (band assert below).
-  assert.equal(r.stats.dashQuads, 157081, `dash quads ${r.stats.dashQuads}`);
-  assert.equal(r.stats.crossPairs, 258, `X pairs culled ${r.stats.crossPairs}`);
-  assert.equal(r.stats.dividerBeds, 1010, `divider beds ${r.stats.dividerBeds}`);
-  assert.equal(r.stats.deckDividerBedsSkipped, 91, `deck divider beds skipped ${r.stats.deckDividerBedsSkipped}`);
-  assert.ok(Math.abs(r.stats.dividerKm - 233.80) < 0.05, `divider km ${r.stats.dividerKm}`);
+  // Issue #186 re-pin: the strip's road grid adds its dividers
+  // — dash quads 157,081 -> 169,211, divider km 233.80 ->
+  // 251.82, divider beds 1,010 -> 1,076, deck beds skipped
+  // 91 -> 95 (the +4 deck-flagged beds of the grown box), X
+  // pairs culled 258 -> 262 (four crossing pairs on the
+  // strip's interchange geometry).
+  assert.equal(r.stats.dashQuads, 169211, `dash quads ${r.stats.dashQuads}`);
+  assert.equal(r.stats.crossPairs, 262, `X pairs culled ${r.stats.crossPairs}`);
+  assert.equal(r.stats.dividerBeds, 1076, `divider beds ${r.stats.dividerBeds}`);
+  assert.equal(r.stats.deckDividerBedsSkipped, 95, `deck divider beds skipped ${r.stats.deckDividerBedsSkipped}`);
+  assert.ok(Math.abs(r.stats.dividerKm - 251.82) < 0.05, `divider km ${r.stats.dividerKm}`);
   assert.ok(r.stats.crosswalks > 400, `crosswalks ${r.stats.crosswalks}`);
   assert.ok(r.stats.signalUnits >= r.stats.stopLines && r.stats.stopLines > 600,
     `signals ${r.stats.signalUnits} / stop lines ${r.stats.stopLines}`);
@@ -468,10 +476,14 @@ test('geodata (issue #64): no signal stands on a carriageway; mast-arms only on 
   // take units 1,489 -> 1,686 (mast 506 -> 579, pole 983 ->
   // 1,107); the airport box's riverside expressway arms take
   // deckArmsSkipped 127 -> 147. Same invariants, unchanged.
+  // Re-pinned for issue #186: signalized junctions 392 -> 406
+  // take units 1,686 -> 1,744 (mast 579 -> 609, pole 1,107 ->
+  // 1,135); deckArmsSkipped unchanged at 147 (the strip's
+  // signalized junctions carry no deck arms).
   assert.equal(r.stats.signalMast + r.stats.signalPole, r.stats.signalUnits);
-  assert.equal(r.stats.signalUnits, 1686, `signal units ${r.stats.signalUnits}`);
-  assert.equal(r.stats.signalMast, 579, `mast units ${r.stats.signalMast}`);
-  assert.equal(r.stats.signalPole, 1107, `pole units ${r.stats.signalPole}`);
+  assert.equal(r.stats.signalUnits, 1744, `signal units ${r.stats.signalUnits}`);
+  assert.equal(r.stats.signalMast, 609, `mast units ${r.stats.signalMast}`);
+  assert.equal(r.stats.signalPole, 1135, `pole units ${r.stats.signalPole}`);
   assert.equal(r.stats.deckArmsSkipped, 147, `deck arms skipped ${r.stats.deckArmsSkipped}`);
   // Mast ⟺ divided, recomputed independently of the planner's own
   // helper: the approach bed splits at a drawn median, or a
@@ -613,7 +625,11 @@ test('dash x furniture (issue #182): the real tile paints no dash over a zebra',
   // comment in the counts test): exactly 7 quads culled and 13
   // strip segments clipped.
   assert.equal(r.stats.furnBlockedQuads, 7, `quads culled at furniture (${r.stats.furnBlockedQuads})`);
-  assert.equal(r.stats.furnStripSegmentsClipped, 13, `strip segments clipped (${r.stats.furnStripSegmentsClipped})`);
+  // Issue #186: +1 strip segment clipped (14) — one more
+  // pre-existing-class furniture crossing on the strip's grid;
+  // the invariant (no dash quad over a band/stripe) is asserted
+  // above and holds.
+  assert.equal(r.stats.furnStripSegmentsClipped, 14, `strip segments clipped (${r.stats.furnStripSegmentsClipped})`);
   const furnPolys = [...r.bands.map((b) => b.quad), ...r.stripes].map(quadPtsOf);
   const CELL = 25;
   const grid = new Map();

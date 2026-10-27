@@ -102,7 +102,13 @@ test('both runway designators are painted, thresholds keyed', () => {
 
 test('the #134 site exclusion does not regress', () => {
   assert.equal(plan.stats.blocksSkippedAirfield, 45, 'airfield blocks skipped, as #134');
-  assert.equal(plan.stats.lotsDroppedAirfield, 218, 'airfield lots dropped, as #134');
+  // Issue #186: lots dropped at the airfield verdict 218 ->
+  // 200. The exclusion itself is unchanged (0 lots stand inside
+  // the site, asserted by the plan census above); the count
+  // moves because the planner seeds lots by block index, so
+  // the #186 block-set growth re-draws which candidates reach
+  // the airfield verdict before an earlier one takes them.
+  assert.equal(plan.stats.lotsDroppedAirfield, 200, 'airfield lots dropped, as #134 (count re-pinned for #186, see comment)');
 });
 
 // Issue #183: 復興北路 dives UNDER the field through the

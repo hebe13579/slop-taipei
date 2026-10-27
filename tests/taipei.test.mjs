@@ -1122,7 +1122,11 @@ test('taiwan types: family zoning, distribution and rooftop clamp', (t) => {
   // are not plan lots and cannot convert: glass 4,291 - 171 =
   // 4,120. District before/after counts live in
   // xinyiwhite-evidence/.
-  assert.equal(glass, 4120, 'glass family counts after #136 + #139 + #135 + #142, composed with #134 + #137 and #144');
+  // Issue #186 composition: the strip to the National Palace
+  // Museum adds 3,733 lots, 342 of them glass (the Neihu/Dazhi
+  // office stock); the block-set reshuffle moves the outside
+  // count 4,120 -> 4,078 (-42). Net: glass 4,120 -> 4,420.
+  assert.equal(glass, 4420, 'glass family counts after #136 + #139 + #135 + #142, composed with #134 + #137 and #144, and the #186 strip');
   const masonry = opts.lots.filter((l) => l.mat <= 2).length;
   // Range re-based for issue #65: the exact ribbon exclusion removed
   // ~4,400 masonry lots that stood on ribbons or in medians; masonry
@@ -1149,7 +1153,11 @@ test('taiwan types: family zoning, distribution and rooftop clamp', (t) => {
   // lots to masonry (F0 +264, F1 +222) — 17,020 of 34,645 (49.1%);
   // masonry + Taiwan types together are 30,734 (88.7%). Still
   // inside this range unedited.
-  assert.ok(masonry > 12000 && masonry < 20000, `masonry 0-2 reduced but still present (${masonry})`);
+  // Range re-based for issue #186: the strip's 3,733 lots are
+  // mostly residential masonry fabric — 20,929 of 42,190 lots
+  // (49.6%), still the largest family bloc. The ceiling moves
+  // 20,000 -> 22,000 with headroom, same convention as #102.
+  assert.ok(masonry > 12000 && masonry < 22000, `masonry 0-2 reduced but still present (${masonry})`);
   assert.equal(typeof opts.rooftopGearClamp, 'function', 'options carry the rooftop-gear clamp');
 
   const lot = { x0: 0, x1: 9, z0: 0, z1: 14 };

@@ -197,12 +197,20 @@ test('real tile: exactly one cap per grounded multi-arm junction, centres and ar
   // the north portal cap 204.0 -> 331.0 m² (the junction re-plans
   // around the surviving 19.5 m stub arm). Fitted total unchanged
   // at 159,678 m²; every other cap in the tile is identical.
-  assert.equal(junctions.length, 2701, `junctions ${junctions.length}`);
-  assert.equal(caps.length, 2623, `caps ${caps.length}`);
-  assert.equal(caps.filter((c) => c.kind === 'box').length, 559, 'box caps');
-  assert.equal(caps.filter((c) => c.kind === 'fitted').length, 2064, 'fitted caps');
-  assert.equal(Math.round(caps.reduce((s, c) => s + c.area, 0)), 650838, 'cap area census');
-  assert.equal(Math.round(caps.filter((c) => c.kind === 'fitted').reduce((s, c) => s + c.area, 0)), 159678,
+  // Census re-pinned for issue #186 (airport box grown north
+  // to the National Palace Museum): junctions 2,701 -> 2,873
+  // and caps 2,623 -> 2,795 (box 559 -> 588, fitted 2,064 ->
+  // 2,207); ring areas total 650,838 -> 689,510 m2 (fitted
+  // 159,678 -> 173,457 m2). Construction unchanged — the delta
+  // is the strip's road grid （北安路/敬業三路/內湖路/至善路）;
+  // the #178 phantom count is unchanged at 71 (every strip
+  // junction is grounded).
+  assert.equal(junctions.length, 2873, `junctions ${junctions.length}`);
+  assert.equal(caps.length, 2795, `caps ${caps.length}`);
+  assert.equal(caps.filter((c) => c.kind === 'box').length, 588, 'box caps');
+  assert.equal(caps.filter((c) => c.kind === 'fitted').length, 2207, 'fitted caps');
+  assert.equal(Math.round(caps.reduce((s, c) => s + c.area, 0)), 689510, 'cap area census');
+  assert.equal(Math.round(caps.filter((c) => c.kind === 'fitted').reduce((s, c) => s + c.area, 0)), 173457,
     'fitted cap area census (overlap construction since #145)');
   // Census addition for issue #163 (junction fix v2): the ring
   // counts/areas above are unchanged BY CONSTRUCTION — the #163
@@ -230,8 +238,10 @@ test('real tile: exactly one cap per grounded multi-arm junction, centres and ar
   // the drop pass removes the strips of dropped caps plus any
   // strip touching no ribbon and no sibling: 2,618 -> 2,479
   // strips, 129,142 -> 122,201 m² on this (unclipped) wiring.
-  assert.equal(caps.reduce((s, c) => s + (c.extras || []).length, 0), 2479, 'extension strip census');
-  assert.equal(caps.reduce((s, c) => s + (c.extraArea || 0), 0), 122201, 'extension strip area census');
+  // Strip census re-pinned for issue #186: 2,479 -> 2,638
+  // strips, 122,201 -> 129,177 m2, on the strip-grown tile.
+  assert.equal(caps.reduce((s, c) => s + (c.extras || []).length, 0), 2638, 'extension strip census');
+  assert.equal(caps.reduce((s, c) => s + (c.extraArea || 0), 0), 129177, 'extension strip area census');
   for (const c of caps) if (c.kind === 'box') assert.equal((c.extras || []).length, 0, 'box caps carry no strips');
   const capByJ = new Map();
   junctions.forEach((j, ji) => {
@@ -402,10 +412,14 @@ test('real tile: no painted band, median strip or dash quad centre inside a cap'
   // builders still put exactly 0 median quads inside the
   // occluders (asserted above), so rendered output is
   // unchanged by the correction; only the census pin moves.
+  // Bite re-pinned for issue #186: the occluder set grows with
+  // the strip (caps 2,623 -> 2,795) — 1,656 band, 3,262 edge and
+  // 3,066 median quad centres (median pin below); the clipped
+  // builders still put exactly 0 there.
   const unclipped = buildPaintedBands(beds);
-  assert.equal(unclipped.band.filter(inOcc).length, 1533,
+  assert.equal(unclipped.band.filter(inOcc).length, 1656,
     `unclipped bands inside occluders: ${unclipped.band.filter(inOcc).length}`);
-  assert.equal(unclipped.edges.filter(inOcc).length, 3026,
+  assert.equal(unclipped.edges.filter(inOcc).length, 3262,
     `unclipped edges inside occluders: ${unclipped.edges.filter(inOcc).length}`);
   // Bite re-pinned for issue #167: deck-flagged beds' strips no
   // longer join the ground lists this census reads (they route to
@@ -420,7 +434,7 @@ test('real tile: no painted band, median strip or dash quad centre inside a cap'
   // still put exactly 0 inside the occluders (asserted above).
   // The band/edge bites are untouched.
   const unclippedMedians = buildMedianStrips(beds);
-  assert.equal([...unclippedMedians.plain, ...unclippedMedians.planted].filter(inOcc).length, 2840,
+  assert.equal([...unclippedMedians.plain, ...unclippedMedians.planted].filter(inOcc).length, 3066,
     'unclipped medians inside occluders');
 });
 
@@ -569,7 +583,9 @@ test('issue #75: every major junction box is covered corner to corner by its box
   // box's arterial grid （敦化北路 x 民權/民族/民生， 南京東路東段，
   // 塔悠路 x 撫遠街） and the strip's Datong majors join; every one
   // still passes (a)-(c) above.
-  assert.equal(major, 579, `major junctions audited ${major}`);
+  // Re-pinned for issue #186: 579 -> 607 majors — the strip's
+  // divided arterials （北安路， 敬業三路， 內湖路一段， 至善路） join.
+  assert.equal(major, 607, `major junctions audited ${major}`);
 });
 
 test('issue #75: crosswalk and stop-line centres at major junctions lie on asphalt', () => {
@@ -859,7 +875,9 @@ test('issue #145: every minor junction box is covered by its overlap cap', () =>
     for (const v of poly)
       assert.ok(distToPoly(v, box) <= 21, `junction ${ji} cap vertex overshoots the box by ${distToPoly(v, box).toFixed(1)} m`);
   });
-  assert.equal(minor, 2115, `minor junctions audited ${minor}`);
+  // Re-pinned for issue #186: 2,115 -> 2,259 minors on the
+  // strip-grown tile.
+  assert.equal(minor, 2259, `minor junctions audited ${minor}`);
 });
 
 test('issue #163: short fitted arms extend to the box edge — strips, never tongues', () => {

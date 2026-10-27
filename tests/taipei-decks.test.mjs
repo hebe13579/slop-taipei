@@ -66,7 +66,11 @@ test('every deck-flagged roadbed is covered by deck geometry', () => {
   // strip adds the 環河南路/水源快速道路 beds; the deck LINES grow
   // 329 -> 397 (93.1 -> 129.5 km) on the same ground (validate.mjs
   // corroborates: 336 flagged beds agree across builders).
-  assert.equal(deckBeds.length, 336, 'deck-flagged bed count');
+  // Census re-pinned for issue #186: 336 -> 340 — the grown
+  // airport box completes the 大直橋 deck beds (the bridge was
+  // clipped at the old north edge) and adds the strip's small
+  // river bridges （自強/復興/望星）; deck lines 397 -> 405.
+  assert.equal(deckBeds.length, 340, 'deck-flagged bed count');
   for (const b of deckBeds) {
     let samples = 0, covered = 0;
     for (let i = 0; i + 3 < b.pts.length; i += 2) {
@@ -256,15 +260,17 @@ test('ground network unchanged: beds, junctions and caps exactly as before decks
   // Census re-pinned for issue #134: roadbeds 11,804 -> 13,578,
   // junctions 2,361 -> 2,701 and caps 2,354 -> 2,694 (still
   // junctions - 7 roundabout-claimed) on the enlarged tile.
-  assert.equal(TAIPEI_GEO.roadbeds.length, 13578, 'roadbed count unchanged (deck beds are flagged, not removed)');
+  // Census re-pinned for issue #186: roadbeds 13,578 -> 14,547,
+  // junctions 2,701 -> 2,873 on the strip-grown tile.
+  assert.equal(TAIPEI_GEO.roadbeds.length, 14547, 'roadbed count unchanged (deck beds are flagged, not removed)');
   const junctions = detectJunctions(carriageways);
-  assert.equal(junctions.length, 2701, 'ground junction detection unchanged');
+  assert.equal(junctions.length, 2873, 'ground junction detection unchanged');
   const caps = planJunctionCaps(carriageways, junctions);
   // Gate re-pin (PR #78 onto post-#77 main): caps = junctions minus the 7
   // junctions claimed by #77's handcrafted roundabout sites (Renai 4 +
   // Dongmen 3). The invariant this test protects is unchanged: decks do not
   // remove a single cap — the delta is #77's, documented in its audit.
-  assert.equal(caps.length, 2623, 'junction caps still planned over the full bed set, deck beds included (2701 detected − 7 roundabout-claimed, #77; − 71 groundless phantoms dropped by the issue #178 ORPHAN rule — 20 of them the deck-interchange clusters this layer sits on)');
+  assert.equal(caps.length, 2795, 'junction caps still planned over the full bed set, deck beds included (2873 detected − 7 roundabout-claimed, #77; − 71 groundless phantoms dropped by the issue #178 ORPHAN rule — 20 of them the deck-interchange clusters this layer sits on; census re-pinned for issue #186, phantom count unchanged)');
 });
 
 test('viaduct renderer: synthetic box section with parapets', () => {

@@ -88,9 +88,21 @@ const TWIN_WIDTH = 5.6, SINGLE_WIDTH = 10.4;
 // centrelines run 4.1-4.4 m apart, satellite formation ~6-7 m
 // overall), track spacing 4.3 m on the rare shared-formation way.
 export const WENHU_STATIONS = [
-  '科技大樓', '大安', '忠孝復興', '南京復興', '中山國中', '松山機場', '大直',
+  '科技大樓', '大安', '忠孝復興', '南京復興', '中山國中', '松山機場', '大直', '劍南路',
 ];
 export const WENHU_ELEVATED_STATIONS = ['大安', '忠孝復興', '南京復興', '中山國中'];
+// Issue #186: north of the Keelung River the line stays UNDERGROUND
+// through Dazhi (BR14 is a B2 island-platform station — with
+// Songshan Airport, the Wenhu line's only two underground stations;
+// OSM tags both track ways tunnel=yes / layer=-1 continuously to
+// lat 25.0849) and resurfaces on the Dazhi -> Jiannan Rd leg, where
+// Jiannan Rd (BR15) is an elevated SIDE-PLATFORM station. Jiannan Rd
+// therefore takes an OPEN elevated form here (kind 'wenhu-open': no
+// barrel vault, no full concourse box — columns + platform slabs +
+// one spanning canopy), measured by the same platform-cloud
+// construction as the barrel-vault four; Dazhi takes entrances only,
+// on the Songshan Airport pattern (DAZHI_ENTRANCES below).
+export const WENHU_OPEN_STATIONS = ['劍南路'];
 const WENHU_SEGMENT_FORM_DEFAULTS = {
   '科技大樓>大安': 'elevated',
   '大安>忠孝復興': 'elevated',
@@ -98,6 +110,11 @@ const WENHU_SEGMENT_FORM_DEFAULTS = {
   '南京復興>中山國中': 'elevated',
   '中山國中>松山機場': 'elevated',
   '松山機場>大直': 'tunnel',
+  // Issue #186: the Dazhi -> Jiannan Rd leg carries the resurface
+  // (the transition zone is on this leg in reality). The tagged
+  // tunnel ways still win per-way; this default speaks only for
+  // the untagged transition stubs at the ramp (lat ~25.085).
+  '大直>劍南路': 'elevated',
 };
 const WENHU_TWIN_WIDTH = 2.6, WENHU_SINGLE_WIDTH = 7.0;
 export const WENHU_TRACK_SPACING = 4.3;
@@ -115,6 +132,19 @@ const AIRPORT_ENTRANCES = [
   [25.0635417, 121.5519873, '1'],
   [25.0635290, 121.5512019, '2'],
   [25.0630062, 121.5517530, '3'],
+];
+// Issue #186: Dazhi station is underground too (see
+// WENHU_OPEN_STATIONS), so its surface presence is likewise its
+// three entrance pavilions, hand-authored the same way from live
+// OSM, verified node by node through the OSM API on 2026-10-27
+// (railway=subway_entrance): node 3273605592 = exit 1, node
+// 3273605591 = exit 2, node 3273605590 = exit 3. Exits 2/3 stand
+// south-west of the station box on Beian Rd; exit 1 at its north
+// end by Dazhi Elementary. [lat, lon, ref]
+const DAZHI_ENTRANCES = [
+  [25.0802371, 121.5470552, '1'],
+  [25.0796058, 121.5468429, '2'],
+  [25.0794398, 121.5471117, '3'],
 ];
 
 // Issue #139: the Beitou depot （北投機廠） halls, hand-authored from
@@ -1061,9 +1091,23 @@ export function digestWenhuLine(elements, project) {
     .slice(0, k)
     .map((e) => e.n);
   for (const [fa, fb] of pairs) {
-    const a = nearestNode(anchor.get(fa)).node;
-    const b = nearestNode(anchor.get(fb)).node;
-    const pA = dijkstraR(a, b, null);
+    // A routes between the stations' nearest graph nodes — but a
+    // station's two stop nodes sit on OPPOSITE tracks, and the
+    // tracks are separate routable components (they join only over
+    // the banned crossovers), so when the exact-nearest pair lands
+    // on different tracks no route exists at all. Fall back over
+    // the near-node combinations, closest first — the same search
+    // the B path makes below. (Issue #186: Dazhi -> Jiannan Rd is
+    // the first pair whose nearest stops face opposite tracks;
+    // every earlier pair resolves on the first combination, so
+    // their A paths are unchanged.)
+    let pA = null;
+    outerA: for (const a2 of nearNodes(anchor.get(fa), 4)) {
+      for (const b2 of nearNodes(anchor.get(fb), 4)) {
+        const cand = dijkstraR(a2, b2, null);
+        if (cand) { pA = cand; break outerA; }
+      }
+    }
     if (!pA) continue;
     pathsFound++;
     const set = [pA];
@@ -1121,6 +1165,37 @@ export function digestWenhuLine(elements, project) {
       lineWays.set(w.id, new Set(['crossover']));
       crossoverWays++;
     }
+  }
+  // Terminus tail (issue #186): Jiannan Rd is the digest's last
+  // station, but the physical line runs on east out of the tile.
+  // The pair paths end at the station anchor, part-way along the
+  // OSM ways, so the station track ways dead-end at their junction
+  // with the long Xihu-bound viaduct ways — which no path uses and
+  // the crossover catch cannot admit (they are running line, not
+  // crossovers). Chain-admit elevated running-line component ways
+  // that share a node with an admitted way (node-sharing is the
+  // graph's own continuity test), a few hops at most; the deck
+  // core clips the runs at the union edge — the same convention
+  // as every other line that runs out of the tile (the Wenhu
+  // twins at Box A's south edge). Without this the Jiannan
+  // guideways end mid-air at the way junction.
+  let tailWays = 0;
+  for (let hop = 0; hop < 4; hop++) {
+    const admittedNodes = new Set();
+    for (const wid of lineWays.keys()) {
+      for (const n of wayById.get(wid).nodes || []) admittedNodes.add(n);
+    }
+    let grew = false;
+    for (const w of trackWays) {
+      if (lineWays.has(w.id) || !w.nodes.some((n) => comp.has(n))) continue;
+      if (formOfTags(w.tags) !== 'elevated') continue;
+      if (['crossover', 'yard', 'siding', 'spur'].includes(w.tags.service || '')) continue;
+      if (!w.nodes.some((n) => admittedNodes.has(n))) continue;
+      lineWays.set(w.id, new Set(['大直>劍南路']));
+      tailWays++;
+      grew = true;
+    }
+    if (!grew) break;
   }
   const segmentOfPoint = (x, z) => {
     let best = null, bd = Infinity;
@@ -1181,9 +1256,15 @@ export function digestWenhuLine(elements, project) {
     });
   }
 
-  // ---- station defs (the four elevated stations) ----
+  // ---- station defs (the elevated stations) ----
+  // The barrel-vault four (kind 'wenhu') and, since issue #186, the
+  // two open side-platform stations north of the river (kind
+  // 'wenhu-open') — one measured construction, two renderer kinds.
   const stations = [];
-  for (const name of WENHU_ELEVATED_STATIONS) {
+  for (const [name, stKind] of [
+    ...WENHU_ELEVATED_STATIONS.map((n) => [n, 'wenhu']),
+    ...WENHU_OPEN_STATIONS.map((n) => [n, 'wenhu-open']),
+  ]) {
     const a = anchor.get(name);
     // yaw: length-weighted track direction near the anchor
     // (double angle, the Red digest's construction).
@@ -1298,7 +1379,7 @@ export function digestWenhuLine(elements, project) {
     stations.push({
       id: `mrt-${slug || 'station'}`, name, nameEn: a.nameEn || '',
       x: Math.round(snapX * 10) / 10, z: Math.round(snapZ * 10) / 10,
-      yaw, kind: 'wenhu', length, width,
+      yaw, kind: stKind, length, width,
     });
   }
   // Songshan Airport: entrances only (see AIRPORT_ENTRANCES).
@@ -1306,6 +1387,15 @@ export function digestWenhuLine(elements, project) {
     const [x, z] = project(lat, lon);
     stations.push({
       id: `mrt-songshan-airport-exit-${ref}`, name: `松山機場站出口${ref}`, nameEn: `Songshan Airport Sta. Exit ${ref}`,
+      x: Math.round(x * 10) / 10, z: Math.round(z * 10) / 10,
+      yaw: Math.PI / 2, kind: 'entrance', length: 11, width: 7,
+    });
+  }
+  // Dazhi: entrances only (see DAZHI_ENTRANCES).
+  for (const [lat, lon, ref] of DAZHI_ENTRANCES) {
+    const [x, z] = project(lat, lon);
+    stations.push({
+      id: `mrt-dazhi-exit-${ref}`, name: `大直站出口${ref}`, nameEn: `Dazhi Sta. Exit ${ref}`,
       x: Math.round(x * 10) / 10, z: Math.round(z * 10) / 10,
       yaw: Math.PI / 2, kind: 'entrance', length: 11, width: 7,
     });
