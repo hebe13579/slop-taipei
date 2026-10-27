@@ -5,8 +5,9 @@
 // node tests pin the geometry directly.
 //
 // The skin is a BACKDROP, not terrain: one displaced mesh per grid
-// (Beitou box + corridor north), seated over the tile's northern
-// backdrop. Vertex height =
+// (round 1, #129: Beitou box + corridor north; round 2, #187: the
+// north-rim grid behind the airport-north strip and the east-rim
+// grid on box A), seated over the tile's mountain rims. Vertex height =
 //
 //   DEM x smoothstep(15 m -> 45 m) x roadMask x edgeFade - 0.3 m
 //

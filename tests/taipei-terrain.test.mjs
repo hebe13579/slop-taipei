@@ -6,6 +6,13 @@
 // the height rule and edge fades behave, the palette carries the
 // issue's dark-forest-green correction, and the planner's output
 // is identical with and without the skin (visual only, by data).
+// Issue #187 (round 2): the same system extended to the tile's
+// other two rims — a north-rim grid behind the #186 airport-north
+// strip (box 6-airport) sharing the corridor grid's east edge, and
+// an east-rim grid on box A (Sishou/Nangang slopes + the scenery
+// band past the 121.580 tile edge). Round 2's pins: the new seam,
+// the museum grounds staying uncovered, the east grid never
+// reaching the airport box.
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import test from 'node:test';
@@ -52,8 +59,54 @@ test('the two grids share the seam postings (no gap, no overlap)', () => {
   // Shared edge never fades on either side; north never fades.
   assert.equal(bei.fade.e, false); assert.equal(cor.fade.w, false);
   assert.equal(bei.fade.n, false); assert.equal(cor.fade.n, false);
-  assert.equal(bei.fade.w, true); assert.equal(cor.fade.e, true);
+  assert.equal(bei.fade.w, true);
+  // #187 re-pin: corridor's east edge faded in round 1 (cor.fade.e
+  // was true) because nothing stood east of it; round 2's north-rim
+  // grid (6-airport) shares that edge, so by the system's own rule
+  // (shared edges never fade) it is false now. The postings along
+  // the edge are unchanged (h/mask diff vs the round-1 bake is 0).
+  assert.equal(cor.fade.e, false);
   assert.equal(bei.fade.s, true); assert.equal(cor.fade.s, true);
+});
+
+test('round 2 north rim: the airport grid shares the corridor east-edge seam (#187)', () => {
+  const ap = T?.grids.find((g) => g.box === '6-airport');
+  assert.ok(ap, 'north-rim grid present');
+  // Same north edge and lattice: the airport grid's rows are the
+  // corridor grid's first rows, so the shared column at lon 121.540
+  // must carry identical postings on both sides.
+  assert.ok(Math.abs(ap.x0 - cor.x1) < 0.01 && Math.abs(ap.z0 - cor.z0) < 0.01);
+  assert.equal(ap.fade.w, false); assert.equal(cor.fade.n, false);
+  assert.equal(ap.fade.s, true); assert.equal(ap.fade.e, true);
+  for (let r = 0; r < ap.rows; r++) {
+    const a = r * cor.cols + (cor.cols - 1), b = r * ap.cols;
+    assert.equal(cor.h[a], ap.h[b], `rim seam h row ${r}`);
+    assert.equal(cor.mask[a], ap.mask[b], `rim seam mask row ${r}`);
+  }
+  // The rim is real mountain: Qixing's south slope inside the grid.
+  const qx = posting(ap, 121.5570, 25.1600);
+  assert.ok(ap.h[qx.i] > 600, `Qixing slope posting h=${ap.h[qx.i]}`);
+});
+
+test('round 2 discipline: museum grounds uncovered, east grid clear of the airport (#187)', () => {
+  // The #186 strip's museum grounds stay on the flat convention:
+  // no skin grid may cover the National Palace Museum point.
+  for (const g of T.grids) {
+    assert.ok(!(121.5483 >= g.w && 121.5483 <= g.e && 25.1023 >= g.s && 25.1023 <= g.n),
+      `grid ${g.box} must not cover the NPM point`);
+  }
+  const east = T?.grids.find((g) => g.box === 'A');
+  assert.ok(east, 'east-rim grid present');
+  assert.deepEqual(east.fade, { w: true, e: true, s: true, n: false });
+  // The east grid's north edge is box A's own top edge (25.055):
+  // zero overlap with the airport box, so the skin can never
+  // reach the airfield.
+  const cfg = JSON.parse(fs.readFileSync(new URL('../tools/taipei/tile-boxes.json', import.meta.url), 'utf8'));
+  const airport = cfg.boxes.find((b) => b.name === '6-airport');
+  assert.ok(east.n <= airport.s, `east grid n ${east.n} <= airport box s ${airport.s}`);
+  // Xiangshan stands inside the east grid.
+  const xs = posting(east, 121.5764, 25.0267);
+  assert.ok(east.h[xs.i] > 150, `Xiangshan posting h=${east.h[xs.i]}`);
 });
 
 test('height rule: floor stays down, full DEM at 45 m, mask gates', () => {
