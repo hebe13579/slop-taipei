@@ -815,12 +815,23 @@ test('clearance (issue #139): census by counterfactual, audit exact', (t) => {
   // more (counterfactual 38,772) and the #139 delta below is
   // unchanged at 463 — measured at the #165 gate by the same
   // lot-by-lot diff as the shipped-plan re-pin below.
+  // Composed with issue #124 on this merged tree: the anchors
+  // are the FINE plan's now — the counterfactual (same strips)
+  // reproduces 72,254 and the shipped plan 71,584, so the #139
+  // inputs remove 670 on the fine grid: the same depot/station
+  // sites, bed 28 and pierce 56 by the planner counters below
+  // (the fine grid puts more candidates on the at-grade bed and
+  // more tall lots under the guideways), plus 19 drops of the
+  // new pier rule — the MRT deck piers were placed against the
+  // coarse plan, so the loop and the #185 pull now test both
+  // pier sets and those 19 candidates (all under the Red Line
+  // corridor fabric) drop. The audit asserts are unchanged.
   const before = planTaipeiBuildings({
     ...TAIPEI_GEO,
     mrtDecks: undefined, mrtDepot: undefined,
     mrtStations: stations.filter((s) => s.kind !== 'at-grade' && s.kind !== 'wenhu' && s.kind !== 'entrance'),
   });
-  assert.equal(before.lots.length, 38772, 'counterfactual plan reproduces the pre-#139 lot count, less the #144 site lots (7), the #135 parcel exclusions (47) and the #165 site exclusions (31)');
+  assert.equal(before.lots.length, 72254, 'counterfactual plan reproduces the pre-#139 lot count, less the #144 site lots (7), the #135 parcel exclusions (47) and the #165 site exclusions (31) — on the #124 fine plan, per the composition note above');
   // 463 lots removed on this tree (524 on the pre-expansion
   // tree): 433 inside the Beitou depot + at-grade station sites
   // (398 with centres inside the depot site rect alone; the rest
@@ -835,9 +846,9 @@ test('clearance (issue #139): census by counterfactual, audit exact', (t) => {
   // Four Seasons D3 parcel + 2 under the Mitsukoshi A4 hall; the
   // Farglory / A8 / A9 / A11 sites exclude none — their blocks were
   // already lot-free there).
-  assert.equal(plan.lots.length, 38309, 'shipped plan lot count after the #139 removals, the #144 site exclusion, the #135 parcel exclusions, the #146 dive drops and the #165 site exclusions');
-  assert.equal(plan.stats.lotsDroppedTrackBed, 13, 'planner bed drops agree with the census');
-  assert.equal(plan.stats.lotsDroppedTrackPierce, 17, 'planner pierce drops agree with the census (15 Red + 2 Wenhu, issue #146)');
+  assert.equal(plan.lots.length, 71584, 'shipped plan lot count after the #139 removals, the #144 site exclusion, the #135 parcel exclusions, the #146 dive drops and the #165 site exclusions — re-based on the #124 fine plan');
+  assert.equal(plan.stats.lotsDroppedTrackBed, 28, 'planner bed drops agree with the census (13 on the coarse grid; the fine grid stands more candidates on the at-grade Beitou bed)');
+  assert.equal(plan.stats.lotsDroppedTrackPierce, 56, 'planner pierce drops agree with the census (15 Red + 2 Wenhu on the coarse grid, issue #146; 56 on the fine grid)');
   let bed = 0, pierce = 0, keptUnder = 0;
   for (const lot of plan.lots) {
     const c = trackClass(lot);

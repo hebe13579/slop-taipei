@@ -28,6 +28,23 @@
 //     1.2–3 m gap between neighbouring footprints. Very large blocks
 //     (> 40,000 m² — campuses, depots, riverside tracts) use a coarser
 //     pitch and a higher vacancy rate so they don't read as carpet.
+//   - Issue #124: the fine-grain rule. The #107 reality check found
+//     ordinary blocks reading half-empty from the air (coverage
+//     0.23–0.27 of block land against a real 0.39–0.61+, grain ~15 m
+//     against a real 9–14 m), and the #124 study showed grain and
+//     coverage are the same defect: only 14–21% of grid candidates
+//     survive the exact ribbon verdicts, because a ~20 m cell
+//     straddles ribbons and edges a ~11 m cell fits between. A block
+//     whose REAL door-plate density (height-layer door points inside
+//     the block's bbox, per hectare of block land) is ≥ 60/ha is old
+//     fine fabric — Datong medians ~72/ha, the planned east ~35/ha —
+//     and subdivides fine instead: frontage pitch 9–12.5 m, depth
+//     pitch 12.5–16.5 m, gap 0.4–1.2 m, vacancy 4%, a 2 m inset
+//     (fine fabric fronts its lanes near-flush) and a 6 m minimum
+//     lot width. Big blocks are never fine. One real signal, no
+//     traced footprints, no hand-drawn zones; coarse blocks
+//     subdivide exactly as before, so the planned districts keep
+//     their grain (see the study on issue #124).
 //   - Issue #106: a block face that fronts a collector-or-better road
 //     (tertiary rank ≥ 2, measured per block edge — see the frontage
 //     section in the planner) packs its row to ZERO side gap with no
@@ -2072,7 +2089,7 @@ export const HEIGHT_JOIN = {
 };
 
 export function planTaipeiBuildings(geodata) {
-  const stats = { blocksSeen: 0, blocksSkippedSmall: 0, blocksSkippedParkWater: 0, blocksSkippedGreen: 0, blocksSkippedAirfield: 0, blocksSkippedOutsideUnion: 0, lotsDroppedVacancy: 0, lotsDroppedParkWater: 0, lotsDroppedGreen: 0, lotsDroppedRiverside: 0, lotsDroppedAirfield: 0, lotsDroppedTowerSite: 0, lotsDroppedRoad: 0, lotsDroppedMedian: 0, lotsDroppedOutsideUnion: 0, lotsDroppedTrackBed: 0, lotsDroppedTrackPierce: 0, blocksRotated: 0, lotsRotated: 0, lotsPackedFrontage: 0, lotsTallFrontage: 0, heightsPermit: 0, heightsOsmHeight: 0, heightsOsmLevels: 0, heightsDoor: 0, heightsField: 0, heightsProc: 0, lotsFrontagePulled: 0, lotsFrontageFlush: 0, lotsFrontageHeldNoBed: 0, lotsFrontageHeldBlocked: 0, frontagePullMetres: 0 };
+  const stats = { blocksSeen: 0, blocksFine: 0, lotsFine: 0, blocksSkippedSmall: 0, blocksSkippedParkWater: 0, blocksSkippedGreen: 0, blocksSkippedAirfield: 0, blocksSkippedOutsideUnion: 0, lotsDroppedVacancy: 0, lotsDroppedParkWater: 0, lotsDroppedGreen: 0, lotsDroppedRiverside: 0, lotsDroppedAirfield: 0, lotsDroppedTowerSite: 0, lotsDroppedRoad: 0, lotsDroppedMedian: 0, lotsDroppedOutsideUnion: 0, lotsDroppedTrackBed: 0, lotsDroppedTrackPierce: 0, lotsDroppedPier: 0, blocksRotated: 0, lotsRotated: 0, lotsPackedFrontage: 0, lotsTallFrontage: 0, heightsPermit: 0, heightsOsmHeight: 0, heightsOsmLevels: 0, heightsDoor: 0, heightsField: 0, heightsProc: 0, lotsFrontagePulled: 0, lotsFrontageFlush: 0, lotsFrontageHeldNoBed: 0, lotsFrontageHeldBlocked: 0, frontagePullMetres: 0 };
   // Union-of-boxes tile (issue #60): the geodata frame carries the
   // tile's boxes; ground exists only inside them. Raster blocks are
   // masked to the union by the builder, but a block's bbox can still
@@ -2246,6 +2263,60 @@ export function planTaipeiBuildings(geodata) {
   const medianOf = (vals) => {
     const s = [...vals].sort((a, b) => a - b);
     return s.length % 2 ? s[(s.length - 1) / 2] : (s[s.length / 2 - 1] + s[s.length / 2]) / 2;
+  };
+
+  // Support piers (validate's and taipei-mrt's rule): no pier point
+  // — elevated-road or MRT deck — may stand inside a planned lot's
+  // footprint. The builders placed both pier sets against the
+  // pre-#124 plan, so the block loop owns the test now — the #185
+  // pull has always re-checked its moved lots the same way. Tested
+  // on the candidate's own frame, grown 0.1 m for the emitted lots'
+  // 0.1 m rounding, which is what the audits use.
+  const pierPtsAll = [...((geodata.elevatedRoads && geodata.elevatedRoads.piers) || []), ...((geodata.mrtDecks && geodata.mrtDecks.piers) || [])];
+  const PIER_CELL_M = 64;
+  const pierGridAll = new Map();
+  for (const p of pierPtsAll) {
+    const k = fpKey(Math.floor(p.x / PIER_CELL_M), Math.floor(p.z / PIER_CELL_M));
+    let bucket = pierGridAll.get(k);
+    if (!bucket) pierGridAll.set(k, bucket = []);
+    bucket.push(p);
+  }
+  const pierHit = (cx, cz, w, d, cosT, sinT) => {
+    const gx = Math.floor(cx / PIER_CELL_M), gz = Math.floor(cz / PIER_CELL_M);
+    for (let ix = gx - 1; ix <= gx + 1; ix++) for (let iz = gz - 1; iz <= gz + 1; iz++) {
+      for (const p of pierGridAll.get(fpKey(ix, iz)) || []) {
+        const dx = p.x - cx, dz = p.z - cz;
+        if (Math.abs(dx) <= w / 2 + 0.1 && Math.abs(dz) <= d / 2 + 0.1) return true;
+        if (Math.abs(dx * cosT + dz * sinT) <= w / 2 + 0.1 && Math.abs(-dx * sinT + dz * cosT) <= d / 2 + 0.1) return true;
+      }
+    }
+    return false;
+  };
+
+  // Issue #124: the fine-grain classifier. Door plates are the
+  // densest real-fabric signal the tile carries (137k points): old
+  // walk-up fabric registers many plates per hectare of block land,
+  // planned big-parcel districts few. Count the plates inside the
+  // block's bbox on the door grid built above; the threshold and the
+  // calibration live in the #124 study (Datong median ~72/ha,
+  // Guangfu ~35/ha; ≥ 60 classes 74% / 31% / 17% of the three sample
+  // districts' land as fine). No door layer → no fine blocks, so
+  // synthetic geodata plans exactly as before.
+  const FINE_DOORS_PER_HA = 60;
+  const blockDoorCount = (bb) => {
+    if (!doorPts) return 0;
+    let n = 0;
+    const gx0 = Math.floor(bb.minX / DOOR_CELL), gx1 = Math.floor(bb.maxX / DOOR_CELL);
+    const gz0 = Math.floor(bb.minZ / DOOR_CELL), gz1 = Math.floor(bb.maxZ / DOOR_CELL);
+    for (let gx = gx0; gx <= gx1; gx++) for (let gz = gz0; gz <= gz1; gz++) {
+      const bucket = doorGrid.get(fpKey(gx, gz));
+      if (!bucket) continue;
+      for (const di of bucket) {
+        const x = doorPts[di * 3], z = doorPts[di * 3 + 1];
+        if (x >= bb.minX && x <= bb.maxX && z >= bb.minZ && z <= bb.maxZ) n++;
+      }
+    }
+    return n;
   };
 
   // Road ribbons the lots must keep off: merged roadbeds for carriageways
@@ -2556,16 +2627,25 @@ export function planTaipeiBuildings(geodata) {
     if (inGreen(block.cx, block.cz)) { stats.blocksSkippedGreen++; continue; }
     if (inAirfield(block.cx, block.cz)) { stats.blocksSkippedAirfield++; continue; }
     if (!inUnion(block.cx, block.cz)) { stats.blocksSkippedOutsideUnion++; continue; }
-    const inset = 3.0; // street-section band margin (see header)
+    const big = block.area > 40000;
+    const pitchMul = big ? 1.7 : 1.0;
+    // Issue #124: fine-grain blocks (dense real door fabric, never
+    // big blocks) subdivide at shophouse pitch with party-wall gaps
+    // and walk-up vacancy; every other block keeps the standard
+    // subdivision byte for byte.
+    const fine = !big && blockDoorCount(block.bbox) / (block.area / 1e4) >= FINE_DOORS_PER_HA;
+    if (fine) stats.blocksFine++;
+    // Fine fabric fronts its lanes near-flush (narrow or arcade
+    // sections, not the full street-section band), so its inset is
+    // 2 m; the ribbon verdicts still police every footprint.
+    const inset = fine ? 2.0 : 3.0; // street-section band margin (see header)
     const minX = block.bbox.minX + inset, maxX = block.bbox.maxX - inset;
     const minZ = block.bbox.minZ + inset, maxZ = block.bbox.maxZ - inset;
     const innerW = maxX - minX, innerD = maxZ - minZ;
     if (innerW < 10 || innerD < 10) continue;
-    const big = block.area > 40000;
-    const pitchMul = big ? 1.7 : 1.0;
-    const vacancy = big ? 0.30 : 0.13;
-    const frontage = (15 + hash01(bi * 7919) * 10) * pitchMul;
-    const depthPitch = (15 + hash01(bi * 104729 + 3) * 7) * pitchMul;
+    const vacancy = big ? 0.30 : fine ? 0.04 : 0.13;
+    const frontage = fine ? 9 + hash01(bi * 7919) * 3.5 : (15 + hash01(bi * 7919) * 10) * pitchMul;
+    const depthPitch = fine ? 12.5 + hash01(bi * 104729 + 3) * 4 : (15 + hash01(bi * 104729 + 3) * 7) * pitchMul;
     // Issue #62: the block's lot grid turns to its fronting streets
     // (theta = 0 keeps the axis grid — the pre-#62 plan, byte for
     // byte). In the turned frame the grid spans the inset bbox's
@@ -2682,12 +2762,14 @@ export function planTaipeiBuildings(geodata) {
           cx = Math.round((minX + (col + 0.5) * cellW) * 10) / 10;
           cz = Math.round((minZ + (row + 0.5) * cellD) * 10) / 10;
         }
-        const gap = 1.2 + hash01(seed ^ 0x77c3) * 1.8;
+        const gap = fine ? 0.4 + hash01(seed ^ 0x77c3) * 0.8 : 1.2 + hash01(seed ^ 0x77c3) * 1.8;
         // Issue #106: packed rows share party walls — no gap is
         // subtracted along the packed direction, so neighbouring
         // footprints meet at the cell boundary exactly.
         const w = cellW - (packU ? 0 : gap), d = cellD - (packV ? 0 : gap);
-        if (w < 7 || d < 7) continue;
+        // Issue #124: fine lots may run to true shophouse width
+        // (6 m); the standard 7 m floor stands elsewhere.
+        if (w < (fine ? 6 : 7) || d < 7) continue;
         // Issue #62: a turned lot's true footprint, from its
         // emitted (rounded) centre and the frame angle. The lot must
         // stay inside the block's inset bbox — the same ground the
@@ -2766,6 +2848,7 @@ export function planTaipeiBuildings(geodata) {
         }
         const track = trackVerdict(cx, cz, trackGrown, tgMinX, tgMaxX, tgMinZ, tgMaxZ);
         if (track.bed) { stats.lotsDroppedTrackBed++; continue; }
+        if (pierHit(cx, cz, w, d, cosT, sinT)) { stats.lotsDroppedPier++; continue; }
         // The ribbon verdicts say nothing about the tile union
         // (issue #60): no footprint corner may hang over a dropped
         // band, where there is no ground at all.
@@ -2831,6 +2914,7 @@ export function planTaipeiBuildings(geodata) {
         if (theta) { lot.rot = Math.round(theta * 10000) / 10000; stats.lotsRotated++; }
         if (packU || packV) stats.lotsPackedFrontage++;
         if (tallFrontage) stats.lotsTallFrontage++;
+        if (fine) stats.lotsFine++;
         lots.push(lot);
         lotProcH.push(procH);
         // Issue #185: this lot's grid position and the block's four
@@ -3043,8 +3127,10 @@ export function planTaipeiBuildings(geodata) {
         bucket.push(li);
       }
     });
-    // Elevated-road piers on a small grid (see the guard note).
-    const pierPts = (geodata.elevatedRoads && geodata.elevatedRoads.piers) || [];
+    // Support piers on a small grid (see the guard note). Issue
+    // #124: the MRT deck piers join the elevated-road piers here —
+    // the block loop tests both sets now, so a pulled lot must too.
+    const pierPts = [...((geodata.elevatedRoads && geodata.elevatedRoads.piers) || []), ...((geodata.mrtDecks && geodata.mrtDecks.piers) || [])];
     const PIER_CELL = 64;
     const pierGrid = new Map();
     pierPts.forEach((p, pi) => {
