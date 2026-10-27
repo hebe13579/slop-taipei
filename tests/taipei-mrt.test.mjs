@@ -885,8 +885,12 @@ test('clearance (issue #139): census by counterfactual, audit exact', (t) => {
     mrtDecks: undefined, mrtDepot: undefined,
     mrtStations: stations.filter((s) => s.kind !== 'at-grade' && s.kind !== 'wenhu' && s.kind !== 'entrance' && s.kind !== 'wenhu-open'),
   });
-  assert.equal(before.lots.length, 42626, 'counterfactual plan reproduces the pre-#139 lot count on the #186 tree, less the #144 site lots (7) and the #135 parcel exclusions (47)');
-  assert.equal(plan.lots.length, 42190, 'shipped plan lot count after the #139 removals, the #144 site exclusion, the #135 parcel exclusions, the #146 dive drops and the #186 strip growth');
+  // Issue #186 PR2: the NPM + Miramar landmark sites clear 48
+  // more lots (both anchors move together — the landmark
+  // exclusion is orthogonal to the station strip): counterfactual
+  // 42,626 -> 42,578, shipped 42,190 -> 42,142.
+  assert.equal(before.lots.length, 42578, 'counterfactual plan reproduces the pre-#139 lot count on the #186 tree, less the #144 site lots (7) and the #135 parcel exclusions (47)');
+  assert.equal(plan.lots.length, 42142, 'shipped plan lot count after the #139 removals, the #144 site exclusion, the #135 parcel exclusions, the #146 dive drops and the #186 strip growth');
   assert.equal(plan.stats.lotsDroppedTrackBed, 13, 'planner bed drops agree with the census');
   assert.equal(plan.stats.lotsDroppedTrackPierce, 19, 'planner pierce drops agree with the census (15 Red + 2 Wenhu #146 + 2 Wenhu north #186)');
   let bed = 0, pierce = 0, keptUnder = 0;

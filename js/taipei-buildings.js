@@ -359,6 +359,10 @@ function ribbonHitsLot(r, minX, maxX, minZ, maxZ) {
 //              plan: radius r along x, rz along z (a scaled cylinder)
 //   dome     { rx, rz, h, y0?, dx?, dz? }   half-ellipsoid: radii rx
 //              (x) and rz (z), rising h above y0
+//   wheel    { y0, h, dx?, dz? }   Ferris wheel: y0 = bottom
+//              elevation, h = diameter (rim + spokes + cabins in
+//              the tile x-y plane). Airborne mass — its ground
+//              contact is separate box parts (issue #186).
 //
 // `site` is the lot-exclusion rectangle (centred on the structure,
 // dx/dz offset allowed); `plaza` is an extra exclusion rectangle that
@@ -1635,6 +1639,147 @@ const LANDMARK_STRUCTURES = [
       { type: 'box', w: 32.8, d: 27.9, h: 20, y0: 9, dx: -13.9, dz: -39.7, rotY: -0.159, flat: { color: 0xb7bbbd, roughness: 0.5, metalness: 0.3 } },
       { type: 'dome', rx: 22, rz: 22, h: 17, y0: 36, dx: 29.6, dz: -4.5, flat: { color: 0xc2c5c7, roughness: 0.55, metalness: 0.25 } },
       { type: 'dome', rx: 22, rz: 22, h: 17, y0: 36, dx: 29.6, dz: -4.5, flip: true, flat: { color: 0xc2c5c7, roughness: 0.55, metalness: 0.25 } },
+    ],
+  },
+  {
+    // Batch 8 (issues #149 + #186): the National Palace Museum on
+    // its terraced hillfoot in Waishuangxi — the palace-style main
+    // hall (第一展覽區/正館, OSM way 203799171: a ~140 x ~120 m
+    // outline incl. terrace, building levels 4) with cream walls
+    // and pale-green glazed-tile roofs, the administration pair
+    // west of the ceremonial axis, the white marble 天下為公
+    // pailou at the plaza, and the glass restaurant block
+    // south-east. Composition measured from the OSM ways and the
+    // user's aerial (npm-evidence/npm-user-photo.png; Esri
+    // satellite agrees): the hall runs E-W at the grounds' north,
+    // its forecourt terrace opens south to the 華表大道 — OSM's
+    // named pedestrian axis, which leaves the forecourt steps at
+    // (25.10143, 121.54895) and runs SSW to (25.10027, 121.54953),
+    // ~65 m EAST of the hall centreline; the pailou (way
+    // 1167548671) stands mid-avenue at (25.10084, 121.54940),
+    // the 華表 pair below the steps. 文會堂 (way 226936389) is
+    // the annex west of the hall. 研究大樓 (way 226936384,
+    // height 16) is a diamond-plan
+    // slab (rotY 45°) west of the axis; 第二展覽區 (way 226936385,
+    // height 16) is the big green-roofed block at the grounds'
+    // south-west (its OSM outline wraps a courtyard; modelled as
+    // its west mass). The grounds themselves are a special site
+    // (TAIPEI_GEO.npmSite, PR1 of #186): no procedural lots
+    // anywhere in this entry's field. No published overall height
+    // exists for the hall — 27.5 m is FORM-DERIVED (estimated:
+    // true): podium 6 + 4-floor walls 13 + main hip roof 6.5,
+    // with the raised central tier (box 4 + ridge 4.5) setting
+    // the apex, proportions read off the user's aerial. The
+    // hall's ~1.5° plan tilt and the two small 華表 pillars
+    // flanking the avenue (r ~1 m at this scale) are recorded
+    // simplifications: the avenue pillars ARE modelled; the
+    // tilt is not (ridge parts cannot rotate).
+    id: 'national-palace-museum', name: 'National Palace Museum', nameZh: '國立故宮博物院',
+    lat: 25.10219, lon: 121.54859, realHeight: 27.5, color: 0xe7dec5, estimated: true,
+    site: { w: 220, d: 190, dx: 0, dz: 45 },
+    plaza: { w: 110, d: 300, dx: 45, dz: 210 },
+    facade: { kind: 'prewar', stoneColor: 0xe8dfc6, trimColor: 0x9a8f74, windowGlassColor: 0x2c3844, windowWidth: 2.2, floorHeight: 3.3, litProbability: 0.22, warmth: 0.6, seed: 149.11 },
+    parts: [
+      // Terraced podium (two stone tiers) hugging the hall — the
+      // grounds' service drives loop around it on every side
+      // (issue-#42 audit, measured at the gate).
+      { type: 'box', w: 122, d: 68, h: 3, dx: -4, dz: 1, flat: 0xcfc9bb },
+      { type: 'box', w: 114, d: 62, h: 3, y0: 3, dx: -4, dz: 1, flat: 0xd8d3c4 },
+      // Main hall: cream block + pale-green hip roof (ridge at the
+      // origin = hall centre), raised central tier, end pavilions.
+      { type: 'box', w: 132, d: 36, h: 13, y0: 6 },
+      { type: 'ridge', w: 136, d: 40, h: 0, ridgeH: 6.5, y0: 19, flat: 0x55806a },
+      { type: 'box', w: 46, d: 24, h: 4, y0: 19 },
+      { type: 'ridge', w: 50, d: 27, h: 0, ridgeH: 4.5, y0: 23, flat: 0x55806a },
+      { type: 'box', w: 14, d: 14, h: 3.5, y0: 19, dx: -52 },
+      { type: 'box', w: 14, d: 14, h: 3.5, y0: 19, dx: 52 },
+      { type: 'box', w: 16.5, d: 16.5, h: 1.1, y0: 22.5, dx: -52, flat: 0x4a7a63 },
+      { type: 'box', w: 16.5, d: 16.5, h: 1.1, y0: 22.5, dx: 52, flat: 0x4a7a63 },
+      // The forecourt terrace floor on the podium's south face.
+      { type: 'box', w: 112, d: 16, h: 1.2, y0: 6, dz: 25, flat: 0xd8d3c4 },
+      // 文會堂 (OSM way 226936389): the annex west of the hall —
+      // modelled as its north mass; the service lane bends
+      // through the south of its OSM outline (a courtyard side).
+      { type: 'box', w: 48, d: 30, h: 13, dx: -34, dz: 48 },
+      { type: 'box', w: 50, d: 32, h: 1.3, y0: 13, dx: -34, dz: 47, flat: 0x4a7a63 },
+      // Forecourt stair terraces descending to the 華表大道 head
+      // (the avenue leaves the steps at (25.10143, 121.54895),
+      // dx +36 — the stairs centre on it, audited clear of the
+      // steps roadbeds).
+      { type: 'box', w: 34, d: 10, h: 4, dx: 50, dz: 92, flat: 0xd8d3c4 },
+      { type: 'box', w: 34, d: 10, h: 2, dx: 50, dz: 102, flat: 0xcfc9bb },
+      // The twin 華表 pillars flanking the avenue below the steps.
+      { type: 'cylinder', r: 1.0, h: 9.5, dx: 24, dz: 112, flat: 0xf2efe6 },
+      { type: 'cylinder', r: 1.0, h: 9.5, dx: 52, dz: 112, flat: 0xf2efe6 },
+      // 天下為公 pailou mid-avenue (OSM way 1167548671:
+      // 25.10082–25.10086 x 121.54926–121.54953, a 27 m span) —
+      // four white marble posts, two lintels, green rooflets.
+      { type: 'box', w: 1.7, d: 1.7, h: 8.5, dx: 73, dz: 150, flat: 0xf2efe6 },
+      { type: 'box', w: 1.7, d: 1.7, h: 8.5, dx: 82, dz: 150, flat: 0xf2efe6 },
+      { type: 'box', w: 1.7, d: 1.7, h: 8.5, dx: 91, dz: 150, flat: 0xf2efe6 },
+      { type: 'box', w: 1.7, d: 1.7, h: 8.5, dx: 100, dz: 150, flat: 0xf2efe6 },
+      { type: 'box', w: 31, d: 2.4, h: 1.6, y0: 7.0, dx: 86.5, dz: 150, flat: 0xf2efe6 },
+      { type: 'box', w: 33, d: 4.6, h: 0.7, y0: 8.55, dx: 86.5, dz: 150, flat: 0x4a7a63 },
+      { type: 'box', w: 23, d: 2.2, h: 1.2, y0: 8.6, dx: 86.5, dz: 150, flat: 0xf2efe6 },
+      { type: 'box', w: 25, d: 4.2, h: 0.7, y0: 9.75, dx: 86.5, dz: 150, flat: 0x4a7a63 },
+      // 研究大樓: the diamond-plan administration slab, h 16
+      // (OSM). A single service loop wraps its island on all
+      // sides and the OSM outline's own corners graze that
+      // loop's roadbed, so the slab is modelled at 25 m square
+      // (real plan ~52 m sides incl. apron) — the largest
+      // diamond the loop admits inside the audit tolerance.
+      { type: 'box', w: 25, d: 25, h: 16, dx: -23, dz: 143, rotY: Math.PI / 4 },
+      { type: 'box', w: 25, d: 25, h: 1.4, y0: 16, dx: -23, dz: 143, rotY: Math.PI / 4, flat: 0x4a7a63 },
+      { type: 'box', w: 14, d: 14, h: 2.6, y0: 17.4, dx: -23, dz: 143, rotY: Math.PI / 4 },
+      { type: 'box', w: 17, d: 17, h: 1.1, y0: 20, dx: -23, dz: 143, rotY: Math.PI / 4, flat: 0x4a7a63 },
+      // 第二展覽區: the big green-roofed block, grounds SW, h 16
+      // (OSM), kept east of the 113巷35弄 lane on its west flank.
+      { type: 'box', w: 48, d: 72, h: 16, dx: -6, dz: 245 },
+      { type: 'box', w: 48, d: 68, h: 1.6, y0: 16, dx: -6, dz: 245, flat: 0x55806a },
+      { type: 'box', w: 30, d: 34, h: 3, y0: 17.6, dx: -6, dz: 245 },
+      { type: 'box', w: 34, d: 38, h: 1.2, y0: 20.6, dx: -6, dz: 245, flat: 0x4a7a63 },
+      // The glass restaurant block south-east of the hall among
+      // the Zhishan Garden trees (plot = OSM way 226936387),
+      // turned to the garden drive that loops its east side.
+      { type: 'box', w: 48, d: 26, h: 12, dx: 130, dz: 186, rotY: -0.85, facade: { kind: 'curtain', glassTint: 0x6d8a94, frameTint: 0xb9bcbe, windowWidth: 3.4, floorHeight: 3.6, litProbability: 0.3, warmth: 0.55, reflectivity: 0.7, seed: 149.12 } },
+    ],
+  },
+  {
+    // Batch 8 (issue #186): Miramar Entertainment Park, Dazhi —
+    // the mall and its Ferris wheel (OSM node 5121602758,
+    // tourism=attraction), the registry origin AT the wheel on
+    // the mall's south front. Published (zh.wikipedia,
+    // 美麗華百樂園): the wheel's total height is 100 m with 48
+    // cabins, boarding at the 5F roof plaza; the commonly
+    // published wheel diameter is 70 m — modelled as y0 30
+    // (roofline) + 70 = apex 100. Massing measured from OSM
+    // way 155816458 (the mall building proper: dx -109..+56,
+    // dz -98..+13 rel. the wheel) and way 1191618576 (the wider
+    // complex incl. the north annex): main glass slab, the
+    // curved drum at its NW, the taller IMAX east wing, and the
+    // low annex north of 植福路 (which the complex bridges —
+    // the roadbed runs between the two masses, audited). The
+    // separate parking structure west of 敬業三路 is not
+    // modelled. The wheel's ground contact is the pylon pair +
+    // crossbeam (plain boxes, audited); the 'wheel' part itself
+    // is airborne mass (rim/spokes/cabins) outside the audit's
+    // vocabulary by design.
+    id: 'miramar-entertainment-park', name: 'Miramar Entertainment Park', nameZh: '美麗華百樂園',
+    lat: 25.08290, lon: 121.55772, realHeight: 100, color: 0x7fa3ad,
+    site: { w: 230, d: 215, dx: -28, dz: -80 },
+    facade: { kind: 'curtain', glassTint: 0x51707c, frameTint: 0xa8b0ae, windowWidth: 3.4, floorHeight: 3.8, litProbability: 0.36, warmth: 0.55, reflectivity: 0.8, seed: 186.21 },
+    sign: { text: 'MIRAMAR', w: 46, h: 6.5, y: 25, dx: -24, dz: -1.2, bg: '#1d2a30', fg: '#e8f0ee', accent: '#c8372d' },
+    parts: [
+      { type: 'box', w: 150, d: 92, h: 32, dx: -24, dz: -48 },
+      { type: 'cylinder', r: 26, h: 32, dx: -78, dz: -70 },
+      { type: 'box', w: 62, d: 40, h: 38, dx: 28, dz: -84, facade: { kind: 'curtain', glassTint: 0x3d5a66, frameTint: 0x9aa39f, windowWidth: 3.4, floorHeight: 3.8, litProbability: 0.3, warmth: 0.5, reflectivity: 0.8, seed: 186.22 } },
+      { type: 'box', w: 120, d: 36, h: 20, dx: -10, dz: -138, flat: 0x8d9296 },
+      // Boarding-plaza deck + the wheel's portal frame.
+      { type: 'box', w: 36, d: 12, h: 2, y0: 29, dz: 2, flat: 0xd8d5cc },
+      { type: 'box', w: 3.4, d: 3.4, h: 35, y0: 30, dx: -13.5, flat: 0xe9e7e0 },
+      { type: 'box', w: 3.4, d: 3.4, h: 35, y0: 30, dx: 13.5, flat: 0xe9e7e0 },
+      { type: 'box', w: 30.4, d: 3.4, h: 3.2, y0: 61.8, flat: 0xe9e7e0 },
+      { type: 'wheel', y0: 30, h: 70, flat: 0xe9e7e0, cabinFlat: 0xc8ccd2 },
     ],
   },
 ];
@@ -3670,6 +3815,39 @@ export function createTaipeiLandmarkTowers(THREE, plan, factories) {
       } else if (part.type === 'ridge') {
         mesh = new THREE.Mesh(ridgeGeometry(THREE, part), partMaterial(part, true));
         mesh.position.set(s.x, y0, s.z);
+      } else if (part.type === 'wheel') {
+        // Ferris wheel (issue #186, Miramar): authored as y0 = the
+        // wheel's bottom elevation and h = its diameter, so the
+        // landmark test's part-top formula (y0 + h) reads the apex.
+        // The wheel stands in the tile x-y plane (axle along z);
+        // its ground contact is the separate pylon boxes in the
+        // registry entry, which the issue-#42 audit sees — the
+        // wheel part itself is airborne mass (rim, spokes, cabins)
+        // and stays out of the audit's part vocabulary on purpose.
+        const g = new THREE.Group();
+        const R = part.h / 2, cy = y0 + R;
+        const rimMat = partMaterial(part, false);
+        const cabinMat = part.cabinFlat !== undefined ? flatPartMaterial(part.cabinFlat, false) : rimMat;
+        const addMesh = (geo, mat, x, y, z, rz) => {
+          const m = new THREE.Mesh(geo, mat);
+          m.position.set(x, y, z);
+          if (rz) m.rotation.z = rz;
+          m.castShadow = true;
+          g.add(m);
+        };
+        addMesh(new THREE.TorusGeometry(R - 1.0, 1.05, 8, 56), rimMat, 0, cy, 0);
+        addMesh(new THREE.TorusGeometry(R * 0.86, 0.55, 6, 48), rimMat, 0, cy, 0);
+        for (let i = 0; i < 12; i++) {
+          const a = (i / 12) * Math.PI * 2;
+          addMesh(new THREE.BoxGeometry(0.5, R * 0.86, 0.5), rimMat, Math.cos(a) * R * 0.43, cy + Math.sin(a) * R * 0.43, 0, a - Math.PI / 2);
+        }
+        addMesh(new THREE.BoxGeometry(5.2, 5.2, 5.6), rimMat, 0, cy, 0);
+        for (let i = 0; i < 16; i++) {
+          const a = (i / 16) * Math.PI * 2;
+          addMesh(new THREE.BoxGeometry(3.6, 3.9, 3.4), cabinMat, Math.cos(a) * (R - 1.0), cy + Math.sin(a) * (R - 1.0) - 1.4, 0);
+        }
+        g.position.set(s.x + (part.dx || 0), 0, s.z + (part.dz || 0));
+        mesh = g;
       }
       if (mesh) {
         mesh.castShadow = true;
