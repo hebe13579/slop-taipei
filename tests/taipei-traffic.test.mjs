@@ -15,15 +15,21 @@ const built = buildTaipeiRoadGraph();
 const { roadGraph, stats } = built;
 
 test('chained graph: segment census pins (issue #210)', () => {
-  // 42,770 source segments; non-drivable classes (service aisles, tracks,
-  // busways, construction, proposed...) drop to 23,576; chaining through
-  // degree-2 vertices yields 11,285 junction-to-junction links.
-  assert.equal(stats.sourceEdges, 42770);
-  assert.equal(stats.drivableEdges, 23576);
-  assert.equal(stats.links, 11285);
-  assert.equal(stats.loopSplits, 0);
-  assert.equal(stats.rawKm, 1872.6);
-  assert.equal(stats.keptKm, 1167.4);
+  // 42,770 source segments on the PR base; non-drivable classes (service
+  // aisles, tracks, busways, construction, proposed...) drop to 23,576;
+  // chaining through degree-2 vertices yields 11,285 junction-to-junction
+  // links. Re-pinned at the merge gate on the composed tile: the roadGraph
+  // grew with the #186 strip fabric (identical code on the PR-base geodata
+  // reproduces every pin above exactly — probed at the gate), so the
+  // census moves to 47,190 / 25,706 / 12,103 / 2,019.7 / 1,258.3, and one
+  // closed ring in the new fabric needs a loop split (loopSplits 0 -> 1,
+  // the chaining code's own ring handling, not a defect).
+  assert.equal(stats.sourceEdges, 47190);
+  assert.equal(stats.drivableEdges, 25706);
+  assert.equal(stats.links, 12103);
+  assert.equal(stats.loopSplits, 1);
+  assert.equal(stats.rawKm, 2019.7);
+  assert.equal(stats.keptKm, 1258.3);
 });
 
 test('chained graph: link shape and length conservation', () => {
@@ -43,7 +49,7 @@ test('chained graph: link shape and length conservation', () => {
     }
     polyKm += Math.hypot(nodes[b * 2] - px, nodes[b * 2 + 1] - pz) / 1000;
   }
-  assert.equal(oneWay, 5638);
+  assert.equal(oneWay, 5922); // 5,638 on the PR base; +284 one-way links in the strip fabric
   assert.ok(Math.abs(polyKm - stats.keptKm) < 0.2, `polyline ${polyKm.toFixed(1)} km vs kept ${stats.keptKm} km`);
 });
 
@@ -76,10 +82,12 @@ test('network: generic builder keeps a strongly connected drivable core', () => 
   // vehicle can reach a dead end. 19,314 directed lane edges are built,
   // 14,921 survive the SCC cut (77%), over 6,857 nodes; no junction is
   // signalized (Taipei has no node-level signal table — right of way is the
-  // step-9 arm groups).
+  // step-9 arm groups). Re-pinned at the merge gate: the same A/B as the
+  // census above — 21,397 / 16,332 / 7,495 on the composed tile, the
+  // strip fabric's streets joining the same strongly connected core.
   const env = taipeiTrafficEnv(200);
   const net = buildRoadNetwork([], [], env.networkEnv);
-  assert.equal(net.nodes.length, 6857);
-  assert.equal(net.edges.length, 14921);
-  assert.equal(net.paintEdges.length, 19314);
+  assert.equal(net.nodes.length, 7495);
+  assert.equal(net.edges.length, 16332);
+  assert.equal(net.paintEdges.length, 21397);
 });
