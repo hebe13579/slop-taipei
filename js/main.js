@@ -19,6 +19,7 @@ import { LightingSystem } from './lighting.js';
 import { NYCMapSystem } from './nyc-map.js';
 import { setupSceneCulling, updateSceneCulling } from './scene-culling.js';
 import { CityAudioSystem } from './audio-system.js';
+import { resolveSettings, readStoredSettings, persistSettings, graphicsConfig, applyGraphicsSettings, initSettingsPanel } from './settings.js';
 
 // js/main.js
 // Main entry point for New York City (Midtown Manhattan) in Three.js WebGPURenderer & TSL (three.js dev, see index.html)
@@ -94,13 +95,21 @@ async function initApp() {
     loadingStatus.textContent = `Initializing Three.js r${THREE.REVISION} WebGPURenderer & TSL Shaders...`;
   }
 
+  // Issue #218: runtime settings (settings gear) — URL params beat
+  // localStorage beat the defaults, and the defaults are exactly
+  // the pre-#218 behaviour (see js/settings.js).
+  const settings = resolveSettings({
+    search: window.location.search,
+    stored: readStoredSettings(window.localStorage),
+  });
+
   // 1. Initialize Three.js WebGPURenderer with 32-bit float reversedDepthBuffer
   const renderer = new THREE.WebGPURenderer({
     antialias: true,
     powerPreference: 'high-performance',
     reversedDepthBuffer: true
   });
-  renderer.setPixelRatio(1.0);
+  renderer.setPixelRatio(graphicsConfig(settings.graphics, window.devicePixelRatio || 1).pixelRatio);
   renderer.setSize(window.innerWidth, window.innerHeight);
   renderer.shadowMap.enabled = true;
   renderer.lighting = new ClusteredLighting(256, 32, 28, 48);
@@ -122,6 +131,10 @@ async function initApp() {
   const scene = new THREE.Scene();
   const lightingSystem = new LightingSystem(scene, renderer);
   markInit('lighting');
+  // Issue #218: the graphics preset's shadow half (the pixel-ratio
+  // half was applied at renderer creation; re-applying is a no-op
+  // there). 'medium'/'high' keep castShadow exactly as built.
+  applyGraphicsSettings(renderer, lightingSystem.sunLight, settings.graphics, window.devicePixelRatio || 1);
 
   if (loadingStatus) {
     loadingStatus.textContent = isTaipei
@@ -145,6 +158,9 @@ async function initApp() {
     tileBoot = boot;
     cityGrid = await boot.buildTaipeiGround(scene, activeTile, {
       buildCityBlocks,
+      // Issue #218: the settings the boot builds with (density
+      // preset + special-buildings visibility).
+      settings: { density: settings.density, specials: settings.specials },
       // Real staged progress (issue #63): the boot fires this as each
       // construction stage actually completes — the loader names the
       // finished stage and fills its share of the bar. No estimates:
@@ -177,6 +193,16 @@ async function initApp() {
     markInit('streetDetails');
   }
   const allColliders = [...landmarkColliders, ...cityBlocks.colliders, ...boroughs.colliders, ...(cityGrid.colliders || [])];
+
+  // Issue #218: wire the settings gear. Graphics apply in every
+  // mode; density/specials go through the Taipei boot's runtime
+  // API (null in NYC mode — the panel disables those rows there).
+  initSettingsPanel({
+    settings,
+    taipeiSettings: isTaipei ? (cityGrid.taipeiSettings || null) : null,
+    onGraphics: (preset) => applyGraphicsSettings(renderer, lightingSystem.sunLight, preset, window.devicePixelRatio || 1),
+    persist: () => persistSettings(window.localStorage, settings),
+  });
 
   if (!isTaipei) {
     // Buildings turned along non-grid streets have oriented colliders whose world bounds reach past their lots: they stay
