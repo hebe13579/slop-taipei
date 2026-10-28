@@ -1186,7 +1186,14 @@ test('taiwan types: family zoning, distribution and rooftop clamp', (t) => {
   // exclude 141 fine lots (masonry -92, Taiwan -44, glass -5)
   // and 16 kept lots re-roll family (glass -> masonry 1,
   // masonry -> glass 1, net 0): glass 7,834 - 5 = 7,829.
-  assert.equal(glass, 7829, 'glass family counts after #136 + #139 + #135 + #142, composed with #134 + #137, #144, #165, #124 and #166');
+  // Issue #219 (stepped massing), measured on this tree: the
+  // facade rules key the glass families on height bands, and
+  // stepping steps 3,542 sibling lots down from their joined
+  // heights — 336 of them cross below the glass band and
+  // re-roll to the masonry/Taiwan families. facadeMatFor is
+  // unedited; the census moves because the heights do:
+  // glass 7,829 - 336 = 7,493.
+  assert.equal(glass, 7493, 'glass family counts after #136 + #139 + #135 + #142, composed with #134 + #137, #144, #165, #124, #166 and #219');
   const masonry = opts.lots.filter((l) => l.mat <= 2).length;
   // Range re-based for issue #65: the exact ribbon exclusion removed
   // ~4,400 masonry lots that stood on ribbons or in medians; masonry
@@ -1314,11 +1321,17 @@ test('arcade parts: recessed core and full-perimeter colonnade', (t) => {
   // Issue #166: the five Tianmu/Beitou sites remove 11 F7 lots
   // (net of the family re-rolls, diffed lot by lot on the
   // merged tree) — 6,444.
+  // Issue #219 (stepped massing), measured on this tree: the
+  // mirror of the glass re-pin above — F7 is the low Taiwan
+  // shophouse family, and stepped sibling lots dropping into
+  // its height band re-roll into it (+428). The arcade rule
+  // itself is unedited; every size-eligible F7 lot still
+  // carries its arcade (asserted below, unedited).
   const opts = taipeiCityBlocksOptions(TAIPEI_GEO, planTaipeiBuildings(TAIPEI_GEO));
   const f7 = opts.lots.filter((l) => l.mat === 7);
   const withArcade = f7.filter((l) => l.arcade);
   const eligible = f7.filter((l) => (l.x1 - l.x0) >= 11 && (l.z1 - l.z0) >= 11);
-  assert.equal(f7.length, 6444, 'F7 census after #124, composed with #166');
+  assert.equal(f7.length, 6872, 'F7 census after #124, composed with #166 and #219');
   assert.equal(withArcade.length, eligible.length, `every size-eligible F7 lot carries the arcade (${withArcade.length}/${eligible.length})`);
   const totalCols = withArcade.reduce((s, l) => s + l.arcade.columns.length, 0);
   assert.ok(totalCols / withArcade.length < 30, `columns per arcade lot sane (${(totalCols / withArcade.length).toFixed(1)})`);
