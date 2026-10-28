@@ -395,16 +395,46 @@ export function diveAdjustedPiers(elevated) {
   const { clusters } = computeDives(elevated?.lines || []);
   if (!clusters.length || !piers.length) return piers;
   const depth = elevated?.deckDepth ?? 1.8;
+  // Issue #209: a corridor follows a dive chain itself, not the
+  // straight face axis — on a curving dive (the Dazhi resurface
+  // bends as it climbs) a pier can sit metres off the face axis
+  // while standing squarely under the re-profiled deck, and the
+  // axis band left it poking through the lowered guideway. Each
+  // cluster contributes its cutting corridor (the representative
+  // chain, formation band) plus one corridor per member chain at
+  // that trackway's own band: members re-profile on their own
+  // runs, so a pier under the non-representative trackway
+  // answers to that trackway's profile, not the representative's.
+  const chainProfile = (ch, arc) => {
+    if (arc <= 0) return ch[0].h;
+    for (let i = 0; i + 1 < ch.length; i++) {
+      if (arc <= ch[i + 1].s) { const f = (arc - ch[i].s) / ((ch[i + 1].s - ch[i].s) || 1); return ch[i].h + (ch[i + 1].h - ch[i].h) * f; }
+    }
+    return ch[ch.length - 1].h;
+  };
   let changed = false;
   const out = piers.map((p) => {
     let h = p.h;
     for (const c of clusters) {
-      const rx = p.x - c.M[0], rz = p.z - c.M[1];
-      const s = -(rx * c.tHat[0] + rz * c.tHat[1]);
-      const lat = rx * c.nHat[0] + rz * c.nHat[1];
-      if (s < -2 || s > c.rep.runLen + 2) continue;
-      if (Math.abs(lat - c.centreOff) > c.formHalf + 2.5) continue;
-      h = Math.min(h, Math.max(c.profileAt(Math.max(0, s)) - depth, 0.01));
+      const corridors = [
+        { chain: c.rep.chain, runLen: c.rep.runLen, band: c.formHalf + 2.5 },
+        ...c.members.map((d) => ({ chain: d.chain, runLen: d.runLen, band: (d.line.width || 6) / 2 + 2.5 })),
+      ];
+      for (const cor of corridors) {
+        const ch = cor.chain;
+        let sNear = Infinity, dNear = Infinity;
+        for (let i = 0; i + 1 < ch.length; i++) {
+          const a = ch[i], b = ch[i + 1];
+          const vx = b.x - a.x, vz = b.z - a.z;
+          const L2 = vx * vx + vz * vz;
+          const f = L2 ? Math.min(1, Math.max(0, ((p.x - a.x) * vx + (p.z - a.z) * vz) / L2)) : 0;
+          const dx = p.x - (a.x + vx * f), dz = p.z - (a.z + vz * f);
+          const d = Math.hypot(dx, dz);
+          if (d < dNear) { dNear = d; sNear = a.s + f * Math.sqrt(L2); }
+        }
+        if (sNear > cor.runLen + 2 || dNear > cor.band) continue;
+        h = Math.min(h, Math.max(chainProfile(ch, Math.max(0, sNear)) - depth, 0.01));
+      }
     }
     if (h !== p.h) { changed = true; return { ...p, h }; }
     return p;
