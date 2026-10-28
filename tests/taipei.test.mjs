@@ -913,14 +913,15 @@ test('landmark batch 5: beimen gate on its junction island', () => {
 // through taipeiCityBlocksOptions. The adapter must be a faithful,
 // deterministic transcription of the plan: one upstream lot per planned
 // lot, same footprint and height, a valid facade material index, the
-// tile frame as bounds, and colliders off (visual-only parity).
+// tile frame as bounds, and — since issue #207 reversed the pre-#207
+// visual-only parity — colliders collected (tile buildings are solid).
 test('buildings options: plan faithfully adapted for the upstream building system', (t) => {
   const plan = planTaipeiBuildings(TAIPEI_GEO);
   const opts = taipeiCityBlocksOptions(TAIPEI_GEO, plan);
   const again = taipeiCityBlocksOptions(TAIPEI_GEO, plan);
   assert.deepEqual(opts, again, 'options deterministic across calls');
   assert.equal(opts.lots.length, plan.lots.length, 'one upstream lot per planned lot');
-  assert.equal(opts.colliders, false, 'tile buildings stay visual-only');
+  assert.equal(opts.colliders, true, 'issue #207: tile buildings are solid — colliders collected');
   assert.deepEqual(opts.bounds, TAIPEI_GEO.frame.bbox, 'streaming bounds are the tile frame');
   assert.deepEqual(opts.initial, [0, 0], 'first detail stream centres on the tile origin');
   t.diagnostic(`upstream lots: ${opts.lots.length}, mats ${JSON.stringify(opts.lots.reduce((m, l) => { m[l.mat] = (m[l.mat] || 0) + 1; return m; }, {}))}`);
