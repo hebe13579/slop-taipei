@@ -45,6 +45,12 @@
 //     traced footprints, no hand-drawn zones; coarse blocks
 //     subdivide exactly as before, so the planned districts keep
 //     their grain (see the study on issue #124).
+//   - Issue #218: the density is a runtime option (the settings
+//     gear passes opts.density): 'coarse' disables the fine rule
+//     (the pre-#124 plan), 'dense' keeps the classifier but
+//     tightens the fine pitch to ~7.5–10.5 m frontage (the
+//     ~7–11 m draft the #124 study measured). The default
+//     'fine' is this header's plan, byte for byte.
 //   - Issue #106: a block face that fronts a collector-or-better road
 //     (tertiary rank ≥ 2, measured per block edge — see the frontage
 //     section in the planner) packs its row to ZERO side gap with no
@@ -3221,8 +3227,19 @@ export function planSchoolCampuses(geodata, landmarkSites, carriageways, originL
   return { structures, report };
 }
 
-export function planTaipeiBuildings(geodata) {
+export function planTaipeiBuildings(geodata, opts = {}) {
   const stats = { blocksSeen: 0, blocksFine: 0, lotsFine: 0, blocksSkippedSmall: 0, blocksSkippedParkWater: 0, blocksSkippedGreen: 0, blocksSkippedAirfield: 0, blocksSkippedSchool: 0, blocksSkippedLoop: 0, blocksSkippedNpmSite: 0, blocksSkippedOutsideUnion: 0, lotsDroppedVacancy: 0, lotsDroppedParkWater: 0, lotsDroppedGreen: 0, lotsDroppedRiverside: 0, lotsDroppedAirfield: 0, lotsDroppedSchool: 0, lotsDroppedLoop: 0, lotsDroppedNpmSite: 0, lotsDroppedTowerSite: 0, lotsDroppedRoad: 0, lotsDroppedMedian: 0, lotsDroppedOutsideUnion: 0, lotsDroppedTrackBed: 0, lotsDroppedTrackPierce: 0, lotsDroppedPier: 0, blocksRotated: 0, lotsRotated: 0, lotsPackedFrontage: 0, lotsTallFrontage: 0, heightsPermit: 0, heightsOsmHeight: 0, heightsOsmLevels: 0, heightsDoor: 0, heightsField: 0, heightsProc: 0, heightsGuardParcel: 0, heightsGuardExtreme: 0, heightsSteppedGroups: 0, heightsSteppedLots: 0, lotsFrontagePulled: 0, lotsFrontageFlush: 0, lotsFrontageHeldNoBed: 0, lotsFrontageHeldBlocked: 0, frontagePullMetres: 0 };
+  // Issue #218: building-density presets (settings gear). 'fine'
+  // is the shipped default: every constant it selects below is the
+  // literal this code used before the option existed, so the
+  // default plan is byte-identical (fingerprint-pinned in
+  // tests/taipei-settings.test.mjs). 'coarse' restores the pre-#124
+  // rule — the fine classifier never fires. 'dense' is the finer
+  // draft measured during the #124 study (~7–11 m pitch, ~100k
+  // lots): the classifier is unchanged, but fine blocks subdivide
+  // at the tighter 7.5–10.5 m frontage pitch with narrower gaps
+  // and walk-up vacancy. An unknown value plans as 'fine'.
+  const density = opts.density === 'coarse' || opts.density === 'dense' ? opts.density : 'fine';
   // Union-of-boxes tile (issue #60): the geodata frame carries the
   // tile's boxes; ground exists only inside them. Raster blocks are
   // masked to the union by the builder, but a block's bbox can still
@@ -3947,7 +3964,7 @@ export function planTaipeiBuildings(geodata) {
     // big blocks) subdivide at shophouse pitch with party-wall gaps
     // and walk-up vacancy; every other block keeps the standard
     // subdivision byte for byte.
-    const fine = !big && blockDoorCount(block.bbox) / (block.area / 1e4) >= FINE_DOORS_PER_HA;
+    const fine = density !== 'coarse' && !big && blockDoorCount(block.bbox) / (block.area / 1e4) >= FINE_DOORS_PER_HA;
     if (fine) stats.blocksFine++;
     // Fine fabric fronts its lanes near-flush (narrow or arcade
     // sections, not the full street-section band), so its inset is
@@ -3957,9 +3974,9 @@ export function planTaipeiBuildings(geodata) {
     const minZ = block.bbox.minZ + inset, maxZ = block.bbox.maxZ - inset;
     const innerW = maxX - minX, innerD = maxZ - minZ;
     if (innerW < 10 || innerD < 10) continue;
-    const vacancy = big ? 0.30 : fine ? 0.04 : 0.13;
-    const frontage = fine ? 9 + hash01(bi * 7919) * 3.5 : (15 + hash01(bi * 7919) * 10) * pitchMul;
-    const depthPitch = fine ? 12.5 + hash01(bi * 104729 + 3) * 4 : (15 + hash01(bi * 104729 + 3) * 7) * pitchMul;
+    const vacancy = big ? 0.30 : fine ? (density === 'dense' ? 0.03 : 0.04) : 0.13;
+    const frontage = fine ? (density === 'dense' ? 7.5 + hash01(bi * 7919) * 3 : 9 + hash01(bi * 7919) * 3.5) : (15 + hash01(bi * 7919) * 10) * pitchMul;
+    const depthPitch = fine ? (density === 'dense' ? 11 + hash01(bi * 104729 + 3) * 3.5 : 12.5 + hash01(bi * 104729 + 3) * 4) : (15 + hash01(bi * 104729 + 3) * 7) * pitchMul;
     // Issue #62: the block's lot grid turns to its fronting streets
     // (theta = 0 keeps the axis grid — the pre-#62 plan, byte for
     // byte). In the turned frame the grid spans the inset bbox's
@@ -4076,7 +4093,7 @@ export function planTaipeiBuildings(geodata) {
           cx = Math.round((minX + (col + 0.5) * cellW) * 10) / 10;
           cz = Math.round((minZ + (row + 0.5) * cellD) * 10) / 10;
         }
-        const gap = fine ? 0.4 + hash01(seed ^ 0x77c3) * 0.8 : 1.2 + hash01(seed ^ 0x77c3) * 1.8;
+        const gap = fine ? (density === 'dense' ? 0.3 + hash01(seed ^ 0x77c3) * 0.7 : 0.4 + hash01(seed ^ 0x77c3) * 0.8) : 1.2 + hash01(seed ^ 0x77c3) * 1.8;
         // Issue #106: packed rows share party walls — no gap is
         // subtracted along the packed direction, so neighbouring
         // footprints meet at the cell boundary exactly.
@@ -5161,9 +5178,16 @@ export function clampTaipeiRooftopGear(gear, lot) {
 // the host's ENTIRE roof, so it neither picks a spot nor dodges the
 // furniture — it displaces it (the clamp drops the roof's HVAC units,
 // and the tank roll is skipped on hut lots; see below).
+// Issue #208: the hut record also carries a seeded detail vocabulary
+// (roof form, patched sheet panels, a roof bump) — see the hut block.
 export const TAIPEI_TANK_RATE = 0.14;
 export const TAIPEI_HUT_RATE = 0.12;
-export const TAIPEI_HUT_COLORS = [0x9e3d34, 0x4a6b52, 0x7d8894, 0x8a4a3a]; // weathered red, green, grey-blue, rust
+// Issue #208: the palette grows from four to six — the original
+// weathered red / green / grey-blue / rust plus a galvanized
+// grey-green and a weathered off-white, the two other staples of
+// the real roofscape. (The renderer's hutPalette in js/buildings.js
+// mirrors this list; the hut's colorIdx is drawn modulo its length.)
+export const TAIPEI_HUT_COLORS = [0x9e3d34, 0x4a6b52, 0x7d8894, 0x8a4a3a, 0x8fa08f, 0xcac2ae];
 const TANK_RADIUS = 1.0;
 // Issue #100: cap the hut sheet's centre-to-edge rise (half its total
 // drop) — over a wide host the raw hash pitch would stand the sheet's
@@ -5222,14 +5246,54 @@ export function taipeiRooftopAdditions(gear, lot, units) {
     const pitch = Math.min(
       0.16 + hash01(seed ^ 0x3337) * 0.08,
       Math.atan((2 * HUT_MAX_RISE) / along));
-    huts.push({
+    const colorIdx = Math.floor(hash01(seed ^ 0x6667) * TAIPEI_HUT_COLORS.length) % TAIPEI_HUT_COLORS.length;
+    const hut = {
       x: lot.x0 + w / 2, y: roofY, z: lot.z0 + d / 2, w: hw, d: hd,
       h: 2.5 + hash01(seed ^ 0x2227) * 0.6,
       pitch,
       axis,
       dir: hash01(seed ^ 0x5557) < 0.5 ? -1 : 1,
-      colorIdx: Math.floor(hash01(seed ^ 0x6667) * TAIPEI_HUT_COLORS.length) % TAIPEI_HUT_COLORS.length,
-    });
+      colorIdx,
+      // Issue #208 detail vocabulary — all drawn from FRESH salts,
+      // so which lots carry a hut, their pitch/axis/dir/height and
+      // the tank roll are exactly the pre-#208 selection; only the
+      // garnish is new. Form: about a third of huts are gable-roofed
+      // （雙斜） instead of the single-pitch lean-to sheet （單斜）.
+      form: hash01(seed ^ 0x8887) < 0.35 ? 'gable' : 'single',
+      patches: [],
+      bump: null,
+    };
+    // Patched panels: ~58% of huts carry one or two replacement
+    // sheets on the roof slope, in a contrasting palette tone
+    // (rust / galvanized / off-white — never the hut's own colour).
+    const patchRoll = hash01(seed ^ 0x9997);
+    const patchCount = patchRoll < 0.28 ? 2 : patchRoll < 0.58 ? 1 : 0;
+    for (let i = 0; i < patchCount; i++) {
+      const ps = (seed ^ (0xaa07 + i * 0x1f3b)) >>> 0;
+      let tone = [3, 4, 5][Math.floor(hash01(ps ^ 0x101) * 3) % 3];
+      if (tone === colorIdx) tone = (tone + 1) % TAIPEI_HUT_COLORS.length;
+      hut.patches.push({
+        u: 0.2 + hash01(ps ^ 0x202) * 0.6,        // along the slope, high edge -> low
+        v: (hash01(ps ^ 0x303) * 2 - 1) * 0.3,    // across, fraction of the sheet width
+        w: 1.2 + hash01(ps ^ 0x404) * 1.6,        // across, metres
+        d: 0.9 + hash01(ps ^ 0x505) * 1.1,        // along the slope, metres
+        side: hash01(ps ^ 0x606) < 0.5 ? -1 : 1,  // gable: which slope; single: unused
+        colorIdx: tone,
+      });
+    }
+    // Roof bump: ~25% of huts carry a small annex box standing on
+    // the sheet near the high side (the 加蓋-on-加蓋 stairwell /
+    // storage bump of the real roofscape), with its own flat sheet.
+    if (hash01(seed ^ 0xbb17) < 0.25) {
+      const bs = (seed ^ 0xcc27) >>> 0;
+      hut.bump = {
+        wFrac: 0.34 + hash01(bs ^ 0x111) * 0.16,  // across, fraction of the hut's across
+        dAlong: 2.2 + hash01(bs ^ 0x222) * 1.0,   // along the slope, metres
+        h: 1.1 + hash01(bs ^ 0x333) * 0.6,
+        colorIdx: hash01(bs ^ 0x444) < 0.5 ? colorIdx : 4, // own colour, or galvanized
+      };
+    }
+    huts.push(hut);
   }
   const tanks = [];
   // Stainless tanks: nearly any non-glass roof of 8–34 m with 5.5 m of
