@@ -1221,7 +1221,7 @@ test('taiwan types: family zoning, distribution and rooftop clamp', (t) => {
   // the glass band and re-roll to the masonry/Taiwan families.
   // facadeMatFor is unedited; the census moves because the
   // heights do: glass 8,203 − 362 = 7,841.
-  assert.equal(glass, 7841, 'glass family counts after #136 + #139 + #135 + #142, composed with #134 + #137, #144, #165, #124, #166, #186, #226, #213 and #219');
+  assert.equal(glass, 7213, 'glass family counts after #136 + #139 + #135 + #142, composed with #134 + #137, #144, #165, #124, #166, #186, #226, #213, #219 and #221 (campus clearing removes 628 glass lots)');
   // (The #186 PR2 branch carried its own stale-base version of
   // this composition — glass 4,120 -> 4,419 on the pre-#124
   // plan — which the merge union initially kept as a duplicate
@@ -1379,7 +1379,7 @@ test('arcade parts: recessed core and full-perimeter colonnade', (t) => {
   const f7 = opts.lots.filter((l) => l.mat === 7);
   const withArcade = f7.filter((l) => l.arcade);
   const eligible = f7.filter((l) => (l.x1 - l.x0) >= 11 && (l.z1 - l.z0) >= 11);
-  assert.equal(f7.length, 7206, 'F7 census after #124, composed with #166, #186, #226, #213 and #219');
+  assert.equal(f7.length, 6687, 'F7 census after #124, composed with #166, #186, #226, #213, #219 and #221 (campus clearing removes 519 F7 lots)');
   assert.equal(withArcade.length, eligible.length, `every size-eligible F7 lot carries the arcade (${withArcade.length}/${eligible.length})`);
   const totalCols = withArcade.reduce((s, l) => s + l.arcade.columns.length, 0);
   assert.ok(totalCols / withArcade.length < 30, `columns per arcade lot sane (${(totalCols / withArcade.length).toFixed(1)})`);
