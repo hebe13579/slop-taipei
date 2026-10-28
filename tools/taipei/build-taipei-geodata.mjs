@@ -19,6 +19,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { pedestrianLayout } from './pedestrian-layout.mjs';
 import { buildElevated, buildMrtDecks } from './build-elevated.mjs';
+import { deriveLoopSites } from './build-loops.mjs';
 import { digestRedLine, digestWenhuLine } from './build-mrt.mjs';
 import { planTaipeiBuildings } from '../../js/taipei-buildings.js';
 
@@ -1066,6 +1067,20 @@ const TAIPEI_GEO = {
 TAIPEI_GEO.riverside = { bandM: RIVERSIDE_BAND_M, polys: riversidePolys };
 if (airfield) TAIPEI_GEO.airfield = airfield;
 if (npmSite) TAIPEI_GEO.npmSite = npmSite;
+
+// ---- interchange-loop interiors (issue #213) ----
+// Land enclosed by interchange carriageways (cloverleaf infields,
+// inter-carriageway pockets) is non-buildable ground, derived from
+// the roadbeds + water + park/green layers by
+// tools/taipei/build-loops.mjs and consumed by the planner exactly
+// like the airfield site. Derived here — before the lot plan below
+// — so the builder's plan (which places the deck piers) and the
+// runtime plan read the same exclusion.
+{
+  const loops = deriveLoopSites(TAIPEI_GEO);
+  if (loops.sites.length) TAIPEI_GEO.loopSites = loops.sites;
+  console.log(`[taipei-geodata] loop sites: ${loops.stats.accepted} enclosed components -> ${loops.sites.length} rings, ${(loops.stats.acceptedAreaM2 / 1e4).toFixed(2)} ha (of ${loops.stats.components} land components)${loops.stats.droppedMismatch ? `; ${loops.stats.droppedMismatch} dropped on ring-proof mismatch` : ''} (issue #213)`);
+}
 
 // ---- terrain skin grids (issue #129) ----
 // Baked by tools/taipei/build-terrain.mjs from SRTM GL1 into

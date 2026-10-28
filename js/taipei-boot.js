@@ -13,7 +13,7 @@ import { ribbonsQuads, jointFramesFor } from './taipei-ribbons.js';
 import { buildMrtStationGeometry, buildMrtDepotGeometry } from './taipei-mrt-stations.js';
 import { buildBridgeGeometry } from './taipei-bridges.js';
 import { buildTerrainSkinGeometry } from './taipei-terrain.js';
-import { buildGreenTintLayers, consumeGreenFamilyOverlaps, GREEN_TINT_Y } from './taipei-green.js';
+import { buildGreenTintLayers, buildLoopTintLayers, consumeGreenFamilyOverlaps, GREEN_TINT_Y } from './taipei-green.js';
 import { unionExclusionRects, clipRectToBoxes } from './taipei-union.js';
 import { createCurtainWallMaterial, createPreWarBuildingMaterial, createTaipeiMarkingMaterial, setTaipeiSignAtlases } from './tsl-materials.js';
 import { drawBandAtlas, drawBladeAtlas, BAND_ATLAS, BLADE_ATLAS, TAIPEI_BAND_SIGNS, TAIPEI_BLADE_SIGNS } from './taipei-signs.js';
@@ -835,10 +835,14 @@ export async function buildTaipeiGround(scene, tile, deps = {}) {
   // exactly, 1.03 km² of tint under parks, 715k m² under water
   // (census on the issue). The visible winner of every overlap is
   // unchanged — it is exactly the surface the Y stack picked.
+  // Issue #213: interchange-loop interiors join the tint
+  // input BEFORE consumption, so loop grass is part of the
+  // same one-winner family and cannot double-paint against
+  // parks/water/band either.
   const lawnParks = geo.parks.filter((p) => !isPlazaPark(p));
   const plazaParks = geo.parks.filter(isPlazaPark);
   const greenFamily = consumeGreenFamilyOverlaps({
-    tint: buildGreenTintLayers(geo.green),
+    tint: [...buildGreenTintLayers(geo.green), ...buildLoopTintLayers(geo.loopSites)],
     band: (geo.riverside?.polys || []).map((p) => p.ring),
     water: geo.water.map((w) => w.ring),
     parks: lawnParks.map((p) => p.ring),

@@ -1212,7 +1212,8 @@ test('taiwan types: family zoning, distribution and rooftop clamp', (t) => {
   // clear 29 lots on this fabric, 1 of them glass: 8,209.
   // Issue #226: 8,215 (+6 — the Beitou/Tianmu creek-corridor
   // blocks re-draw on the released bank land).
-  assert.equal(glass, 8215, 'glass family counts after #136 + #139 + #135 + #142, composed with #134 + #137, #144, #165, #124, #166, #186 and #226');
+  // Issue #213: 8,203 (−12 — loop-adjacent blocks re-draw).
+  assert.equal(glass, 8203, 'glass family counts after #136 + #139 + #135 + #142, composed with #134 + #137, #144, #165, #124, #166, #186, #226 and #213');
   // (The #186 PR2 branch carried its own stale-base version of
   // this composition — glass 4,120 -> 4,419 on the pre-#124
   // plan — which the merge union initially kept as a duplicate
@@ -1358,11 +1359,13 @@ test('arcade parts: recessed core and full-perimeter colonnade', (t) => {
   // 6,771.
   // Issue #226: 6,782 (+11 — the same Beitou/Tianmu
   // creek-corridor re-draws as the glass pin above).
+  // Issue #213: 6,770 (−12, the same loop-adjacent re-draws
+  // as the glass pin above).
   const opts = taipeiCityBlocksOptions(TAIPEI_GEO, planTaipeiBuildings(TAIPEI_GEO));
   const f7 = opts.lots.filter((l) => l.mat === 7);
   const withArcade = f7.filter((l) => l.arcade);
   const eligible = f7.filter((l) => (l.x1 - l.x0) >= 11 && (l.z1 - l.z0) >= 11);
-  assert.equal(f7.length, 6782, 'F7 census after #124, composed with #166, #186 and #226');
+  assert.equal(f7.length, 6770, 'F7 census after #124, composed with #166, #186, #226 and #213');
   assert.equal(withArcade.length, eligible.length, `every size-eligible F7 lot carries the arcade (${withArcade.length}/${eligible.length})`);
   const totalCols = withArcade.reduce((s, l) => s + l.arcade.columns.length, 0);
   assert.ok(totalCols / withArcade.length < 30, `columns per arcade lot sane (${(totalCols / withArcade.length).toFixed(1)})`);
