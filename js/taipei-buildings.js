@@ -2318,10 +2318,30 @@ export const HEIGHT_JOIN = {
                        // before its median speaks for a lot
   fieldRadiusM: 100,   // neighbourhood-field reach for signal-less lots
   fieldMinLots: 3,     // ...and at least this many real lots inside it
+  // Issue #219: sanity guards on the join itself (census on the
+  // issue). A donor whose outline is parcel-scale, or whose claim
+  // is extreme, must be corroborated by a second source before it
+  // may speak; an uncorroborated donor is skipped and its lots
+  // fall through to the next tier like signal-less lots. The
+  // guards live here, not in the data file, so a future refresh
+  // of the layer cannot silently reintroduce the class.
+  parcelSpanM: 100,    // a footprint wider than this is a parcel
+                       // outline, not a building outline
+  extremeHeightM: 120, // an implied height at/above this is an
+                       // extreme claim (40F at the permit factor)
+  corrGapM: 40,        // a corroborating footprint's bbox may sit
+                       // this far from the donor's bbox
+  corrDoorGrowM: 25,   // door plates corroborate from this far
+                       // outside the donor's bbox
+  corrFrac: 0.5,       // corroboration must support at least
+                       // this share of the claim
+  stepMinHeightM: 30,  // stepped massing (issue #219): only joined
+  stepMinSpanM: 24,    // heights >= this on footprints >= this
+                       // wide read as a complex wall worth stepping
 };
 
 export function planTaipeiBuildings(geodata) {
-  const stats = { blocksSeen: 0, blocksFine: 0, lotsFine: 0, blocksSkippedSmall: 0, blocksSkippedParkWater: 0, blocksSkippedGreen: 0, blocksSkippedAirfield: 0, blocksSkippedOutsideUnion: 0, lotsDroppedVacancy: 0, lotsDroppedParkWater: 0, lotsDroppedGreen: 0, lotsDroppedRiverside: 0, lotsDroppedAirfield: 0, lotsDroppedTowerSite: 0, lotsDroppedRoad: 0, lotsDroppedMedian: 0, lotsDroppedOutsideUnion: 0, lotsDroppedTrackBed: 0, lotsDroppedTrackPierce: 0, lotsDroppedPier: 0, blocksRotated: 0, lotsRotated: 0, lotsPackedFrontage: 0, lotsTallFrontage: 0, heightsPermit: 0, heightsOsmHeight: 0, heightsOsmLevels: 0, heightsDoor: 0, heightsField: 0, heightsProc: 0, lotsFrontagePulled: 0, lotsFrontageFlush: 0, lotsFrontageHeldNoBed: 0, lotsFrontageHeldBlocked: 0, frontagePullMetres: 0 };
+  const stats = { blocksSeen: 0, blocksFine: 0, lotsFine: 0, blocksSkippedSmall: 0, blocksSkippedParkWater: 0, blocksSkippedGreen: 0, blocksSkippedAirfield: 0, blocksSkippedOutsideUnion: 0, lotsDroppedVacancy: 0, lotsDroppedParkWater: 0, lotsDroppedGreen: 0, lotsDroppedRiverside: 0, lotsDroppedAirfield: 0, lotsDroppedTowerSite: 0, lotsDroppedRoad: 0, lotsDroppedMedian: 0, lotsDroppedOutsideUnion: 0, lotsDroppedTrackBed: 0, lotsDroppedTrackPierce: 0, lotsDroppedPier: 0, blocksRotated: 0, lotsRotated: 0, lotsPackedFrontage: 0, lotsTallFrontage: 0, heightsPermit: 0, heightsOsmHeight: 0, heightsOsmLevels: 0, heightsDoor: 0, heightsField: 0, heightsProc: 0, heightsGuardParcel: 0, heightsGuardExtreme: 0, heightsSteppedGroups: 0, heightsSteppedLots: 0, lotsFrontagePulled: 0, lotsFrontageFlush: 0, lotsFrontageHeldNoBed: 0, lotsFrontageHeldBlocked: 0, frontagePullMetres: 0 };
   // Union-of-boxes tile (issue #60): the geodata frame carries the
   // tile's boxes; ground exists only inside them. Raster blocks are
   // masked to the union by the builder, but a block's bbox can still
@@ -2442,9 +2462,24 @@ export function planTaipeiBuildings(geodata) {
   const FP_CELL = 48;
   const fpKey = (gx, gz) => gx * 100003 + gz;
   const fpGrid = new Map();
+  // Issue #219: every footprint entry also carries its span, its
+  // centre and the height it would donate (implied), precomputed
+  // once — the sanity guards below and the stepped-massing pass
+  // after the lot loop both read them.
+  const fpEntries = [];
   if (heightLayer) {
     for (const f of heightLayer.footprints) {
-      const e = { ring: f.ring, bb: ringBbox(f.ring), src: f.src, floors: f.floors, height: f.height };
+      const bb = ringBbox(f.ring);
+      const e = {
+        idx: fpEntries.length, ring: f.ring, bb, src: f.src, floors: f.floors, height: f.height,
+        span: Math.max(bb.maxX - bb.minX, bb.maxZ - bb.minZ),
+        cx: (bb.minX + bb.maxX) / 2, cz: (bb.minZ + bb.maxZ) / 2,
+        implied: f.src === 'permit'
+          ? (f.floors > 0 ? f.floors * HEIGHT_JOIN.permitM : 0)
+          : (f.height > 0 ? f.height : (f.floors > 0 ? f.floors * HEIGHT_JOIN.osmLevelsM : 0)),
+        blocked: null,
+      };
+      fpEntries.push(e);
       const gx0 = Math.floor(e.bb.minX / FP_CELL), gx1 = Math.floor(e.bb.maxX / FP_CELL);
       const gz0 = Math.floor(e.bb.minZ / FP_CELL), gz1 = Math.floor(e.bb.maxZ / FP_CELL);
       for (let gx = gx0; gx <= gx1; gx++) for (let gz = gz0; gz <= gz1; gz++) {
@@ -2462,16 +2497,22 @@ export function planTaipeiBuildings(geodata) {
     if (!heightLayer) return null;
     const bucket = fpGrid.get(fpKey(Math.floor(x / FP_CELL), Math.floor(z / FP_CELL)));
     if (!bucket) return null;
-    let osm = null;
+    let permit = null, osm = null;
     for (const e of bucket) {
       if (x < e.bb.minX || x > e.bb.maxX || z < e.bb.minZ || z > e.bb.maxZ) continue;
       if (!pointInRing(x, z, e.ring)) continue;
-      if (e.src === 'permit' && e.floors > 0) return { src: 'permit', floors: e.floors };
-      if (e.src === 'osm' && !osm) osm = e;
+      // Issue #219: a blocked donor (uncorroborated parcel-scale
+      // or extreme claim, see the guard pass below) does not
+      // speak; the scan continues so a valid second signal under
+      // the same point still can.
+      if (e.blocked) continue;
+      if (e.src === 'permit' && e.floors > 0) { if (!permit) permit = e; }
+      else if (e.src === 'osm' && !osm) osm = e;
     }
+    if (permit) return { src: 'permit', floors: permit.floors, fpIdx: permit.idx };
     if (osm) {
-      if (osm.height > 0) return { src: 'osm-height', height: osm.height };
-      if (osm.floors > 0) return { src: 'osm-levels', floors: osm.floors };
+      if (osm.height > 0) return { src: 'osm-height', height: osm.height, fpIdx: osm.idx };
+      if (osm.floors > 0) return { src: 'osm-levels', floors: osm.floors, fpIdx: osm.idx };
     }
     return null;
   };
@@ -2496,6 +2537,72 @@ export function planTaipeiBuildings(geodata) {
     const s = [...vals].sort((a, b) => a - b);
     return s.length % 2 ? s[(s.length - 1) / 2] : (s[s.length / 2 - 1] + s[s.length / 2]) / 2;
   };
+
+  // Issue #219: the join's sanity guards, precomputed per donor.
+  // The census (on the issue) found the class: permit/OSM outlines
+  // at PARCEL scale donating a whole block's floor count to every
+  // lot inside (a 55F permit on a 161 x 152 m parcel made eight
+  // 165 m lots in low-rise Shilin), and extreme single-source
+  // claims with no second source anywhere near. A donor is
+  // GUARDED when its span is parcel-scale (> parcelSpanM) or its
+  // implied height is extreme (>= extremeHeightM); a guarded
+  // donor still speaks only when CORROBORATED — a second footprint
+  // supporting at least corrFrac of the claim with its bbox within
+  // corrGapM, or door plates within corrDoorGrowM of the bbox
+  // whose tallest floor, at the door factor, supports the same
+  // share. Every legitimate extreme in the census is corroborated
+  // (the Xinyi 54F permit by an OSM 266 m outline and 54F doors;
+  // the twin 43F permits by each other); the Shilin parcel and the
+  // 112 m / 165 m-span OSM outline in Beitou have nothing. Blocked
+  // donors are skipped by footprintSignalAt, so their lots fall
+  // through to the door / field / procedural tiers.
+  if (heightLayer) {
+    const CORR_CELL = 128;
+    const corrGrid = new Map();
+    for (const e of fpEntries) {
+      const gx0 = Math.floor((e.bb.minX - HEIGHT_JOIN.corrGapM) / CORR_CELL), gx1 = Math.floor((e.bb.maxX + HEIGHT_JOIN.corrGapM) / CORR_CELL);
+      const gz0 = Math.floor((e.bb.minZ - HEIGHT_JOIN.corrGapM) / CORR_CELL), gz1 = Math.floor((e.bb.maxZ + HEIGHT_JOIN.corrGapM) / CORR_CELL);
+      for (let gx = gx0; gx <= gx1; gx++) for (let gz = gz0; gz <= gz1; gz++) {
+        const k = fpKey(gx, gz);
+        if (!corrGrid.has(k)) corrGrid.set(k, []);
+        corrGrid.get(k).push(e);
+      }
+    }
+    const bboxGap = (a, b) => Math.hypot(
+      Math.max(0, Math.max(a.minX - b.maxX, b.minX - a.maxX)),
+      Math.max(0, Math.max(a.minZ - b.maxZ, b.minZ - a.maxZ)));
+    for (const e of fpEntries) {
+      if (!e.implied) continue;
+      const parcel = e.span > HEIGHT_JOIN.parcelSpanM;
+      if (!parcel && e.implied < HEIGHT_JOIN.extremeHeightM) continue;
+      const bar = HEIGHT_JOIN.corrFrac * e.implied;
+      let corr = false;
+      const gx0 = Math.floor((e.bb.minX - HEIGHT_JOIN.corrGapM) / CORR_CELL), gx1 = Math.floor((e.bb.maxX + HEIGHT_JOIN.corrGapM) / CORR_CELL);
+      const gz0 = Math.floor((e.bb.minZ - HEIGHT_JOIN.corrGapM) / CORR_CELL), gz1 = Math.floor((e.bb.maxZ + HEIGHT_JOIN.corrGapM) / CORR_CELL);
+      for (let gx = gx0; gx <= gx1 && !corr; gx++) for (let gz = gz0; gz <= gz1 && !corr; gz++) {
+        for (const g of corrGrid.get(fpKey(gx, gz)) || []) {
+          if (g === e || !g.implied || g.implied < bar) continue;
+          if (bboxGap(e.bb, g.bb) <= HEIGHT_JOIN.corrGapM) { corr = true; break; }
+        }
+      }
+      if (!corr && doorPts) {
+        const grow = HEIGHT_JOIN.corrDoorGrowM;
+        const dgx0 = Math.floor((e.bb.minX - grow) / DOOR_CELL), dgx1 = Math.floor((e.bb.maxX + grow) / DOOR_CELL);
+        const dgz0 = Math.floor((e.bb.minZ - grow) / DOOR_CELL), dgz1 = Math.floor((e.bb.maxZ + grow) / DOOR_CELL);
+        for (let gx = dgx0; gx <= dgx1 && !corr; gx++) for (let gz = dgz0; gz <= dgz1 && !corr; gz++) {
+          for (const di of doorGrid.get(fpKey(gx, gz)) || []) {
+            const dx = doorPts[di * 3], dz = doorPts[di * 3 + 1];
+            if (dx < e.bb.minX - grow || dx > e.bb.maxX + grow || dz < e.bb.minZ - grow || dz > e.bb.maxZ + grow) continue;
+            if (doorPts[di * 3 + 2] * HEIGHT_JOIN.doorM >= bar) { corr = true; break; }
+          }
+        }
+      }
+      if (!corr) {
+        e.blocked = parcel ? 'parcel' : 'extreme';
+        if (parcel) stats.heightsGuardParcel++; else stats.heightsGuardExtreme++;
+      }
+    }
+  }
 
   // Support piers (validate's and taipei-mrt's rule): no pier point
   // — elevated-road or MRT deck — may stand inside a planned lot's
@@ -2844,6 +2951,7 @@ export function planTaipeiBuildings(geodata) {
 
   const lots = [];
   const lotProcH = []; // issue #128: each lot's procedural draw, index-aligned with lots
+  const lotFp = []; // issue #219: each lot's winning footprint entry index (or -1), index-aligned with lots
   // Issue #185: per-lot major-face records for the street-wall pull
   // (index-aligned with lots; null when the lot stands in no face of
   // rank >= FRONTAGE_PULL_MIN_RANK). vF/uF hold [dir, rank] for each
@@ -3114,9 +3222,11 @@ export function planTaipeiBuildings(geodata) {
         // for signal-less lots, the field tier's blend partner, and
         // it keeps every hash consumer downstream byte-stable.
         let h = procH, hSrc = 'proc';
+        let fpIdx = -1;
         if (heightLayer) {
           const fp = footprintSignalAt(cx, cz);
           if (fp) {
+            fpIdx = fp.fpIdx;
             if (fp.src === 'permit') { h = Math.round(fp.floors * HEIGHT_JOIN.permitM * 2) / 2; hSrc = 'permit'; }
             else if (fp.src === 'osm-height') { h = Math.round(fp.height * 2) / 2; hSrc = 'osm-height'; }
             else { h = Math.round(fp.floors * HEIGHT_JOIN.osmLevelsM * 2) / 2; hSrc = 'osm-levels'; }
@@ -3149,6 +3259,7 @@ export function planTaipeiBuildings(geodata) {
         if (fine) stats.lotsFine++;
         lots.push(lot);
         lotProcH.push(procH);
+        lotFp.push(fpIdx);
         // Issue #185: this lot's grid position and the block's four
         // face ranks, for the street-wall pull below. The direct
         // faces (vF/uF: the face rows/columns the lot stands in, at
@@ -3166,6 +3277,54 @@ export function planTaipeiBuildings(geodata) {
         if (col === 0 && edgeRankULow >= FRONTAGE_PULL_MIN_RANK) uF.push([-1, edgeRankULow]);
         if (col === cols - 1 && edgeRankUHigh >= FRONTAGE_PULL_MIN_RANK) uF.push([1, edgeRankUHigh]);
         lotFront.push({ c: cosT, s: sinT, bi, row, col, vF, uF, rVL: edgeRankVLow, rVH: edgeRankVHigh, rUL: edgeRankULow, rUH: edgeRankUHigh });
+      }
+    }
+  }
+
+  // Issue #219: stepped massing for lots sharing one joined
+  // footprint. The fine-grain planner subdivides a real complex's
+  // footprint into several lots, and the join used to hand EVERY
+  // one of them the footprint's full height — a uniform wall of
+  // identical slabs where one complex stands (type site: the twin
+  // 14-level footprints at Fuguo x Chengde, 2 lots each, all four
+  // at 42 m). Now the joined height lands as the complex's
+  // massing: the lot nearest the footprint's centre keeps it, and
+  // each sibling steps down by rank — 0.90, 0.80, ... floored at
+  // 0.55 — with a small seeded jitter so the steps do not read as
+  // a staircase. Only groups tall and wide enough to read as a
+  // complex wall are stepped (implied >= stepMinHeightM on a
+  // footprint spanning >= stepMinSpanM, at least 2 lots); a lone
+  // lot, a low building or a narrow footprint keeps the joined
+  // height untouched, and hSrc still names the signal — the
+  // massing is an estimate of the complex, not a new source. This
+  // runs BEFORE the field tier, so the neighbourhood field samples
+  // the stepped complex instead of the uniform wall (the corner's
+  // field lots stood at 24-30 m on the wall's median).
+  if (heightLayer) {
+    const stepGroups = new Map();
+    for (let i = 0; i < lots.length; i++) {
+      const fi = lotFp[i];
+      if (fi < 0) continue;
+      const e = fpEntries[fi];
+      if (!e || e.implied < HEIGHT_JOIN.stepMinHeightM || e.span < HEIGHT_JOIN.stepMinSpanM) continue;
+      if (!stepGroups.has(fi)) stepGroups.set(fi, []);
+      stepGroups.get(fi).push(i);
+    }
+    for (const [fi, idxs] of stepGroups) {
+      if (idxs.length < 2) continue;
+      const e = fpEntries[fi];
+      idxs.sort((a, b) => {
+        const da = Math.hypot(lots[a].x - e.cx, lots[a].z - e.cz);
+        const db = Math.hypot(lots[b].x - e.cx, lots[b].z - e.cz);
+        return da - db || lots[a].x - lots[b].x || lots[a].z - lots[b].z;
+      });
+      stats.heightsSteppedGroups++;
+      for (let r = 1; r < idxs.length; r++) {
+        const lot = lots[idxs[r]];
+        const jitter = 0.96 + hash01((Math.round(lot.x * 10) * 73856093) ^ (Math.round(lot.z * 10) * 19349663) ^ (fi * 83492791)) * 0.07;
+        const f = Math.max(0.55, 0.9 - 0.1 * (r - 1)) * jitter;
+        const nh = Math.round(lot.h * f * 2) / 2;
+        if (nh < lot.h) { lot.h = nh; stats.heightsSteppedLots++; }
       }
     }
   }
