@@ -597,6 +597,15 @@ test('landmark structures: true positions and heights, sites kept clear', (t) =>
     'shipai-junior-high': { h: 14.4, x: -5187, z: -9183 },
     'qingjiang-elementary': { h: 14.4, x: -5848, z: -10352 },
     'jianguo-high-school': { h: 25.2, x: -5288, z: 299 },
+    // Batch 8 (issues #149 + #186): the National Palace Museum —
+    // 27.5 m is FORM-DERIVED, not published (OSM way 203799171:
+    // levels 4; podium 6 + walls 13 + hip roofs, central tier
+    // apex — see registry), position the OSM main-hall outline
+    // centre (25.10219, 121.54859). Miramar: the 100 m is the
+    // PUBLISHED wheel apex (zh.wikipedia); position the OSM
+    // wheel node 5121602758 on the mall's south front.
+    'national-palace-museum': { h: 27.5, x: -1656.1, z: -7664.4 },
+    'miramar-entertainment-park': { h: 100, x: -734.7, z: -5527.6 },
   };
   assert.equal(plan.landmarkTowers.length, Object.keys(expected).length, 'all verified structures present');
   const partTop = (p) => (p.y0 || 0) + p.h + (p.type === 'ridge' ? p.ridgeH : 0);
@@ -745,6 +754,13 @@ test('landmark batch 3: two-slab Cathay rebuild, W, Songshan, Eslite, Arena', ()
       && s.id !== 'dayeh-takashimaya' && s.id !== 'tianmu-stadium'
       && s.id !== 'shipai-junior-high' && s.id !== 'qingjiang-elementary'
       && s.id !== 'jianguo-high-school') {
+    // Batch 8 (issue #186) adds the National Palace Museum: its
+    // 27.5 m is form-derived (no published overall height; OSM
+    // levels 4 + the roof stack in the registry), flagged the
+    // same way.
+    if (s.id !== 'eslite-spectrum-songyan' && s.id !== 'taipei-arena'
+      && s.id !== 'national-concert-hall' && s.id !== 'national-theater'
+      && s.id !== 'beimen' && s.id !== 'national-palace-museum') {
       assert.equal(s.estimated, false, `${s.id} height is published, not estimated`);
     }
   }
@@ -1195,6 +1211,13 @@ test('taiwan types: family zoning, distribution and rooftop clamp', (t) => {
   // gate restored main's block order in the merged geodata —
   // see the taipei-mrt clearance composition note).
   assert.equal(glass, 8210, 'glass family counts after #136 + #139 + #135 + #142, composed with #134 + #137, #144, #165, #124, #166 and #186');
+  // Issue #186 composition: the strip to the National Palace
+  // Museum adds 3,733 lots, 342 of them glass (the Neihu/Dazhi
+  // office stock); the block-set reshuffle moves the outside
+  // count 4,120 -> 4,078 (-42). Net: glass 4,120 -> 4,420.
+  // Issue #186 PR2: the NPM + Miramar landmark sites clear 48
+  // more lots inside the strip (1 of them glass): 4,420 -> 4,419.
+  assert.equal(glass, 4419, 'glass family counts after #136 + #139 + #135 + #142, composed with #134 + #137 and #144, and the #186 strip');
   const masonry = opts.lots.filter((l) => l.mat <= 2).length;
   // Range re-based for issue #65: the exact ribbon exclusion removed
   // ~4,400 masonry lots that stood on ribbons or in medians; masonry
@@ -1227,6 +1250,13 @@ test('taiwan types: family zoning, distribution and rooftop clamp', (t) => {
   // together are 63,750 (89.1%), the local fabric as before.
   // The range is re-based to the new census with headroom.
   assert.ok(masonry > 30000 && masonry < 40000, `masonry 0-2 reduced but still present (${masonry})`);
+  // Range re-based for issue #186: the strip's 3,733 lots are
+  // mostly residential masonry fabric — 20,929 of 42,190 lots
+  // (49.6%), still the largest family bloc. The ceiling moves
+  // 20,000 -> 22,000 with headroom, same convention as #102.
+  // Issue #186 PR2: the two landmark sites clear 33 masonry of
+  // their 48 lots: 20,896 of 42,142 (49.6%).
+  assert.ok(masonry > 12000 && masonry < 22000, `masonry 0-2 reduced but still present (${masonry})`);
   assert.equal(typeof opts.rooftopGearClamp, 'function', 'options carry the rooftop-gear clamp');
 
   const lot = { x0: 0, x1: 9, z0: 0, z1: 14 };

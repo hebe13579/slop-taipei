@@ -960,12 +960,23 @@ test('clearance (issue #139): census by counterfactual, audit exact', (t) => {
   // 55 plus one strip lot under the Dazhi resurface guideway
   // (centre (-1376, -5819), h 8, probed at the gate). The
   // counterfactual (no track data) is unaffected.
+  // Composed with issue #186 PR2 (the NPM + Miramar registry
+  // landmarks) at the same gate: the two new sites clear 29
+  // more lots — all 'proc' lots under the Miramar site and
+  // the NPM margins (the NPM grounds themselves were already
+  // lot-free via the PR1 npmSite rule) — so both anchors
+  // move together (counterfactual 76,097 -> 76,068, shipped
+  // 75,429 -> 75,400) and the #139-family removals stay 668.
+  // Bed (28) and pierce (56) counters are unchanged: neither
+  // site stands on an at-grade bed or under a guideway. (The
+  // PR2 branch's own stale-base text cited 48 lots on its
+  // coarse tree; 29 is the fine merged tree's measure.)
   const before = planTaipeiBuildings({
     ...TAIPEI_GEO,
     mrtDecks: undefined, mrtDepot: undefined,
     mrtStations: stations.filter((s) => s.kind !== 'at-grade' && s.kind !== 'wenhu' && s.kind !== 'entrance' && s.kind !== 'wenhu-open'),
   });
-  assert.equal(before.lots.length, 76097, 'counterfactual plan reproduces the pre-#139 lot count, less the #144 site lots (7), the #135 parcel exclusions (47), the #165 site exclusions (31) and the #166 site exclusions (143) — on the #124 fine plan composed with the #186 strip (+3,986 measured at the #186 merge gate), per the composition note above');
+  assert.equal(before.lots.length, 76068, 'counterfactual plan reproduces the pre-#139 lot count, less the #144 site lots (7), the #135 parcel exclusions (47), the #165 site exclusions (31) and the #166 site exclusions (143) — on the #124 fine plan composed with the #186 strip (+3,957 measured at the #186 merge gate, incl. the PR2 landmark sites below), per the composition note above');
   // 463 lots removed on this tree (524 on the pre-expansion
   // tree): 433 inside the Beitou depot + at-grade station sites
   // (398 with centres inside the depot site rect alone; the rest
@@ -980,7 +991,7 @@ test('clearance (issue #139): census by counterfactual, audit exact', (t) => {
   // Four Seasons D3 parcel + 2 under the Mitsukoshi A4 hall; the
   // Farglory / A8 / A9 / A11 sites exclude none — their blocks were
   // already lot-free there).
-  assert.equal(plan.lots.length, 75429, 'shipped plan lot count after the #139 removals, the #144 site exclusion, the #135 parcel exclusions, the #146 dive drops, the #165 site exclusions and the #166 site exclusions (141) — re-based on the #124 fine plan composed with the #186 strip (counterfactual 76,097 − 668 #139-family removals on the merged tree; re-pinned at the #186 merge gate)');
+  assert.equal(plan.lots.length, 75400, 'shipped plan lot count after the #139 removals, the #144 site exclusion, the #135 parcel exclusions, the #146 dive drops, the #165 site exclusions and the #166 site exclusions (141) — re-based on the #124 fine plan composed with the #186 strip (counterfactual 76,068 − 668 #139-family removals on the merged tree; re-pinned at the #186 merge gate)');
   // Merged-tree check at the #186 gate: bed drops reproduce
   // main's 28 EXACTLY — probed per bed at the gate, all at
   // the two at-grade Beitou clusters, none in the strip (its
