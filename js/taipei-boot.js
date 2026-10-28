@@ -1182,26 +1182,42 @@ export async function buildTaipeiGround(scene, tile, deps = {}) {
   } catch (err) {
     console.warn('[taipei-signs] sign atlas build failed; glyph signs remain', err);
   }
+  // Issue #218: runtime settings (deps.settings, resolved by
+  // main.js from URL params / localStorage via js/settings.js):
+  // the density preset the plan is built with, and whether the
+  // special buildings (Taipei 101 + registry landmarks + airport
+  // site structures) are visible. Absent or invalid values fall
+  // back to the pre-#218 boot exactly (Fine density, specials on).
+  const bootSettings = {
+    density: deps.settings?.density === 'coarse' || deps.settings?.density === 'dense' ? deps.settings.density : 'fine',
+    specials: deps.settings?.specials !== false,
+  };
   const buildingsStart = performance.now();
-  const plan = planTaipeiBuildings(geo);
-  const cityBlocks = deps.buildCityBlocks
+  let plan = planTaipeiBuildings(geo, { density: bootSettings.density });
+  let cityBlocks = deps.buildCityBlocks
     ? deps.buildCityBlocks(scene, taipeiCityBlocksOptions(geo, plan))
     : null;
   // Issue #57: the landmark builders take the TSL facade factories
   // injected (taipei-buildings.js stays import-free for the node
   // suite); ./tsl-materials.js is already on the Pages preload list.
   const landmarkFactories = { createCurtainWallMaterial, createPreWarBuildingMaterial };
-  const tower = createTaipei101(THREE, plan, landmarkFactories);
-  if (tower) group.add(tower);
-  const landmarkTowers = createTaipeiLandmarkTowers(THREE, plan, landmarkFactories);
-  if (landmarkTowers) group.add(landmarkTowers);
+  const specialGroups = [];
+  const addSpecial = (g) => {
+    if (!g) return;
+    g.visible = bootSettings.specials;
+    group.add(g);
+    specialGroups.push(g);
+  };
+  addSpecial(createTaipei101(THREE, plan, landmarkFactories));
+  addSpecial(createTaipeiLandmarkTowers(THREE, plan, landmarkFactories));
   // Songshan Airport site structures (issue #135): the terminal
   // complex, rendered with the landmark massing path but kept
   // off the registry (no pins/search) — see
   // AIRPORT_SITE_STRUCTURES in js/taipei-buildings.js.
   if (plan.siteStructures?.length) {
     const siteStructures = createTaipeiLandmarkTowers(THREE, { landmarkTowers: plan.siteStructures }, landmarkFactories);
-    if (siteStructures) { siteStructures.name = 'TaipeiAirportSiteStructures'; group.add(siteStructures); }
+    if (siteStructures) siteStructures.name = 'TaipeiAirportSiteStructures';
+    addSpecial(siteStructures);
   }
   console.info(`[taipei-buildings] ${plan.lots.length} buildings via upstream building system + Taipei 101 massing (508 m) + ${plan.landmarkTowers.length} landmark structures planned in ${Math.round(performance.now() - buildingsStart)}ms`);
   await completeStage('buildings', `${plan.lots.length} buildings, ${plan.landmarkTowers.length} landmark structures + Taipei 101`);
@@ -1237,18 +1253,83 @@ export async function buildTaipeiGround(scene, tile, deps = {}) {
     // the MRT cuttings are not).
     ...trenchSlots.map((s) => s.flatMap((pt) => pt)),
   ];
-  const treePlan = planStreetTrees(geo, plan, { exclusions: treeExclusions });
-  const parkTreePlan = planParkTrees(geo, plan, { exclusions: treeExclusions });
-  const treeMesh = buildStreetTreeMesh([...treePlan.trees, ...parkTreePlan.trees]);
-  if (treeMesh) group.add(treeMesh);
-  console.info(`[taipei-trees] ${treePlan.trees.length} street trees (${treePlan.stats.sidewalk} sidewalk, ${treePlan.stats.median} median${treePlan.stats.capped ? `, capped at ${treePlan.stats.cap}` : ''}) + ${parkTreePlan.trees.length} park trees${parkTreePlan.stats.capped ? ` (capped at ${parkTreePlan.stats.cap})` : ''} planned in ${Math.round(performance.now() - treesStart)}ms`);
-  await completeStage('trees', `${treePlan.trees.length + parkTreePlan.trees.length} trees`);
+  // Issue #218: tree planning depends on the building plan (trees
+  // keep out of the lots), so it is a closure the density switch
+  // below can re-run against a fresh plan.
+  const buildTrees = (forPlan) => {
+    const street = planStreetTrees(geo, forPlan, { exclusions: treeExclusions });
+    const park = planParkTrees(geo, forPlan, { exclusions: treeExclusions });
+    return { street, park, mesh: buildStreetTreeMesh([...street.trees, ...park.trees]) };
+  };
+  let trees = buildTrees(plan);
+  if (trees.mesh) group.add(trees.mesh);
+  console.info(`[taipei-trees] ${trees.street.trees.length} street trees (${trees.street.stats.sidewalk} sidewalk, ${trees.street.stats.median} median${trees.street.stats.capped ? `, capped at ${trees.street.stats.cap}` : ''}) + ${trees.park.trees.length} park trees${trees.park.stats.capped ? ` (capped at ${trees.park.stats.cap})` : ''} planned in ${Math.round(performance.now() - treesStart)}ms`);
+  await completeStage('trees', `${trees.street.trees.length + trees.park.trees.length} trees`);
+
+  // Issue #218: main.js drives ONE cityBlocks object per frame, so
+  // the boot returns a stable facade over the current
+  // buildCityBlocks result; a density switch swaps the build
+  // underneath it. allBlocks is a live array refilled in place —
+  // the map system captured it at construction. Geometries of a
+  // torn-down build are disposed (its materials are per-build
+  // factory products over shared atlas textures and are left to
+  // the GC — bounded at a handful per switch).
+  const allBlocksLive = [];
+  const syncAllBlocks = () => {
+    allBlocksLive.length = 0;
+    if (cityBlocks?.allBlocks) allBlocksLive.push(...cityBlocks.allBlocks);
+  };
+  syncAllBlocks();
+  const cityBlocksFacade = {
+    get group() { return cityBlocks?.group ?? null; },
+    colliders: [],
+    allBlocks: allBlocksLive,
+    update: (x, z, force) => { if (cityBlocks) cityBlocks.update(x, z, force); },
+    updateLights: (camera) => { if (cityBlocks?.updateLights) cityBlocks.updateLights(camera); },
+  };
+  const disposeBuilt = (obj) => {
+    if (!obj) return;
+    obj.traverse((o) => { if (o.geometry) o.geometry.dispose(); });
+  };
+  const taipeiSettings = {
+    get density() { return bootSettings.density; },
+    get specials() { return bootSettings.specials; },
+    // Re-plan and rebuild the building + tree layers in place —
+    // no reload. Synchronous (the plan is CPU-bound); the panel
+    // yields a frame before calling so its busy state paints.
+    // Returns the new census + wall-clock cost, or null for an
+    // unknown preset.
+    setDensity(preset) {
+      if (preset !== 'coarse' && preset !== 'fine' && preset !== 'dense') return null;
+      if (preset === bootSettings.density) return { density: preset, lots: plan.lots.length, ms: 0 };
+      const t0 = performance.now();
+      if (trees.mesh) { group.remove(trees.mesh); disposeBuilt(trees.mesh); }
+      if (cityBlocks) { scene.remove(cityBlocks.group); disposeBuilt(cityBlocks.group); }
+      bootSettings.density = preset;
+      plan = planTaipeiBuildings(geo, { density: preset });
+      cityBlocks = deps.buildCityBlocks
+        ? deps.buildCityBlocks(scene, taipeiCityBlocksOptions(geo, plan))
+        : null;
+      syncAllBlocks();
+      trees = buildTrees(plan);
+      if (trees.mesh) group.add(trees.mesh);
+      result.buildings = plan;
+      const ms = Math.round(performance.now() - t0);
+      console.info(`[taipei-settings] density -> ${preset}: ${plan.lots.length} buildings replanned and rebuilt in ${ms}ms`);
+      return { density: preset, lots: plan.lots.length, ms };
+    },
+    setSpecialsVisible(visible) {
+      bootSettings.specials = !!visible;
+      for (const g of specialGroups) g.visible = bootSettings.specials;
+      return bootSettings.specials;
+    },
+  };
 
   scene.add(group);
-  return {
+  const result = {
     group,
     buildings: plan,
-    cityBlocks,
+    cityBlocks: cityBlocksFacade,
     sidewalks: [],
     footprints: [],
     // Issue #207: main.js merges these into the controllers'
@@ -1259,5 +1340,7 @@ export async function buildTaipeiGround(scene, tile, deps = {}) {
     highwayLanes: [],
     allBlocks: [],
     update: null,
+    taipeiSettings,
   };
+  return result;
 }

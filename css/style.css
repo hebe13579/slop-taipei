@@ -616,6 +616,40 @@ body.hud-minimized .icon-show {
   gap: 1px;
 }
 
+/* Settings popover (issue #218): wider panel, an On/Off state chip on
+   the toggle row, a live status note beside the density title, and
+   visibly inert disabled rows (traffic's reserved row, and the
+   Taipei-only rows outside Taipei mode). */
+.settings-popover {
+  min-width: 308px;
+}
+
+.settings-popover .pop-name {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  width: 100%;
+}
+
+.set-state {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  color: var(--text-3);
+}
+
+.set-status {
+  text-transform: none;
+  letter-spacing: 0;
+  font-weight: 550;
+}
+
+.pop-item[disabled] {
+  opacity: 0.45;
+  pointer-events: none;
+}
+
 .pop-sub {
   font-size: 11.5px;
   font-weight: 500;

@@ -45,6 +45,12 @@
 //     traced footprints, no hand-drawn zones; coarse blocks
 //     subdivide exactly as before, so the planned districts keep
 //     their grain (see the study on issue #124).
+//   - Issue #218: the density is a runtime option (the settings
+//     gear passes opts.density): 'coarse' disables the fine rule
+//     (the pre-#124 plan), 'dense' keeps the classifier but
+//     tightens the fine pitch to ~7.5–10.5 m frontage (the
+//     ~7–11 m draft the #124 study measured). The default
+//     'fine' is this header's plan, byte for byte.
 //   - Issue #106: a block face that fronts a collector-or-better road
 //     (tertiary rank ≥ 2, measured per block edge — see the frontage
 //     section in the planner) packs its row to ZERO side gap with no
@@ -3221,8 +3227,19 @@ export function planSchoolCampuses(geodata, landmarkSites, carriageways, originL
   return { structures, report };
 }
 
-export function planTaipeiBuildings(geodata) {
+export function planTaipeiBuildings(geodata, opts = {}) {
   const stats = { blocksSeen: 0, blocksFine: 0, lotsFine: 0, blocksSkippedSmall: 0, blocksSkippedParkWater: 0, blocksSkippedGreen: 0, blocksSkippedAirfield: 0, blocksSkippedSchool: 0, blocksSkippedLoop: 0, blocksSkippedNpmSite: 0, blocksSkippedOutsideUnion: 0, lotsDroppedVacancy: 0, lotsDroppedParkWater: 0, lotsDroppedGreen: 0, lotsDroppedRiverside: 0, lotsDroppedAirfield: 0, lotsDroppedSchool: 0, lotsDroppedLoop: 0, lotsDroppedNpmSite: 0, lotsDroppedTowerSite: 0, lotsDroppedRoad: 0, lotsDroppedMedian: 0, lotsDroppedOutsideUnion: 0, lotsDroppedTrackBed: 0, lotsDroppedTrackPierce: 0, lotsDroppedPier: 0, blocksRotated: 0, lotsRotated: 0, lotsPackedFrontage: 0, lotsTallFrontage: 0, heightsPermit: 0, heightsOsmHeight: 0, heightsOsmLevels: 0, heightsDoor: 0, heightsField: 0, heightsProc: 0, heightsGuardParcel: 0, heightsGuardExtreme: 0, heightsSteppedGroups: 0, heightsSteppedLots: 0, lotsFrontagePulled: 0, lotsFrontageFlush: 0, lotsFrontageHeldNoBed: 0, lotsFrontageHeldBlocked: 0, frontagePullMetres: 0 };
+  // Issue #218: building-density presets (settings gear). 'fine'
+  // is the shipped default: every constant it selects below is the
+  // literal this code used before the option existed, so the
+  // default plan is byte-identical (fingerprint-pinned in
+  // tests/taipei-settings.test.mjs). 'coarse' restores the pre-#124
+  // rule — the fine classifier never fires. 'dense' is the finer
+  // draft measured during the #124 study (~7–11 m pitch, ~100k
+  // lots): the classifier is unchanged, but fine blocks subdivide
+  // at the tighter 7.5–10.5 m frontage pitch with narrower gaps
+  // and walk-up vacancy. An unknown value plans as 'fine'.
+  const density = opts.density === 'coarse' || opts.density === 'dense' ? opts.density : 'fine';
   // Union-of-boxes tile (issue #60): the geodata frame carries the
   // tile's boxes; ground exists only inside them. Raster blocks are
   // masked to the union by the builder, but a block's bbox can still
@@ -3947,7 +3964,7 @@ export function planTaipeiBuildings(geodata) {
     // big blocks) subdivide at shophouse pitch with party-wall gaps
     // and walk-up vacancy; every other block keeps the standard
     // subdivision byte for byte.
-    const fine = !big && blockDoorCount(block.bbox) / (block.area / 1e4) >= FINE_DOORS_PER_HA;
+    const fine = density !== 'coarse' && !big && blockDoorCount(block.bbox) / (block.area / 1e4) >= FINE_DOORS_PER_HA;
     if (fine) stats.blocksFine++;
     // Fine fabric fronts its lanes near-flush (narrow or arcade
     // sections, not the full street-section band), so its inset is
@@ -3957,9 +3974,9 @@ export function planTaipeiBuildings(geodata) {
     const minZ = block.bbox.minZ + inset, maxZ = block.bbox.maxZ - inset;
     const innerW = maxX - minX, innerD = maxZ - minZ;
     if (innerW < 10 || innerD < 10) continue;
-    const vacancy = big ? 0.30 : fine ? 0.04 : 0.13;
-    const frontage = fine ? 9 + hash01(bi * 7919) * 3.5 : (15 + hash01(bi * 7919) * 10) * pitchMul;
-    const depthPitch = fine ? 12.5 + hash01(bi * 104729 + 3) * 4 : (15 + hash01(bi * 104729 + 3) * 7) * pitchMul;
+    const vacancy = big ? 0.30 : fine ? (density === 'dense' ? 0.03 : 0.04) : 0.13;
+    const frontage = fine ? (density === 'dense' ? 7.5 + hash01(bi * 7919) * 3 : 9 + hash01(bi * 7919) * 3.5) : (15 + hash01(bi * 7919) * 10) * pitchMul;
+    const depthPitch = fine ? (density === 'dense' ? 11 + hash01(bi * 104729 + 3) * 3.5 : 12.5 + hash01(bi * 104729 + 3) * 4) : (15 + hash01(bi * 104729 + 3) * 7) * pitchMul;
     // Issue #62: the block's lot grid turns to its fronting streets
     // (theta = 0 keeps the axis grid — the pre-#62 plan, byte for
     // byte). In the turned frame the grid spans the inset bbox's
@@ -4076,7 +4093,7 @@ export function planTaipeiBuildings(geodata) {
           cx = Math.round((minX + (col + 0.5) * cellW) * 10) / 10;
           cz = Math.round((minZ + (row + 0.5) * cellD) * 10) / 10;
         }
-        const gap = fine ? 0.4 + hash01(seed ^ 0x77c3) * 0.8 : 1.2 + hash01(seed ^ 0x77c3) * 1.8;
+        const gap = fine ? (density === 'dense' ? 0.3 + hash01(seed ^ 0x77c3) * 0.7 : 0.4 + hash01(seed ^ 0x77c3) * 0.8) : 1.2 + hash01(seed ^ 0x77c3) * 1.8;
         // Issue #106: packed rows share party walls — no gap is
         // subtracted along the packed direction, so neighbouring
         // footprints meet at the cell boundary exactly.
