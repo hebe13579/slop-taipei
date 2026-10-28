@@ -725,6 +725,38 @@ if (fs.existsSync(path.join(DATA, 'osm_green.json'))) {
 const green = greenRaw.map(({ name, cls, ring }) => ({ name, cls, ring }));
 const greenArea = greenRaw.reduce((s, p) => s + p.area, 0);
 
+// ---- school grounds (issue #221) ----
+// Education campuses (amenity=school / kindergarten / university /
+// college, plus landuse=education), extracted to osm_schools.json by
+// extract-from-pbf.py. The planner keeps every ground lot-free and
+// generates a campus on it (track + classroom slabs + fence + gate,
+// seeded by the OSM id — js/taipei-buildings.js). One entry per
+// clipped ring piece: a campus straddling a tile-box seam arrives as
+// several pieces of one element, all carrying the same osmId; the
+// planner's generator groups them (the largest piece generates, the
+// rest stay exclusion-only fragments). Campuses OSM maps as a bare
+// node cannot be bounded — the extract carries them for the census
+// and this builder skips them by construction. An older extract
+// without osm_schools.json builds with an empty layer, as before.
+const schools = [];
+if (fs.existsSync(path.join(DATA, 'osm_schools.json'))) {
+  for (const el of load('osm_schools.json').elements) {
+    if (el.type === 'node') continue;
+    const kind = el.tags?.amenity || (el.tags?.landuse === 'education' ? 'education' : null);
+    if (!kind) continue;
+    for (const rawRing of elRings(el)) {
+      if (rawRing.length < 4) continue;
+      for (const ring of clipRingUnion(rawRing, BOXES_WORLD)) {
+        const area = Math.abs(ringArea(ring));
+        if (area < 100) continue;
+        schools.push({ osmType: el.type, osmId: el.id, kind, name: el.tags?.name || el.tags?.['name:en'] || '', ring: flat(ring), area: Math.round(area), ...(el.campusStats ? { stats: el.campusStats } : {}) });
+      }
+    }
+  }
+  const elements = new Set(schools.map((s) => `${s.osmType}/${s.osmId}`)).size;
+  console.log(`[taipei-geodata] schools: ${schools.length} ground pieces from ${elements} campuses (${schools.reduce((s, p) => s + p.area, 0)} m2) — issue #221`);
+}
+
 // ---- real building heights (issue #128) ----
 // osm_heights.json is built by tools/taipei/build-heights.py from the
 // two OGDL datasets (building permits 151936, door plate points
@@ -872,6 +904,7 @@ const TAIPEI_GEO = {
 // Songshan airfield site + hard surfaces.
 TAIPEI_GEO.riverside = { bandM: RIVERSIDE_BAND_M, polys: riversidePolys };
 if (airfield) TAIPEI_GEO.airfield = airfield;
+TAIPEI_GEO.schools = schools;
 
 // ---- terrain skin grids (issue #129) ----
 // Baked by tools/taipei/build-terrain.mjs from SRTM GL1 into

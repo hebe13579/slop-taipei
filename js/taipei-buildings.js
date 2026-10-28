@@ -2320,6 +2320,640 @@ export const HEIGHT_JOIN = {
   fieldMinLots: 3,     // ...and at least this many real lots inside it
 };
 
+// ---------- Issue #221: procedural school campuses ----------
+//
+// The user's directive (2026-10-27): do NOT handcraft schools one by
+// one — GENERATE them. Until now there was no institutional class
+// anywhere in the pipeline: a campus was just a very large raster
+// block, so the lot packer built a shallow rim of generic buildings
+// around an empty crater (NTUT is one 81,024 m² block), small
+// campuses were built over entirely, and no track, court, fence or
+// gate was ever drawn (leisure=pitch was not even extracted).
+//
+// The pipeline: tools/taipei/extract-from-pbf.py emits every
+// amenity=school / kindergarten / university / college ground (ways
+// + relations; landuse=education included) to osm_schools.json;
+// build-taipei-geodata.mjs clips the rings to the tile union as
+// geodata.schools; here, planSchoolCampuses() keeps every ground
+// lot-free (the schoolPolys verdicts in the planner, counted like
+// the airfield's) and generates a campus on each ground the data
+// can bound:
+//
+//   * the fitted frame is the ring's minimum-area rectangle
+//     (rotating calipers over the convex hull); its fill ratio
+//     (ring area / rect area) grades how rectangular the ground is;
+//   * the sports core is a running track from the #166 kit
+//     (trackCapsuleParts: rust-red capsule, green infield) in
+//     400/300/200 m classes, or — when no track fits — a courts
+//     cluster + playground slab (the compact archetype);
+//   * classroom slabs (3–6F, seeded lengths/heights) stand around
+//     the track in U / parallel / L arrangements, plus an assembly
+//     hall at one end; universities (and any ground ≥ 4.2 ha) get
+//     the large archetype: taller slabs, a library-scale block,
+//     courts cluster and lawns;
+//   * a concrete perimeter fence follows the OSM ring itself (the
+//     CKS Memorial Hall wall idiom) with a gated gap on the best
+//     street frontage — two posts and a lintel — and trees inside
+//     the fence line;
+//   * kindergartens get the mini archetype: low slabs, a play
+//     lawn and one court, never a track.
+//
+// Every choice is drawn from hash01() salts of a seed hashed from
+// the ground's OSM type+id, so the same ground generates the same
+// campus on every rebuild. Every placed part is containment-tested
+// against the ring (parts that fall outside are dropped, which is
+// what makes irregular/hillside grounds come out clipped instead
+// of wrong), and slab rows never overlap the track or each other
+// (a local-rect registry arbitrates).
+//
+// Skips, all recorded on plan.schools with reasons: grounds that
+// already carry a registry campus (the #166 trio — 石牌國中,
+// 青江國小, 建國中學 — detected by overlap with a landmark site
+// rect, so any future registry campus is skipped the same way);
+// grounds subsumed by a larger education ground (a campus mapped
+// twice, or an affiliated school inside a university ring);
+// non-largest fragments of a campus the tile union clipped into
+// pieces; building-footprint-scale grounds (< 700 m² — a way
+// tagging the school BUILDING, not its grounds); and grounds where
+// even the compact layout places nothing (no-fit). Skipped grounds
+// still exclude lots: OSM says the land is a campus either way.
+// Campuses OSM maps as a bare node have no ring at all — the
+// builder never emits them (the census on issue #221 names them).
+
+const SCHOOL_TRACK_RED = 0xa04a30;   // the #166 kit's colours, so a
+const SCHOOL_FIELD_GREEN = 0x4e7d32; // generated campus and a
+const SCHOOL_COURT_BLUE = 0x3f6d8e;  // handcrafted one read alike
+const SCHOOL_COURT_GREEN = 0x3f7d6b;
+const SCHOOL_FENCE_COLOR = 0xd8d4c8;
+const SCHOOL_YARD_COLOR = 0xbdb7a8;
+const SCHOOL_PARKING_COLOR = 0x93969a;
+const SCHOOL_LAWN_COLOR = 0x557c40;
+const SCHOOL_TRUNK_COLOR = 0x6b4f35;
+const SCHOOL_CANOPY_COLORS = [0x4a7038, 0x557c40, 0x3d6335];
+const SCHOOL_FACADES = [
+  { kind: 'prewar', stoneColor: 0xd9cfc0, trimColor: 0xb0a58e, windowGlassColor: 0x2e3a46, windowWidth: 2.6, floorHeight: 3.6, litProbability: 0.25, warmth: 0.55 },
+  { kind: 'prewar', stoneColor: 0xd6c8b4, trimColor: 0xab9c80, windowGlassColor: 0x2e3a46, windowWidth: 2.6, floorHeight: 3.6, litProbability: 0.25, warmth: 0.55 },
+  { kind: 'prewar', stoneColor: 0xcfd4d6, trimColor: 0x9aa4a8, windowGlassColor: 0x2e3a46, windowWidth: 3.0, floorHeight: 3.6, litProbability: 0.22, warmth: 0.5 },
+  { kind: 'prewar', stoneColor: 0xdcc7b0, trimColor: 0xa87f5f, windowGlassColor: 0x2e3a46, windowWidth: 2.6, floorHeight: 3.6, litProbability: 0.25, warmth: 0.6 },
+];
+// Track classes: capsule overall (straight + width) x width. The
+// first is the 400 m class, then 300 m, 200 m, small-200 m, mini.
+const SCHOOL_TRACK_CLASSES = [
+  { cls: '400m', straight: 84, width: 62 },
+  { cls: '300m', straight: 64, width: 52 },
+  { cls: '200m', straight: 46, width: 42 },
+  { cls: '200m-s', straight: 30, width: 32 },
+  { cls: 'mini', straight: 18, width: 24 },
+];
+
+function schoolSeedOf(osmType, osmId) {
+  const s = `${osmType}/${osmId}`;
+  let h = 0x811c9dc5;
+  for (let i = 0; i < s.length; i++) { h ^= s.charCodeAt(i); h = Math.imul(h, 0x01000193); }
+  return h | 0;
+}
+
+function ringPtsOf(ring) {
+  const pts = [];
+  for (let i = 0; i + 1 < ring.length; i += 2) pts.push([ring[i], ring[i + 1]]);
+  if (pts.length > 1) {
+    const [fx, fz] = pts[0], [lx, lz] = pts[pts.length - 1];
+    if (Math.hypot(fx - lx, fz - lz) < 0.05) pts.pop();
+  }
+  return pts;
+}
+
+function ringAreaOf(pts) {
+  let a = 0;
+  for (let i = 0, j = pts.length - 1; i < pts.length; j = i++) a += pts[j][0] * pts[i][1] - pts[i][0] * pts[j][1];
+  return a / 2;
+}
+
+function convexHullOf(pts) {
+  const sorted = [...pts].sort((a, b) => a[0] - b[0] || a[1] - b[1]);
+  const cross = (o, a, b) => (a[0] - o[0]) * (b[1] - o[1]) - (a[1] - o[1]) * (b[0] - o[0]);
+  const lower = [], upper = [];
+  for (const p of sorted) {
+    while (lower.length >= 2 && cross(lower[lower.length - 2], lower[lower.length - 1], p) <= 0) lower.pop();
+    lower.push(p);
+  }
+  for (let i = sorted.length - 1; i >= 0; i--) {
+    const p = sorted[i];
+    while (upper.length >= 2 && cross(upper[upper.length - 2], upper[upper.length - 1], p) <= 0) upper.pop();
+    upper.push(p);
+  }
+  lower.pop(); upper.pop();
+  return lower.concat(upper);
+}
+
+// Minimum-area rectangle of the ring (rotating calipers over the
+// hull's edge directions). Returns the frame the whole layout is
+// authored in: centre C, axis angle theta (the long axis runs along
+// (cos, sin) in the tile plane), long side W, short side D, and the
+// fill ratio ring-area / rect-area.
+function fitCampusRect(pts) {
+  const hull = convexHullOf(pts);
+  let best = null;
+  const consider = (theta) => {
+    const c = Math.cos(theta), s = Math.sin(theta);
+    let u0 = Infinity, u1 = -Infinity, v0 = Infinity, v1 = -Infinity;
+    for (const [x, z] of hull) {
+      const u = x * c + z * s, v = -x * s + z * c;
+      if (u < u0) u0 = u; if (u > u1) u1 = u;
+      if (v < v0) v0 = v; if (v > v1) v1 = v;
+    }
+    const area = (u1 - u0) * (v1 - v0);
+    if (!best || area < best.area - 1e-9) best = { theta, u0, u1, v0, v1, area };
+  };
+  for (let i = 0; i < hull.length; i++) {
+    const [ax, az] = hull[i], [bx, bz] = hull[(i + 1) % hull.length];
+    if (Math.hypot(bx - ax, bz - az) < 0.01) continue;
+    consider(Math.atan2(bz - az, bx - ax));
+  }
+  if (!best) return null;
+  let { theta } = best;
+  // Extents over the whole ring (not just the hull) in the frame.
+  const c = Math.cos(theta), s = Math.sin(theta);
+  let u0 = Infinity, u1 = -Infinity, v0 = Infinity, v1 = -Infinity;
+  for (const [x, z] of pts) {
+    const u = x * c + z * s, v = -x * s + z * c;
+    if (u < u0) u0 = u; if (u > u1) u1 = u;
+    if (v < v0) v0 = v; if (v > v1) v1 = v;
+  }
+  let W = u1 - u0, D = v1 - v0;
+  let cu = (u0 + u1) / 2, cv = (v0 + v1) / 2;
+  if (D > W) { // keep W the long side: rotate the frame a quarter turn
+    theta += Math.PI / 2;
+    [W, D] = [D, W];
+    const c2 = Math.cos(theta), s2 = Math.sin(theta);
+    u0 = Infinity; u1 = -Infinity; v0 = Infinity; v1 = -Infinity;
+    for (const [x, z] of pts) {
+      const u = x * c2 + z * s2, v = -x * s2 + z * c2;
+      if (u < u0) u0 = u; if (u > u1) u1 = u;
+      if (v < v0) v0 = v; if (v > v1) v1 = v;
+    }
+    cu = (u0 + u1) / 2; cv = (v0 + v1) / 2;
+  }
+  const cc = Math.cos(theta), ss = Math.sin(theta);
+  const cx = cu * cc - cv * ss, cz = cu * ss + cv * cc;
+  const area = Math.abs(ringAreaOf(pts));
+  return { cx, cz, theta, W, D, area, fill: area / (W * D) };
+}
+
+// One campus, generated. `frame` is the fitted rect, `gateSide` the
+// local side index (0:+u end, 1:-u end, 2:+v side, 3:-v side) whose
+// frontage the gate opens on. Parts come back in structure space
+// (dx/dz relative to the structure origin at the ring centroid).
+function generateSchoolCampus(ground, frame, gateSide, origin) {
+  const seed = schoolSeedOf(ground.osmType, ground.osmId);
+  const draw = (salt) => hash01(seed ^ (salt * 0x9e37 + 0x221));
+  const kind = ground.kind;
+  const isUni = kind === 'university' || kind === 'college';
+  const isKinder = kind === 'kindergarten';
+  const large = isUni || frame.area >= 42000;
+  const clipped = frame.fill < 0.72;
+  const { theta, W, D } = frame;
+  const cosT = Math.cos(theta), sinT = Math.sin(theta);
+  const toWorld = (u, v) => [frame.cx + u * cosT - v * sinT, frame.cz + u * sinT + v * cosT];
+  const inRing = (u, v, shrink = 0) => {
+    const [x, z] = toWorld(u, v);
+    return pointInRing(x, z, ground.ring);
+  };
+  const parts = [];
+  const placed = []; // local rects {u, v, w, d} (axis-aligned in the local frame)
+  const overlaps = (u, v, w, d, pad = 1) => placed.some((p) =>
+    Math.abs(u - p.u) < (w + p.w) / 2 + pad && Math.abs(v - p.v) < (d + p.d) / 2 + pad);
+  const boxInRing = (u, v, w, d, rot) => {
+    const c = Math.cos(rot), s = Math.sin(rot);
+    for (const [lx, lz] of [[-w / 2, -d / 2], [w / 2, -d / 2], [w / 2, d / 2], [-w / 2, d / 2]]) {
+      if (!inRing(u + lx * c - lz * s, v + lx * s + lz * c)) return false;
+    }
+    return true;
+  };
+  // Author a box part from local frame coords; registers its rect.
+  const addBox = (u, v, w, d, h, opts = {}) => {
+    const rot = opts.rot || 0;
+    const regW = rot ? d : w, regD = rot ? w : d;
+    if (!opts.skipFit) {
+      if (overlaps(u, v, regW, regD, opts.pad ?? 1)) return false;
+      if (!boxInRing(u, v, w, d, rot)) return false;
+    }
+    const [x, z] = toWorld(u, v);
+    const part = { type: 'box', w, d, h, dx: Math.round((x - origin.x) * 10) / 10, dz: Math.round((z - origin.z) * 10) / 10 };
+    if (opts.y0) part.y0 = opts.y0;
+    const rotY = theta + rot;
+    if (rotY) part.rotY = Math.round(rotY * 10000) / 10000;
+    if (opts.flat !== undefined) part.flat = opts.flat;
+    parts.push(part);
+    if (!opts.noReg) placed.push({ u, v, w: regW, d: regD });
+    if (h >= 7 && opts.flat === undefined) buildingCount++;
+    return true;
+  };
+
+  let salt = 1;
+  let buildingCount = 0;      // slabs + hall + library actually placed
+  const M = 3.5;              // slab margin inside the fitted rect
+  const slabDepth = 11 + draw(salt++) * 2.5;
+  const floorsFor = (lo, hi) => lo + Math.floor(draw(salt++) * (hi - lo + 1));
+  let maxTop = 0;
+  const noteTop = (h) => { if (h > maxTop) maxTop = h; };
+
+  // --- choose the sports core: largest track class that fits with
+  // its arrangement's side bands, else the compact courts layout ---
+  const rowBand = slabDepth + 6.5;             // row of slabs + gap to the track
+  const courtBand = 25;                        // courts row + margins
+  let track = null, variant = null;
+  if (!isKinder) {
+    const variants = [
+      { name: 'U', bandA: rowBand, bandB: rowBand, ends: true },
+      { name: 'parallel', bandA: rowBand, bandB: rowBand, ends: false },
+      { name: 'L', bandA: rowBand, bandB: 6, ends: true },
+      { name: 'court-side', bandA: rowBand, bandB: courtBand, ends: false },
+      { name: 'bare', bandA: 6, bandB: 6, ends: false },
+    ];
+    // Seeded preference among variants, but a bigger track class
+    // always beats a smaller one (the class loop is the outer one).
+    const pref = variants.map((v, i) => [draw(900 + i), i]).sort((a, b) => b[0] - a[0]).map(([, i]) => variants[i]);
+    for (const tc of SCHOOL_TRACK_CLASSES) {
+      if (tc.cls === 'mini' && frame.area > 26000) continue; // a big ground never takes the mini loop
+      const overallL = tc.straight + tc.width;
+      for (const v of pref) {
+        if (tc.width + v.bandA + v.bandB <= D - 1 && overallL <= W - 16) { track = tc; variant = v; break; }
+      }
+      if (track) break;
+    }
+  }
+
+  // Yard slab: a pale concrete ground sheet under the whole campus,
+  // only where the fitted rect honestly sits inside the ring.
+  if (frame.fill >= 0.78 && boxInRing(0, 0, W - 5, D - 5, 0)) {
+    addBox(0, 0, W - 5, D - 5, 0.1, { y0: 0.03, flat: SCHOOL_YARD_COLOR, noReg: true, skipFit: true });
+  }
+
+  let trackHalfW = 0, trackL = 0;
+  if (track) {
+    trackHalfW = track.width / 2; trackL = track.straight + track.width;
+    placed.push({ u: 0, v: 0, w: trackL, d: track.width });
+    const [tx, tz] = toWorld(0, 0);
+    for (const p of trackCapsuleParts(Math.round((tx - origin.x) * 10) / 10, Math.round((tz - origin.z) * 10) / 10,
+      track.straight, track.width, track.width - 12, theta, SCHOOL_TRACK_RED, SCHOOL_FIELD_GREEN)) parts.push(p);
+  }
+
+  // --- assembly hall at one end (not the gate end when the gate is
+  // an end side), sized to sit between the slab rows ---
+  let hallEnd = 0; // +1: at +u end, -1: at -u end, 0: none
+  if (!isKinder && W >= (track ? trackL + 46 : 78)) {
+    hallEnd = gateSide === 0 ? -1 : gateSide === 1 ? 1 : (draw(salt++) < 0.5 ? 1 : -1);
+    const hallD = 17 + draw(salt++) * 4;
+    const hallW = Math.min(track ? track.width - 6 : D - 2 * (M + slabDepth) - 4, 36);
+    const hallH = Math.round((8.5 + draw(salt++) * 4) * 10) / 10;
+    const hu = hallEnd * (W / 2 - M - hallD / 2);
+    if (hallW >= 18 && addBox(hu, 0, hallW, hallD, hallH, { rot: Math.PI / 2 })) {
+      noteTop(hallH);
+      addBox(hu, 0, hallW + 1.2, hallD + 1.2, 0.5, { y0: hallH, rot: Math.PI / 2, flat: 0x8a8d90, noReg: true, skipFit: true });
+    } else hallEnd = 0;
+  }
+
+  // --- classroom slab rows ---
+  const slabFloors = isKinder ? [2, 3] : large ? [4, 8] : kind === 'school' ? [3, 6] : [3, 5];
+  const fillRow = (vC, uFrom, uTo, blocked = []) => {
+    const ranges = [];
+    let cur = uFrom;
+    for (const [b0, b1] of [...blocked].sort((a, b) => a[0] - b[0])) {
+      if (b0 > cur) ranges.push([cur, Math.min(b0, uTo)]);
+      cur = Math.max(cur, b1);
+    }
+    if (cur < uTo) ranges.push([cur, uTo]);
+    for (const [r0, r1] of ranges) {
+      let u = r0;
+      while (r1 - u >= 24) {
+        let len = 26 + draw(salt++) * 32;
+        if (r1 - u - len < 18) len = r1 - u; // absorb an unusable tail stub
+        len = Math.min(len, r1 - u);
+        const floors = floorsFor(slabFloors[0], slabFloors[1]);
+        const h = Math.round(floors * 3.6 * 10) / 10;
+        if (addBox(u + len / 2, vC, len, slabDepth, h)) noteTop(h);
+        u += len + 4 + draw(salt++) * 5;
+      }
+    }
+  };
+
+  if (track) {
+    const rowV = trackHalfW + 3.5 + slabDepth / 2;
+    const uFrom = -W / 2 + M, uTo = W / 2 - M;
+    if (variant.bandA >= rowBand) fillRow(-rowV, uFrom, uTo);
+    if (variant.bandB >= rowBand) fillRow(rowV, uFrom, uTo);
+    if (variant.bandB >= courtBand && variant.bandA < courtBand) {
+      // courts row on the +v side
+      const cv = trackHalfW + 3.5 + 9;
+      let cu = -trackL / 2 + 16;
+      const nCourts = Math.min(3, Math.floor(trackL / 34));
+      for (let i = 0; i < nCourts; i++) {
+        addBox(cu, cv, 30, 18, 0.25, { y0: 0.05, flat: i % 2 ? SCHOOL_COURT_GREEN : SCHOOL_COURT_BLUE });
+        cu += 34;
+      }
+    }
+    if (variant.ends) {
+      // End slabs at the non-hall end, spanning the track's width.
+      const endU = (hallEnd === 1 ? -1 : 1) * (W / 2 - M - slabDepth / 2);
+      let v = -trackHalfW + 2;
+      while (v + 22 <= trackHalfW - 1) {
+        const len = Math.min(22 + draw(salt++) * 14, trackHalfW - 1 - v);
+        if (len < 16) break;
+        const floors = floorsFor(slabFloors[0], slabFloors[1]);
+        const h = Math.round(floors * 3.6 * 10) / 10;
+        if (addBox(endU, v + len / 2, len, slabDepth, h, { rot: Math.PI / 2 })) noteTop(h);
+        v += len + 5;
+      }
+    }
+  } else {
+    // --- compact archetype: perimeter rows + courts/playground ---
+    const rowVN = -(D / 2 - M - slabDepth / 2), rowVS = D / 2 - M - slabDepth / 2;
+    const uFrom = -W / 2 + M, uTo = W / 2 - M;
+    fillRow(rowVN, uFrom, uTo);
+    if (!isKinder || D >= 40) fillRow(rowVS, uFrom, uTo);
+    const midD = D - 2 * (M + slabDepth);
+    if (midD >= 21 && W >= 52) {
+      // courts row(s) in the middle band
+      let cu = uFrom + 16;
+      const nCourts = Math.min(isKinder ? 1 : 3, Math.floor((uTo - uFrom - 8) / 34));
+      for (let i = 0; i < nCourts; i++) {
+        addBox(cu, 0, 30, 18, 0.25, { y0: 0.05, flat: i % 2 ? SCHOOL_COURT_BLUE : SCHOOL_COURT_GREEN });
+        cu += 34;
+      }
+      if (midD >= 40 && !isKinder) { // a green playground slab beside the courts
+        addBox(0, midD / 2 - 8, Math.min(W - 2 * M - 4, 60), 14, 0.22, { y0: 0.05, flat: SCHOOL_LAWN_COLOR });
+      }
+    } else if (midD >= 10) {
+      addBox(0, 0, Math.min(W - 2 * M - 4, 56), Math.min(midD - 2, 20), 0.22, { y0: 0.05, flat: isKinder ? SCHOOL_LAWN_COLOR : SCHOOL_COURT_GREEN });
+    }
+  }
+
+  // --- large-campus extras: a library-scale block + lawns ---
+  if (large && !isKinder) {
+    const libW = 24 + draw(salt++) * 8, libD = 18 + draw(salt++) * 6;
+    const libH = Math.round(floorsFor(7, 10) * 3.6 * 10) / 10;
+    const corners = [[1, 1], [1, -1], [-1, 1], [-1, -1]].map((c, i) => [draw(700 + i), c]).sort((a, b) => b[0] - a[0]);
+    for (const [, [su, sv]] of corners) {
+      if (addBox(su * (W / 2 - M - libD / 2), sv * (D / 2 - M - libW / 2), libW, libD, libH, { rot: Math.PI / 2 })) { noteTop(libH); break; }
+      if (addBox(su * (W / 2 - M - libW / 2), sv * (D / 2 - M - libD / 2), libW, libD, libH)) { noteTop(libH); break; }
+    }
+    for (const [su, sv] of [[1, 1], [-1, -1], [1, -1], [-1, 1]]) {
+      const lw = 16 + draw(salt++) * 14, ld = 10 + draw(salt++) * 8;
+      addBox(su * (W / 2 - M - lw / 2 - 2), sv * (D / 2 - M - ld / 2 - 2), lw, ld, 0.22, { y0: 0.05, flat: SCHOOL_LAWN_COLOR });
+    }
+  }
+
+  // --- parking near the gate (seeded, optional) ---
+  if (!isKinder && draw(salt++) < 0.55) {
+    const pw = 16 + draw(salt++) * 12, pd = 10 + draw(salt++) * 5;
+    const sideV = gateSide === 2 ? 1 : gateSide === 3 ? -1 : (draw(salt++) < 0.5 ? 1 : -1);
+    const sideU = gateSide === 0 ? 1 : gateSide === 1 ? -1 : (draw(salt++) < 0.5 ? 1 : -1);
+    addBox(sideU * (W / 2 - M - pw / 2 - 1), sideV * (D / 2 - M - pd / 2 - 1), pw, pd, 0.12, { y0: 0.04, flat: SCHOOL_PARKING_COLOR });
+  }
+
+  // --- perimeter fence + gate + trees (world space, on the ring) ---
+  const fence = schoolFenceParts(ground, gateSide, frame, origin, seed);
+  parts.push(...fence.parts);
+
+  const archetype = isKinder ? 'kindergarten'
+    : large ? (track ? 'large-track' : 'large-compact')
+    : track ? `track-${variant.name}` : (frame.area < 5200 ? 'compact-mini' : 'compact');
+  return {
+    archetype: clipped ? `${archetype}+clipped` : archetype,
+    trackClass: track ? track.cls : null,
+    parts, height: Math.round((maxTop || 7.2) * 10) / 10, slabCount: buildingCount,
+    gateSeg: fence.gateSeg,
+  };
+}
+
+// The fence: thin concrete wall boxes along the (simplified) OSM
+// ring, a gated gap where the gate side's frontage meets the ring,
+// gate posts + lintel, an optional guard house, and trees inside
+// the line. All parts in structure space.
+function schoolFenceParts(ground, gateSide, frame, origin, seed) {
+  const draw = (salt) => hash01(seed ^ (salt * 0x9e37 + 0x221));
+  const pts = ringPtsOf(ground.ring);
+  // Simplify: drop near-duplicate vertices, then merge near-collinear
+  // runs (cap ~44 segments so a wiggly OSM ring stays affordable).
+  const simp = [pts[0]];
+  for (let i = 1; i < pts.length; i++) {
+    const [px, pz] = simp[simp.length - 1];
+    if (Math.hypot(pts[i][0] - px, pts[i][1] - pz) >= 1.2) simp.push(pts[i]);
+  }
+  const angleAt = (a, b, c) => {
+    const v1 = [b[0] - a[0], b[1] - a[1]], v2 = [c[0] - b[0], c[1] - b[1]];
+    const l1 = Math.hypot(...v1) || 1, l2 = Math.hypot(...v2) || 1;
+    return Math.acos(Math.max(-1, Math.min(1, (v1[0] * v2[0] + v1[1] * v2[1]) / (l1 * l2))));
+  };
+  for (let pass = 0; pass < 4 && simp.length > 12; pass++) {
+    const out = [simp[0]];
+    for (let i = 1; i < simp.length; i++) {
+      const prev = out[out.length - 1], cur = simp[i], next = simp[(i + 1) % simp.length];
+      if (i < simp.length - 1 && angleAt(prev, cur, next) < 0.16 && Math.hypot(cur[0] - prev[0], cur[1] - prev[1]) < 34) continue;
+      out.push(cur);
+    }
+    if (out.length === simp.length) break;
+    simp.length = 0; simp.push(...out);
+    if (simp.length <= 44) break;
+  }
+  const segs = [];
+  for (let i = 0; i < simp.length; i++) {
+    const a = simp[i], b = simp[(i + 1) % simp.length];
+    const len = Math.hypot(b[0] - a[0], b[1] - a[1]);
+    if (len >= 0.8) segs.push({ a, b, len });
+  }
+  // Gate target: the fitted rect's gate-side midpoint, pushed to the ring.
+  const cosT = Math.cos(frame.theta), sinT = Math.sin(frame.theta);
+  const sideLocal = [[frame.W / 2, 0], [-frame.W / 2, 0], [0, frame.D / 2], [0, -frame.D / 2]][gateSide];
+  const gx = frame.cx + sideLocal[0] * cosT - sideLocal[1] * sinT;
+  const gz = frame.cz + sideLocal[0] * sinT + sideLocal[1] * cosT;
+  let gateSeg = -1, gateT = 0.5, gateDist = Infinity;
+  segs.forEach((sg, i) => {
+    const dx = sg.b[0] - sg.a[0], dz = sg.b[1] - sg.a[1];
+    const L2 = dx * dx + dz * dz || 1;
+    let t = ((gx - sg.a[0]) * dx + (gz - sg.a[1]) * dz) / L2;
+    t = Math.max(0, Math.min(1, t));
+    const d = Math.hypot(sg.a[0] + t * dx - gx, sg.a[1] + t * dz - gz);
+    if (d < gateDist) { gateDist = d; gateSeg = i; gateT = t; }
+  });
+  const gateW = ground.kind === 'kindergarten' ? 7 : 11 + draw(4242) * 3;
+  const parts = [];
+  const pushBox = (cx, cz, w, d, h, rotY, flat, y0 = 0) => {
+    const part = { type: 'box', w, d, h, dx: Math.round((cx - origin.x) * 10) / 10, dz: Math.round((cz - origin.z) * 10) / 10, flat };
+    if (y0) part.y0 = y0;
+    if (rotY) part.rotY = Math.round(rotY * 10000) / 10000;
+    parts.push(part);
+  };
+  const treeSpots = [];
+  segs.forEach((sg, i) => {
+    const dx = sg.b[0] - sg.a[0], dz = sg.b[1] - sg.a[1];
+    const rotY = Math.atan2(dz, dx);
+    const pieces = [];
+    if (i === gateSeg) {
+      const cPos = gateT * sg.len;
+      const g0 = Math.max(0, cPos - gateW / 2), g1 = Math.min(sg.len, cPos + gateW / 2);
+      if (g0 > 0.8) pieces.push([0, g0]);
+      if (sg.len - g1 > 0.8) pieces.push([g1, sg.len]);
+      // gate posts + lintel at the gap
+      for (const gp of [g0, g1]) {
+        const px = sg.a[0] + (dx * gp) / sg.len, pz = sg.a[1] + (dz * gp) / sg.len;
+        pushBox(px, pz, 0.9, 0.9, 3.4, 0, 0xb9b2a2);
+      }
+      const mx = sg.a[0] + (dx * (g0 + g1)) / (2 * sg.len), mz = sg.a[1] + (dz * (g0 + g1)) / (2 * sg.len);
+      pushBox(mx, mz, g1 - g0 + 1.8, 1.0, 0.8, rotY, 0xb9b2a2, 3.2);
+      // guard house just inside the gate (seeded)
+      if (draw(4243) < 0.55) {
+        const inw = [(frame.cx - mx), (frame.cz - mz)];
+        const il = Math.hypot(...inw) || 1;
+        pushBox(mx + (inw[0] / il) * 4.2 + (dx / sg.len) * (gateW / 2 + 2.6), mz + (inw[1] / il) * 4.2 + (dz / sg.len) * (gateW / 2 + 2.6), 3.2, 3, 3.0, rotY, 0xcfc8b8);
+      }
+    } else pieces.push([0, sg.len]);
+    for (const [p0, p1] of pieces) {
+      const len = p1 - p0;
+      const mx = sg.a[0] + (dx * (p0 + p1)) / (2 * sg.len), mz = sg.a[1] + (dz * (p0 + p1)) / (2 * sg.len);
+      pushBox(mx, mz, len, 0.35, 2.5, rotY, SCHOOL_FENCE_COLOR);
+    }
+    // tree spots along this segment, offset toward the campus centre
+    const step = 20 + draw(5000 + i) * 8;
+    for (let dpos = step * 0.6; dpos < sg.len - 3; dpos += step) {
+      const px = sg.a[0] + (dx * dpos) / sg.len, pz = sg.a[1] + (dz * dpos) / sg.len;
+      const inw = [frame.cx - px, frame.cz - pz];
+      const il = Math.hypot(...inw) || 1;
+      treeSpots.push([px + (inw[0] / il) * 1.8, pz + (inw[1] / il) * 1.8]);
+    }
+  });
+  // Trees: trunk + dome canopy, capped; skipped near the gate.
+  const gateC = gateSeg >= 0 ? [segs[gateSeg].a[0] + (segs[gateSeg].b[0] - segs[gateSeg].a[0]) * gateT,
+                                segs[gateSeg].a[1] + (segs[gateSeg].b[1] - segs[gateSeg].a[1]) * gateT] : null;
+  let trees = 0;
+  for (const [tx, tz] of treeSpots) {
+    if (trees >= 14) break;
+    if (gateC && Math.hypot(tx - gateC[0], tz - gateC[1]) < gateW) continue;
+    if (!pointInRing(tx, tz, ground.ring)) continue;
+    const r = 1.9 + draw(6000 + trees) * 1.0;
+    parts.push({ type: 'cylinder', r: 0.16, h: 2.1, dx: Math.round((tx - origin.x) * 10) / 10, dz: Math.round((tz - origin.z) * 10) / 10, flat: SCHOOL_TRUNK_COLOR });
+    parts.push({ type: 'dome', rx: r, rz: r, h: Math.round(r * 1.05 * 10) / 10, y0: 1.9, dx: Math.round((tx - origin.x) * 10) / 10, dz: Math.round((tz - origin.z) * 10) / 10, flat: SCHOOL_CANOPY_COLORS[trees % 3] });
+    trees++;
+  }
+  return { parts, gateSeg };
+}
+
+// All campuses for a geodata: grouping, skip rules, gate frontage,
+// generation. Returns { structures, report } — structures are
+// resolved like resolveLandmark's output and join plan.siteStructures.
+export function planSchoolCampuses(geodata, landmarkSites, carriageways) {
+  const report = [];
+  const structures = [];
+  const entries = Array.isArray(geodata.schools) ? geodata.schools : [];
+  // Group clipped pieces by OSM element.
+  const groups = new Map();
+  for (const e of entries) {
+    const key = `${e.osmType}/${e.osmId}`;
+    if (!groups.has(key)) groups.set(key, []);
+    groups.get(key).push(e);
+  }
+  const grounds = [];
+  for (const [key, pieces] of groups) {
+    pieces.sort((a, b) => b.area - a.area);
+    const main = pieces[0];
+    const totalArea = pieces.reduce((s, p) => s + p.area, 0);
+    grounds.push({ key, osmType: main.osmType, osmId: main.osmId, kind: main.kind, name: main.name || '', ring: main.ring, area: totalArea, pieces: pieces.length });
+  }
+  grounds.sort((a, b) => b.area - a.area);
+  // Road vertices near a ground, for the gate-frontage scan.
+  const roadPtsNear = (bb, grow) => {
+    const out = [];
+    for (const bed of carriageways || []) {
+      const pts = bed.pts || [];
+      let minX = Infinity, maxX = -Infinity, minZ = Infinity, maxZ = -Infinity;
+      for (let i = 0; i + 1 < pts.length; i += 2) {
+        if (pts[i] < minX) minX = pts[i]; if (pts[i] > maxX) maxX = pts[i];
+        if (pts[i + 1] < minZ) minZ = pts[i + 1]; if (pts[i + 1] > maxZ) maxZ = pts[i + 1];
+      }
+      if (maxX < bb.minX - grow || minX > bb.maxX + grow || maxZ < bb.minZ - grow || minZ > bb.maxZ + grow) continue;
+      for (let i = 0; i + 1 < pts.length; i += 2) out.push([pts[i], pts[i + 1]]);
+    }
+    return out;
+  };
+  const kept = [];
+  for (const g of grounds) {
+    const rep = { key: g.key, osmType: g.osmType, osmId: g.osmId, kind: g.kind, name: g.name, area: g.area, pieces: g.pieces };
+    report.push(rep);
+    if (g.area < 700) { rep.skip = 'building-footprint-scale (<700 m² — the way tags a building, not grounds)'; continue; }
+    const pts = ringPtsOf(g.ring);
+    const bb = ringBbox(g.ring);
+    // Registry campuses: overlap with a landmark site rect.
+    let registryHit = false;
+    for (const s of landmarkSites || []) {
+      const ix = Math.max(0, Math.min(bb.maxX, s.maxX) - Math.max(bb.minX, s.minX));
+      const iz = Math.max(0, Math.min(bb.maxZ, s.maxZ) - Math.max(bb.minZ, s.minZ));
+      if (ix * iz >= 0.35 * (bb.maxX - bb.minX) * (bb.maxZ - bb.minZ)) { registryHit = true; break; }
+    }
+    if (registryHit) { rep.skip = 'registry campus (handcrafted — #166)'; continue; }
+    // Subsumption: >= 85% of this ring's vertices inside a kept larger ground.
+    let subsumedBy = null;
+    for (const big of kept) {
+      let inside = 0;
+      for (const [x, z] of pts) if (pointInRing(x, z, big.ring)) inside++;
+      if (pts.length && inside / pts.length >= 0.85) { subsumedBy = big.key; break; }
+    }
+    if (subsumedBy) { rep.skip = `subsumed by ${subsumedBy}`; continue; }
+    kept.push(g);
+    const frame = fitCampusRect(pts);
+    if (!frame) { rep.skip = 'degenerate ring'; continue; }
+    rep.frame = { W: Math.round(frame.W), D: Math.round(frame.D), fill: Math.round(frame.fill * 100) / 100 };
+    if (g.pieces > 1) rep.fragmentNote = `largest of ${g.pieces} clipped pieces generates; the rest stay exclusion-only`;
+    // Gate side: the fitted-rect side whose midpoint (pushed 8 m
+    // outward) comes closest to a carriageway vertex; fallback the
+    // +v long side when no road runs within 90 m.
+    const roadPts = roadPtsNear(bb, 90);
+    const cosT = Math.cos(frame.theta), sinT = Math.sin(frame.theta);
+    const sideMid = [[frame.W / 2, 0], [-frame.W / 2, 0], [0, frame.D / 2], [0, -frame.D / 2]];
+    let gateSide = 2, gateBest = Infinity;
+    sideMid.forEach(([lu, lv], si) => {
+      const nx = lu === 0 ? 0 : Math.sign(lu), nz = lv === 0 ? 0 : Math.sign(lv);
+      const ox = frame.cx + (lu + nx * 8) * cosT - (lv + nz * 8) * sinT;
+      const oz = frame.cz + (lu + nx * 8) * sinT + (lv + nz * 8) * cosT;
+      for (const [rx, rz] of roadPts) {
+        const d = Math.hypot(rx - ox, rz - oz);
+        if (d < gateBest) { gateBest = d; gateSide = si; }
+      }
+    });
+    rep.gateRoadDist = gateBest === Infinity ? null : Math.round(gateBest);
+    // Structure origin: ring centroid (the resolveLandmark convention).
+    let ox = 0, oz = 0;
+    for (const [x, z] of pts) { ox += x; oz += z; }
+    const origin = { x: Math.round((ox / pts.length) * 10) / 10, z: Math.round((oz / pts.length) * 10) / 10 };
+    const gen = generateSchoolCampus(g, frame, gateSide, origin);
+    if (gen.slabCount === 0 && !gen.trackClass && gen.parts.length <= 50) {
+      rep.skip = 'no-fit (even the compact layout places nothing)';
+      continue;
+    }
+    rep.archetype = gen.archetype;
+    rep.trackClass = gen.trackClass;
+    rep.parts = gen.parts.length;
+    rep.slabs = gen.slabCount;
+    const facade = { ...SCHOOL_FACADES[Math.floor(hash01(schoolSeedOf(g.osmType, g.osmId) ^ 0xfacade) * SCHOOL_FACADES.length) % SCHOOL_FACADES.length], seed: 57 + Math.floor(hash01(schoolSeedOf(g.osmType, g.osmId) ^ 0x5eed) * 900) / 100 };
+    structures.push({
+      id: `school-${g.osmType}-${g.osmId}`,
+      name: g.name || `School (OSM ${g.osmType} ${g.osmId})`,
+      nameZh: /[\u4e00-\u9fff]/.test(g.name) ? g.name : '',
+      x: origin.x, z: origin.z,
+      lat: 0, lon: 0, // generated in tile space; lat/lon filled by the planner wrapper below
+      realHeight: gen.height, height: gen.height, estimated: true,
+      distFromOrigin: Math.round(Math.hypot(origin.x, origin.z)),
+      color: facade.stoneColor,
+      site: { minX: bb.minX, maxX: bb.maxX, minZ: bb.minZ, maxZ: bb.maxZ },
+      openGround: null,
+      sites: [{ minX: bb.minX, maxX: bb.maxX, minZ: bb.minZ, maxZ: bb.maxZ }],
+      parts: gen.parts, facade, sign: null,
+      school: { key: g.key, kind: g.kind, archetype: gen.archetype, trackClass: gen.trackClass },
+    });
+  }
+  return { structures, report };
+}
+
 export function planTaipeiBuildings(geodata) {
   const stats = { blocksSeen: 0, blocksFine: 0, lotsFine: 0, blocksSkippedSmall: 0, blocksSkippedParkWater: 0, blocksSkippedGreen: 0, blocksSkippedAirfield: 0, blocksSkippedOutsideUnion: 0, lotsDroppedVacancy: 0, lotsDroppedParkWater: 0, lotsDroppedGreen: 0, lotsDroppedRiverside: 0, lotsDroppedAirfield: 0, lotsDroppedTowerSite: 0, lotsDroppedRoad: 0, lotsDroppedMedian: 0, lotsDroppedOutsideUnion: 0, lotsDroppedTrackBed: 0, lotsDroppedTrackPierce: 0, lotsDroppedPier: 0, blocksRotated: 0, lotsRotated: 0, lotsPackedFrontage: 0, lotsTallFrontage: 0, heightsPermit: 0, heightsOsmHeight: 0, heightsOsmLevels: 0, heightsDoor: 0, heightsField: 0, heightsProc: 0, lotsFrontagePulled: 0, lotsFrontageFlush: 0, lotsFrontageHeldNoBed: 0, lotsFrontageHeldBlocked: 0, frontagePullMetres: 0 };
   // Union-of-boxes tile (issue #60): the geodata frame carries the

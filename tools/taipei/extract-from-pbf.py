@@ -58,15 +58,24 @@ def green_class(t):
         return 'natural:' + na
     return None
 
+EDU_AMENITIES = ('school', 'kindergarten', 'university', 'college')
+
+def is_edu(t):
+    return t.get('amenity') in EDU_AMENITIES or t.get('landuse') == 'education'
+
 class Collector(osmium.SimpleHandler):
     def __init__(self):
         super().__init__()
         self.ways = {}        # id -> {tags, nodes:[ids], geometry:[{lat,lon}]}
         self.nodes = {}       # id -> {tags, lat, lon} (only tagged/landmark nodes in bbox)
         self.station_nodes = {}  # id -> {tags, lat, lon} (railway station/stop nodes in bbox, issue #118)
+        self.school_nodes = {}  # id -> {tags, lat, lon} (education campuses mapped as a point only, issue #221)
         self.relations = []   # {tags, members:[(type, ref, role)]}
         self.rel_member_ways = set()  # member way ids of interesting relations (pass-2 recovery)
     def node(self, n):
+        if is_edu(n.tags):
+            if in_bbox(n.location.lat, n.location.lon, M):
+                self.school_nodes[n.id] = {'tags': dict(n.tags), 'lat': n.location.lat, 'lon': n.location.lon}
         if n.tags.get('railway') in ('station', 'stop', 'halt') or n.tags.get('public_transport') == 'station':
             if in_bbox(n.location.lat, n.location.lon, M):
                 self.station_nodes[n.id] = {'tags': dict(n.tags), 'lat': n.location.lat, 'lon': n.location.lon}
@@ -84,6 +93,7 @@ class Collector(osmium.SimpleHandler):
         interesting = (tags.get('natural') == 'water' or tags.get('waterway') == 'riverbank'
                        or tags.get('leisure') == 'park' or tags.get('landuse') in ('grass', 'forest', 'meadow')
                        or green_class(tags) is not None
+                       or is_edu(tags)
                        or tags.get('aeroway') == 'aerodrome'
                        or tags.get('name:en') in ('Taipei 101',) or tags.get('name') == '台北101'
                        or tags.get('name:en', '').startswith(('Sun Yat-Sen', 'Taipei City Hall')))
@@ -180,6 +190,18 @@ def main():
     aeroway = [{'type': 'way', 'id': wid, 'tags': w['tags'], 'geometry': w['geometry']}
                for wid, w in c.ways.items() if wid in tile_way_ids and 'aeroway' in w['tags']]
 
+    # Education grounds (issue #221): school / kindergarten /
+    # university / college campuses — the input of the procedural
+    # campus generator. Ways carry their own outline; relations are
+    # stitched in the loop below like every other polygon class;
+    # campuses mapped as a bare node are emitted as nodes — the
+    # census names them, but no generator can bound a point, so the
+    # builder skips them by construction.
+    schools = [{'type': 'way', 'id': wid, 'tags': w['tags'], 'geometry': w['geometry']}
+               for wid, w in c.ways.items() if wid in tile_way_ids and is_edu(w['tags'])]
+    schools += [{'type': 'node', 'id': nid, 'tags': n['tags'], 'lat': n['lat'], 'lon': n['lon']}
+                for nid, n in c.school_nodes.items()]
+
     for rel in c.relations:
         outer = [ref for (t, ref, role) in rel['members'] if t == 'w' and role in ('outer', '')]
         rings = stitch(outer, c.ways)
@@ -201,9 +223,72 @@ def main():
             landmarks.append(el)
         if rel['tags'].get('aeroway') == 'aerodrome':
             aeroway.append(el)
+        if is_edu(rel['tags']):
+            schools.append(el)
+
+    # Issue #221: per-campus content stats. The generator needs to
+    # know what OSM already mapped inside each ground — a university
+    # with many building footprints and NO pitch anywhere (NTUT's
+    # dense urban campus) must not grow a fictional running track,
+    # while a ground carrying a mapped track should keep the track
+    # archetype. Pitch/track polygons and building footprints are
+    # joined by centroid against each ground's rings, here where
+    # every tile way is already in memory.
+    def _shoelace_m2(geom):
+        a = 0.0
+        for i in range(len(geom)):
+            g1, g2 = geom[i], geom[(i + 1) % len(geom)]
+            a += (g1['lon'] * 100842.0) * (g2['lat'] * 110996.0) - (g2['lon'] * 100842.0) * (g1['lat'] * 110996.0)
+        return abs(a) / 2.0
+    def _centroid(geom):
+        return (sum(g['lat'] for g in geom) / len(geom), sum(g['lon'] for g in geom) / len(geom))
+    def _in_ring(lat, lon, ring):
+        inside = False
+        j = len(ring) - 1
+        for i in range(len(ring)):
+            li, loi = ring[i]['lat'], ring[i]['lon']
+            lj, loj = ring[j]['lat'], ring[j]['lon']
+            if (li > lat) != (lj > lat) and lon < (loj - loi) * (lat - li) / (lj - li) + loi:
+                inside = not inside
+            j = i
+        return inside
+    pitch_pts, building_pts = [], []
+    for wid, w in c.ways.items():
+        if wid not in tile_way_ids or not w['geometry']:
+            continue
+        t = w['tags']
+        if t.get('leisure') in ('pitch', 'track'):
+            la, lo = _centroid(w['geometry'])
+            is_track = (t.get('leisure') == 'track' or t.get('sport') in ('running', 'athletics')
+                        or '跑道' in t.get('name', '') or '田徑' in t.get('name', ''))
+            pitch_pts.append((la, lo, _shoelace_m2(w['geometry']), is_track))
+        elif 'building' in t:
+            la, lo = _centroid(w['geometry'])
+            building_pts.append((la, lo))
+    for el in schools:
+        if el['type'] == 'node':
+            continue
+        rings = el.get('rings') or ([el['geometry']] if el.get('geometry') else [])
+        rings = [r for r in rings if len(r) >= 4 and r[0] == r[-1]] or rings
+        if not rings:
+            continue
+        lats = [g['lat'] for r in rings for g in r]; lons = [g['lon'] for r in rings for g in r]
+        bb = (min(lats), min(lons), max(lats), max(lons))
+        def _inside(la, lo):
+            if not (bb[0] <= la <= bb[2] and bb[1] <= lo <= bb[3]):
+                return False
+            return any(_in_ring(la, lo, r) for r in rings)
+        ps = [p for p in pitch_pts if _inside(p[0], p[1])]
+        bs = [b for b in building_pts if _inside(b[0], b[1])]
+        el['campusStats'] = {
+            'pitches': len(ps),
+            'pitchAreaM2': round(sum(p[2] for p in ps)),
+            'hasTrack': any(p[3] for p in ps),
+            'buildings': len(bs),
+        }
 
     import os
-    for name, els in [('osm_roads', roads), ('osm_water', water), ('osm_parks', parks), ('osm_landmarks', landmarks), ('osm_green', green), ('osm_railways', railways), ('osm_aeroway', aeroway)]:
+    for name, els in [('osm_roads', roads), ('osm_water', water), ('osm_parks', parks), ('osm_landmarks', landmarks), ('osm_green', green), ('osm_railways', railways), ('osm_aeroway', aeroway), ('osm_schools', schools)]:
         path = os.path.join(outdir, name + '.json')
         with open(path, 'w') as f:
             json.dump({'version': 0.7, 'generator': 'extract-from-pbf.py (Geofabrik Taiwan extract)', 'elements': els}, f)
