@@ -415,6 +415,12 @@ test('issue #178: with boot-exact exclusions (full cap surface), no tree stands 
   // pins the counterfactual (the old wiring's luck), not the
   // shipped behaviour — the boot-exact invariant below still
   // measures 0 on this tree.
+  // Re-pinned for issue #226: the count is 0 again. The creek
+  // fix changes the plan (+120 lots in the Beitou/Tianmu
+  // corridors), the candidate stream reshuffles once more, and
+  // the Xinyi sentinel's slot lands clear of the cap surface.
+  // Same counterfactual class as above; the boot-exact
+  // invariant below still measures 0 on this tree.
   const { groundContactPolys } = await import('../js/taipei-viaduct.js');
   const geo = TAIPEI_GEO;
   const plan = planTaipeiBuildings(geo);
@@ -431,8 +437,8 @@ test('issue #178: with boot-exact exclusions (full cap surface), no tree stands 
   ];
   const before = [...planStreetTrees(geo, plan, { exclusions: oldExclusions }).trees,
     ...planParkTrees(geo, plan, { exclusions: oldExclusions }).trees];
-  assert.equal(before.filter((t) => pointInAnyPoly(surfGrid, surfPolys, [t.x, t.z])).length, 1,
-    'one tree stands on the full surface under the old ring+extras exclusions (the #186 candidate reshuffle re-rolled a sentinel back in — see the comment above)');
+  assert.equal(before.filter((t) => pointInAnyPoly(surfGrid, surfPolys, [t.x, t.z])).length, 0,
+    'no tree stands on the full surface under the old ring+extras exclusions (the #226 candidate reshuffle rolled the #186 sentinel back out — see the comment above)');
   const exclusions = [
     ...caps.flatMap((c) => capSurfacePolys(c).map((p) => p.flatMap((pt) => pt))),
     ...sites.flatMap((s) => [s.disc.ring, ...s.aprons.map((a) => a.ring)]),

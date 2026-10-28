@@ -370,8 +370,10 @@ function collectPolys(file, minArea) {
   return out;
 }
 // Rivers: in this tile OSM maps the Keelung River as a centreline only (no bank
-// polygon), so derive a surface by buffering the centreline. Default width 160 m
-// (no width tag in OSM for these ways) — flagged derived:'centreline-buffer'.
+// polygon), so derive a surface by buffering the centreline. Default width
+// depends on the waterway class (issue #223: 160 m for 河-named rivers,
+// 20 m for 溪-named creeks / unnamed ways; an OSM width tag wins over
+// both) — flagged derived:'centreline-buffer'.
 const riverPolys = [];
 // Issue #102: the flat 160 m default folds any stream whose meanders
 // run closer together than the ribbon is wide — every Beitou/Tianmu
@@ -414,6 +416,55 @@ const bufferLineVar = (pts, halfArr) => {
     right.push([pts[i][0] - nx * halfArr[i], pts[i][1] - nz * halfArr[i]]);
   }
   return [...left, ...right.reverse(), left[0]];
+};
+// Issue #223: road-clearance cap for centreline buffers. A creek's
+// channel is bounded by the carriageways that flank it — at the type
+// site the 貴子坑溪 canal runs BETWEEN the 中央北路二段257巷 /
+// 承德路七段401巷620弄 bank lanes, and the shipped roadbeds are the
+// surveyed evidence of where the banks are. Each centreline vertex's
+// half-width is therefore also capped at (distance to the nearest
+// PARALLEL carriageway segment − that road's half width − 1 m of
+// bank margin): the water stops at the road edge instead of flowing
+// under both lanes. Only parallel segments count (|cos| > 0.82, the
+// crossing/bridge case must not pinch the channel), deck beds are
+// excluded (a viaduct overhead does not bound the channel at ground
+// level; the ground streets beneath it cap it themselves), and the
+// cap floors at 3 m so a reach whose centreline runs under a road
+// (a culverted stretch) keeps a thread of water instead of vanishing.
+// Segments are filed under 50 m cells grown by 110 m — more than the
+// widest buffer (80 m) + the widest road half (~11 m) + margin — so a
+// vertex's own cell lists every segment that could cap it, and the
+// per-vertex minimum is order-independent (deterministic output).
+const ROAD_CAP_CELL = 50;
+const roadSegs = [];
+const roadSegGrid = new Map();
+if (roadbeds) {
+  for (const b of roadbeds) {
+    if (b.deck) continue;
+    const pts = b.pts || [];
+    for (let i = 0; i + 3 < pts.length; i += 2) {
+      const s = { ax: pts[i], az: pts[i + 1], bx: pts[i + 2], bz: pts[i + 3], half: (b.width || 6) / 2 };
+      const idx = roadSegs.length; roadSegs.push(s);
+      const x0 = Math.floor((Math.min(s.ax, s.bx) - 110) / ROAD_CAP_CELL), x1 = Math.floor((Math.max(s.ax, s.bx) + 110) / ROAD_CAP_CELL);
+      const z0 = Math.floor((Math.min(s.az, s.bz) - 110) / ROAD_CAP_CELL), z1 = Math.floor((Math.max(s.az, s.bz) + 110) / ROAD_CAP_CELL);
+      for (let cx = x0; cx <= x1; cx++) for (let cz = z0; cz <= z1; cz++) {
+        const k = `${cx},${cz}`;
+        if (!roadSegGrid.has(k)) roadSegGrid.set(k, []);
+        roadSegGrid.get(k).push(idx);
+      }
+    }
+  }
+}
+const roadCapHalfAt = (px, pz, ux, uz) => {
+  let best = Infinity;
+  for (const si of roadSegGrid.get(`${Math.floor(px / ROAD_CAP_CELL)},${Math.floor(pz / ROAD_CAP_CELL)}`) || []) {
+    const s = roadSegs[si];
+    const sx = s.bx - s.ax, sz = s.bz - s.az, sl = Math.hypot(sx, sz) || 1;
+    if (Math.abs((sx * ux + sz * uz) / sl) < 0.82) continue;
+    const d = segPtDist([px, pz], [s.ax, s.az], [s.bx, s.bz]) - s.half - 1;
+    if (d < best) best = d;
+  }
+  return best;
 };
 const ringSelfIntersects = (pts) => {
   const cross = (p1, p2, p3, p4) => {
@@ -556,7 +607,7 @@ for (const el of load('osm_water.json').elements) {
     riverCoverage.set(el.id, inside / inU.length);
   }
 }
-const riverBooked = { capped: [], dropped: [], covered: [] };
+const riverBooked = { capped: [], dropped: [], covered: [], roadCapped: [] };
 for (const el of load('osm_water.json').elements) {
   if (el.type !== 'way' || el.tags?.waterway !== 'river' || !el.geometry) continue;
   const all = geomPts(el);
@@ -564,9 +615,35 @@ for (const el of load('osm_water.json').elements) {
   if (near.length < 2) continue;
   if ((riverCoverage.get(el.id) ?? 0) >= 0.9) { riverBooked.covered.push(`${el.tags.name || el.id} (${(riverCoverage.get(el.id) * 100).toFixed(0)}% inside mapped polygons)`); continue; }
   const wtag = parseFloat(el.tags.width || '');
-  const baseHalf = (Number.isFinite(wtag) ? wtag : 160) / 2;
+  // Issue #223: the flat 160 m default is a RIVER width, but every
+  // polygon-uncovered waterway in this tile is a Beitou/Tianmu creek
+  // （磺溪， 磺港溪， 貴子坑溪， 水磨坑溪， …) whose real channel is
+  // 10–30 m — satellite at the type site shows the 貴子坑溪 canal
+  // between its bank lanes at ~12–15 m — so the river default drew
+  // each creek ~165 m wide and swallowed the bank roads whole.
+  // Creek-named (…溪） and unnamed ways now default to 20 m; 河-named
+  // ways keep the 160 m river default (the in-tile 河 ways —
+  // 淡水河/基隆河 — carry true bankfull polygons and are skipped by
+  // the coverage rule above anyway). The road cap below then
+  // tightens each flanked vertex to the surveyed channel.
+  const nm = el.tags.name || '';
+  const baseHalf = (Number.isFinite(wtag) ? wtag : (!nm || nm.endsWith('溪') ? 20 : 160)) / 2;
   const clear = vertexClearances(near);
-  const halfArr = clear.map((c) => Math.max(1.5, Math.min(baseHalf, 0.45 * c)));
+  let roadCappedVerts = 0;
+  const halfArr = clear.map((c, i) => {
+    let h = Math.max(1.5, Math.min(baseHalf, 0.45 * c));
+    if (roadSegs.length) {
+      const a = near[Math.max(0, i - 1)], b = near[Math.min(near.length - 1, i + 1)];
+      const ux = b[0] - a[0], uz = b[1] - a[1];
+      const L = Math.hypot(ux, uz);
+      if (L > 0) {
+        const cap = roadCapHalfAt(near[i][0], near[i][1], ux / L, uz / L);
+        if (Number.isFinite(cap) && cap < h) { h = Math.max(3, cap); roadCappedVerts++; }
+      }
+    }
+    return h;
+  });
+  if (roadCappedVerts) riverBooked.roadCapped.push(`${nm || el.id}: ${roadCappedVerts}/${near.length} verts`);
   const minHalf = Math.min(...halfArr);
   if (minHalf < baseHalf) riverBooked.capped.push(`${el.tags.name || el.id}: min half-width ${minHalf.toFixed(1)} m at the tight vertex (base ${baseHalf.toFixed(0)})`);
   let pieces = null;
@@ -584,7 +661,65 @@ for (const el of load('osm_water.json').elements) {
 if (riverBooked.capped.length) console.log(`[taipei-geodata] river buffers width-capped by centreline clearance: ${riverBooked.capped.join('; ')}`);
 if (riverBooked.dropped.length) console.log(`[taipei-geodata] river buffers dropped (self-intersecting at every width): ${riverBooked.dropped.join('; ')}`);
 if (riverBooked.covered.length) console.log(`[taipei-geodata] river buffers skipped (bankfull polygon mapped, issue #134): ${riverBooked.covered.join('; ')}`);
-const waterRaw = [...collectedWater, ...riverPolys];
+if (riverBooked.roadCapped.length) console.log(`[taipei-geodata] river buffers width-capped by flanking roads (issue #223): ${riverBooked.roadCapped.join('; ')}`);
+let waterRaw = [...collectedWater, ...riverPolys];
+// Issue #223: the box set overlaps in the Beitou corridor corner
+// (corridor 121.494–121.533 × 25.055–25.133 vs Beitou box
+// 121.464–121.510 × 25.113–25.150), so clipRingUnion emits a reach
+// once per covering box and the smaller piece can sit entirely
+// inside its sibling — the shipped 磺港溪 pair was 69,107 m² plus a
+// contained 56,309 m² copy of the same reach, and water tile-wide
+// carried 22 exact-duplicate rings (45,997 m²). Duplicate water
+// double-draws (the stacking class #206 chases in the green family),
+// so drop the copies — under two deliberately narrow rules, because
+// the first cut of this fix (any same-name containment) ate real
+// features: ponds named like their neighbours and unnamed river
+// pieces that share the empty name with everything else.
+//   * exact copy: an identical ring under the same name (the empty
+//     name included) is the same feature drawn twice — always drop.
+//   * contained sibling: NAMED rings only, and only when the
+//     container is at most 2× the candidate's area — clip siblings
+//     are near-equal (the 磺港溪 pair: 1.23×), while a real pond
+//     inside a river bend or an unnamed confluence piece sits
+//     inside something 10–400× its size and is a distinct feature.
+// Containment is judged generously (every vertex inside the
+// container or within 1.5 m of its edge — a clip sibling's boundary
+// vertices sit ON the seam). Parks/green carry the same clip
+// artifact but are out of this issue's scope.
+{
+  const ptInOrNearRing = (x, z, ring) => {
+    if (pointInFlatRing(x, z, ring)) return true;
+    let m = Infinity;
+    for (let i = 0; i < ring.length; i += 2) {
+      const j = (i + 2) % ring.length;
+      m = Math.min(m, segPtDist([x, z], [ring[i], ring[i + 1]], [ring[j], ring[j + 1]]));
+    }
+    return m <= 1.5;
+  };
+  // Decide drops largest-first (a container is always kept before
+  // the piece it contains), then filter in the ORIGINAL order so the
+  // shipped array's ordering is untouched apart from the removals.
+  const sorted = [...waterRaw].sort((a, b) => b.area - a.area);
+  const keptByName = new Map();
+  const drop = new Set();
+  for (const w of sorted) {
+    const siblings = keptByName.get(w.name) || [];
+    let dup = false;
+    for (const k of siblings) {
+      if (k.ring.length === w.ring.length && k.ring.every((v, i) => v === w.ring[i])) { dup = true; break; }
+      if (!w.name || k.area > 2 * w.area) continue;
+      const kb = flatRingBbox(k.ring), wb = flatRingBbox(w.ring);
+      if (wb.minX < kb.minX - 1.5 || wb.maxX > kb.maxX + 1.5 || wb.minZ < kb.minZ - 1.5 || wb.maxZ > kb.maxZ + 1.5) continue;
+      let allIn = true;
+      for (let i = 0; i < w.ring.length; i += 2) if (!ptInOrNearRing(w.ring[i], w.ring[i + 1], k.ring)) { allIn = false; break; }
+      if (allIn) { dup = true; break; }
+    }
+    if (dup) { drop.add(w); continue; }
+    siblings.push(w); keptByName.set(w.name, siblings);
+  }
+  if (drop.size) console.log(`[taipei-geodata] water: dropped ${drop.size} duplicate/contained same-name rings (issue #223)`);
+  waterRaw = waterRaw.filter((w) => !drop.has(w));
+}
 const parksRaw = collectPolys('osm_parks.json', 100);
 const water = waterRaw.map(({ name, ring, derived, river }) => ({ name, ring, ...(derived ? { derived } : {}), ...(river ? { river } : {}) }));
 const parks = parksRaw.map(({ name, ring }) => ({ name, ring }));

@@ -54,7 +54,7 @@ test('height layer present, provenanced, factors agree with the planner', () => 
 
 test('join census: every lot labelled, per-source counts pinned', (t) => {
   const lots = plan.lots;
-  assert.equal(lots.length, 75400, 'the join moves heights only — the lot count is the #106 plan as composed with #118, #134 and #137, less the #139 removals, the #144 site exclusion (7 lots), the #135 Twin Towers parcel exclusions (47 lots: 21 in the C1 site rect, 26 in the D1 plaza rect, counted on the pre-#135 plan), the 2 #146 Wenhu dive drops, the 31 #165 site exclusions (29 on the Four Seasons D3 parcel, 2 under the Mitsukoshi A4 hall) and the 141 #166 site exclusions, as re-subdivided by the #124 fine-grain rule (46,402 fine lots tile-wide after #186; the composition above is untouched on the blocks the rule leaves coarse), and extended by issue #186 (the airport-north strip: +3,919 fine lots, less the 29 lots the NPM/Miramar registry sites clear)');
+  assert.equal(lots.length, 75520, 'the join moves heights only — the lot count is the #106 plan as composed with #118, #134 and #137, less the #139 removals, the #144 site exclusion (7 lots), the #135 Twin Towers parcel exclusions (47 lots: 21 in the C1 site rect, 26 in the D1 plaza rect, counted on the pre-#135 plan), the 2 #146 Wenhu dive drops, the 31 #165 site exclusions (29 on the Four Seasons D3 parcel, 2 under the Mitsukoshi A4 hall) and the 141 #166 site exclusions, as re-subdivided by the #124 fine-grain rule (46,402 fine lots tile-wide after #186; the composition above is untouched on the blocks the rule leaves coarse), and extended by issue #186 (the airport-north strip: +3,919 fine lots, less the 29 lots the NPM/Miramar registry sites clear); composed with issue #226 (the Beitou/Tianmu creeks at channel width: +120 lots on the released bank land, every changed lot diffed into the creek corridors; 46,460 fine lots tile-wide)');
   for (const lot of lots) assert.ok([...REAL, 'field', 'proc'].includes(lot.hSrc), `lot labelled (${lot.hSrc})`);
   const c = {};
   for (const lot of lots) c[lot.hSrc] = (c[lot.hSrc] || 0) + 1;
@@ -171,18 +171,26 @@ test('join census: every lot labelled, per-source counts pinned', (t) => {
   // Dazhi / museum-grounds stock mostly hears the field tier
   // or falls through to procedural), so real-signal lots rise
   // only 26,753 -> 27,105 (35.9% of the enlarged plan).
-  assert.equal(c.permit, 5822);
+  // Issue #226 composition, measured on the merged tree at the
+  // gate against the post-#186 main plan (75,400): the creeks
+  // ship at channel width — the derived buffers shrink ~864k m²
+  // and 520 fewer candidate lots drown (lotsDroppedParkWater
+  // 15,123 -> 14,603); the shipped plan nets +120 lots, every
+  // changed lot diffed into the Beitou/Tianmu creek corridors.
+  // Per-source net deltas: permit +5, osm-levels +2, door +8,
+  // field +63, proc +42; real-signal 27,105 -> 27,120 (35.9%).
+  assert.equal(c.permit, 5827);
   assert.equal(c['osm-height'], 2239);
-  assert.equal(c['osm-levels'], 7768);
-  assert.equal(c.door, 11276);
-  assert.equal(c.field, 37295);
-  assert.equal(c.proc, 11000);
+  assert.equal(c['osm-levels'], 7770);
+  assert.equal(c.door, 11284);
+  assert.equal(c.field, 37358);
+  assert.equal(c.proc, 11042);
   assert.equal(plan.stats.heightsPermit, c.permit, 'stats census agrees (permit)');
   assert.equal(plan.stats.heightsDoor, c.door, 'stats census agrees (door)');
   assert.equal(plan.stats.heightsField, c.field, 'stats census agrees (field)');
   assert.equal(plan.stats.heightsProc, c.proc, 'stats census agrees (proc)');
   const real = REAL.reduce((s, k) => s + c[k], 0);
-  assert.equal(real, 27105, 'real-signal lots');
+  assert.equal(real, 27120, 'real-signal lots');
   assert.ok(real / lots.length > 0.35 && real / lots.length < 0.50, 'real coverage in the measured band');
 });
 
@@ -223,10 +231,13 @@ test('joined skyline: the >=30 m share lands on the study’s real figure', () =
   // on the strip's real tall fabric (Dazhi / Neihu Rd towers)
   // while the share dilutes a notch on the strip's mostly-low
   // stock; >= 60 m: 1,318 -> 1,366 (+48).
+  // Issue #226: 9,727 of 75,520 = 12.9% (+17 — the creek
+  // corridors' own tall stock re-draws on the released bank
+  // blocks); >= 60 m: 1,366 -> 1,370 (+4).
   const tall = plan.lots.filter((l) => l.h >= 30).length;
-  assert.equal(tall, 9710);
+  assert.equal(tall, 9727);
   const g60 = plan.lots.filter((l) => l.h >= 60).length;
-  assert.equal(g60, 1366, 'a >=60 m class exists at all (procedural plan: 5 lots)');
+  assert.equal(g60, 1370, 'a >=60 m class exists at all (procedural plan: 5 lots)');
 });
 
 test('real heights are never clamped to the procedural bands', () => {
@@ -246,7 +257,9 @@ test('real heights are never clamped to the procedural bands', () => {
   // real > 60 m footprints (the same join, more samples of it).
   const over = plan.lots.filter((l) => REAL.includes(l.hSrc) && l.h > 60).length;
   // Issue #186: 1,142 (+29 real > 60 m samples in the strip).
-  assert.equal(over, 1142);
+  // Issue #226: 1,145 (+3 real > 60 m samples on the re-drawn
+  // creek-corridor blocks).
+  assert.equal(over, 1145);
   assert.ok(Math.max(...plan.lots.map((l) => l.h)) <= 250, 'no absurd heights (tallest real signal is 222 m)');
 });
 
@@ -282,7 +295,11 @@ test('Beitou: the hot-spring towers exist now', () => {
   // six FIELD-tier lots re-pool 31-35 m -> 26.5-28.5 m on the
   // merged fabric — field estimates moving at the margin,
   // not towers lost.
-  assert.equal(tall.length, 696);
+  // Issue #226: 705 — the box's creek blocks （磺港溪/貴子坑溪
+  // corridors) re-draw on the released bank land: +9
+  // data-derived tall lots at the channel margins, no tower
+  // removed (the box only gains/re-pools along the creeks).
+  assert.equal(tall.length, 705);
 });
 
 test('fallback byte-stability: untouched lots keep their procedural heights exactly', () => {
@@ -316,11 +333,16 @@ test('fallback byte-stability: untouched lots keep their procedural heights exac
   // coarse placements); shared-key proc lots 4,153 -> 6,637
   // (+2,484, nearly all the strip's procedural stock standing
   // on coarse keys both regimes share).
-  assert.equal(bare.lots.length, 42030, 'the bare regime is the coarse plan (issue #124: no door layer, no fine blocks; issue #166: less the five sites\' 87 coarse lots; issue #186: plus the strip planned coarse)');
+  // Issue #226: the bare regime releases the creek banks too —
+  // 42,030 -> 42,107 (+77 coarse lots); plan-only lots 46,438
+  // -> 46,496 (46,460 fine + the same 36 height-moved coarse
+  // placements); shared-key proc lots 6,637 -> 6,658 (+21),
+  // with zero height mismatches on the shared keys.
+  assert.equal(bare.lots.length, 42107, 'the bare regime is the coarse plan (issue #124: no door layer, no fine blocks; issue #166: less the five sites\' 87 coarse lots; issue #186: plus the strip planned coarse; issue #226: plus the released creek banks planned coarse)');
   const key = (l) => `${l.x}|${l.z}|${l.w}|${l.d}`;
   const bareByKey = new Map(bare.lots.map((l) => [key(l), l]));
   const missing = plan.lots.filter((l) => !bareByKey.has(key(l)));
-  assert.equal(missing.length, 46438, 'plan-only lots: the #124 fine lots plus height-sensitive coarse placements');
+  assert.equal(missing.length, 46496, 'plan-only lots: the #124 fine lots plus height-sensitive coarse placements');
   assert.equal(missing.length - plan.stats.lotsFine, 36, 'of which 36 are coarse placements moved by real heights (the guideway flip among them)');
   let procChecked = 0;
   for (const a of plan.lots) {
@@ -331,7 +353,7 @@ test('fallback byte-stability: untouched lots keep their procedural heights exac
       procChecked++;
     }
   }
-  assert.equal(procChecked, 6637); // the proc census, re-pinned with it for issues #134 + #139; +2 for #144 (the face-statistic flips, see the census diff), +4 for #135 (the field re-pool flips, see the census diff), -1 for #146 (one of the two Wenhu dive drops is a proc lot), +3 for #165 (the D3-parcel field re-pool flips, see the census diff); issue #124: 4,204 — the census covers the regime-shared lots only (25,271 common keys); the fine lots have no bare counterpart to be checked against; issue #166: 4,153 — the shared keys drop to 25,203 as the five sites remove their coarse lots from both regimes and the field re-pool flips 17 shared lots out of proc's neighbours (see the census diff); issue #186: 6,637 — the strip's coarse keys join both regimes (see the composition note above)
+  assert.equal(procChecked, 6658); // the proc census, re-pinned with it for issues #134 + #139; +2 for #144 (the face-statistic flips, see the census diff), +4 for #135 (the field re-pool flips, see the census diff), -1 for #146 (one of the two Wenhu dive drops is a proc lot), +3 for #165 (the D3-parcel field re-pool flips, see the census diff); issue #124: 4,204 — the census covers the regime-shared lots only (25,271 common keys); the fine lots have no bare counterpart to be checked against; issue #166: 4,153 — the shared keys drop to 25,203 as the five sites remove their coarse lots from both regimes and the field re-pool flips 17 shared lots out of proc's neighbours (see the census diff); issue #186: 6,637 — the strip's coarse keys join both regimes (see the composition note above); issue #226: 6,658 — the creek re-draws put 21 more shared keys in proc (see the composition note above)
   assert.ok(bare.lots.every((l) => l.hSrc === 'proc'), 'no layer, no labels but proc');
 });
 

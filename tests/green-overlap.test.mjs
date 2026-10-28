@@ -142,9 +142,18 @@ test('geodata: removed areas match the #206 census (tile-wide)', () => {
   // (3,013,763) reproduce the original census to <1 m² on the
   // same tree, and tint (3,726,596 measured) stays inside the
   // original ±3% band unedited.
-  assert.ok(near(fam.removed.water, 359915), `water removed ${fam.removed.water.toFixed(0)}`);
+  // Water re-pinned at the #226 gate for issue #223: measured
+  // 312,277 — the creek buffers shrink ~864k m² of derived
+  // water, so far less water sits under the above families to
+  // be consumed (−47,638 vs the #224 pin). Parks and band
+  // reproduce inside their bands unedited.
+  assert.ok(near(fam.removed.water, 312277), `water removed ${fam.removed.water.toFixed(0)}`);
   assert.ok(near(fam.removed.band, 3013763), `band removed ${fam.removed.band.toFixed(0)}`);
-  assert.ok(near(fam.removed.tint, 3685780), `tint removed ${fam.removed.tint.toFixed(0)}`);
+  // Tint re-pinned at the same gate: measured 3,314,939.
+  // Tint sits BELOW water in the consumption order, so the
+  // narrowed creeks also uncover tint that the fat buffers
+  // used to eat (−370,841 vs the original census pin).
+  assert.ok(near(fam.removed.tint, 3314939), `tint removed ${fam.removed.tint.toFixed(0)}`);
   // Probe-counted residue tile-wide: holes the subtraction
   // primitive's last-resort fallback keeps even solo (their
   // sample probes still land inside afterwards). One on the
