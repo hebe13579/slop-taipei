@@ -5178,9 +5178,16 @@ export function clampTaipeiRooftopGear(gear, lot) {
 // the host's ENTIRE roof, so it neither picks a spot nor dodges the
 // furniture — it displaces it (the clamp drops the roof's HVAC units,
 // and the tank roll is skipped on hut lots; see below).
+// Issue #208: the hut record also carries a seeded detail vocabulary
+// (roof form, patched sheet panels, a roof bump) — see the hut block.
 export const TAIPEI_TANK_RATE = 0.14;
 export const TAIPEI_HUT_RATE = 0.12;
-export const TAIPEI_HUT_COLORS = [0x9e3d34, 0x4a6b52, 0x7d8894, 0x8a4a3a]; // weathered red, green, grey-blue, rust
+// Issue #208: the palette grows from four to six — the original
+// weathered red / green / grey-blue / rust plus a galvanized
+// grey-green and a weathered off-white, the two other staples of
+// the real roofscape. (The renderer's hutPalette in js/buildings.js
+// mirrors this list; the hut's colorIdx is drawn modulo its length.)
+export const TAIPEI_HUT_COLORS = [0x9e3d34, 0x4a6b52, 0x7d8894, 0x8a4a3a, 0x8fa08f, 0xcac2ae];
 const TANK_RADIUS = 1.0;
 // Issue #100: cap the hut sheet's centre-to-edge rise (half its total
 // drop) — over a wide host the raw hash pitch would stand the sheet's
@@ -5239,14 +5246,54 @@ export function taipeiRooftopAdditions(gear, lot, units) {
     const pitch = Math.min(
       0.16 + hash01(seed ^ 0x3337) * 0.08,
       Math.atan((2 * HUT_MAX_RISE) / along));
-    huts.push({
+    const colorIdx = Math.floor(hash01(seed ^ 0x6667) * TAIPEI_HUT_COLORS.length) % TAIPEI_HUT_COLORS.length;
+    const hut = {
       x: lot.x0 + w / 2, y: roofY, z: lot.z0 + d / 2, w: hw, d: hd,
       h: 2.5 + hash01(seed ^ 0x2227) * 0.6,
       pitch,
       axis,
       dir: hash01(seed ^ 0x5557) < 0.5 ? -1 : 1,
-      colorIdx: Math.floor(hash01(seed ^ 0x6667) * TAIPEI_HUT_COLORS.length) % TAIPEI_HUT_COLORS.length,
-    });
+      colorIdx,
+      // Issue #208 detail vocabulary — all drawn from FRESH salts,
+      // so which lots carry a hut, their pitch/axis/dir/height and
+      // the tank roll are exactly the pre-#208 selection; only the
+      // garnish is new. Form: about a third of huts are gable-roofed
+      // （雙斜） instead of the single-pitch lean-to sheet （單斜）.
+      form: hash01(seed ^ 0x8887) < 0.35 ? 'gable' : 'single',
+      patches: [],
+      bump: null,
+    };
+    // Patched panels: ~58% of huts carry one or two replacement
+    // sheets on the roof slope, in a contrasting palette tone
+    // (rust / galvanized / off-white — never the hut's own colour).
+    const patchRoll = hash01(seed ^ 0x9997);
+    const patchCount = patchRoll < 0.28 ? 2 : patchRoll < 0.58 ? 1 : 0;
+    for (let i = 0; i < patchCount; i++) {
+      const ps = (seed ^ (0xaa07 + i * 0x1f3b)) >>> 0;
+      let tone = [3, 4, 5][Math.floor(hash01(ps ^ 0x101) * 3) % 3];
+      if (tone === colorIdx) tone = (tone + 1) % TAIPEI_HUT_COLORS.length;
+      hut.patches.push({
+        u: 0.2 + hash01(ps ^ 0x202) * 0.6,        // along the slope, high edge -> low
+        v: (hash01(ps ^ 0x303) * 2 - 1) * 0.3,    // across, fraction of the sheet width
+        w: 1.2 + hash01(ps ^ 0x404) * 1.6,        // across, metres
+        d: 0.9 + hash01(ps ^ 0x505) * 1.1,        // along the slope, metres
+        side: hash01(ps ^ 0x606) < 0.5 ? -1 : 1,  // gable: which slope; single: unused
+        colorIdx: tone,
+      });
+    }
+    // Roof bump: ~25% of huts carry a small annex box standing on
+    // the sheet near the high side (the 加蓋-on-加蓋 stairwell /
+    // storage bump of the real roofscape), with its own flat sheet.
+    if (hash01(seed ^ 0xbb17) < 0.25) {
+      const bs = (seed ^ 0xcc27) >>> 0;
+      hut.bump = {
+        wFrac: 0.34 + hash01(bs ^ 0x111) * 0.16,  // across, fraction of the hut's across
+        dAlong: 2.2 + hash01(bs ^ 0x222) * 1.0,   // along the slope, metres
+        h: 1.1 + hash01(bs ^ 0x333) * 0.6,
+        colorIdx: hash01(bs ^ 0x444) < 0.5 ? colorIdx : 4, // own colour, or galvanized
+      };
+    }
+    huts.push(hut);
   }
   const tanks = [];
   // Stainless tanks: nearly any non-glass roof of 8–34 m with 5.5 m of
