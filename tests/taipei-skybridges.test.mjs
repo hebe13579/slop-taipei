@@ -148,6 +148,17 @@ test('supports clear every carriageway and flank every crossing', () => {
 });
 
 test('the lot plan is untouched: zero buildings displaced', () => {
-  const plan = planTaipeiBuildings(TAIPEI_GEO);
-  assert.equal(plan.lots.length, 75389, 'the shipped plan count on this base — the scenery section feeds no planner input');
+  // Invariant form (re-written at the #238 gate): the shipped plan
+  // with the scenery section present must equal the plan with it
+  // stripped, lot for lot — the old absolute pin (75,389) was the
+  // PR-base tree; the composed tree plans 68,570 after #221/#213,
+  // and the scenery section must move none of them.
+  const withSky = planTaipeiBuildings(TAIPEI_GEO);
+  const { skybridges, ...stripped } = TAIPEI_GEO;
+  const withoutSky = planTaipeiBuildings(stripped);
+  assert.equal(withSky.lots.length, withoutSky.lots.length, 'the scenery section feeds no planner input');
+  const key = (l) => `${l.x.toFixed(2)},${l.z.toFixed(2)},${l.w.toFixed(2)},${l.d.toFixed(2)},${l.h}`;
+  const a = new Set(withSky.lots.map(key));
+  assert.equal(withoutSky.lots.filter((l) => !a.has(key(l))).length, 0, 'no lot appears only without the scenery section');
+  assert.deepEqual(new Set(withoutSky.lots.map(key)), a, 'identical lots, not just an identical count');
 });

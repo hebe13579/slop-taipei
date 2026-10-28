@@ -913,14 +913,15 @@ test('landmark batch 5: beimen gate on its junction island', () => {
 // through taipeiCityBlocksOptions. The adapter must be a faithful,
 // deterministic transcription of the plan: one upstream lot per planned
 // lot, same footprint and height, a valid facade material index, the
-// tile frame as bounds, and colliders off (visual-only parity).
+// tile frame as bounds, and — since issue #207 reversed the pre-#207
+// visual-only parity — colliders collected (tile buildings are solid).
 test('buildings options: plan faithfully adapted for the upstream building system', (t) => {
   const plan = planTaipeiBuildings(TAIPEI_GEO);
   const opts = taipeiCityBlocksOptions(TAIPEI_GEO, plan);
   const again = taipeiCityBlocksOptions(TAIPEI_GEO, plan);
   assert.deepEqual(opts, again, 'options deterministic across calls');
   assert.equal(opts.lots.length, plan.lots.length, 'one upstream lot per planned lot');
-  assert.equal(opts.colliders, false, 'tile buildings stay visual-only');
+  assert.equal(opts.colliders, true, 'issue #207: tile buildings are solid — colliders collected');
   assert.deepEqual(opts.bounds, TAIPEI_GEO.frame.bbox, 'streaming bounds are the tile frame');
   assert.deepEqual(opts.initial, [0, 0], 'first detail stream centres on the tile origin');
   t.diagnostic(`upstream lots: ${opts.lots.length}, mats ${JSON.stringify(opts.lots.reduce((m, l) => { m[l.mat] = (m[l.mat] || 0) + 1; return m; }, {}))}`);
@@ -1213,7 +1214,14 @@ test('taiwan types: family zoning, distribution and rooftop clamp', (t) => {
   // Issue #226: 8,215 (+6 — the Beitou/Tianmu creek-corridor
   // blocks re-draw on the released bank land).
   // Issue #213: 8,203 (−12 — loop-adjacent blocks re-draw).
-  assert.equal(glass, 8203, 'glass family counts after #136 + #139 + #135 + #142, composed with #134 + #137, #144, #165, #124, #166, #186, #226 and #213');
+  // Issue #219 (stepped massing), measured on the merged tree
+  // at the #228 gate: the facade rules key the glass families
+  // on height bands, and stepping steps 3,653 sibling lots
+  // down from their joined heights — 362 of them cross below
+  // the glass band and re-roll to the masonry/Taiwan families.
+  // facadeMatFor is unedited; the census moves because the
+  // heights do: glass 8,203 − 362 = 7,841.
+  assert.equal(glass, 7213, 'glass family counts after #136 + #139 + #135 + #142, composed with #134 + #137, #144, #165, #124, #166, #186, #226, #213, #219 and #221 (campus clearing removes 628 glass lots)');
   // (The #186 PR2 branch carried its own stale-base version of
   // this composition — glass 4,120 -> 4,419 on the pre-#124
   // plan — which the merge union initially kept as a duplicate
@@ -1361,11 +1369,17 @@ test('arcade parts: recessed core and full-perimeter colonnade', (t) => {
   // creek-corridor re-draws as the glass pin above).
   // Issue #213: 6,770 (−12, the same loop-adjacent re-draws
   // as the glass pin above).
+  // Issue #219 (stepped massing): the mirror of the glass
+  // re-pin above — F7 is the low Taiwan shophouse family, and
+  // stepped sibling lots dropping into its height band re-roll
+  // into it (+436): 6,770 + 436 = 7,206. The arcade rule itself
+  // is unedited; every size-eligible F7 lot still carries its
+  // arcade (asserted below, unedited).
   const opts = taipeiCityBlocksOptions(TAIPEI_GEO, planTaipeiBuildings(TAIPEI_GEO));
   const f7 = opts.lots.filter((l) => l.mat === 7);
   const withArcade = f7.filter((l) => l.arcade);
   const eligible = f7.filter((l) => (l.x1 - l.x0) >= 11 && (l.z1 - l.z0) >= 11);
-  assert.equal(f7.length, 6770, 'F7 census after #124, composed with #166, #186, #226 and #213');
+  assert.equal(f7.length, 6687, 'F7 census after #124, composed with #166, #186, #226, #213, #219 and #221 (campus clearing removes 519 F7 lots)');
   assert.equal(withArcade.length, eligible.length, `every size-eligible F7 lot carries the arcade (${withArcade.length}/${eligible.length})`);
   const totalCols = withArcade.reduce((s, l) => s + l.arcade.columns.length, 0);
   assert.ok(totalCols / withArcade.length < 30, `columns per arcade lot sane (${(totalCols / withArcade.length).toFixed(1)})`);

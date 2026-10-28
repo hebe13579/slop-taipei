@@ -167,26 +167,70 @@ function firingEnds(lines) {
 // grade crossing point is inserted into the effective chain so the
 // trench (below grade) and the ramp (above) split exactly at y=0.
 // Lines without a firing end are absent from `eff` (identity).
+// Issue #209: the walk follows the run across a grade join — when
+// the digest splits one descent over two lines (the Dazhi Wenhu
+// resurface: short ramp ways topping out at h 5.0/4.4 where they
+// join the elevated curve ways), a chain that exhausts its line
+// below cruise continues onto the joined line whose profile keeps
+// climbing, so the run tops out at the cruise height like every
+// single-line dive. Without the hop the stub below the joint was
+// re-profiled alone: a 12.3% plunge behind a grade kink, a 43 m
+// trench, where the #196 dives run 8.8-8.9% over ~160 m with
+// ~59 m below grade.
 export function computeDives(lines) {
   const eff = new Map();
   const dives = [];
+  const ptsCache = new Map(lines.map((l) => [l, ptsOf(l)]));
   for (const fe of firingEnds(lines)) {
     const { line, endIdx } = fe;
-    const pts = ptsOf(line);
-    const n = pts.length;
-    const step = endIdx === 0 ? 1 : -1;
-    // Walk the run in walk order (end first).
-    const chainIdx = [endIdx];
+    if (eff.has(line)) continue; // already re-profiled as another dive's run (issue #209)
+    // Walk the run in walk order (end first), following it across
+    // grade joins (issue #209): a chain that exhausts its line
+    // below the cruise height hops to the line joined at its
+    // terminal point when that line's profile keeps climbing.
+    const chain = [{ line, idx: endIdx, x: fe.E[0], z: fe.E[1] }];
+    const visited = new Set([line]);
     let hTop = line.h?.[endIdx] ?? 0;
-    for (let i = endIdx + step; i >= 0 && i < n; i += step) {
-      const h = line.h?.[i] ?? 0;
-      if (h >= PORTAL_CRUISE_M) { chainIdx.push(i); hTop = h; break; }
-      if (h > hTop - PORTAL_RUN_DIP_M) { chainIdx.push(i); hTop = Math.max(hTop, h); continue; }
-      break;
+    let cur = line, curIdx = endIdx, curStep = endIdx === 0 ? 1 : -1;
+    let topped = false, stalled = false;
+    while (!topped && !stalled) {
+      const cpts = ptsCache.get(cur);
+      let i = curIdx + curStep;
+      let exhausted = true;
+      while (i >= 0 && i < cpts.length) {
+        const h = cur.h?.[i] ?? 0;
+        if (h >= PORTAL_CRUISE_M) { chain.push({ line: cur, idx: i, x: cpts[i][0], z: cpts[i][1] }); hTop = h; topped = true; exhausted = false; break; }
+        if (h > hTop - PORTAL_RUN_DIP_M) { chain.push({ line: cur, idx: i, x: cpts[i][0], z: cpts[i][1] }); hTop = Math.max(hTop, h); curIdx = i; i += curStep; continue; }
+        exhausted = false; stalled = true; break; // a real dip: the run ends here
+      }
+      if (topped || stalled || !exhausted) break;
+      // cur's points are exhausted below cruise: find the joined
+      // continuation (deterministic: line order, first end whose
+      // neighbour keeps climbing past the dip tolerance).
+      const T = chain[chain.length - 1];
+      let hop = null;
+      for (const l2 of lines) {
+        if (visited.has(l2) || eff.has(l2)) continue;
+        const p2 = ptsCache.get(l2);
+        if (p2.length < 2) continue;
+        for (const e2 of [0, p2.length - 1]) {
+          const q = p2[e2];
+          if (Math.hypot(q[0] - T.x, q[1] - T.z) > PORTAL_JOIN_TOL_M) continue;
+          const hn = l2.h?.[e2 === 0 ? 1 : p2.length - 2] ?? 0;
+          if (!(hn >= PORTAL_CRUISE_M || hn > hTop - PORTAL_RUN_DIP_M)) continue;
+          hop = { line: l2, endIdx: e2 };
+          break;
+        }
+        if (hop) break;
+      }
+      if (!hop) break;
+      visited.add(hop.line);
+      cur = hop.line; curIdx = hop.endIdx; curStep = hop.endIdx === 0 ? 1 : -1;
+      const hp = ptsCache.get(cur)[curIdx];
+      chain.push({ line: cur, idx: curIdx, x: hp[0], z: hp[1] });
     }
-    if (chainIdx.length < 2) continue;
+    if (chain.length < 2) continue;
     if (dives.some((d) => d.line === line)) continue; // one dive per line in practice; the first end wins
-    const chain = chainIdx.map((idx) => ({ x: pts[idx][0], z: pts[idx][1], idx }));
     let s = 0;
     chain.forEach((c, i) => {
       if (i) s += Math.hypot(c.x - chain[i - 1].x, c.z - chain[i - 1].z);
@@ -197,12 +241,13 @@ export function computeDives(lines) {
     chain.forEach((c) => { c.h = effH(c.s); });
     const crossS = runLen * PORTAL_DIVE_DEPTH_M / (hTop + PORTAL_DIVE_DEPTH_M);
     // The grade crossing point, interpolated along the chain.
-    let crossPt = null;
+    let crossPt = null, crossSeg = -1;
     for (let i = 0; i + 1 < chain.length; i++) {
       const a = chain[i], b = chain[i + 1];
       if (a.s <= crossS && crossS <= b.s) {
         const f = (crossS - a.s) / ((b.s - a.s) || 1);
         crossPt = [a.x + (b.x - a.x) * f, a.z + (b.z - a.z) * f];
+        crossSeg = i;
         break;
       }
     }
@@ -212,38 +257,46 @@ export function computeDives(lines) {
       tHat: (() => { const dx = fe.E[0] - fe.P[0], dz = fe.E[1] - fe.P[1]; const L = Math.hypot(dx, dz) || 1; return [dx / L, dz / L]; })(),
     };
     dives.push(dive);
-    // Splice the effective chain into the line's point/height lists
-    // (in line order), inserting the crossing between the stations
-    // that straddle it.
-    const walkPts = chain.map((c) => [c.x, c.z]);
-    const walkH = chain.map((c) => c.h);
-    const crossWalkIdx = chain.findIndex((c) => c.s > crossS);
-    walkPts.splice(crossWalkIdx, 0, crossPt);
-    walkH.splice(crossWalkIdx, 0, 0);
-    const trenchSegs = new Set();
-    const runSegs = new Set();
-    let rec = eff.get(line);
-    if (!rec) {
-      rec = { pts: pts.map((p) => [p[0], p[1]]), h: pts.map((_, i) => line.h?.[i] ?? 0), trenchSegs, runSegs };
-      eff.set(line, rec);
+    // Splice the effective chain into every touched line's
+    // point/height lists (in line order), inserting the crossing
+    // between the stations that straddle it. In the walk sequence
+    // W (the chain with the crossing inserted after crossSeg),
+    // segment j joins W[j] and W[j+1]; the segments before the
+    // crossing entry are the trench's. A line's chain entries are
+    // consecutive in W and monotonic in index, so each group
+    // splices as one contiguous range; the hop segment between
+    // two lines' coincident ends exists in neither record (each
+    // line's record ends at its own end point).
+    const W = [...chain];
+    W.splice(crossSeg + 1, 0, { line: chain[crossSeg].line, idx: null, x: crossPt[0], z: crossPt[1], h: 0 });
+    const crossPos = crossSeg + 1;
+    let g0 = 0;
+    while (g0 < W.length) {
+      let g1 = g0;
+      while (g1 + 1 < W.length && W[g1 + 1].line === W[g0].line) g1++;
+      const grp = W.slice(g0, g1 + 1);
+      const gLine = grp[0].line;
+      const idxs = grp.filter((e) => e.idx !== null).map((e) => e.idx);
+      const lo = Math.min(...idxs), hi = Math.max(...idxs);
+      const ascending = idxs.every((v, i) => i === 0 || v > idxs[i - 1]);
+      const lineOrder = ascending ? grp : [...grp].reverse();
+      let rec = eff.get(gLine);
+      if (!rec) {
+        const lp = ptsCache.get(gLine);
+        rec = { pts: lp.map((p) => [p[0], p[1]]), h: lp.map((_, i) => gLine.h?.[i] ?? 0), trenchSegs: new Set(), runSegs: new Set() };
+        eff.set(gLine, rec);
+      }
+      rec.pts.splice(lo, hi - lo + 1, ...lineOrder.map((e) => [e.x, e.z]));
+      rec.h.splice(lo, hi - lo + 1, ...lineOrder.map((e) => e.h));
+      for (let j = 0; j + 1 < grp.length; j++) {
+        const segIdx = ascending ? lo + j : lo + (grp.length - 2 - j);
+        rec.runSegs.add(segIdx);
+        if (g0 + j < crossPos) rec.trenchSegs.add(segIdx);
+      }
+      g0 = g1 + 1;
     }
-    const W = walkPts.length;
-    if (endIdx === 0) {
-      rec.pts.splice(0, chain.length, ...walkPts);
-      rec.h.splice(0, chain.length, ...walkH);
-      for (let k = 0; k < crossWalkIdx; k++) trenchSegs.add(k);
-      for (let k = 0; k < W - 1; k++) runSegs.add(k);
-    } else {
-      const start = rec.pts.length - chain.length;
-      const revPts = [...walkPts].reverse(), revH = [...walkH].reverse();
-      rec.pts.splice(start, chain.length, ...revPts);
-      rec.h.splice(start, chain.length, ...revH);
-      const crossEffIdx = rec.pts.length - 1 - crossWalkIdx;
-      for (let k = crossEffIdx; k < rec.pts.length - 1; k++) trenchSegs.add(k);
-      for (let k = rec.pts.length - W; k < rec.pts.length - 1; k++) runSegs.add(k);
-    }
-    dive.trenchSegs = trenchSegs;
-    dive.effRec = rec;
+    dive.trenchSegs = eff.get(line).trenchSegs;
+    dive.effRec = eff.get(line);
   }
   // Cluster dives whose ends sit close together: they share one
   // cutting (the Red twin ballast trackways exactly like the Wenhu
@@ -342,16 +395,46 @@ export function diveAdjustedPiers(elevated) {
   const { clusters } = computeDives(elevated?.lines || []);
   if (!clusters.length || !piers.length) return piers;
   const depth = elevated?.deckDepth ?? 1.8;
+  // Issue #209: a corridor follows a dive chain itself, not the
+  // straight face axis — on a curving dive (the Dazhi resurface
+  // bends as it climbs) a pier can sit metres off the face axis
+  // while standing squarely under the re-profiled deck, and the
+  // axis band left it poking through the lowered guideway. Each
+  // cluster contributes its cutting corridor (the representative
+  // chain, formation band) plus one corridor per member chain at
+  // that trackway's own band: members re-profile on their own
+  // runs, so a pier under the non-representative trackway
+  // answers to that trackway's profile, not the representative's.
+  const chainProfile = (ch, arc) => {
+    if (arc <= 0) return ch[0].h;
+    for (let i = 0; i + 1 < ch.length; i++) {
+      if (arc <= ch[i + 1].s) { const f = (arc - ch[i].s) / ((ch[i + 1].s - ch[i].s) || 1); return ch[i].h + (ch[i + 1].h - ch[i].h) * f; }
+    }
+    return ch[ch.length - 1].h;
+  };
   let changed = false;
   const out = piers.map((p) => {
     let h = p.h;
     for (const c of clusters) {
-      const rx = p.x - c.M[0], rz = p.z - c.M[1];
-      const s = -(rx * c.tHat[0] + rz * c.tHat[1]);
-      const lat = rx * c.nHat[0] + rz * c.nHat[1];
-      if (s < -2 || s > c.rep.runLen + 2) continue;
-      if (Math.abs(lat - c.centreOff) > c.formHalf + 2.5) continue;
-      h = Math.min(h, Math.max(c.profileAt(Math.max(0, s)) - depth, 0.01));
+      const corridors = [
+        { chain: c.rep.chain, runLen: c.rep.runLen, band: c.formHalf + 2.5 },
+        ...c.members.map((d) => ({ chain: d.chain, runLen: d.runLen, band: (d.line.width || 6) / 2 + 2.5 })),
+      ];
+      for (const cor of corridors) {
+        const ch = cor.chain;
+        let sNear = Infinity, dNear = Infinity;
+        for (let i = 0; i + 1 < ch.length; i++) {
+          const a = ch[i], b = ch[i + 1];
+          const vx = b.x - a.x, vz = b.z - a.z;
+          const L2 = vx * vx + vz * vz;
+          const f = L2 ? Math.min(1, Math.max(0, ((p.x - a.x) * vx + (p.z - a.z) * vz) / L2)) : 0;
+          const dx = p.x - (a.x + vx * f), dz = p.z - (a.z + vz * f);
+          const d = Math.hypot(dx, dz);
+          if (d < dNear) { dNear = d; sNear = a.s + f * Math.sqrt(L2); }
+        }
+        if (sNear > cor.runLen + 2 || dNear > cor.band) continue;
+        h = Math.min(h, Math.max(chainProfile(ch, Math.max(0, sNear)) - depth, 0.01));
+      }
     }
     if (h !== p.h) { changed = true; return { ...p, h }; }
     return p;

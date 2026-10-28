@@ -2,6 +2,7 @@ import * as THREE from 'three/webgpu';
 
 import { planTaipeiBuildings, taipeiCityBlocksOptions, createTaipei101, createTaipeiLandmarkTowers } from './taipei-buildings.js';
 import { buildSidewalkBands, planStreetTrees, planParkTrees } from './taipei-streetscape.js';
+import { planParkAmenities } from './taipei-park-amenities.js';
 import { AvatarFigure } from './avatar-figure.js';
 import { buildPaintedBands } from './taipei-painted.js';
 import { buildAirfieldPaint, buildRoadTunnelPortals, roadTrenchSlots } from './taipei-airfield.js';
@@ -9,6 +10,7 @@ import { SURFACE_TONES, surfaceClass, buildMedianStrips, isPlazaPark, isPodiumBl
 import { buildRoadMarkings, detectJunctions, DASH_LEN, DASH_GAP, STRIPE_W, STRIPE_PITCH } from './taipei-markings.js';
 import { planJunctionCaps, planRoundabouts, ringPoints, capSurfacePolys, capClipPolys, CAP_Y, ISLAND_Y } from './taipei-junctions.js';
 import { buildDeckGeometry, groundContactPolys, portalTrenchSlots, diveAdjustedPiers, PIER_W, PIER_D } from './taipei-viaduct.js';
+import { buildDriveModel, taipeiExtraColliders } from './taipei-drive.js';
 import { ribbonsQuads, jointFramesFor } from './taipei-ribbons.js';
 import { buildMrtStationGeometry, buildMrtDepotGeometry } from './taipei-mrt-stations.js';
 import { buildBridgeGeometry } from './taipei-bridges.js';
@@ -38,8 +40,12 @@ import { createBuildProgress, TAIPEI_BUILD_STAGES } from './taipei-progress.js';
 //     road-network.js derives lanes from the NYC avenue/street grid; a
 //     graph-driven network is a later increment).
 //   - NO NYC systems: no boroughs, landmarks, piers, Central Park, bridges.
-//   - NO building colliders / footprints: controllers walk/drive the
-//     flat tile at y=0 and pass through buildings for now.
+//   - Issue #207: buildings ARE solid and the elevated ROAD decks
+//     ARE drivable — js/taipei-drive.js holds the model (deck
+//     surface sampling behind groundHeight, parapet / registry /
+//     station colliders beside buildCityBlocks' own lot
+//     colliders). MRT guideways and the signature-bridge
+//     structures stay scenery: never surfaces, never colliders.
 //
 // Layer heights are a flat-ground visual stack only (land 0, block rects
 // 0.02, podium blocks 0.021, airfield site 0.022, airfield hard
@@ -406,20 +412,33 @@ const mat = (color, roughness = 0.95, extra = {}) => new THREE.MeshStandardNodeM
 // street and park tree on the tile is a single draw call. Placement is
 // planStreetTrees' / planParkTrees' (taipei-streetscape.js); this
 // section only turns positions into instances.
-function streetTreeGeometry() {
+// Vertex-coloured parts merged into one geometry — the shared
+// builder for the tree variants and the park-amenity kit below
+// (the signal units have their own older copy). addPart(geo,
+// color, opts): opts.pre transforms the geometry first (fronds
+// reach out before they droop), then opts.s scales, rotations
+// apply Z then X then Y (a frond droops, then spins), and
+// opts.p [x, y, z] translates last.
+function mergeColouredParts(build) {
   const parts = [];
-  const addPart = (geo, color, x, y, z) => {
+  const addPart = (geo, color, opts = {}) => {
     const g = geo.index ? geo.toNonIndexed() : geo;
-    g.translate(x, y, z);
+    if (opts.pre) opts.pre(g);
+    if (opts.s) g.scale(opts.s[0], opts.s[1], opts.s[2]);
+    if (opts.r) {
+      if (opts.r[2]) g.rotateZ(opts.r[2]);
+      if (opts.r[0]) g.rotateX(opts.r[0]);
+      if (opts.r[1]) g.rotateY(opts.r[1]);
+    }
+    const p = opts.p || [0, 0, 0];
+    g.translate(p[0], p[1], p[2]);
     const pos = g.getAttribute('position');
     const colors = new Float32Array(pos.count * 3);
     const c = new THREE.Color(color);
     for (let i = 0; i < pos.count; i++) { colors[i * 3] = c.r; colors[i * 3 + 1] = c.g; colors[i * 3 + 2] = c.b; }
     parts.push({ pos: pos.array, nor: g.getAttribute('normal').array, colors });
   };
-  addPart(new THREE.CylinderGeometry(0.14, 0.2, 2.6, 5), 0x6b4a2f, 0, 1.3, 0);
-  addPart(new THREE.IcosahedronGeometry(1.6, 0), 0x477a37, 0, 3.9, 0);
-  addPart(new THREE.IcosahedronGeometry(1.05, 0), 0x548741, 0.55, 4.9, 0.2);
+  build(addPart);
   const total = parts.reduce((s, p) => s + p.pos.length, 0);
   const positions = new Float32Array(total);
   const normals = new Float32Array(total);
@@ -433,24 +452,196 @@ function streetTreeGeometry() {
   return geo;
 }
 
-function buildStreetTreeMesh(trees) {
-  if (!trees.length) return null;
+function instancedFromGeometry(geo, list, name, baseY = 0) {
+  if (!list.length) return null;
   const mesh = new THREE.InstancedMesh(
-    streetTreeGeometry(),
+    geo,
     new THREE.MeshStandardNodeMaterial({ vertexColors: true, roughness: 0.9, metalness: 0.0 }),
-    trees.length,
+    list.length,
   );
-  mesh.name = 'TaipeiStreetTrees';
+  mesh.name = name;
   const dummy = new THREE.Object3D();
-  trees.forEach((t, i) => {
-    dummy.position.set(t.x, 0, t.z);
-    dummy.rotation.set(0, t.rot, 0);
-    dummy.scale.setScalar(t.scale);
+  list.forEach((t, i) => {
+    dummy.position.set(t.x, baseY, t.z);
+    dummy.rotation.set(0, t.rot || 0, 0);
+    dummy.scale.setScalar(t.scale ?? 1);
     dummy.updateMatrix();
     mesh.setMatrixAt(i, dummy.matrix);
   });
   mesh.instanceMatrix.needsUpdate = true;
   return mesh;
+}
+
+function streetTreeGeometry() {
+  return mergeColouredParts((addPart) => {
+    addPart(new THREE.CylinderGeometry(0.14, 0.2, 2.6, 5), 0x6b4a2f, { p: [0, 1.3, 0] });
+    addPart(new THREE.IcosahedronGeometry(1.6, 0), 0x477a37, { p: [0, 3.9, 0] });
+    addPart(new THREE.IcosahedronGeometry(1.05, 0), 0x548741, { p: [0.55, 4.9, 0.2] });
+  });
+}
+
+function buildStreetTreeMesh(trees) {
+  return instancedFromGeometry(streetTreeGeometry(), trees, 'TaipeiStreetTrees', 0);
+}
+
+// Issue #222: park-tree canopy variants. Street trees keep the
+// original look above; park trees render from these four
+// geometries, split by the planner's seeded variant, so the park
+// population reads as mixed planting — banyan-like broad shade
+// canopies (the Taipei park default), palms, conifer-like
+// spires, and a deeper-green round tree.
+function parkRoundTreeGeometry() {
+  return mergeColouredParts((addPart) => {
+    addPart(new THREE.CylinderGeometry(0.16, 0.23, 2.8, 5), 0x634628, { p: [0, 1.4, 0] });
+    addPart(new THREE.IcosahedronGeometry(1.75, 0), 0x3e7040, { p: [0, 4.2, 0] });
+    addPart(new THREE.IcosahedronGeometry(1.15, 0), 0x4c8148, { p: [0.6, 5.2, 0.2] });
+    addPart(new THREE.IcosahedronGeometry(0.8, 0), 0x457a44, { p: [-0.7, 4.8, -0.3] });
+  });
+}
+
+function banyanTreeGeometry() {
+  return mergeColouredParts((addPart) => {
+    addPart(new THREE.CylinderGeometry(0.24, 0.34, 2.2, 6), 0x5d4128, { p: [0, 1.1, 0] });
+    addPart(new THREE.IcosahedronGeometry(2.3, 0), 0x3a6b2f, { p: [0, 3.15, 0], s: [1.3, 0.55, 1.3] });
+    addPart(new THREE.IcosahedronGeometry(1.5, 0), 0x447636, { p: [1.0, 3.7, 0.4], s: [1.25, 0.5, 1.25] });
+    addPart(new THREE.IcosahedronGeometry(1.2, 0), 0x406f33, { p: [-1.1, 3.55, -0.5], s: [1.2, 0.5, 1.2] });
+  });
+}
+
+function palmTreeGeometry() {
+  return mergeColouredParts((addPart) => {
+    addPart(new THREE.CylinderGeometry(0.09, 0.15, 5.8, 5), 0x7a6248, { p: [0, 2.9, 0] });
+    addPart(new THREE.IcosahedronGeometry(0.3, 0), 0x5d7038, { p: [0, 5.85, 0] });
+    for (let k = 0; k < 6; k++) {
+      addPart(new THREE.BoxGeometry(2.0, 0.05, 0.44), k % 2 ? 0x42743a : 0x4d8142, {
+        p: [0, 5.8, 0],
+        r: [0, k * Math.PI / 3 + 0.3, -0.45],
+        pre: (g) => g.translate(1.05, 0, 0),
+      });
+    }
+  });
+}
+
+function coniferTreeGeometry() {
+  return mergeColouredParts((addPart) => {
+    addPart(new THREE.CylinderGeometry(0.12, 0.18, 1.7, 5), 0x5d4128, { p: [0, 0.85, 0] });
+    addPart(new THREE.ConeGeometry(1.5, 2.7, 7), 0x2f6136, { p: [0, 2.95, 0] });
+    addPart(new THREE.ConeGeometry(1.02, 2.0, 7), 0x386b3c, { p: [0, 4.5, 0] });
+  });
+}
+
+// ---------------------------------------------------------------------
+// Park amenity kit (issue #222): the furniture plan from
+// taipei-park-amenities.js as one InstancedMesh per kit class —
+// no per-item draw calls. All geometries stand on y=0 and the
+// instances sit on the park lawn surface (0.04). Fronts face
+// local +Z; the planner's rot already aims each item (benches
+// and lamps face their path, vending rows face the entrance
+// path, restroom doors face their entrance).
+const PARK_SURFACE_Y = 0.04;
+
+function benchGeometry() {
+  return mergeColouredParts((addPart) => {
+    addPart(new THREE.BoxGeometry(0.07, 0.45, 0.42), 0x33373b, { p: [-0.78, 0.225, 0] });
+    addPart(new THREE.BoxGeometry(0.07, 0.45, 0.42), 0x33373b, { p: [0.78, 0.225, 0] });
+    addPart(new THREE.BoxGeometry(1.8, 0.07, 0.45), 0x8a6844, { p: [0, 0.46, 0] });
+    addPart(new THREE.BoxGeometry(1.8, 0.42, 0.06), 0x8a6844, { p: [0, 0.78, -0.22], r: [-0.12, 0, 0] });
+  });
+}
+
+function lampGeometry() {
+  return mergeColouredParts((addPart) => {
+    addPart(new THREE.CylinderGeometry(0.16, 0.2, 0.25, 6), 0x3a3e44, { p: [0, 0.125, 0] });
+    addPart(new THREE.CylinderGeometry(0.055, 0.075, 4.6, 6), 0x2f3338, { p: [0, 2.3, 0] });
+    addPart(new THREE.BoxGeometry(0.08, 0.08, 0.85), 0x2f3338, { p: [0, 4.52, 0.36] });
+    addPart(new THREE.BoxGeometry(0.34, 0.07, 0.6), 0xd9d5c6, { p: [0, 4.46, 0.72] });
+  });
+}
+
+function binGeometry() {
+  return mergeColouredParts((addPart) => {
+    addPart(new THREE.CylinderGeometry(0.30, 0.26, 0.78, 7), 0x3f6b4f, { p: [0, 0.39, 0] });
+    addPart(new THREE.CylinderGeometry(0.33, 0.33, 0.07, 7), 0x35573f, { p: [0, 0.8, 0] });
+  });
+}
+
+const VENDING_TINTS = [0xc8402e, 0x2e5fa3, 0x3f7d4e, 0x2a2c30];
+function vendingGeometry(tint) {
+  return mergeColouredParts((addPart) => {
+    addPart(new THREE.BoxGeometry(1.0, 1.85, 0.62), VENDING_TINTS[tint], { p: [0, 0.925, 0] });
+    addPart(new THREE.BoxGeometry(0.86, 1.42, 0.03), 0xdfe8ec, { p: [0, 0.94, 0.325] });
+    addPart(new THREE.BoxGeometry(0.9, 0.26, 0.03), 0xf2ead8, { p: [0, 1.7, 0.325] });
+  });
+}
+
+function restroomGeometry() {
+  return mergeColouredParts((addPart) => {
+    addPart(new THREE.BoxGeometry(6.4, 2.85, 3.2), 0xb7b1a4, { p: [0, 1.425, 0] });
+    addPart(new THREE.BoxGeometry(6.9, 0.16, 3.7), 0x8f897c, { p: [0, 2.93, 0] });
+    addPart(new THREE.BoxGeometry(0.95, 2.05, 0.05), 0x4a4640, { p: [-1.55, 1.03, 1.63] });
+    addPart(new THREE.BoxGeometry(0.95, 2.05, 0.05), 0x4a4640, { p: [1.55, 1.03, 1.63] });
+    addPart(new THREE.BoxGeometry(0.5, 2.05, 0.05), 0xa39d8f, { p: [0, 1.03, 1.63] });
+    addPart(new THREE.BoxGeometry(0.7, 0.3, 0.05), 0x6e6a5f, { p: [-1.55, 2.45, 1.63] });
+    addPart(new THREE.BoxGeometry(0.7, 0.3, 0.05), 0x6e6a5f, { p: [1.55, 2.45, 1.63] });
+    addPart(new THREE.BoxGeometry(6.4, 0.09, 0.5), 0x9b9587, { p: [0, 0.045, 1.85] });
+  });
+}
+
+function sculptureGeometry(form) {
+  if (form === 1) {
+    return mergeColouredParts((addPart) => {
+      addPart(new THREE.BoxGeometry(2.4, 0.3, 1.2), 0x8d8d94, { p: [0, 0.15, 0] });
+      addPart(new THREE.TorusGeometry(1.35, 0.26, 8, 18), 0x8a6f4d, { p: [0, 2.0, 0] });
+    });
+  }
+  if (form === 2) {
+    return mergeColouredParts((addPart) => {
+      addPart(new THREE.BoxGeometry(3.0, 0.3, 1.6), 0x8d8d94, { p: [0, 0.15, 0] });
+      addPart(new THREE.BoxGeometry(0.35, 3.1, 1.5), 0x9aa0a8, { p: [-0.7, 1.7, 0], r: [0, 0, 0.16] });
+      addPart(new THREE.BoxGeometry(0.35, 2.5, 1.3), 0x878d96, { p: [0.75, 1.4, 0], r: [0, 0, -0.13] });
+    });
+  }
+  return mergeColouredParts((addPart) => {
+    addPart(new THREE.BoxGeometry(2.6, 0.35, 2.6), 0x8d8d94, { p: [0, 0.175, 0] });
+    addPart(new THREE.BoxGeometry(1.7, 1.1, 1.7), 0xa8a8ae, { p: [0, 0.9, 0] });
+    addPart(new THREE.BoxGeometry(1.35, 1.0, 1.35), 0x97979e, { p: [0, 1.95, 0], r: [0, 0.45, 0] });
+    addPart(new THREE.BoxGeometry(1.0, 0.9, 1.0), 0xa8a8ae, { p: [0, 2.9, 0], r: [0, 0.9, 0] });
+  });
+}
+
+function fountainGeometry() {
+  return mergeColouredParts((addPart) => {
+    addPart(new THREE.CylinderGeometry(0.5, 0.55, 0.12, 10), 0x9aa0a4, { p: [0, 0.06, 0] });
+    addPart(new THREE.CylinderGeometry(0.16, 0.2, 0.85, 8), 0xa8adb2, { p: [0, 0.49, 0] });
+    addPart(new THREE.CylinderGeometry(0.42, 0.34, 0.16, 10), 0xbfc5c9, { p: [0, 0.98, 0] });
+    addPart(new THREE.CylinderGeometry(0.05, 0.05, 0.14, 6), 0x7d838a, { p: [0, 1.1, 0] });
+  });
+}
+
+function bushGeometry() {
+  return mergeColouredParts((addPart) => {
+    addPart(new THREE.IcosahedronGeometry(1.0, 0), 0x466f36, { p: [0, 0.55, 0], s: [1, 0.62, 1] });
+    addPart(new THREE.IcosahedronGeometry(0.62, 0), 0x527a3e, { p: [0.45, 0.78, 0.25], s: [1, 0.6, 1] });
+  });
+}
+
+function buildParkAmenityMeshes(amenityPlan) {
+  const it = amenityPlan.items;
+  const meshes = [];
+  const add = (mesh) => { if (mesh) meshes.push(mesh); };
+  add(instancedFromGeometry(benchGeometry(), it.bench, 'TaipeiParkBenches', PARK_SURFACE_Y));
+  add(instancedFromGeometry(lampGeometry(), it.lamp, 'TaipeiParkLamps', PARK_SURFACE_Y));
+  add(instancedFromGeometry(binGeometry(), it.bin, 'TaipeiParkBins', PARK_SURFACE_Y));
+  for (let tint = 0; tint < VENDING_TINTS.length; tint++) {
+    add(instancedFromGeometry(vendingGeometry(tint), it.vending.filter((v) => v.tint === tint), `TaipeiParkVending${tint}`, PARK_SURFACE_Y));
+  }
+  add(instancedFromGeometry(restroomGeometry(), it.restroom, 'TaipeiParkRestrooms', PARK_SURFACE_Y));
+  for (let form = 0; form < 3; form++) {
+    add(instancedFromGeometry(sculptureGeometry(form), it.sculpture.filter((s) => s.form === form), `TaipeiParkSculpture${form}`, PARK_SURFACE_Y));
+  }
+  add(instancedFromGeometry(fountainGeometry(), it.fountain, 'TaipeiParkFountains', PARK_SURFACE_Y));
+  add(instancedFromGeometry(bushGeometry(), it.bush, 'TaipeiParkBushes', PARK_SURFACE_Y));
+  return meshes;
 }
 
 // ---------------------------------------------------------------------
@@ -572,7 +763,8 @@ function buildSignalMesh(signals) {
 // Manhattan's island bounds or shoreline, which would clamp away the
 // tile's western kilometre (Da'an Forest Park sits at x ≈ −2900, west of
 // NYC's west shore) and invent Central Park / sidewalk heights on the
-// flat basin floor. Ground is y = 0 everywhere; spawns cluster at the
+// flat basin floor. Ground is y = 0 at street level (the elevated
+// decks ride on top of that model, issue #207); spawns cluster at the
 // tile spawn with the same relative offsets the NYC spawns use.
 // `env.webglFallback` (main.js passes the live renderer backend): on the
 // WebGL2 fallback the crowd material's storage-buffer skinning
@@ -592,7 +784,10 @@ export function controllerOptions(tile, env = {}) {
     // controllers push ground modes out of them (see taipei-union.js).
     excludeRects: unionExclusionRects(tile.geodata.frame.boxes, bb),
     clampToShore: false,
-    groundHeight: () => 0,
+    // Issue #207: the ground model — the flat basin floor, plus
+    // the elevated road decks wherever the caller's current
+    // height (the hint) puts it on one (js/taipei-drive.js).
+    groundHeight: (x, z, mode, yHint) => buildDriveModel(tile.geodata.elevatedRoads).sample(x, z, yHint),
     speedScale: 2,
     // Helicopter (user request 2026-10-24): ceiling above 600 m — 750
     // clears Taipei 101 (508 m) with margin — and ascend/descend 5×
@@ -1196,26 +1391,42 @@ export async function buildTaipeiGround(scene, tile, deps = {}) {
   } catch (err) {
     console.warn('[taipei-signs] sign atlas build failed; glyph signs remain', err);
   }
+  // Issue #218: runtime settings (deps.settings, resolved by
+  // main.js from URL params / localStorage via js/settings.js):
+  // the density preset the plan is built with, and whether the
+  // special buildings (Taipei 101 + registry landmarks + airport
+  // site structures) are visible. Absent or invalid values fall
+  // back to the pre-#218 boot exactly (Fine density, specials on).
+  const bootSettings = {
+    density: deps.settings?.density === 'coarse' || deps.settings?.density === 'dense' ? deps.settings.density : 'fine',
+    specials: deps.settings?.specials !== false,
+  };
   const buildingsStart = performance.now();
-  const plan = planTaipeiBuildings(geo);
-  const cityBlocks = deps.buildCityBlocks
+  let plan = planTaipeiBuildings(geo, { density: bootSettings.density });
+  let cityBlocks = deps.buildCityBlocks
     ? deps.buildCityBlocks(scene, taipeiCityBlocksOptions(geo, plan))
     : null;
   // Issue #57: the landmark builders take the TSL facade factories
   // injected (taipei-buildings.js stays import-free for the node
   // suite); ./tsl-materials.js is already on the Pages preload list.
   const landmarkFactories = { createCurtainWallMaterial, createPreWarBuildingMaterial };
-  const tower = createTaipei101(THREE, plan, landmarkFactories);
-  if (tower) group.add(tower);
-  const landmarkTowers = createTaipeiLandmarkTowers(THREE, plan, landmarkFactories);
-  if (landmarkTowers) group.add(landmarkTowers);
+  const specialGroups = [];
+  const addSpecial = (g) => {
+    if (!g) return;
+    g.visible = bootSettings.specials;
+    group.add(g);
+    specialGroups.push(g);
+  };
+  addSpecial(createTaipei101(THREE, plan, landmarkFactories));
+  addSpecial(createTaipeiLandmarkTowers(THREE, plan, landmarkFactories));
   // Songshan Airport site structures (issue #135): the terminal
   // complex, rendered with the landmark massing path but kept
   // off the registry (no pins/search) — see
   // AIRPORT_SITE_STRUCTURES in js/taipei-buildings.js.
   if (plan.siteStructures?.length) {
     const siteStructures = createTaipeiLandmarkTowers(THREE, { landmarkTowers: plan.siteStructures }, landmarkFactories);
-    if (siteStructures) { siteStructures.name = 'TaipeiAirportSiteStructures'; group.add(siteStructures); }
+    if (siteStructures) siteStructures.name = 'TaipeiAirportSiteStructures';
+    addSpecial(siteStructures);
   }
   console.info(`[taipei-buildings] ${plan.lots.length} buildings via upstream building system + Taipei 101 massing (508 m) + ${plan.landmarkTowers.length} landmark structures planned in ${Math.round(performance.now() - buildingsStart)}ms`);
   await completeStage('buildings', `${plan.lots.length} buildings, ${plan.landmarkTowers.length} landmark structures + Taipei 101`);
@@ -1251,23 +1462,117 @@ export async function buildTaipeiGround(scene, tile, deps = {}) {
     // the MRT cuttings are not).
     ...trenchSlots.map((s) => s.flatMap((pt) => pt)),
   ];
-  const treePlan = planStreetTrees(geo, plan, { exclusions: treeExclusions });
-  const parkTreePlan = planParkTrees(geo, plan, { exclusions: treeExclusions });
-  const treeMesh = buildStreetTreeMesh([...treePlan.trees, ...parkTreePlan.trees]);
-  if (treeMesh) group.add(treeMesh);
-  console.info(`[taipei-trees] ${treePlan.trees.length} street trees (${treePlan.stats.sidewalk} sidewalk, ${treePlan.stats.median} median${treePlan.stats.capped ? `, capped at ${treePlan.stats.cap}` : ''}) + ${parkTreePlan.trees.length} park trees${parkTreePlan.stats.capped ? ` (capped at ${parkTreePlan.stats.cap})` : ''} planned in ${Math.round(performance.now() - treesStart)}ms`);
-  await completeStage('trees', `${treePlan.trees.length + parkTreePlan.trees.length} trees`);
+  // Issue #218: tree planning depends on the building plan (trees
+  // keep out of the lots), so it is a closure the density switch
+  // below can re-run against a fresh plan.
+  const buildTrees = (forPlan) => {
+    const street = planStreetTrees(geo, forPlan, { exclusions: treeExclusions });
+    const park = planParkTrees(geo, forPlan, { exclusions: treeExclusions });
+    const meshes = [];
+    const streetMesh = buildStreetTreeMesh(street.trees);
+    if (streetMesh) meshes.push(streetMesh);
+    // Issue #222: park trees render per canopy variant (the street
+    // mesh above keeps the original single look).
+    const parkByVariant = { banyan: [], palm: [], conifer: [], round: [] };
+    for (const t of park.trees) (parkByVariant[t.variant] || parkByVariant.round).push(t);
+    for (const mesh of [
+      instancedFromGeometry(banyanTreeGeometry(), parkByVariant.banyan, 'TaipeiParkBanyanTrees', 0),
+      instancedFromGeometry(palmTreeGeometry(), parkByVariant.palm, 'TaipeiParkPalmTrees', 0),
+      instancedFromGeometry(coniferTreeGeometry(), parkByVariant.conifer, 'TaipeiParkConiferTrees', 0),
+      instancedFromGeometry(parkRoundTreeGeometry(), parkByVariant.round, 'TaipeiParkRoundTrees', 0),
+    ]) if (mesh) meshes.push(mesh);
+    // Issue #222: park amenity dressing — same exclusions as the
+    // trees, planned after the building plan so furniture keeps
+    // out of lots and landmark sites; one InstancedMesh per kit
+    // class, built inside this stage (the stage list is a pinned
+    // contract; park greenery + furniture is the one stage).
+    const amenityStart = performance.now();
+    const amenityPlan = planParkAmenities(geo, forPlan, { exclusions: treeExclusions });
+    for (const mesh of buildParkAmenityMeshes(amenityPlan)) meshes.push(mesh);
+    const amenityTotal = Object.values(amenityPlan.items).reduce((s, v) => s + v.length, 0);
+    console.info(`[taipei-parks] ${amenityTotal} amenity items (${Object.entries(amenityPlan.items).map(([k, v]) => `${k} ${v.length}`).join(', ')}) in ${amenityPlan.stats.parksDressed} parks (${amenityPlan.stats.parksPathless} pathless parks get trees only) planned in ${Math.round(performance.now() - amenityStart)}ms`);
+    return { street, park, amenityPlan, amenityTotal, parkByVariant, meshes };
+  };
+  let trees = buildTrees(plan);
+  for (const mesh of trees.meshes) group.add(mesh);
+  console.info(`[taipei-trees] ${trees.street.trees.length} street trees (${trees.street.stats.sidewalk} sidewalk, ${trees.street.stats.median} median${trees.street.stats.capped ? `, capped at ${trees.street.stats.cap}` : ''}) + ${trees.park.trees.length} park trees${trees.park.stats.capped ? ` (capped at ${trees.park.stats.cap})` : ''} planned in ${Math.round(performance.now() - treesStart)}ms`);
+  await completeStage('trees', `${trees.street.trees.length + trees.park.trees.length} trees, ${trees.amenityTotal} park amenity items`);
+
+  // Issue #218: main.js drives ONE cityBlocks object per frame, so
+  // the boot returns a stable facade over the current
+  // buildCityBlocks result; a density switch swaps the build
+  // underneath it. allBlocks is a live array refilled in place —
+  // the map system captured it at construction. Geometries of a
+  // torn-down build are disposed (its materials are per-build
+  // factory products over shared atlas textures and are left to
+  // the GC — bounded at a handful per switch).
+  const allBlocksLive = [];
+  const syncAllBlocks = () => {
+    allBlocksLive.length = 0;
+    if (cityBlocks?.allBlocks) allBlocksLive.push(...cityBlocks.allBlocks);
+  };
+  syncAllBlocks();
+  const cityBlocksFacade = {
+    get group() { return cityBlocks?.group ?? null; },
+    colliders: [],
+    allBlocks: allBlocksLive,
+    update: (x, z, force) => { if (cityBlocks) cityBlocks.update(x, z, force); },
+    updateLights: (camera) => { if (cityBlocks?.updateLights) cityBlocks.updateLights(camera); },
+  };
+  const disposeBuilt = (obj) => {
+    if (!obj) return;
+    obj.traverse((o) => { if (o.geometry) o.geometry.dispose(); });
+  };
+  const taipeiSettings = {
+    get density() { return bootSettings.density; },
+    get specials() { return bootSettings.specials; },
+    // Re-plan and rebuild the building + tree layers in place —
+    // no reload. Synchronous (the plan is CPU-bound); the panel
+    // yields a frame before calling so its busy state paints.
+    // Returns the new census + wall-clock cost, or null for an
+    // unknown preset.
+    setDensity(preset) {
+      if (preset !== 'coarse' && preset !== 'fine' && preset !== 'dense') return null;
+      if (preset === bootSettings.density) return { density: preset, lots: plan.lots.length, ms: 0 };
+      const t0 = performance.now();
+      for (const mesh of trees.meshes) { group.remove(mesh); disposeBuilt(mesh); }
+      if (cityBlocks) { scene.remove(cityBlocks.group); disposeBuilt(cityBlocks.group); }
+      bootSettings.density = preset;
+      plan = planTaipeiBuildings(geo, { density: preset });
+      cityBlocks = deps.buildCityBlocks
+        ? deps.buildCityBlocks(scene, taipeiCityBlocksOptions(geo, plan))
+        : null;
+      syncAllBlocks();
+      trees = buildTrees(plan);
+      for (const mesh of trees.meshes) group.add(mesh);
+      result.buildings = plan;
+      const ms = Math.round(performance.now() - t0);
+      console.info(`[taipei-settings] density -> ${preset}: ${plan.lots.length} buildings replanned and rebuilt in ${ms}ms`);
+      return { density: preset, lots: plan.lots.length, ms };
+    },
+    setSpecialsVisible(visible) {
+      bootSettings.specials = !!visible;
+      for (const g of specialGroups) g.visible = bootSettings.specials;
+      return bootSettings.specials;
+    },
+  };
 
   scene.add(group);
-  return {
+  const result = {
     group,
     buildings: plan,
-    cityBlocks,
+    cityBlocks: cityBlocksFacade,
     sidewalks: [],
     footprints: [],
-    colliders: [],
+    // Issue #207: main.js merges these into the controllers'
+    // collider set beside cityBlocks' own lot colliders — deck
+    // parapets, registry/site structures, Taipei 101, MRT
+    // stations and the depot (js/taipei-drive.js).
+    colliders: taipeiExtraColliders(geo, plan),
     highwayLanes: [],
     allBlocks: [],
     update: null,
+    taipeiSettings,
   };
+  return result;
 }
