@@ -45,6 +45,12 @@
 //     traced footprints, no hand-drawn zones; coarse blocks
 //     subdivide exactly as before, so the planned districts keep
 //     their grain (see the study on issue #124).
+//   - Issue #218: the density is a runtime option (the settings
+//     gear passes opts.density): 'coarse' disables the fine rule
+//     (the pre-#124 plan), 'dense' keeps the classifier but
+//     tightens the fine pitch to ~7.5–10.5 m frontage (the
+//     ~7–11 m draft the #124 study measured). The default
+//     'fine' is this header's plan, byte for byte.
 //   - Issue #106: a block face that fronts a collector-or-better road
 //     (tertiary rank ≥ 2, measured per block edge — see the frontage
 //     section in the planner) packs its row to ZERO side gap with no
@@ -2463,10 +2469,777 @@ export const HEIGHT_JOIN = {
                        // before its median speaks for a lot
   fieldRadiusM: 100,   // neighbourhood-field reach for signal-less lots
   fieldMinLots: 3,     // ...and at least this many real lots inside it
+  // Issue #219: sanity guards on the join itself (census on the
+  // issue). A donor whose outline is parcel-scale, or whose claim
+  // is extreme, must be corroborated by a second source before it
+  // may speak; an uncorroborated donor is skipped and its lots
+  // fall through to the next tier like signal-less lots. The
+  // guards live here, not in the data file, so a future refresh
+  // of the layer cannot silently reintroduce the class.
+  parcelSpanM: 100,    // a footprint wider than this is a parcel
+                       // outline, not a building outline
+  extremeHeightM: 120, // an implied height at/above this is an
+                       // extreme claim (40F at the permit factor)
+  corrGapM: 40,        // a corroborating footprint's bbox may sit
+                       // this far from the donor's bbox
+  corrDoorGrowM: 25,   // door plates corroborate from this far
+                       // outside the donor's bbox
+  corrFrac: 0.5,       // corroboration must support at least
+                       // this share of the claim
+  stepMinHeightM: 30,  // stepped massing (issue #219): only joined
+  stepMinSpanM: 24,    // heights >= this on footprints >= this
+                       // wide read as a complex wall worth stepping
 };
 
-export function planTaipeiBuildings(geodata) {
-  const stats = { blocksSeen: 0, blocksFine: 0, lotsFine: 0, blocksSkippedSmall: 0, blocksSkippedParkWater: 0, blocksSkippedGreen: 0, blocksSkippedAirfield: 0, blocksSkippedNpmSite: 0, blocksSkippedOutsideUnion: 0, lotsDroppedVacancy: 0, lotsDroppedParkWater: 0, lotsDroppedGreen: 0, lotsDroppedRiverside: 0, lotsDroppedAirfield: 0, lotsDroppedNpmSite: 0, lotsDroppedTowerSite: 0, lotsDroppedRoad: 0, lotsDroppedMedian: 0, lotsDroppedOutsideUnion: 0, lotsDroppedTrackBed: 0, lotsDroppedTrackPierce: 0, lotsDroppedPier: 0, blocksRotated: 0, lotsRotated: 0, lotsPackedFrontage: 0, lotsTallFrontage: 0, heightsPermit: 0, heightsOsmHeight: 0, heightsOsmLevels: 0, heightsDoor: 0, heightsField: 0, heightsProc: 0, lotsFrontagePulled: 0, lotsFrontageFlush: 0, lotsFrontageHeldNoBed: 0, lotsFrontageHeldBlocked: 0, frontagePullMetres: 0 };
+// ---------- Issue #221: procedural school campuses ----------
+//
+// The user's directive (2026-10-27): do NOT handcraft schools one by
+// one — GENERATE them. Until now there was no institutional class
+// anywhere in the pipeline: a campus was just a very large raster
+// block, so the lot packer built a shallow rim of generic buildings
+// around an empty crater (NTUT is one 81,024 m² block), small
+// campuses were built over entirely, and no track, court, fence or
+// gate was ever drawn (leisure=pitch was not even extracted).
+//
+// The pipeline: tools/taipei/extract-from-pbf.py emits every
+// amenity=school / kindergarten / university / college ground (ways
+// + relations; landuse=education included) to osm_schools.json;
+// build-taipei-geodata.mjs clips the rings to the tile union as
+// geodata.schools; here, planSchoolCampuses() keeps every ground
+// lot-free (the schoolPolys verdicts in the planner, counted like
+// the airfield's) and generates a campus on each ground the data
+// can bound:
+//
+//   * the fitted frame is the ring's minimum-area rectangle
+//     (rotating calipers over the convex hull); its fill ratio
+//     (ring area / rect area) grades how rectangular the ground is;
+//   * the sports core is a running track from the #166 kit
+//     (trackCapsuleParts: rust-red capsule, green infield) in
+//     400/300/200 m classes, or — when no track fits — a courts
+//     cluster + playground slab (the compact archetype);
+//   * classroom slabs (3–6F, seeded lengths/heights) stand around
+//     the track in U / parallel / L arrangements, plus an assembly
+//     hall at one end; universities (and any ground ≥ 4.2 ha) get
+//     the large archetype: taller slabs, a library-scale block,
+//     courts cluster and lawns;
+//   * a concrete perimeter fence follows the OSM ring itself (the
+//     CKS Memorial Hall wall idiom) with a gated gap on the best
+//     street frontage — two posts and a lintel — and trees inside
+//     the fence line;
+//   * kindergartens get the mini archetype: low slabs, a play
+//     lawn and one court, never a track.
+//
+// Every choice is drawn from hash01() salts of a seed hashed from
+// the ground's OSM type+id, so the same ground generates the same
+// campus on every rebuild. Every placed part is containment-tested
+// against the ring (parts that fall outside are dropped, which is
+// what makes irregular/hillside grounds come out clipped instead
+// of wrong), and slab rows never overlap the track or each other
+// (a local-rect registry arbitrates).
+//
+// Skips, all recorded on plan.schools with reasons: grounds that
+// already carry a registry campus (the #166 trio — 石牌國中,
+// 青江國小, 建國中學 — detected by overlap with a landmark site
+// rect, so any future registry campus is skipped the same way);
+// grounds subsumed by a larger education ground (a campus mapped
+// twice, or an affiliated school inside a university ring);
+// non-largest fragments of a campus the tile union clipped into
+// pieces; building-footprint-scale grounds (< 700 m² — a way
+// tagging the school BUILDING, not its grounds); and grounds where
+// even the compact layout places nothing (no-fit). Skipped grounds
+// still exclude lots: OSM says the land is a campus either way.
+// Campuses OSM maps as a bare node have no ring at all — the
+// builder never emits them (the census on issue #221 names them).
+
+const SCHOOL_TRACK_RED = 0xa04a30;   // the #166 kit's colours, so a
+const SCHOOL_FIELD_GREEN = 0x4e7d32; // generated campus and a
+const SCHOOL_COURT_BLUE = 0x3f6d8e;  // handcrafted one read alike
+const SCHOOL_COURT_GREEN = 0x3f7d6b;
+const SCHOOL_FENCE_COLOR = 0xd8d4c8;
+const SCHOOL_YARD_COLOR = 0xbdb7a8;
+const SCHOOL_PARKING_COLOR = 0x93969a;
+const SCHOOL_LAWN_COLOR = 0x557c40;
+const SCHOOL_TRUNK_COLOR = 0x6b4f35;
+const SCHOOL_CANOPY_COLORS = [0x4a7038, 0x557c40, 0x3d6335];
+const SCHOOL_FACADES = [
+  { kind: 'prewar', stoneColor: 0xd9cfc0, trimColor: 0xb0a58e, windowGlassColor: 0x2e3a46, windowWidth: 2.6, floorHeight: 3.6, litProbability: 0.25, warmth: 0.55 },
+  { kind: 'prewar', stoneColor: 0xd6c8b4, trimColor: 0xab9c80, windowGlassColor: 0x2e3a46, windowWidth: 2.6, floorHeight: 3.6, litProbability: 0.25, warmth: 0.55 },
+  { kind: 'prewar', stoneColor: 0xcfd4d6, trimColor: 0x9aa4a8, windowGlassColor: 0x2e3a46, windowWidth: 3.0, floorHeight: 3.6, litProbability: 0.22, warmth: 0.5 },
+  { kind: 'prewar', stoneColor: 0xdcc7b0, trimColor: 0xa87f5f, windowGlassColor: 0x2e3a46, windowWidth: 2.6, floorHeight: 3.6, litProbability: 0.25, warmth: 0.6 },
+];
+// Track classes: capsule overall (straight + width) x width. The
+// first is the 400 m class, then 300 m, 200 m, small-200 m, mini.
+const SCHOOL_TRACK_CLASSES = [
+  { cls: '400m', straight: 84, width: 62 },
+  { cls: '300m', straight: 64, width: 52 },
+  { cls: '200m', straight: 46, width: 42 },
+  { cls: '200m-s', straight: 30, width: 32 },
+  { cls: 'mini', straight: 18, width: 24 },
+];
+
+function schoolSeedOf(osmType, osmId) {
+  const s = `${osmType}/${osmId}`;
+  let h = 0x811c9dc5;
+  for (let i = 0; i < s.length; i++) { h ^= s.charCodeAt(i); h = Math.imul(h, 0x01000193); }
+  return h | 0;
+}
+
+function ringPtsOf(ring) {
+  const pts = [];
+  for (let i = 0; i + 1 < ring.length; i += 2) pts.push([ring[i], ring[i + 1]]);
+  if (pts.length > 1) {
+    const [fx, fz] = pts[0], [lx, lz] = pts[pts.length - 1];
+    if (Math.hypot(fx - lx, fz - lz) < 0.05) pts.pop();
+  }
+  return pts;
+}
+
+function ringAreaOf(pts) {
+  let a = 0;
+  for (let i = 0, j = pts.length - 1; i < pts.length; j = i++) a += pts[j][0] * pts[i][1] - pts[i][0] * pts[j][1];
+  return a / 2;
+}
+
+function convexHullOf(pts) {
+  const sorted = [...pts].sort((a, b) => a[0] - b[0] || a[1] - b[1]);
+  const cross = (o, a, b) => (a[0] - o[0]) * (b[1] - o[1]) - (a[1] - o[1]) * (b[0] - o[0]);
+  const lower = [], upper = [];
+  for (const p of sorted) {
+    while (lower.length >= 2 && cross(lower[lower.length - 2], lower[lower.length - 1], p) <= 0) lower.pop();
+    lower.push(p);
+  }
+  for (let i = sorted.length - 1; i >= 0; i--) {
+    const p = sorted[i];
+    while (upper.length >= 2 && cross(upper[upper.length - 2], upper[upper.length - 1], p) <= 0) upper.pop();
+    upper.push(p);
+  }
+  lower.pop(); upper.pop();
+  return lower.concat(upper);
+}
+
+// Minimum-area rectangle of the ring (rotating calipers over the
+// hull's edge directions). Returns the frame the whole layout is
+// authored in: centre C, axis angle theta (the long axis runs along
+// (cos, sin) in the tile plane), long side W, short side D, and the
+// fill ratio ring-area / rect-area.
+function fitCampusRect(pts) {
+  const hull = convexHullOf(pts);
+  let best = null;
+  const consider = (theta) => {
+    const c = Math.cos(theta), s = Math.sin(theta);
+    let u0 = Infinity, u1 = -Infinity, v0 = Infinity, v1 = -Infinity;
+    for (const [x, z] of hull) {
+      const u = x * c + z * s, v = -x * s + z * c;
+      if (u < u0) u0 = u; if (u > u1) u1 = u;
+      if (v < v0) v0 = v; if (v > v1) v1 = v;
+    }
+    const area = (u1 - u0) * (v1 - v0);
+    if (!best || area < best.area - 1e-9) best = { theta, u0, u1, v0, v1, area };
+  };
+  for (let i = 0; i < hull.length; i++) {
+    const [ax, az] = hull[i], [bx, bz] = hull[(i + 1) % hull.length];
+    if (Math.hypot(bx - ax, bz - az) < 0.01) continue;
+    consider(Math.atan2(bz - az, bx - ax));
+  }
+  if (!best) return null;
+  let { theta } = best;
+  // Extents over the whole ring (not just the hull) in the frame.
+  const c = Math.cos(theta), s = Math.sin(theta);
+  let u0 = Infinity, u1 = -Infinity, v0 = Infinity, v1 = -Infinity;
+  for (const [x, z] of pts) {
+    const u = x * c + z * s, v = -x * s + z * c;
+    if (u < u0) u0 = u; if (u > u1) u1 = u;
+    if (v < v0) v0 = v; if (v > v1) v1 = v;
+  }
+  let W = u1 - u0, D = v1 - v0;
+  let cu = (u0 + u1) / 2, cv = (v0 + v1) / 2;
+  if (D > W) { // keep W the long side: rotate the frame a quarter turn
+    theta += Math.PI / 2;
+    [W, D] = [D, W];
+    const c2 = Math.cos(theta), s2 = Math.sin(theta);
+    u0 = Infinity; u1 = -Infinity; v0 = Infinity; v1 = -Infinity;
+    for (const [x, z] of pts) {
+      const u = x * c2 + z * s2, v = -x * s2 + z * c2;
+      if (u < u0) u0 = u; if (u > u1) u1 = u;
+      if (v < v0) v0 = v; if (v > v1) v1 = v;
+    }
+    cu = (u0 + u1) / 2; cv = (v0 + v1) / 2;
+  }
+  const cc = Math.cos(theta), ss = Math.sin(theta);
+  const cx = cu * cc - cv * ss, cz = cu * ss + cv * cc;
+  const area = Math.abs(ringAreaOf(pts));
+  return { cx, cz, theta, W, D, area, fill: area / (W * D) };
+}
+
+// One campus, generated. `frame` is the fitted rect, `gateSide` the
+// local side index (0:+u end, 1:-u end, 2:+v side, 3:-v side) whose
+// frontage the gate opens on. Parts come back in structure space
+// (dx/dz relative to the structure origin at the ring centroid).
+function generateSchoolCampus(ground, frame, gateSide, origin, opts = {}) {
+  const seed = schoolSeedOf(ground.osmType, ground.osmId);
+  const draw = (salt) => hash01(seed ^ (salt * 0x9e37 + 0x221));
+  const kind = ground.kind;
+  const isUni = kind === 'university' || kind === 'college';
+  const isKinder = kind === 'kindergarten';
+  const large = isUni || frame.area >= 42000;
+  const clipped = frame.fill < 0.72;
+  const { theta, W, D } = frame;
+  const cosT = Math.cos(theta), sinT = Math.sin(theta);
+  const toWorld = (u, v) => [frame.cx + u * cosT - v * sinT, frame.cz + u * sinT + v * cosT];
+  const inRing = (u, v, shrink = 0) => {
+    const [x, z] = toWorld(u, v);
+    return pointInRing(x, z, ground.ring);
+  };
+  const parts = [];
+  const placed = []; // local rects {u, v, w, d} (axis-aligned in the local frame)
+  const overlaps = (u, v, w, d, pad = 1) => placed.some((p) =>
+    Math.abs(u - p.u) < (w + p.w) / 2 + pad && Math.abs(v - p.v) < (d + p.d) / 2 + pad);
+  const boxInRing = (u, v, w, d, rot) => {
+    const c = Math.cos(rot), s = Math.sin(rot);
+    for (const [lx, lz] of [[-w / 2, -d / 2], [w / 2, -d / 2], [w / 2, d / 2], [-w / 2, d / 2]]) {
+      if (!inRing(u + lx * c - lz * s, v + lx * s + lz * c)) return false;
+    }
+    return true;
+  };
+  // Author a box part from local frame coords; registers its rect.
+  const addBox = (u, v, w, d, h, opts = {}) => {
+    const rot = opts.rot || 0;
+    const regW = rot ? d : w, regD = rot ? w : d;
+    if (!opts.skipFit) {
+      if (overlaps(u, v, regW, regD, opts.pad ?? 1)) return false;
+      if (!boxInRing(u, v, w, d, rot)) return false;
+    }
+    const [x, z] = toWorld(u, v);
+    const part = { type: 'box', w, d, h, dx: Math.round((x - origin.x) * 10) / 10, dz: Math.round((z - origin.z) * 10) / 10 };
+    if (opts.y0) part.y0 = opts.y0;
+    const rotY = theta + rot;
+    if (rotY) part.rotY = Math.round(rotY * 10000) / 10000;
+    if (opts.flat !== undefined) part.flat = opts.flat;
+    parts.push(part);
+    if (!opts.noReg) placed.push({ u, v, w: regW, d: regD });
+    if (h >= 7 && opts.flat === undefined) buildingCount++;
+    return true;
+  };
+
+  let salt = 1;
+  let buildingCount = 0;      // slabs + hall + library actually placed
+  const M = 3.5;              // slab margin inside the fitted rect
+  const slabDepth = 11 + draw(salt++) * 2.5;
+  const floorsFor = (lo, hi) => lo + Math.floor(draw(salt++) * (hi - lo + 1));
+  let maxTop = 0;
+  const noteTop = (h) => { if (h > maxTop) maxTop = h; };
+
+  // --- choose the sports core: largest track class that fits with
+  // its arrangement's side bands, else the compact courts layout ---
+  const rowBand = slabDepth + 6.5;             // row of slabs + gap to the track
+  const courtBand = 25;                        // courts row + margins
+  let track = null, variant = null;
+  // The extract's content join vetoes the track on a ground OSM
+  // maps as fully built with no sports surface of track scale
+  // (NTUT: 30 building footprints, seven small courts, no track —
+  // its real field sits across the expressway, off-campus): such
+  // a ground takes the compact layout however big it is, instead
+  // of growing a fictional running track. A ground whose data
+  // carries a track — tagged as one, or one sports polygon of
+  // track scale (>= 3000 m², a 200 m-class surface) — keeps the
+  // track archetype through the ordinary fit below.
+  const trackMapped = !!(ground.stats && (ground.stats.hasTrack || (ground.stats.largestPitchM2 || 0) >= 3000));
+  const denseBuilt = !!(ground.stats && ground.stats.buildings >= 10 && !trackMapped);
+  // planSchoolCampuses retries a track-only outcome with
+  // forceCompact set: the compact layout's perimeter rows use
+  // the frame differently and fit dense old urban plots where a
+  // track leaves no slab room.
+  const forceCompact = !!opts.forceCompact;
+  // The fitted rect can overhang a concave ring; probe the capsule
+  // (cap tips, straight edges, cap shoulders) against the ring so
+  // a track never spills onto the neighbouring lots or roads.
+  const trackInRing = (tc, vOff = 0) => {
+    const hl = (tc.straight + tc.width) / 2 - 1, hw = tc.width / 2, hs = tc.straight / 2;
+    const probes = [[0, 0], [-hl, 0], [hl, 0], [0, -hw], [0, hw], [-hs, -hw], [-hs, hw], [hs, -hw], [hs, hw],
+      [-hl + tc.width / 4, -hw * 0.7], [-hl + tc.width / 4, hw * 0.7], [hl - tc.width / 4, -hw * 0.7], [hl - tc.width / 4, hw * 0.7]];
+    return probes.every(([u, v]) => inRing(u, vOff + v));
+  };
+  if (!isKinder && !denseBuilt && !forceCompact) {
+    const variants = [
+      { name: 'U', bandA: rowBand, bandB: rowBand, ends: true },
+      { name: 'parallel', bandA: rowBand, bandB: rowBand, ends: false },
+      { name: 'L', bandA: rowBand, bandB: 6, ends: true },
+      { name: 'court-side', bandA: rowBand, bandB: courtBand, ends: false },
+      { name: 'bare', bandA: 6, bandB: 6, ends: false },
+    ];
+    // Two passes over (class, variant): pass 1 takes the largest
+    // track class that fits WITH slab rows around it (seeded
+    // variant preference inside the class); pass 2 allows the
+    // 'bare' variant. Slabs around the track are the signature
+    // look, so a smaller track with buildings beats a bigger
+    // empty field (a 192x87 m ground took a bare 400 m loop over
+    // a rowed 300 m one before this ordering).
+    const pref = variants.map((v, i) => [draw(900 + i), i]).sort((a, b) => b[0] - a[0]).map(([, i]) => variants[i]);
+    for (const allowBare of [false, true]) {
+      for (const tc of SCHOOL_TRACK_CLASSES) {
+        if (tc.cls === 'mini' && frame.area > 26000) continue; // a big ground never takes the mini loop
+        const overallL = tc.straight + tc.width;
+        for (const v of pref) {
+          if (!allowBare && v.name === 'bare') continue;
+          if (tc.width + v.bandA + v.bandB <= D - 1 && overallL <= W - 16 && trackInRing(tc, (v.bandA - v.bandB) / 2)) { track = tc; variant = v; break; }
+        }
+        if (track) break;
+      }
+      if (track) break;
+    }
+  }
+
+  // Yard slab: a pale concrete ground sheet under the whole campus,
+  // only where the fitted rect honestly sits inside the ring.
+  if (frame.fill >= 0.78 && boxInRing(0, 0, W - 5, D - 5, 0)) {
+    addBox(0, 0, W - 5, D - 5, 0.1, { y0: 0.03, flat: SCHOOL_YARD_COLOR, noReg: true, skipFit: true });
+  }
+
+  let trackHalfW = 0, trackL = 0;
+  // Asymmetric variants (L, court-side) carry different bands on
+  // the two sides; the fit test budgets width + bandA + bandB
+  // against D, which only closes if the track sits OFF-centre,
+  // shifted toward the lighter band by half the difference. All
+  // v coordinates of the track layout hang off this offset.
+  const vOff = track ? (variant.bandA - variant.bandB) / 2 : 0;
+  if (track) {
+    trackHalfW = track.width / 2; trackL = track.straight + track.width;
+    placed.push({ u: 0, v: vOff, w: trackL, d: track.width });
+    const [tx, tz] = toWorld(0, vOff);
+    for (const p of trackCapsuleParts(Math.round((tx - origin.x) * 10) / 10, Math.round((tz - origin.z) * 10) / 10,
+      track.straight, track.width, track.width - 12, theta, SCHOOL_TRACK_RED, SCHOOL_FIELD_GREEN)) parts.push(p);
+  }
+
+  // --- assembly hall at one end (not the gate end when the gate is
+  // an end side), sized to sit between the slab rows ---
+  let hallEnd = 0; // +1: at +u end, -1: at -u end, 0: none
+  if (!isKinder && W >= (track ? trackL + 46 : 78)) {
+    hallEnd = gateSide === 0 ? -1 : gateSide === 1 ? 1 : (draw(salt++) < 0.5 ? 1 : -1);
+    const hallD = 17 + draw(salt++) * 4;
+    const hallW = Math.min(track ? track.width - 6 : D - 2 * (M + slabDepth) - 4, 36);
+    const hallH = Math.round((8.5 + draw(salt++) * 4) * 10) / 10;
+    // With a track, the hall anchors beyond the capsule tip (the
+    // registry's AABB test would otherwise eat it); the frame
+    // position wins when it is already further out.
+    const hu = hallEnd * (track ? Math.max(W / 2 - M - hallD / 2, trackL / 2 + hallD / 2 + 2) : W / 2 - M - hallD / 2);
+    if (hallW >= 18 && addBox(hu, vOff, hallW, hallD, hallH, { rot: Math.PI / 2 })) {
+      noteTop(hallH);
+      addBox(hu, vOff, hallW + 1.2, hallD + 1.2, 0.5, { y0: hallH, rot: Math.PI / 2, flat: 0x8a8d90, noReg: true, skipFit: true });
+    } else hallEnd = 0;
+  }
+
+  // --- classroom slab rows ---
+  const slabFloors = isKinder ? [2, 3] : large ? [4, 8] : kind === 'school' ? [3, 6] : [3, 5];
+  const fillRow = (vC, uFrom, uTo, blocked = []) => {
+    const ranges = [];
+    let cur = uFrom;
+    for (const [b0, b1] of [...blocked].sort((a, b) => a[0] - b[0])) {
+      if (b0 > cur) ranges.push([cur, Math.min(b0, uTo)]);
+      cur = Math.max(cur, b1);
+    }
+    if (cur < uTo) ranges.push([cur, uTo]);
+    for (const [r0, r1] of ranges) {
+      let u = r0;
+      while (r1 - u >= 24) {
+        let len = 26 + draw(salt++) * 32;
+        if (r1 - u - len < 18) len = r1 - u; // absorb an unusable tail stub
+        len = Math.min(len, r1 - u);
+        const floors = floorsFor(slabFloors[0], slabFloors[1]);
+        const h = Math.round(floors * 3.6 * 10) / 10;
+        if (addBox(u + len / 2, vC, len, slabDepth, h)) noteTop(h);
+        u += len + 4 + draw(salt++) * 5;
+      }
+    }
+  };
+
+  if (track) {
+    const rowV = trackHalfW + 3.5 + slabDepth / 2;
+    const uFrom = -W / 2 + M, uTo = W / 2 - M;
+    if (variant.bandA >= rowBand) fillRow(vOff - rowV, uFrom, uTo);
+    if (variant.bandB >= rowBand) fillRow(vOff + rowV, uFrom, uTo);
+    if (variant.bandB >= courtBand && variant.bandA < courtBand) {
+      // courts row on the +v side
+      const cv = vOff + trackHalfW + 3.5 + 9;
+      let cu = -trackL / 2 + 16;
+      const nCourts = Math.min(3, Math.floor(trackL / 34));
+      for (let i = 0; i < nCourts; i++) {
+        addBox(cu, cv, 30, 18, 0.25, { y0: 0.05, flat: i % 2 ? SCHOOL_COURT_GREEN : SCHOOL_COURT_BLUE });
+        cu += 34;
+      }
+    }
+    if (variant.ends) {
+      // End slabs at the non-hall end, spanning the track's
+      // width, anchored just beyond the capsule tip (anchoring
+      // at the frame edge left them stranded across the yard on
+      // long grounds, and the AABB registry ate them when they
+      // sat at the tip itself).
+      const endU = (hallEnd === 1 ? -1 : 1) * (trackL / 2 + 2 + slabDepth / 2);
+      let v = vOff - trackHalfW + 2;
+      while (v + 22 <= vOff + trackHalfW - 1) {
+        const len = Math.min(22 + draw(salt++) * 14, vOff + trackHalfW - 1 - v);
+        if (len < 16) break;
+        const floors = floorsFor(slabFloors[0], slabFloors[1]);
+        const h = Math.round(floors * 3.6 * 10) / 10;
+        if (addBox(endU, v + len / 2, len, slabDepth, h, { rot: Math.PI / 2 })) noteTop(h);
+        v += len + 5;
+      }
+    }
+  } else {
+    // --- compact archetype: perimeter rows + courts/playground ---
+    const rowVN = -(D / 2 - M - slabDepth / 2), rowVS = D / 2 - M - slabDepth / 2;
+    const uFrom = -W / 2 + M, uTo = W / 2 - M;
+    fillRow(rowVN, uFrom, uTo);
+    if (!isKinder || D >= 40) fillRow(rowVS, uFrom, uTo);
+    const midD = D - 2 * (M + slabDepth);
+    if (midD >= 21 && W >= 52) {
+      // courts row(s) in the middle band
+      let cu = uFrom + 16;
+      const nCourts = Math.min(isKinder ? 1 : 3, Math.floor((uTo - uFrom - 8) / 34));
+      for (let i = 0; i < nCourts; i++) {
+        addBox(cu, 0, 30, 18, 0.25, { y0: 0.05, flat: i % 2 ? SCHOOL_COURT_BLUE : SCHOOL_COURT_GREEN });
+        cu += 34;
+      }
+      if (midD >= 40 && !isKinder) { // a green playground slab beside the courts
+        addBox(0, midD / 2 - 8, Math.min(W - 2 * M - 4, 60), 14, 0.22, { y0: 0.05, flat: SCHOOL_LAWN_COLOR });
+      }
+    } else if (midD >= 10) {
+      addBox(0, 0, Math.min(W - 2 * M - 4, 56), Math.min(midD - 2, 20), 0.22, { y0: 0.05, flat: isKinder ? SCHOOL_LAWN_COLOR : SCHOOL_COURT_GREEN });
+    }
+  }
+
+  // --- large-campus extras: a library-scale block + lawns ---
+  if (large && !isKinder) {
+    const libW = 24 + draw(salt++) * 8, libD = 18 + draw(salt++) * 6;
+    const libH = Math.round(floorsFor(7, 10) * 3.6 * 10) / 10;
+    const corners = [[1, 1], [1, -1], [-1, 1], [-1, -1]].map((c, i) => [draw(700 + i), c]).sort((a, b) => b[0] - a[0]);
+    for (const [, [su, sv]] of corners) {
+      if (addBox(su * (W / 2 - M - libD / 2), sv * (D / 2 - M - libW / 2), libW, libD, libH, { rot: Math.PI / 2 })) { noteTop(libH); break; }
+      if (addBox(su * (W / 2 - M - libW / 2), sv * (D / 2 - M - libD / 2), libW, libD, libH)) { noteTop(libH); break; }
+    }
+    for (const [su, sv] of [[1, 1], [-1, -1], [1, -1], [-1, 1]]) {
+      const lw = 16 + draw(salt++) * 14, ld = 10 + draw(salt++) * 8;
+      addBox(su * (W / 2 - M - lw / 2 - 2), sv * (D / 2 - M - ld / 2 - 2), lw, ld, 0.22, { y0: 0.05, flat: SCHOOL_LAWN_COLOR });
+    }
+  }
+
+  // --- scatter fallback: an irregular ground whose fitted rows
+  // all failed containment (a C-shaped or diagonal plot — the
+  // frame's rows and centre courts all land off-ring) still gets
+  // a campus: a few slabs seeded on a coarse grid over the fitted
+  // rect, each containment- and overlap-tested like every other
+  // part, so what lands is clipped to the ground by construction.
+  let scattered = false;
+  if (buildingCount === 0) {
+    const cand = [];
+    for (let u = -W / 2 + M + 12; u <= W / 2 - M - 12; u += 26)
+      for (let v = -D / 2 + M + 8; v <= D / 2 - M - 8; v += 20) cand.push([u, v]);
+    for (let i = cand.length - 1; i > 0; i--) {
+      const j = Math.floor(draw(8000 + i) * (i + 1));
+      [cand[i], cand[j]] = [cand[j], cand[i]];
+    }
+    let placedN = 0;
+    for (const [u, v] of cand) {
+      if (placedN >= (isKinder ? 2 : 5)) break;
+      const len = isKinder ? 13 + draw(salt++) * 8 : 20 + draw(salt++) * 14;
+      const floors = floorsFor(slabFloors[0], slabFloors[1]);
+      const h = Math.round(floors * 3.6 * 10) / 10;
+      if (addBox(u, v, len, slabDepth, h) || addBox(u, v, slabDepth, len, h, { rot: Math.PI / 2 })) { noteTop(h); placedN++; }
+    }
+    if (placedN > 0) {
+      scattered = true;
+      addBox(0, 0, 30, 18, 0.25, { y0: 0.05, flat: SCHOOL_COURT_GREEN });
+    }
+  }
+
+  // --- parking near the gate (seeded, optional) ---
+  if (!isKinder && draw(salt++) < 0.55) {
+    const pw = 16 + draw(salt++) * 12, pd = 10 + draw(salt++) * 5;
+    const sideV = gateSide === 2 ? 1 : gateSide === 3 ? -1 : (draw(salt++) < 0.5 ? 1 : -1);
+    const sideU = gateSide === 0 ? 1 : gateSide === 1 ? -1 : (draw(salt++) < 0.5 ? 1 : -1);
+    addBox(sideU * (W / 2 - M - pw / 2 - 1), sideV * (D / 2 - M - pd / 2 - 1), pw, pd, 0.12, { y0: 0.04, flat: SCHOOL_PARKING_COLOR });
+  }
+
+  // --- perimeter fence + gate + trees (world space, on the ring) ---
+  const fence = schoolFenceParts(ground, gateSide, frame, origin, seed);
+  parts.push(...fence.parts);
+
+  const archetype = isKinder ? 'kindergarten'
+    : denseBuilt ? (large ? 'large-dense' : 'dense-built')
+    : large ? (track ? 'large-track' : 'large-compact')
+    : track ? `track-${variant.name}` : (frame.area < 5200 ? 'compact-mini' : 'compact');
+  return {
+    archetype: (scattered ? `${archetype}+scatter` : archetype) + (clipped ? '+clipped' : ''),
+    trackClass: track ? track.cls : null,
+    parts, height: Math.round((maxTop || 7.2) * 10) / 10, slabCount: buildingCount,
+    gateSeg: fence.gateSeg,
+  };
+}
+
+// The fence: thin concrete wall boxes along the (simplified) OSM
+// ring, a gated gap where the gate side's frontage meets the ring,
+// gate posts + lintel, an optional guard house, and trees inside
+// the line. All parts in structure space.
+function schoolFenceParts(ground, gateSide, frame, origin, seed) {
+  const draw = (salt) => hash01(seed ^ (salt * 0x9e37 + 0x221));
+  const pts = ringPtsOf(ground.ring);
+  // Simplify: drop near-duplicate vertices, then merge near-collinear
+  // runs (cap ~44 segments so a wiggly OSM ring stays affordable).
+  const simp = [pts[0]];
+  for (let i = 1; i < pts.length; i++) {
+    const [px, pz] = simp[simp.length - 1];
+    if (Math.hypot(pts[i][0] - px, pts[i][1] - pz) >= 1.2) simp.push(pts[i]);
+  }
+  const angleAt = (a, b, c) => {
+    const v1 = [b[0] - a[0], b[1] - a[1]], v2 = [c[0] - b[0], c[1] - b[1]];
+    const l1 = Math.hypot(...v1) || 1, l2 = Math.hypot(...v2) || 1;
+    return Math.acos(Math.max(-1, Math.min(1, (v1[0] * v2[0] + v1[1] * v2[1]) / (l1 * l2))));
+  };
+  for (let pass = 0; pass < 4 && simp.length > 12; pass++) {
+    const out = [simp[0]];
+    for (let i = 1; i < simp.length; i++) {
+      const prev = out[out.length - 1], cur = simp[i], next = simp[(i + 1) % simp.length];
+      if (i < simp.length - 1 && angleAt(prev, cur, next) < 0.16 && Math.hypot(cur[0] - prev[0], cur[1] - prev[1]) < 34) continue;
+      out.push(cur);
+    }
+    if (out.length === simp.length) break;
+    simp.length = 0; simp.push(...out);
+    if (simp.length <= 44) break;
+  }
+  const segs = [];
+  for (let i = 0; i < simp.length; i++) {
+    const a = simp[i], b = simp[(i + 1) % simp.length];
+    const len = Math.hypot(b[0] - a[0], b[1] - a[1]);
+    if (len >= 0.8) segs.push({ a, b, len });
+  }
+  // Gate target: the fitted rect's gate-side midpoint, pushed to the ring.
+  const cosT = Math.cos(frame.theta), sinT = Math.sin(frame.theta);
+  const sideLocal = [[frame.W / 2, 0], [-frame.W / 2, 0], [0, frame.D / 2], [0, -frame.D / 2]][gateSide];
+  const gx = frame.cx + sideLocal[0] * cosT - sideLocal[1] * sinT;
+  const gz = frame.cz + sideLocal[0] * sinT + sideLocal[1] * cosT;
+  let gateSeg = -1, gateT = 0.5, gateDist = Infinity;
+  segs.forEach((sg, i) => {
+    const dx = sg.b[0] - sg.a[0], dz = sg.b[1] - sg.a[1];
+    const L2 = dx * dx + dz * dz || 1;
+    let t = ((gx - sg.a[0]) * dx + (gz - sg.a[1]) * dz) / L2;
+    t = Math.max(0, Math.min(1, t));
+    const d = Math.hypot(sg.a[0] + t * dx - gx, sg.a[1] + t * dz - gz);
+    if (d < gateDist) { gateDist = d; gateSeg = i; gateT = t; }
+  });
+  const gateW = ground.kind === 'kindergarten' ? 7 : 11 + draw(4242) * 3;
+  const parts = [];
+  const pushBox = (cx, cz, w, d, h, rotY, flat, y0 = 0) => {
+    const part = { type: 'box', w, d, h, dx: Math.round((cx - origin.x) * 10) / 10, dz: Math.round((cz - origin.z) * 10) / 10, flat };
+    if (y0) part.y0 = y0;
+    if (rotY) part.rotY = Math.round(rotY * 10000) / 10000;
+    parts.push(part);
+  };
+  const treeSpots = [];
+  segs.forEach((sg, i) => {
+    const dx = sg.b[0] - sg.a[0], dz = sg.b[1] - sg.a[1];
+    const rotY = Math.atan2(dz, dx);
+    const pieces = [];
+    if (i === gateSeg) {
+      const cPos = gateT * sg.len;
+      const g0 = Math.max(0, cPos - gateW / 2), g1 = Math.min(sg.len, cPos + gateW / 2);
+      if (g0 > 0.8) pieces.push([0, g0]);
+      if (sg.len - g1 > 0.8) pieces.push([g1, sg.len]);
+      // gate posts + lintel at the gap
+      for (const gp of [g0, g1]) {
+        const px = sg.a[0] + (dx * gp) / sg.len, pz = sg.a[1] + (dz * gp) / sg.len;
+        pushBox(px, pz, 0.9, 0.9, 3.4, 0, 0xb9b2a2);
+      }
+      const mx = sg.a[0] + (dx * (g0 + g1)) / (2 * sg.len), mz = sg.a[1] + (dz * (g0 + g1)) / (2 * sg.len);
+      pushBox(mx, mz, g1 - g0 + 1.8, 1.0, 0.8, rotY, 0xb9b2a2, 3.2);
+      // guard house just inside the gate (seeded; dropped when the
+      // spot lands outside a concave ring)
+      if (draw(4243) < 0.55) {
+        const inw = [(frame.cx - mx), (frame.cz - mz)];
+        const il = Math.hypot(...inw) || 1;
+        const hx = mx + (inw[0] / il) * 4.2 + (dx / sg.len) * (gateW / 2 + 2.6);
+        const hz = mz + (inw[1] / il) * 4.2 + (dz / sg.len) * (gateW / 2 + 2.6);
+        if (pointInRing(hx, hz, ground.ring)) pushBox(hx, hz, 3.2, 3, 3.0, rotY, 0xcfc8b8);
+      }
+    } else pieces.push([0, sg.len]);
+    for (const [p0, p1] of pieces) {
+      const len = p1 - p0;
+      const mx = sg.a[0] + (dx * (p0 + p1)) / (2 * sg.len), mz = sg.a[1] + (dz * (p0 + p1)) / (2 * sg.len);
+      pushBox(mx, mz, len, 0.35, 2.5, rotY, SCHOOL_FENCE_COLOR);
+    }
+    // tree spots along this segment, offset toward the campus centre
+    const step = 20 + draw(5000 + i) * 8;
+    for (let dpos = step * 0.6; dpos < sg.len - 3; dpos += step) {
+      const px = sg.a[0] + (dx * dpos) / sg.len, pz = sg.a[1] + (dz * dpos) / sg.len;
+      const inw = [frame.cx - px, frame.cz - pz];
+      const il = Math.hypot(...inw) || 1;
+      treeSpots.push([px + (inw[0] / il) * 1.8, pz + (inw[1] / il) * 1.8]);
+    }
+  });
+  // Trees: trunk + dome canopy, capped; skipped near the gate.
+  const gateC = gateSeg >= 0 ? [segs[gateSeg].a[0] + (segs[gateSeg].b[0] - segs[gateSeg].a[0]) * gateT,
+                                segs[gateSeg].a[1] + (segs[gateSeg].b[1] - segs[gateSeg].a[1]) * gateT] : null;
+  let trees = 0;
+  for (const [tx, tz] of treeSpots) {
+    if (trees >= 14) break;
+    if (gateC && Math.hypot(tx - gateC[0], tz - gateC[1]) < gateW) continue;
+    if (!pointInRing(tx, tz, ground.ring)) continue;
+    const r = 1.9 + draw(6000 + trees) * 1.0;
+    parts.push({ type: 'cylinder', r: 0.16, h: 2.1, dx: Math.round((tx - origin.x) * 10) / 10, dz: Math.round((tz - origin.z) * 10) / 10, flat: SCHOOL_TRUNK_COLOR });
+    parts.push({ type: 'dome', rx: r, rz: r, h: Math.round(r * 1.05 * 10) / 10, y0: 1.9, dx: Math.round((tx - origin.x) * 10) / 10, dz: Math.round((tz - origin.z) * 10) / 10, flat: SCHOOL_CANOPY_COLORS[trees % 3] });
+    trees++;
+  }
+  return { parts, gateSeg };
+}
+
+// All campuses for a geodata: grouping, skip rules, gate frontage,
+// generation. Returns { structures, report } — structures are
+// resolved like resolveLandmark's output and join plan.siteStructures.
+export function planSchoolCampuses(geodata, landmarkSites, carriageways, originLatLon) {
+  const report = [];
+  const structures = [];
+  // Tile -> lat/lon for the resolved structures, the inverse of
+  // latLonToTile's frame (same default origin as resolveLandmark).
+  const [lat0, lon0] = originLatLon || [25.033, 121.565];
+  const phi0 = (lat0 * Math.PI) / 180, sin0 = Math.sin(phi0);
+  const nRad = FRAME_A / Math.sqrt(1 - FRAME_E2 * sin0 * sin0);
+  const mRad = (FRAME_A * (1 - FRAME_E2)) / Math.pow(1 - FRAME_E2 * sin0 * sin0, 1.5);
+  const kx = (Math.PI / 180) * nRad * Math.cos(phi0), ky = (Math.PI / 180) * mRad;
+  const toLatLon = (x, z) => [Math.round((lat0 - z / ky) * 1e6) / 1e6, Math.round((lon0 + x / kx) * 1e6) / 1e6];
+  const entries = Array.isArray(geodata.schools) ? geodata.schools : [];
+  // Group clipped pieces by OSM element.
+  const groups = new Map();
+  for (const e of entries) {
+    const key = `${e.osmType}/${e.osmId}`;
+    if (!groups.has(key)) groups.set(key, []);
+    groups.get(key).push(e);
+  }
+  const grounds = [];
+  for (const [key, pieces] of groups) {
+    pieces.sort((a, b) => b.area - a.area);
+    const main = pieces[0];
+    const totalArea = pieces.reduce((s, p) => s + p.area, 0);
+    grounds.push({ key, osmType: main.osmType, osmId: main.osmId, kind: main.kind, name: main.name || '', ring: main.ring, area: totalArea, pieces: pieces.length, stats: main.stats || null });
+  }
+  grounds.sort((a, b) => b.area - a.area);
+  // Road vertices near a ground, for the gate-frontage scan.
+  const roadPtsNear = (bb, grow) => {
+    const out = [];
+    for (const bed of carriageways || []) {
+      const pts = bed.pts || [];
+      let minX = Infinity, maxX = -Infinity, minZ = Infinity, maxZ = -Infinity;
+      for (let i = 0; i + 1 < pts.length; i += 2) {
+        if (pts[i] < minX) minX = pts[i]; if (pts[i] > maxX) maxX = pts[i];
+        if (pts[i + 1] < minZ) minZ = pts[i + 1]; if (pts[i + 1] > maxZ) maxZ = pts[i + 1];
+      }
+      if (maxX < bb.minX - grow || minX > bb.maxX + grow || maxZ < bb.minZ - grow || minZ > bb.maxZ + grow) continue;
+      for (let i = 0; i + 1 < pts.length; i += 2) out.push([pts[i], pts[i + 1]]);
+    }
+    return out;
+  };
+  const kept = [];
+  for (const g of grounds) {
+    const rep = { key: g.key, osmType: g.osmType, osmId: g.osmId, kind: g.kind, name: g.name, area: g.area, pieces: g.pieces };
+    if (g.stats) rep.stats = g.stats;
+    report.push(rep);
+    if (g.area < 700) { rep.skip = 'building-footprint-scale (<700 m² in tile — the way tags a building, or only a tile-edge sliver of the ground falls in tile)'; continue; }
+    const pts = ringPtsOf(g.ring);
+    const bb = ringBbox(g.ring);
+    // Registry campuses: overlap with a landmark site rect.
+    let registryHit = false;
+    for (const s of landmarkSites || []) {
+      const ix = Math.max(0, Math.min(bb.maxX, s.maxX) - Math.max(bb.minX, s.minX));
+      const iz = Math.max(0, Math.min(bb.maxZ, s.maxZ) - Math.max(bb.minZ, s.minZ));
+      if (ix * iz >= 0.35 * (bb.maxX - bb.minX) * (bb.maxZ - bb.minZ)) { registryHit = true; break; }
+    }
+    if (registryHit) { rep.skip = 'registry campus (handcrafted — #166)'; continue; }
+    // Subsumption: >= 85% of this ring's vertices inside a kept larger ground.
+    let subsumedBy = null;
+    for (const big of kept) {
+      let inside = 0;
+      for (const [x, z] of pts) if (pointInRing(x, z, big.ring)) inside++;
+      if (pts.length && inside / pts.length >= 0.85) { subsumedBy = big.key; break; }
+    }
+    if (subsumedBy) { rep.skip = `subsumed by ${subsumedBy}`; continue; }
+    kept.push(g);
+    const frame = fitCampusRect(pts);
+    if (!frame) { rep.skip = 'degenerate ring'; continue; }
+    rep.frame = { W: Math.round(frame.W), D: Math.round(frame.D), fill: Math.round(frame.fill * 100) / 100 };
+    if (g.pieces > 1) rep.fragmentNote = `largest of ${g.pieces} clipped pieces generates; the rest stay exclusion-only`;
+    // Gate side: the fitted-rect side whose midpoint (pushed 8 m
+    // outward) comes closest to a carriageway vertex; fallback the
+    // +v long side when no road runs within 90 m.
+    const roadPts = roadPtsNear(bb, 90);
+    const cosT = Math.cos(frame.theta), sinT = Math.sin(frame.theta);
+    const sideMid = [[frame.W / 2, 0], [-frame.W / 2, 0], [0, frame.D / 2], [0, -frame.D / 2]];
+    let gateSide = 2, gateBest = Infinity;
+    sideMid.forEach(([lu, lv], si) => {
+      const nx = lu === 0 ? 0 : Math.sign(lu), nz = lv === 0 ? 0 : Math.sign(lv);
+      const ox = frame.cx + (lu + nx * 8) * cosT - (lv + nz * 8) * sinT;
+      const oz = frame.cz + (lu + nx * 8) * sinT + (lv + nz * 8) * cosT;
+      for (const [rx, rz] of roadPts) {
+        const d = Math.hypot(rx - ox, rz - oz);
+        if (d < gateBest) { gateBest = d; gateSide = si; }
+      }
+    });
+    rep.gateRoadDist = gateBest === Infinity ? null : Math.round(gateBest);
+    // Structure origin: ring centroid (the resolveLandmark convention).
+    let ox = 0, oz = 0;
+    for (const [x, z] of pts) { ox += x; oz += z; }
+    const origin = { x: Math.round((ox / pts.length) * 10) / 10, z: Math.round((oz / pts.length) * 10) / 10 };
+    let gen = generateSchoolCampus(g, frame, gateSide, origin);
+    if (gen.slabCount === 0 && gen.trackClass) {
+      // A track fits the ground but leaves no room a classroom
+      // slab can use (dense old urban plots — 南門國小's class):
+      // retry as the compact archetype before calling it no-fit.
+      const retry = generateSchoolCampus(g, frame, gateSide, origin, { forceCompact: true });
+      if (retry.slabCount > 0) gen = retry;
+    }
+    if (gen.slabCount === 0) {
+      // A campus with no classroom slab is not a campus — skip it
+      // honestly (the ground still excludes lots) rather than
+      // rendering a lone track or a fence around nothing.
+      rep.skip = gen.trackClass
+        ? 'no-fit (a track fits the ground but no classroom slab does)'
+        : 'no-fit (even the compact layout places nothing)';
+      continue;
+    }
+    rep.archetype = gen.archetype;
+    rep.trackClass = gen.trackClass;
+    rep.parts = gen.parts.length;
+    rep.slabs = gen.slabCount;
+    const facade = { ...SCHOOL_FACADES[Math.floor(hash01(schoolSeedOf(g.osmType, g.osmId) ^ 0xfacade) * SCHOOL_FACADES.length) % SCHOOL_FACADES.length], seed: 57 + Math.floor(hash01(schoolSeedOf(g.osmType, g.osmId) ^ 0x5eed) * 900) / 100 };
+    const [slat, slon] = toLatLon(origin.x, origin.z);
+    structures.push({
+      id: `school-${g.osmType}-${g.osmId}`,
+      name: g.name || `School (OSM ${g.osmType} ${g.osmId})`,
+      nameZh: /[\u4e00-\u9fff]/.test(g.name) ? g.name : '',
+      x: origin.x, z: origin.z,
+      lat: slat, lon: slon,
+      realHeight: gen.height, height: gen.height, estimated: true,
+      distFromOrigin: Math.round(Math.hypot(origin.x, origin.z)),
+      color: facade.stoneColor,
+      site: { minX: bb.minX, maxX: bb.maxX, minZ: bb.minZ, maxZ: bb.maxZ },
+      openGround: null,
+      sites: [{ minX: bb.minX, maxX: bb.maxX, minZ: bb.minZ, maxZ: bb.maxZ }],
+      parts: gen.parts, facade, sign: null,
+      school: { key: g.key, kind: g.kind, archetype: gen.archetype, trackClass: gen.trackClass },
+    });
+  }
+  return { structures, report };
+}
+
+export function planTaipeiBuildings(geodata, opts = {}) {
+  const stats = { blocksSeen: 0, blocksFine: 0, lotsFine: 0, blocksSkippedSmall: 0, blocksSkippedParkWater: 0, blocksSkippedGreen: 0, blocksSkippedAirfield: 0, blocksSkippedSchool: 0, blocksSkippedLoop: 0, blocksSkippedNpmSite: 0, blocksSkippedOutsideUnion: 0, lotsDroppedVacancy: 0, lotsDroppedParkWater: 0, lotsDroppedGreen: 0, lotsDroppedRiverside: 0, lotsDroppedAirfield: 0, lotsDroppedSchool: 0, lotsDroppedLoop: 0, lotsDroppedNpmSite: 0, lotsDroppedTowerSite: 0, lotsDroppedRoad: 0, lotsDroppedMedian: 0, lotsDroppedOutsideUnion: 0, lotsDroppedTrackBed: 0, lotsDroppedTrackPierce: 0, lotsDroppedPier: 0, blocksRotated: 0, lotsRotated: 0, lotsPackedFrontage: 0, lotsTallFrontage: 0, heightsPermit: 0, heightsOsmHeight: 0, heightsOsmLevels: 0, heightsDoor: 0, heightsField: 0, heightsProc: 0, heightsGuardParcel: 0, heightsGuardExtreme: 0, heightsSteppedGroups: 0, heightsSteppedLots: 0, lotsFrontagePulled: 0, lotsFrontageFlush: 0, lotsFrontageHeldNoBed: 0, lotsFrontageHeldBlocked: 0, frontagePullMetres: 0 };
+  // Issue #218: building-density presets (settings gear). 'fine'
+  // is the shipped default: every constant it selects below is the
+  // literal this code used before the option existed, so the
+  // default plan is byte-identical (fingerprint-pinned in
+  // tests/taipei-settings.test.mjs). 'coarse' restores the pre-#124
+  // rule — the fine classifier never fires. 'dense' is the finer
+  // draft measured during the #124 study (~7–11 m pitch, ~100k
+  // lots): the classifier is unchanged, but fine blocks subdivide
+  // at the tighter 7.5–10.5 m frontage pitch with narrower gaps
+  // and walk-up vacancy. An unknown value plans as 'fine'.
+  const density = opts.density === 'coarse' || opts.density === 'dense' ? opts.density : 'fine';
   // Union-of-boxes tile (issue #60): the geodata frame carries the
   // tile's boxes; ground exists only inside them. Raster blocks are
   // masked to the union by the builder, but a block's bbox can still
@@ -2599,6 +3372,60 @@ export function planTaipeiBuildings(geodata) {
     }
     return false;
   };
+  // Issue #213: interchange-loop interiors — land enclosed by
+  // interchange carriageways (cloverleaf infields and the pockets
+  // between carriageways), derived at build time into
+  // geodata.loopSites by tools/taipei/build-loops.mjs. The lot
+  // gauntlet's road tests clear the carriageways themselves but
+  // not the ground they enclose, and OSM's green layer tags only
+  // some infields; this class clears the rest, tested exactly
+  // like the airfield site. A geodata without the layer (an older
+  // build) plans exactly as before.
+  const loopPolys = [];
+  for (const s of geodata.loopSites || []) loopPolys.push({ ring: s.ring, bb: ringBbox(s.ring) });
+  const inLoop = (x, z) => {
+    for (const p of loopPolys) {
+      if (x < p.bb.minX || x > p.bb.maxX || z < p.bb.minZ || z > p.bb.maxZ) continue;
+      if (pointInRing(x, z, p.ring)) return true;
+    }
+    return false;
+  };
+  const nearLoop = (x, z) => {
+    for (const p of loopPolys) {
+      if (x < p.bb.minX - CORNER_CLEARANCE || x > p.bb.maxX + CORNER_CLEARANCE ||
+          z < p.bb.minZ - CORNER_CLEARANCE || z > p.bb.maxZ + CORNER_CLEARANCE) continue;
+      if (pointInRing(x, z, p.ring)) return true;
+      if (distToRing(x, z, p.ring) < CORNER_CLEARANCE) return true;
+    }
+    return false;
+  };
+
+  // Issue #221: school grounds (geodata.schools — every clipped
+  // piece of every education ground, generated or skipped) exclude
+  // procedural lots by the same two verdicts as the airfield,
+  // counted separately. The campuses themselves are generated by
+  // planSchoolCampuses (below, where the landmark sites and the
+  // carriageways exist) and join plan.siteStructures; this ring
+  // verdict is the lot-proofing, so a skipped ground — registry,
+  // subsumed, footprint-scale, no-fit — still clears its land.
+  const schoolPolys = [];
+  for (const s of geodata.schools || []) schoolPolys.push({ ring: s.ring, bb: ringBbox(s.ring) });
+  const inSchool = (x, z) => {
+    for (const p of schoolPolys) {
+      if (x < p.bb.minX || x > p.bb.maxX || z < p.bb.minZ || z > p.bb.maxZ) continue;
+      if (pointInRing(x, z, p.ring)) return true;
+    }
+    return false;
+  };
+  const nearSchool = (x, z) => {
+    for (const p of schoolPolys) {
+      if (x < p.bb.minX - CORNER_CLEARANCE || x > p.bb.maxX + CORNER_CLEARANCE ||
+          z < p.bb.minZ - CORNER_CLEARANCE || z > p.bb.maxZ + CORNER_CLEARANCE) continue;
+      if (pointInRing(x, z, p.ring)) return true;
+      if (distToRing(x, z, p.ring) < CORNER_CLEARANCE) return true;
+    }
+    return false;
+  };
 
   // Issue #128: the real-height join. geodata.heights (built by
   // tools/taipei/build-heights.py from the OGDL permit + door
@@ -2615,9 +3442,24 @@ export function planTaipeiBuildings(geodata) {
   const FP_CELL = 48;
   const fpKey = (gx, gz) => gx * 100003 + gz;
   const fpGrid = new Map();
+  // Issue #219: every footprint entry also carries its span, its
+  // centre and the height it would donate (implied), precomputed
+  // once — the sanity guards below and the stepped-massing pass
+  // after the lot loop both read them.
+  const fpEntries = [];
   if (heightLayer) {
     for (const f of heightLayer.footprints) {
-      const e = { ring: f.ring, bb: ringBbox(f.ring), src: f.src, floors: f.floors, height: f.height };
+      const bb = ringBbox(f.ring);
+      const e = {
+        idx: fpEntries.length, ring: f.ring, bb, src: f.src, floors: f.floors, height: f.height,
+        span: Math.max(bb.maxX - bb.minX, bb.maxZ - bb.minZ),
+        cx: (bb.minX + bb.maxX) / 2, cz: (bb.minZ + bb.maxZ) / 2,
+        implied: f.src === 'permit'
+          ? (f.floors > 0 ? f.floors * HEIGHT_JOIN.permitM : 0)
+          : (f.height > 0 ? f.height : (f.floors > 0 ? f.floors * HEIGHT_JOIN.osmLevelsM : 0)),
+        blocked: null,
+      };
+      fpEntries.push(e);
       const gx0 = Math.floor(e.bb.minX / FP_CELL), gx1 = Math.floor(e.bb.maxX / FP_CELL);
       const gz0 = Math.floor(e.bb.minZ / FP_CELL), gz1 = Math.floor(e.bb.maxZ / FP_CELL);
       for (let gx = gx0; gx <= gx1; gx++) for (let gz = gz0; gz <= gz1; gz++) {
@@ -2635,16 +3477,22 @@ export function planTaipeiBuildings(geodata) {
     if (!heightLayer) return null;
     const bucket = fpGrid.get(fpKey(Math.floor(x / FP_CELL), Math.floor(z / FP_CELL)));
     if (!bucket) return null;
-    let osm = null;
+    let permit = null, osm = null;
     for (const e of bucket) {
       if (x < e.bb.minX || x > e.bb.maxX || z < e.bb.minZ || z > e.bb.maxZ) continue;
       if (!pointInRing(x, z, e.ring)) continue;
-      if (e.src === 'permit' && e.floors > 0) return { src: 'permit', floors: e.floors };
-      if (e.src === 'osm' && !osm) osm = e;
+      // Issue #219: a blocked donor (uncorroborated parcel-scale
+      // or extreme claim, see the guard pass below) does not
+      // speak; the scan continues so a valid second signal under
+      // the same point still can.
+      if (e.blocked) continue;
+      if (e.src === 'permit' && e.floors > 0) { if (!permit) permit = e; }
+      else if (e.src === 'osm' && !osm) osm = e;
     }
+    if (permit) return { src: 'permit', floors: permit.floors, fpIdx: permit.idx };
     if (osm) {
-      if (osm.height > 0) return { src: 'osm-height', height: osm.height };
-      if (osm.floors > 0) return { src: 'osm-levels', floors: osm.floors };
+      if (osm.height > 0) return { src: 'osm-height', height: osm.height, fpIdx: osm.idx };
+      if (osm.floors > 0) return { src: 'osm-levels', floors: osm.floors, fpIdx: osm.idx };
     }
     return null;
   };
@@ -2669,6 +3517,72 @@ export function planTaipeiBuildings(geodata) {
     const s = [...vals].sort((a, b) => a - b);
     return s.length % 2 ? s[(s.length - 1) / 2] : (s[s.length / 2 - 1] + s[s.length / 2]) / 2;
   };
+
+  // Issue #219: the join's sanity guards, precomputed per donor.
+  // The census (on the issue) found the class: permit/OSM outlines
+  // at PARCEL scale donating a whole block's floor count to every
+  // lot inside (a 55F permit on a 161 x 152 m parcel made eight
+  // 165 m lots in low-rise Shilin), and extreme single-source
+  // claims with no second source anywhere near. A donor is
+  // GUARDED when its span is parcel-scale (> parcelSpanM) or its
+  // implied height is extreme (>= extremeHeightM); a guarded
+  // donor still speaks only when CORROBORATED — a second footprint
+  // supporting at least corrFrac of the claim with its bbox within
+  // corrGapM, or door plates within corrDoorGrowM of the bbox
+  // whose tallest floor, at the door factor, supports the same
+  // share. Every legitimate extreme in the census is corroborated
+  // (the Xinyi 54F permit by an OSM 266 m outline and 54F doors;
+  // the twin 43F permits by each other); the Shilin parcel and the
+  // 112 m / 165 m-span OSM outline in Beitou have nothing. Blocked
+  // donors are skipped by footprintSignalAt, so their lots fall
+  // through to the door / field / procedural tiers.
+  if (heightLayer) {
+    const CORR_CELL = 128;
+    const corrGrid = new Map();
+    for (const e of fpEntries) {
+      const gx0 = Math.floor((e.bb.minX - HEIGHT_JOIN.corrGapM) / CORR_CELL), gx1 = Math.floor((e.bb.maxX + HEIGHT_JOIN.corrGapM) / CORR_CELL);
+      const gz0 = Math.floor((e.bb.minZ - HEIGHT_JOIN.corrGapM) / CORR_CELL), gz1 = Math.floor((e.bb.maxZ + HEIGHT_JOIN.corrGapM) / CORR_CELL);
+      for (let gx = gx0; gx <= gx1; gx++) for (let gz = gz0; gz <= gz1; gz++) {
+        const k = fpKey(gx, gz);
+        if (!corrGrid.has(k)) corrGrid.set(k, []);
+        corrGrid.get(k).push(e);
+      }
+    }
+    const bboxGap = (a, b) => Math.hypot(
+      Math.max(0, Math.max(a.minX - b.maxX, b.minX - a.maxX)),
+      Math.max(0, Math.max(a.minZ - b.maxZ, b.minZ - a.maxZ)));
+    for (const e of fpEntries) {
+      if (!e.implied) continue;
+      const parcel = e.span > HEIGHT_JOIN.parcelSpanM;
+      if (!parcel && e.implied < HEIGHT_JOIN.extremeHeightM) continue;
+      const bar = HEIGHT_JOIN.corrFrac * e.implied;
+      let corr = false;
+      const gx0 = Math.floor((e.bb.minX - HEIGHT_JOIN.corrGapM) / CORR_CELL), gx1 = Math.floor((e.bb.maxX + HEIGHT_JOIN.corrGapM) / CORR_CELL);
+      const gz0 = Math.floor((e.bb.minZ - HEIGHT_JOIN.corrGapM) / CORR_CELL), gz1 = Math.floor((e.bb.maxZ + HEIGHT_JOIN.corrGapM) / CORR_CELL);
+      for (let gx = gx0; gx <= gx1 && !corr; gx++) for (let gz = gz0; gz <= gz1 && !corr; gz++) {
+        for (const g of corrGrid.get(fpKey(gx, gz)) || []) {
+          if (g === e || !g.implied || g.implied < bar) continue;
+          if (bboxGap(e.bb, g.bb) <= HEIGHT_JOIN.corrGapM) { corr = true; break; }
+        }
+      }
+      if (!corr && doorPts) {
+        const grow = HEIGHT_JOIN.corrDoorGrowM;
+        const dgx0 = Math.floor((e.bb.minX - grow) / DOOR_CELL), dgx1 = Math.floor((e.bb.maxX + grow) / DOOR_CELL);
+        const dgz0 = Math.floor((e.bb.minZ - grow) / DOOR_CELL), dgz1 = Math.floor((e.bb.maxZ + grow) / DOOR_CELL);
+        for (let gx = dgx0; gx <= dgx1 && !corr; gx++) for (let gz = dgz0; gz <= dgz1 && !corr; gz++) {
+          for (const di of doorGrid.get(fpKey(gx, gz)) || []) {
+            const dx = doorPts[di * 3], dz = doorPts[di * 3 + 1];
+            if (dx < e.bb.minX - grow || dx > e.bb.maxX + grow || dz < e.bb.minZ - grow || dz > e.bb.maxZ + grow) continue;
+            if (doorPts[di * 3 + 2] * HEIGHT_JOIN.doorM >= bar) { corr = true; break; }
+          }
+        }
+      }
+      if (!corr) {
+        e.blocked = parcel ? 'parcel' : 'extreme';
+        if (parcel) stats.heightsGuardParcel++; else stats.heightsGuardExtreme++;
+      }
+    }
+  }
 
   // Support piers (validate's and taipei-mrt's rule): no pier point
   // — elevated-road or MRT deck — may stand inside a planned lot's
@@ -2957,6 +3871,14 @@ export function planTaipeiBuildings(geodata) {
   // the rects keep the terminal frontage clear regardless).
   const siteStructures = AIRPORT_SITE_STRUCTURES.map((def) => resolveLandmark(def, originLatLon));
   const siteStructureSites = siteStructures.flatMap((s) => s.sites);
+  // Issue #221: procedurally generated school campuses join the
+  // site structures and render through the same massing path. Their
+  // grounds exclude lots by the exact ring verdict (schoolPolys
+  // above), so the campuses' bbox sites deliberately do NOT join
+  // exclusionSites — an irregular campus bbox would clear whole
+  // neighbouring city blocks that are not campus land.
+  const schoolPlan = planSchoolCampuses(geodata, landmarkSites, carriageways, originLatLon);
+  for (const s of schoolPlan.structures) siteStructures.push(s);
   // MRT elevated stations (issue #118): the structures straddle the
   // guideway corridor, so their footprint bounding boxes join the
   // exclusion sites — no generic lot is planned through a station.
@@ -3017,6 +3939,7 @@ export function planTaipeiBuildings(geodata) {
 
   const lots = [];
   const lotProcH = []; // issue #128: each lot's procedural draw, index-aligned with lots
+  const lotFp = []; // issue #219: each lot's winning footprint entry index (or -1), index-aligned with lots
   // Issue #185: per-lot major-face records for the street-wall pull
   // (index-aligned with lots; null when the lot stands in no face of
   // rank >= FRONTAGE_PULL_MIN_RANK). vF/uF hold [dir, rank] for each
@@ -3032,6 +3955,8 @@ export function planTaipeiBuildings(geodata) {
     if (inGreen(block.cx, block.cz)) { stats.blocksSkippedGreen++; continue; }
     if (inAirfield(block.cx, block.cz)) { stats.blocksSkippedAirfield++; continue; }
     if (inNpmSite(block.cx, block.cz)) { stats.blocksSkippedNpmSite++; continue; }
+    if (inLoop(block.cx, block.cz)) { stats.blocksSkippedLoop++; continue; }
+    if (inSchool(block.cx, block.cz)) { stats.blocksSkippedSchool++; continue; }
     if (!inUnion(block.cx, block.cz)) { stats.blocksSkippedOutsideUnion++; continue; }
     const big = block.area > 40000;
     const pitchMul = big ? 1.7 : 1.0;
@@ -3039,7 +3964,7 @@ export function planTaipeiBuildings(geodata) {
     // big blocks) subdivide at shophouse pitch with party-wall gaps
     // and walk-up vacancy; every other block keeps the standard
     // subdivision byte for byte.
-    const fine = !big && blockDoorCount(block.bbox) / (block.area / 1e4) >= FINE_DOORS_PER_HA;
+    const fine = density !== 'coarse' && !big && blockDoorCount(block.bbox) / (block.area / 1e4) >= FINE_DOORS_PER_HA;
     if (fine) stats.blocksFine++;
     // Fine fabric fronts its lanes near-flush (narrow or arcade
     // sections, not the full street-section band), so its inset is
@@ -3049,9 +3974,9 @@ export function planTaipeiBuildings(geodata) {
     const minZ = block.bbox.minZ + inset, maxZ = block.bbox.maxZ - inset;
     const innerW = maxX - minX, innerD = maxZ - minZ;
     if (innerW < 10 || innerD < 10) continue;
-    const vacancy = big ? 0.30 : fine ? 0.04 : 0.13;
-    const frontage = fine ? 9 + hash01(bi * 7919) * 3.5 : (15 + hash01(bi * 7919) * 10) * pitchMul;
-    const depthPitch = fine ? 12.5 + hash01(bi * 104729 + 3) * 4 : (15 + hash01(bi * 104729 + 3) * 7) * pitchMul;
+    const vacancy = big ? 0.30 : fine ? (density === 'dense' ? 0.03 : 0.04) : 0.13;
+    const frontage = fine ? (density === 'dense' ? 7.5 + hash01(bi * 7919) * 3 : 9 + hash01(bi * 7919) * 3.5) : (15 + hash01(bi * 7919) * 10) * pitchMul;
+    const depthPitch = fine ? (density === 'dense' ? 11 + hash01(bi * 104729 + 3) * 3.5 : 12.5 + hash01(bi * 104729 + 3) * 4) : (15 + hash01(bi * 104729 + 3) * 7) * pitchMul;
     // Issue #62: the block's lot grid turns to its fronting streets
     // (theta = 0 keeps the axis grid — the pre-#62 plan, byte for
     // byte). In the turned frame the grid spans the inset bbox's
@@ -3168,7 +4093,7 @@ export function planTaipeiBuildings(geodata) {
           cx = Math.round((minX + (col + 0.5) * cellW) * 10) / 10;
           cz = Math.round((minZ + (row + 0.5) * cellD) * 10) / 10;
         }
-        const gap = fine ? 0.4 + hash01(seed ^ 0x77c3) * 0.8 : 1.2 + hash01(seed ^ 0x77c3) * 1.8;
+        const gap = fine ? (density === 'dense' ? 0.3 + hash01(seed ^ 0x77c3) * 0.7 : 0.4 + hash01(seed ^ 0x77c3) * 0.8) : 1.2 + hash01(seed ^ 0x77c3) * 1.8;
         // Issue #106: packed rows share party walls — no gap is
         // subtracted along the packed direction, so neighbouring
         // footprints meet at the cell boundary exactly.
@@ -3202,6 +4127,18 @@ export function planTaipeiBuildings(geodata) {
         if (theta && corners.some(([px, pz]) => nearAirfield(px, pz))) { stats.lotsDroppedAirfield++; continue; }
         if (inNpmSite(cx, cz)) { stats.lotsDroppedNpmSite++; continue; }
         if (theta && corners.some(([px, pz]) => nearNpmSite(px, pz))) { stats.lotsDroppedNpmSite++; continue; }
+        if (inLoop(cx, cz)) { stats.lotsDroppedLoop++; continue; }
+        if (theta && corners.some(([px, pz]) => nearLoop(px, pz))) { stats.lotsDroppedLoop++; continue; }
+        if (inSchool(cx, cz)) { stats.lotsDroppedSchool++; continue; }
+        // The school corner verdict runs for UNROTATED lots too
+        // (their axis corners): campus grounds are not in the
+        // raster block mask, so a block can straddle a boundary
+        // and an axis lot centred off-campus could otherwise
+        // overhang the ring by metres. (Park/green land never
+        // faces this — it is masked upstream of the blocks.)
+        const schoolCorners = theta ? corners
+          : [[cx - w / 2, cz - d / 2], [cx + w / 2, cz - d / 2], [cx + w / 2, cz + d / 2], [cx - w / 2, cz + d / 2]];
+        if (schoolCorners.some(([px, pz]) => nearSchool(px, pz))) { stats.lotsDroppedSchool++; continue; }
         if (!inUnion(cx, cz)) { stats.lotsDroppedOutsideUnion++; continue; }
         let onLandmarkSite = false;
         for (const s of exclusionSites) {
@@ -3290,9 +4227,11 @@ export function planTaipeiBuildings(geodata) {
         // for signal-less lots, the field tier's blend partner, and
         // it keeps every hash consumer downstream byte-stable.
         let h = procH, hSrc = 'proc';
+        let fpIdx = -1;
         if (heightLayer) {
           const fp = footprintSignalAt(cx, cz);
           if (fp) {
+            fpIdx = fp.fpIdx;
             if (fp.src === 'permit') { h = Math.round(fp.floors * HEIGHT_JOIN.permitM * 2) / 2; hSrc = 'permit'; }
             else if (fp.src === 'osm-height') { h = Math.round(fp.height * 2) / 2; hSrc = 'osm-height'; }
             else { h = Math.round(fp.floors * HEIGHT_JOIN.osmLevelsM * 2) / 2; hSrc = 'osm-levels'; }
@@ -3325,6 +4264,7 @@ export function planTaipeiBuildings(geodata) {
         if (fine) stats.lotsFine++;
         lots.push(lot);
         lotProcH.push(procH);
+        lotFp.push(fpIdx);
         // Issue #185: this lot's grid position and the block's four
         // face ranks, for the street-wall pull below. The direct
         // faces (vF/uF: the face rows/columns the lot stands in, at
@@ -3342,6 +4282,54 @@ export function planTaipeiBuildings(geodata) {
         if (col === 0 && edgeRankULow >= FRONTAGE_PULL_MIN_RANK) uF.push([-1, edgeRankULow]);
         if (col === cols - 1 && edgeRankUHigh >= FRONTAGE_PULL_MIN_RANK) uF.push([1, edgeRankUHigh]);
         lotFront.push({ c: cosT, s: sinT, bi, row, col, vF, uF, rVL: edgeRankVLow, rVH: edgeRankVHigh, rUL: edgeRankULow, rUH: edgeRankUHigh });
+      }
+    }
+  }
+
+  // Issue #219: stepped massing for lots sharing one joined
+  // footprint. The fine-grain planner subdivides a real complex's
+  // footprint into several lots, and the join used to hand EVERY
+  // one of them the footprint's full height — a uniform wall of
+  // identical slabs where one complex stands (type site: the twin
+  // 14-level footprints at Fuguo x Chengde, 2 lots each, all four
+  // at 42 m). Now the joined height lands as the complex's
+  // massing: the lot nearest the footprint's centre keeps it, and
+  // each sibling steps down by rank — 0.90, 0.80, ... floored at
+  // 0.55 — with a small seeded jitter so the steps do not read as
+  // a staircase. Only groups tall and wide enough to read as a
+  // complex wall are stepped (implied >= stepMinHeightM on a
+  // footprint spanning >= stepMinSpanM, at least 2 lots); a lone
+  // lot, a low building or a narrow footprint keeps the joined
+  // height untouched, and hSrc still names the signal — the
+  // massing is an estimate of the complex, not a new source. This
+  // runs BEFORE the field tier, so the neighbourhood field samples
+  // the stepped complex instead of the uniform wall (the corner's
+  // field lots stood at 24-30 m on the wall's median).
+  if (heightLayer) {
+    const stepGroups = new Map();
+    for (let i = 0; i < lots.length; i++) {
+      const fi = lotFp[i];
+      if (fi < 0) continue;
+      const e = fpEntries[fi];
+      if (!e || e.implied < HEIGHT_JOIN.stepMinHeightM || e.span < HEIGHT_JOIN.stepMinSpanM) continue;
+      if (!stepGroups.has(fi)) stepGroups.set(fi, []);
+      stepGroups.get(fi).push(i);
+    }
+    for (const [fi, idxs] of stepGroups) {
+      if (idxs.length < 2) continue;
+      const e = fpEntries[fi];
+      idxs.sort((a, b) => {
+        const da = Math.hypot(lots[a].x - e.cx, lots[a].z - e.cz);
+        const db = Math.hypot(lots[b].x - e.cx, lots[b].z - e.cz);
+        return da - db || lots[a].x - lots[b].x || lots[a].z - lots[b].z;
+      });
+      stats.heightsSteppedGroups++;
+      for (let r = 1; r < idxs.length; r++) {
+        const lot = lots[idxs[r]];
+        const jitter = 0.96 + hash01((Math.round(lot.x * 10) * 73856093) ^ (Math.round(lot.z * 10) * 19349663) ^ (fi * 83492791)) * 0.07;
+        const f = Math.max(0.55, 0.9 - 0.1 * (r - 1)) * jitter;
+        const nh = Math.round(lot.h * f * 2) / 2;
+        if (nh < lot.h) { lot.h = nh; stats.heightsSteppedLots++; }
       }
     }
   }
@@ -3610,6 +4598,10 @@ export function planTaipeiBuildings(geodata) {
       if (turned && tamsuiRings.length && corners.some(([px, pz]) => nearTamsui(px, pz))) return false;
       if (inAirfield(nx, nz)) return false;
       if (turned && corners.some(([px, pz]) => nearAirfield(px, pz))) return false;
+      if (inSchool(nx, nz)) return false;
+      const schoolCorners = turned ? corners
+        : [[nx - w / 2, nz - d / 2], [nx + w / 2, nz - d / 2], [nx + w / 2, nz + d / 2], [nx - w / 2, nz + d / 2]];
+      if (schoolCorners.some(([px, pz]) => nearSchool(px, pz))) return false;
       if (!inUnion(nx, nz)) return false;
       for (const s of exclusionSites) {
         if (nx + w / 2 > s.minX && nx - w / 2 < s.maxX && nz + d / 2 > s.minZ && nz - d / 2 < s.maxZ) return false;
@@ -3938,7 +4930,7 @@ export function planTaipeiBuildings(geodata) {
     }
     tower = { x: tx, z: tz, podium, podiumParts, ornaments, tiers, top, spire: { y0: top.y0 + top.h, h: 508 - (top.y0 + top.h), w: 2.4 }, totalHeight: 508 };
   }
-  return { lots, tower, landmarkTowers, siteStructures, stats };
+  return { lots, tower, landmarkTowers, siteStructures, stats, schools: schoolPlan.report };
 }
 
 // Issue #136: the office cores — the districts where curtain glass
@@ -4186,9 +5178,16 @@ export function clampTaipeiRooftopGear(gear, lot) {
 // the host's ENTIRE roof, so it neither picks a spot nor dodges the
 // furniture — it displaces it (the clamp drops the roof's HVAC units,
 // and the tank roll is skipped on hut lots; see below).
+// Issue #208: the hut record also carries a seeded detail vocabulary
+// (roof form, patched sheet panels, a roof bump) — see the hut block.
 export const TAIPEI_TANK_RATE = 0.14;
 export const TAIPEI_HUT_RATE = 0.12;
-export const TAIPEI_HUT_COLORS = [0x9e3d34, 0x4a6b52, 0x7d8894, 0x8a4a3a]; // weathered red, green, grey-blue, rust
+// Issue #208: the palette grows from four to six — the original
+// weathered red / green / grey-blue / rust plus a galvanized
+// grey-green and a weathered off-white, the two other staples of
+// the real roofscape. (The renderer's hutPalette in js/buildings.js
+// mirrors this list; the hut's colorIdx is drawn modulo its length.)
+export const TAIPEI_HUT_COLORS = [0x9e3d34, 0x4a6b52, 0x7d8894, 0x8a4a3a, 0x8fa08f, 0xcac2ae];
 const TANK_RADIUS = 1.0;
 // Issue #100: cap the hut sheet's centre-to-edge rise (half its total
 // drop) — over a wide host the raw hash pitch would stand the sheet's
@@ -4247,14 +5246,54 @@ export function taipeiRooftopAdditions(gear, lot, units) {
     const pitch = Math.min(
       0.16 + hash01(seed ^ 0x3337) * 0.08,
       Math.atan((2 * HUT_MAX_RISE) / along));
-    huts.push({
+    const colorIdx = Math.floor(hash01(seed ^ 0x6667) * TAIPEI_HUT_COLORS.length) % TAIPEI_HUT_COLORS.length;
+    const hut = {
       x: lot.x0 + w / 2, y: roofY, z: lot.z0 + d / 2, w: hw, d: hd,
       h: 2.5 + hash01(seed ^ 0x2227) * 0.6,
       pitch,
       axis,
       dir: hash01(seed ^ 0x5557) < 0.5 ? -1 : 1,
-      colorIdx: Math.floor(hash01(seed ^ 0x6667) * TAIPEI_HUT_COLORS.length) % TAIPEI_HUT_COLORS.length,
-    });
+      colorIdx,
+      // Issue #208 detail vocabulary — all drawn from FRESH salts,
+      // so which lots carry a hut, their pitch/axis/dir/height and
+      // the tank roll are exactly the pre-#208 selection; only the
+      // garnish is new. Form: about a third of huts are gable-roofed
+      // （雙斜） instead of the single-pitch lean-to sheet （單斜）.
+      form: hash01(seed ^ 0x8887) < 0.35 ? 'gable' : 'single',
+      patches: [],
+      bump: null,
+    };
+    // Patched panels: ~58% of huts carry one or two replacement
+    // sheets on the roof slope, in a contrasting palette tone
+    // (rust / galvanized / off-white — never the hut's own colour).
+    const patchRoll = hash01(seed ^ 0x9997);
+    const patchCount = patchRoll < 0.28 ? 2 : patchRoll < 0.58 ? 1 : 0;
+    for (let i = 0; i < patchCount; i++) {
+      const ps = (seed ^ (0xaa07 + i * 0x1f3b)) >>> 0;
+      let tone = [3, 4, 5][Math.floor(hash01(ps ^ 0x101) * 3) % 3];
+      if (tone === colorIdx) tone = (tone + 1) % TAIPEI_HUT_COLORS.length;
+      hut.patches.push({
+        u: 0.2 + hash01(ps ^ 0x202) * 0.6,        // along the slope, high edge -> low
+        v: (hash01(ps ^ 0x303) * 2 - 1) * 0.3,    // across, fraction of the sheet width
+        w: 1.2 + hash01(ps ^ 0x404) * 1.6,        // across, metres
+        d: 0.9 + hash01(ps ^ 0x505) * 1.1,        // along the slope, metres
+        side: hash01(ps ^ 0x606) < 0.5 ? -1 : 1,  // gable: which slope; single: unused
+        colorIdx: tone,
+      });
+    }
+    // Roof bump: ~25% of huts carry a small annex box standing on
+    // the sheet near the high side (the 加蓋-on-加蓋 stairwell /
+    // storage bump of the real roofscape), with its own flat sheet.
+    if (hash01(seed ^ 0xbb17) < 0.25) {
+      const bs = (seed ^ 0xcc27) >>> 0;
+      hut.bump = {
+        wFrac: 0.34 + hash01(bs ^ 0x111) * 0.16,  // across, fraction of the hut's across
+        dAlong: 2.2 + hash01(bs ^ 0x222) * 1.0,   // along the slope, metres
+        h: 1.1 + hash01(bs ^ 0x333) * 0.6,
+        colorIdx: hash01(bs ^ 0x444) < 0.5 ? colorIdx : 4, // own colour, or galvanized
+      };
+    }
+    huts.push(hut);
   }
   const tanks = [];
   // Stainless tanks: nearly any non-glass roof of 8–34 m with 5.5 m of
@@ -4409,7 +5448,12 @@ export function taipeiCityBlocksOptions(geodata, plan = planTaipeiBuildings(geod
     }),
     bounds: { ...geodata.frame.bbox },
     initial: [0, 0],
-    colliders: false,
+    // Issue #207: colliders collected — Taipei's buildings are
+    // solid (the pre-#207 visual-only parity is reversed by the
+    // issue). buildCityBlocks emits one base collider per lot
+    // plus one per part above its 26 m block top, exactly the
+    // set Manhattan collides with.
+    colliders: true,
     // Issue #17: Taipei's rooftop-gear policy (no water towers; HVAC units
     // clamped to the roof) — buildCityBlocks' lot mode applies it to the
     // committed gear of every lot when present.

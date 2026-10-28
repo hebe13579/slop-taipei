@@ -54,7 +54,7 @@ test('height layer present, provenanced, factors agree with the planner', () => 
 
 test('join census: every lot labelled, per-source counts pinned', (t) => {
   const lots = plan.lots;
-  assert.equal(lots.length, 75520, 'the join moves heights only — the lot count is the #106 plan as composed with #118, #134 and #137, less the #139 removals, the #144 site exclusion (7 lots), the #135 Twin Towers parcel exclusions (47 lots: 21 in the C1 site rect, 26 in the D1 plaza rect, counted on the pre-#135 plan), the 2 #146 Wenhu dive drops, the 31 #165 site exclusions (29 on the Four Seasons D3 parcel, 2 under the Mitsukoshi A4 hall) and the 141 #166 site exclusions, as re-subdivided by the #124 fine-grain rule (46,402 fine lots tile-wide after #186; the composition above is untouched on the blocks the rule leaves coarse), and extended by issue #186 (the airport-north strip: +3,919 fine lots, less the 29 lots the NPM/Miramar registry sites clear); composed with issue #226 (the Beitou/Tianmu creeks at channel width: +120 lots on the released bank land, every changed lot diffed into the creek corridors; 46,460 fine lots tile-wide)');
+  assert.equal(lots.length, 68570, 'the join moves heights only — the lot count is the #106 plan as composed with #118, #134 and #137, less the #139 removals, the #144 site exclusion (7 lots), the #135 Twin Towers parcel exclusions (47 lots: 21 in the C1 site rect, 26 in the D1 plaza rect, counted on the pre-#135 plan), the 2 #146 Wenhu dive drops, the 31 #165 site exclusions (29 on the Four Seasons D3 parcel, 2 under the Mitsukoshi A4 hall) and the 141 #166 site exclusions, as re-subdivided by the #124 fine-grain rule (46,402 fine lots tile-wide after #186; the composition above is untouched on the blocks the rule leaves coarse), and extended by issue #186 (the airport-north strip: +3,919 fine lots, less the 29 lots the NPM/Miramar registry sites clear); composed with issue #226 (the Beitou/Tianmu creeks at channel width: +120 lots on the released bank land, every changed lot diffed into the creek corridors; 46,460 fine lots tile-wide); composed with issue #213 (interchange-loop interiors non-buildable: −131 lots net, 46,426 fine lots); composed with issue #221 (school campuses are site structures, not lots: −6,819 lots — 193 campus blocks skipped, 3,323 lots dropped on campus land and the lots those blocks would have carried; per-source removals permit 524 / osm-height 44 / osm-levels 548 / door 376 / field 4,442 / proc 885)');
   for (const lot of lots) assert.ok([...REAL, 'field', 'proc'].includes(lot.hSrc), `lot labelled (${lot.hSrc})`);
   const c = {};
   for (const lot of lots) c[lot.hSrc] = (c[lot.hSrc] || 0) + 1;
@@ -179,18 +179,38 @@ test('join census: every lot labelled, per-source counts pinned', (t) => {
   // changed lot diffed into the Beitou/Tianmu creek corridors.
   // Per-source net deltas: permit +5, osm-levels +2, door +8,
   // field +63, proc +42; real-signal 27,105 -> 27,120 (35.9%).
-  assert.equal(c.permit, 5827);
-  assert.equal(c['osm-height'], 2239);
-  assert.equal(c['osm-levels'], 7770);
-  assert.equal(c.door, 11284);
-  assert.equal(c.field, 37358);
-  assert.equal(c.proc, 11042);
+  // Issue #213 composition, measured on the merged tree at the
+  // #227 gate against the post-#226 plan (75,520): the loop
+  // exclusion drops 364 candidates (58 blocks skipped whole)
+  // and nets −131 lots. Per-source net deltas: door −1, field
+  // −14, proc −116 (the phantom infield fabric was almost all
+  // procedural); real-signal 27,120 -> 27,119 (35.9%).
+  // Issue #219 composition, measured on the merged tree at the
+  // #228 gate: the join's sanity guards block 18 donors (16
+  // parcel-scale, 2 extreme — the worker's census counts
+  // reproduce exactly) and their lots fall through to the
+  // lower tiers (permit −67, osm-height −47, field −27, proc
+  // +141 net); stepped massing then steps 3,653 sibling lots
+  // in 1,213 shared-footprint groups (hSrc unchanged — the
+  // massing is an estimate of the complex, not a new source).
+  // Real-signal 27,119 -> 27,005 (35.8%).
+  // Issue #221 composition (merge gate): campus clearing removes permit 524 / osm-height 44 / osm-levels 548 / door 376 / field 4,442 / proc 885; real-signal 27,005 -> 25,513 (37.2%).
+  assert.equal(c.permit, 5236);
+  assert.equal(c['osm-height'], 2148);
+  assert.equal(c['osm-levels'], 7222);
+  assert.equal(c.door, 10907);
+  assert.equal(c.field, 32875);
+  assert.equal(c.proc, 10182);
+  assert.equal(plan.stats.heightsGuardParcel, 16, 'issue #219: parcel-scale donors blocked (uncorroborated)');
+  assert.equal(plan.stats.heightsGuardExtreme, 2, 'issue #219: extreme donors blocked (uncorroborated)');
+  assert.equal(plan.stats.heightsSteppedGroups, 1183, 'issue #219: shared footprints stepped as complexes');
+  assert.equal(plan.stats.heightsSteppedLots, 3560, 'issue #219: sibling lots stepped down');
   assert.equal(plan.stats.heightsPermit, c.permit, 'stats census agrees (permit)');
   assert.equal(plan.stats.heightsDoor, c.door, 'stats census agrees (door)');
   assert.equal(plan.stats.heightsField, c.field, 'stats census agrees (field)');
   assert.equal(plan.stats.heightsProc, c.proc, 'stats census agrees (proc)');
   const real = REAL.reduce((s, k) => s + c[k], 0);
-  assert.equal(real, 27120, 'real-signal lots');
+  assert.equal(real, 25513, 'real-signal lots (27,005 before issue #221 cleared 1,492 real-signal lots off campus land)');
   assert.ok(real / lots.length > 0.35 && real / lots.length < 0.50, 'real coverage in the measured band');
 });
 
@@ -234,10 +254,18 @@ test('joined skyline: the >=30 m share lands on the study’s real figure', () =
   // Issue #226: 9,727 of 75,520 = 12.9% (+17 — the creek
   // corridors' own tall stock re-draws on the released bank
   // blocks); >= 60 m: 1,366 -> 1,370 (+4).
+  // Issue #213: 9,704 of 75,389 = 12.9% (−23 — tall candidates
+  // on loop-adjacent blocks re-draw); >= 60 m holds at 1,370.
+  // Issue #219: 6,492 of 75,389 = 8.6%; >= 60 m: 593. The
+  // guards remove the two absurd claims outright, and stepped
+  // massing steps most shared-footprint siblings below the
+  // bands — what remains >= 30 m is the centre lot of each
+  // real complex plus the lone-footprint towers, which is
+  // the shape the census on the issue asked for.
   const tall = plan.lots.filter((l) => l.h >= 30).length;
-  assert.equal(tall, 9727);
+  assert.equal(tall, 6333); // 6,492 before issue #221 (−159 tall lots on campus land)
   const g60 = plan.lots.filter((l) => l.h >= 60).length;
-  assert.equal(g60, 1370, 'a >=60 m class exists at all (procedural plan: 5 lots)');
+  assert.equal(g60, 576, 'a >=60 m class exists at all (procedural plan: 5 lots)');
 });
 
 test('real heights are never clamped to the procedural bands', () => {
@@ -259,7 +287,12 @@ test('real heights are never clamped to the procedural bands', () => {
   // Issue #186: 1,142 (+29 real > 60 m samples in the strip).
   // Issue #226: 1,145 (+3 real > 60 m samples on the re-drawn
   // creek-corridor blocks).
-  assert.equal(over, 1145);
+  // Issue #219: 528 — stepped massing steps the SIBLING lots
+  // of real > 60 m footprints down (the centre lots keep
+  // their heights — the max assert below), and the two
+  // blocked donors' > 60 m claims fall through entirely.
+  assert.equal(over, 514); // 528 before issue #221
+  assert.equal(Math.max(...plan.lots.map((l) => l.h)), 162, 'issue #219: the plan max is the corroborated 162 m, not the blocked 165 m parcel claim');
   assert.ok(Math.max(...plan.lots.map((l) => l.h)) <= 250, 'no absurd heights (tallest real signal is 222 m)');
 });
 
@@ -299,7 +332,12 @@ test('Beitou: the hot-spring towers exist now', () => {
   // corridors) re-draw on the released bank land: +9
   // data-derived tall lots at the channel margins, no tower
   // removed (the box only gains/re-pools along the creeks).
-  assert.equal(tall.length, 705);
+  // Issue #219: 378 — stepped massing again: the box's
+  // hot-spring complexes share footprints, so most of their
+  // sibling lots step below 30 m (each complex keeps one
+  // full-height lot), and the blocked 112 m / 165 m-span
+  // Beitou outline's 43 lots fall through to low tiers.
+  assert.equal(tall.length, 354); // 378 before issue #221 (Beitou/Shilin campuses clear 24)
 });
 
 test('fallback byte-stability: untouched lots keep their procedural heights exactly', () => {
@@ -338,12 +376,17 @@ test('fallback byte-stability: untouched lots keep their procedural heights exac
   // -> 46,496 (46,460 fine + the same 36 height-moved coarse
   // placements); shared-key proc lots 6,637 -> 6,658 (+21),
   // with zero height mismatches on the shared keys.
-  assert.equal(bare.lots.length, 42107, 'the bare regime is the coarse plan (issue #124: no door layer, no fine blocks; issue #166: less the five sites\' 87 coarse lots; issue #186: plus the strip planned coarse; issue #226: plus the released creek banks planned coarse)');
+  // Issue #213: the bare regime clears the loops too —
+  // 42,107 -> 42,004 (−103 coarse); plan-only lots 46,496 ->
+  // 46,462 (46,426 fine + the same 36 height-moved coarse
+  // placements); shared-key proc lots 6,658 -> 6,571 (−87),
+  // zero height mismatches on the shared keys.
+  assert.equal(bare.lots.length, 36191, 'the bare regime is the coarse plan (issue #124: no door layer, no fine blocks; issue #166: less the five sites\' 87 coarse lots; issue #186: plus the strip planned coarse; issue #226: plus the released creek banks planned coarse; issue #213: less the loop interiors; issue #221: less the campus land in the coarse regime too, −5,813)');
   const key = (l) => `${l.x}|${l.z}|${l.w}|${l.d}`;
   const bareByKey = new Map(bare.lots.map((l) => [key(l), l]));
   const missing = plan.lots.filter((l) => !bareByKey.has(key(l)));
-  assert.equal(missing.length, 46496, 'plan-only lots: the #124 fine lots plus height-sensitive coarse placements');
-  assert.equal(missing.length - plan.stats.lotsFine, 36, 'of which 36 are coarse placements moved by real heights (the guideway flip among them)');
+  assert.equal(missing.length, 44957, 'plan-only lots: the #124 fine lots plus height-sensitive coarse placements (46,462 before issue #221: 1,503 fine lots on skipped campus blocks and 2 of the height-moved coarse placements stood on campus land)');
+  assert.equal(missing.length - plan.stats.lotsFine, 34, 'of which 36 are coarse placements moved by real heights (the guideway flip among them)');
   let procChecked = 0;
   for (const a of plan.lots) {
     const b = bareByKey.get(key(a));
@@ -353,7 +396,7 @@ test('fallback byte-stability: untouched lots keep their procedural heights exac
       procChecked++;
     }
   }
-  assert.equal(procChecked, 6658); // the proc census, re-pinned with it for issues #134 + #139; +2 for #144 (the face-statistic flips, see the census diff), +4 for #135 (the field re-pool flips, see the census diff), -1 for #146 (one of the two Wenhu dive drops is a proc lot), +3 for #165 (the D3-parcel field re-pool flips, see the census diff); issue #124: 4,204 — the census covers the regime-shared lots only (25,271 common keys); the fine lots have no bare counterpart to be checked against; issue #166: 4,153 — the shared keys drop to 25,203 as the five sites remove their coarse lots from both regimes and the field re-pool flips 17 shared lots out of proc's neighbours (see the census diff); issue #186: 6,637 — the strip's coarse keys join both regimes (see the composition note above); issue #226: 6,658 — the creek re-draws put 21 more shared keys in proc (see the composition note above)
+  assert.equal(procChecked, 5662); // the proc census, re-pinned with it for issues #134 + #139; +2 for #144 (the face-statistic flips, see the census diff), +4 for #135 (the field re-pool flips, see the census diff), -1 for #146 (one of the two Wenhu dive drops is a proc lot), +3 for #165 (the D3-parcel field re-pool flips, see the census diff); issue #124: 4,204 — the census covers the regime-shared lots only (25,271 common keys); the fine lots have no bare counterpart to be checked against; issue #166: 4,153 — the shared keys drop to 25,203 as the five sites remove their coarse lots from both regimes and the field re-pool flips 17 shared lots out of proc's neighbours (see the census diff); issue #186: 6,637 — the strip's coarse keys join both regimes (see the composition note above); issue #226: 6,658 — the creek re-draws put 21 more shared keys in proc (see the composition note above); issue #213: 6,571 — the loop clearing removes 87 shared proc keys (see the composition note above); issue #219: 6,712 — the blocked donors' fall-throughs land 141 more shared-key lots on proc, and their procedural draws check byte-identical against the bare regime like any other proc lot; issue #221: 5,662 — campus clearing removes 1,050 shared proc keys
   assert.ok(bare.lots.every((l) => l.hSrc === 'proc'), 'no layer, no labels but proc');
 });
 
@@ -403,10 +446,17 @@ test('join mechanics: priority, face median, field, proc fallback', () => {
     const osm = fps.find((f) => f.src === 'osm' && pointInRing(lot.x, lot.z, f.ring));
     if (permit) {
       assert.equal(lot.hSrc, 'permit', `lot ${lot.x},${lot.z} under a permit`);
-      assert.equal(lot.h, 30, 'permit floors x 3.0, unclamped by the 8-18 m lane band');
+      // Issue #219: the permit footprint spans 66 m, so its lots
+      // are a stepped group — the tallest stands at the full
+      // joined height (30 = floors x 3.0, unclamped by the 8-18 m
+      // lane band; the witness below pins one), siblings step
+      // down from it but never above it.
+      assert.ok(lot.h <= 30, 'permit lot at or below the joined height (stepped massing)');
+      assert.ok(lot.h >= 15, 'permit lot still speaks (the deepest step keeps 0.55 x the joined height)');
     } else if (osm && osm.height) {
       assert.equal(lot.hSrc, 'osm-height');
-      assert.equal(lot.h, 44);
+      // Same stepped-group contract (span 45 m, joined 44 m).
+      assert.ok(lot.h <= 44 && lot.h > 18, 'osm-height lot at or below the joined height (stepped massing)');
     } else if (osm) {
       assert.equal(lot.hSrc, 'osm-levels');
       assert.equal(lot.h, 21, 'levels 7 x 3.0');
@@ -436,4 +486,91 @@ test('a single door on a face does not speak (pool minimum)', () => {
   const p = planTaipeiBuildings(geo);
   assert.ok(!p.lots.some((l) => l.hSrc === 'door'), 'no lot takes a one-door face median');
   assert.ok(!p.lots.some((l) => l.h === 40 * HEIGHT_JOIN.doorM), 'the lone tall door leaks nowhere');
+});
+
+// ---- issue #219: the join's sanity guards + stepped massing ----
+// The census (on the issue) found the join trusting two absurd
+// record classes: parcel-scale outlines donating a whole block's
+// floor count to every lot inside, and extreme single-source
+// claims with no corroboration. The guards live in the planner,
+// so these fixtures exercise them on synthetic layers: the same
+// records in a refreshed dataset hit the same verdicts.
+function guardGeo(cx, footprints, doors = []) {
+  const block = { cx, cz: 30000, area: 120 * 66, bbox: { minX: cx - 60, maxX: cx + 60, minZ: 29967, maxZ: 30033 } };
+  return {
+    frame: { originLatLon: [25.033, 121.565], bbox: { minX: 0, maxX: 90000, minZ: 0, maxZ: 40000 } },
+    parks: [], water: [], green: [], roads: [], roadbeds: [], landmarks: {},
+    blocks: [block],
+    heights: { sources: {}, factors: { osmLevels: 3.0, permit: 3.0, door: 3.85 }, footprints, doors },
+  };
+}
+
+test('issue #219: a parcel-scale donor cannot donate its floor count', () => {
+  const geo = guardGeo(40000, [
+    { src: 'permit', floors: 50, height: null, ring: rect(39945, 29970, 40075, 30030) }, // 130 x 60 m parcel outline
+  ]);
+  const p = planTaipeiBuildings(geo);
+  assert.ok(p.lots.length > 0, 'the block still plans');
+  assert.equal(p.stats.heightsGuardParcel, 1, 'the parcel donor is blocked');
+  assert.ok(!p.lots.some((l) => l.hSrc === 'permit'), 'the parcel claim speaks nowhere');
+  assert.ok(p.lots.every((l) => l.h <= 18), 'its lots fall through to the procedural band like signal-less lots');
+});
+
+test('issue #219: an uncorroborated extreme claim is blocked at building scale too', () => {
+  const geo = guardGeo(42000, [
+    { src: 'permit', floors: 50, height: null, ring: rect(41985, 29985, 42025, 30025) }, // 40 x 40 m, 150 m claim, nothing near
+  ]);
+  const p = planTaipeiBuildings(geo);
+  assert.equal(p.stats.heightsGuardExtreme, 1, 'the extreme donor is blocked');
+  assert.ok(!p.lots.some((l) => l.hSrc === 'permit'), 'the extreme claim speaks nowhere');
+});
+
+test('issue #219: corroborated extreme claims stand (footprint and door corroboration)', () => {
+  const byFootprint = planTaipeiBuildings(guardGeo(44000, [
+    { src: 'permit', floors: 50, height: null, ring: rect(43985, 29985, 44025, 30025) },
+    { src: 'osm', floors: null, height: 80, ring: rect(44010, 29985, 44045, 30025) }, // overlaps the permit; 80 >= 0.5 x 150
+  ]));
+  assert.equal(byFootprint.stats.heightsGuardExtreme, 0, 'a second tall footprint corroborates');
+  assert.ok(byFootprint.lots.some((l) => l.hSrc === 'permit' && l.h === 150), 'the 150 m claim stands at its tallest lot');
+  const byDoors = planTaipeiBuildings(guardGeo(46000, [
+    { src: 'permit', floors: 50, height: null, ring: rect(45985, 29985, 46025, 30025) },
+  ], [46000, 30005, 40, 46010, 30005, 41])); // 40F plates at the door factor support the claim
+  assert.equal(byDoors.stats.heightsGuardExtreme, 0, 'tall door plates corroborate');
+  assert.ok(byDoors.lots.some((l) => l.hSrc === 'permit' && l.h === 150), 'the 150 m claim stands at its tallest lot');
+});
+
+test('issue #219: sibling lots share one footprint as stepped massing', () => {
+  const mk = () => guardGeo(48000, [
+    { src: 'osm', floors: 14, height: null, ring: rect(47972, 29975, 48028, 30025) }, // 56 x 50 m complex footprint
+  ]);
+  const p = planTaipeiBuildings(mk());
+  const group = p.lots.filter((l) => l.hSrc === 'osm-levels');
+  assert.ok(group.length >= 3, `the footprint subdivides into sibling lots (${group.length})`);
+  assert.equal(group.filter((l) => l.h === 42).length, 1, 'exactly one lot keeps the joined height');
+  assert.ok(group.every((l) => l.h <= 42 && l.h >= 21), 'siblings step down from the joined height, bounded at half');
+  const p2 = planTaipeiBuildings(mk());
+  assert.deepEqual(p2.lots.map((l) => [l.x, l.z, l.h, l.hSrc]), p.lots.map((l) => [l.x, l.z, l.h, l.hSrc]), 'stepping is deterministic');
+});
+
+test('issue #219: the absurd donors are gone, the corroborated towers stand (real geodata)', () => {
+  // Type site A: the Shilin parcel (55F on a 161 x 152 m outline
+  // at world (-5176, -7489)) made the plan's tallest lots. Its
+  // lots now fall through to low-rise signals.
+  const shilin = plan.lots.filter((l) => Math.hypot(l.x - -5176, l.z - -7489) <= 110);
+  assert.ok(shilin.length > 0 && Math.max(...shilin.map((l) => l.h)) < 30, 'Shilin parcel: the tallest lot nearby is low-rise (measured 23.5 m, a field lot)');
+  assert.ok(!plan.lots.some((l) => l.h === 165), 'no 165 m lot anywhere in the plan');
+  // The second absurd cluster: the 112 m height tag on a
+  // 165 m-span OSM outline at (-4525, -9702) — 43 lots stood at
+  // 112 m; the tallest lot near it now measures 21 m.
+  const outline = plan.lots.filter((l) => Math.hypot(l.x - -4525, l.z - -9702) <= 110);
+  assert.ok(outline.length > 0 && Math.max(...outline.map((l) => l.h)) < 30, 'the 112 m outline: the tallest lot nearby is low-rise (measured 21 m)');
+  // The corroborated extremes keep their heights — one full-
+  // height lot per footprint, siblings stepped.
+  assert.equal(plan.lots.filter((l) => l.h === 162 && l.hSrc === 'permit').length, 1, 'the Xinyi 54F permit (corroborated by an OSM 266 m outline + 54F doors) stands at 162 m');
+  assert.equal(plan.lots.filter((l) => l.h === 129 && l.hSrc === 'permit').length, 2, 'the twin Xinyi 43F permits (corroborating each other) each stand at 129 m');
+  // Type site B: the twin 14-level footprints at Fuguo x Chengde
+  // (centres (-4349, -7712) and (-4343, -7670)) — four lots, one
+  // full height per footprint, the siblings stepped.
+  const fuguo = plan.lots.filter((l) => Math.hypot(l.x - -4346, l.z - -7691) <= 60 && l.hSrc === 'osm-levels');
+  assert.deepEqual(fuguo.map((l) => l.h).sort((a, b) => a - b), [36.5, 37, 42, 42], 'Fuguo complex: 42/37 + 42/36.5, not four identical 42 m slabs');
 });

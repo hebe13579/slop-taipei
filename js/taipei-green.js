@@ -202,6 +202,25 @@ export function buildGreenTintLayers(green) {
   return [...byTone.entries()].map(([tone, rings]) => ({ tone, rings }));
 }
 
+// Issue #213: interchange-loop interiors (geodata.loopSites, built
+// by tools/taipei/build-loops.mjs) are empty grass land — not parks,
+// not OSM-tagged green — so until this pass they rendered as the
+// pale block grey under the phantom buildings the planner planted
+// there. One tone layer in the sampled open-grass family
+// (GREEN_CLASS_TONES['natural:grassland'], the infields' satellite
+// read: mown grass and scrub between the carriageways), drawn by
+// the boot in the same GREEN_TINT_Y layer stack as the #141 tint,
+// so water (0.03) and parks (0.04) still win every overlap. Pure
+// like buildGreenTintLayers: the input is read, never mutated.
+export const LOOP_TINT_TONE = 0x4c7038;
+export function buildLoopTintLayers(loopSites) {
+  const rings = [];
+  for (const s of loopSites || []) {
+    if (s.ring && s.ring.length >= 6) rings.push(s.ring);
+  }
+  return rings.length ? [{ tone: LOOP_TINT_TONE, rings }] : [];
+}
+
 // ---------------------------------------------------------------------
 // Issue #206 — one green surface wins per area.
 //

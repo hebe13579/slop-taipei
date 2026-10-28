@@ -10,11 +10,12 @@ import { SURFACE_TONES, surfaceClass, buildMedianStrips, isPlazaPark, isPodiumBl
 import { buildRoadMarkings, detectJunctions, DASH_LEN, DASH_GAP, STRIPE_W, STRIPE_PITCH } from './taipei-markings.js';
 import { planJunctionCaps, planRoundabouts, ringPoints, capSurfacePolys, capClipPolys, CAP_Y, ISLAND_Y } from './taipei-junctions.js';
 import { buildDeckGeometry, groundContactPolys, portalTrenchSlots, diveAdjustedPiers, PIER_W, PIER_D } from './taipei-viaduct.js';
+import { buildDriveModel, taipeiExtraColliders } from './taipei-drive.js';
 import { ribbonsQuads, jointFramesFor } from './taipei-ribbons.js';
 import { buildMrtStationGeometry, buildMrtDepotGeometry } from './taipei-mrt-stations.js';
 import { buildBridgeGeometry } from './taipei-bridges.js';
 import { buildTerrainSkinGeometry } from './taipei-terrain.js';
-import { buildGreenTintLayers, consumeGreenFamilyOverlaps, GREEN_TINT_Y } from './taipei-green.js';
+import { buildGreenTintLayers, buildLoopTintLayers, consumeGreenFamilyOverlaps, GREEN_TINT_Y } from './taipei-green.js';
 import { unionExclusionRects, clipRectToBoxes } from './taipei-union.js';
 import { createCurtainWallMaterial, createPreWarBuildingMaterial, createTaipeiMarkingMaterial, setTaipeiSignAtlases } from './tsl-materials.js';
 import { drawBandAtlas, drawBladeAtlas, BAND_ATLAS, BLADE_ATLAS, TAIPEI_BAND_SIGNS, TAIPEI_BLADE_SIGNS } from './taipei-signs.js';
@@ -38,8 +39,12 @@ import { createBuildProgress, TAIPEI_BUILD_STAGES } from './taipei-progress.js';
 //     road-network.js derives lanes from the NYC avenue/street grid; a
 //     graph-driven network is a later increment).
 //   - NO NYC systems: no boroughs, landmarks, piers, Central Park, bridges.
-//   - NO building colliders / footprints: controllers walk/drive the
-//     flat tile at y=0 and pass through buildings for now.
+//   - Issue #207: buildings ARE solid and the elevated ROAD decks
+//     ARE drivable — js/taipei-drive.js holds the model (deck
+//     surface sampling behind groundHeight, parapet / registry /
+//     station colliders beside buildCityBlocks' own lot
+//     colliders). MRT guideways and the signature-bridge
+//     structures stay scenery: never surfaces, never colliders.
 //
 // Layer heights are a flat-ground visual stack only (land 0, block rects
 // 0.02, podium blocks 0.021, airfield site 0.022, airfield hard
@@ -737,7 +742,8 @@ function buildSignalMesh(signals) {
 // Manhattan's island bounds or shoreline, which would clamp away the
 // tile's western kilometre (Da'an Forest Park sits at x ≈ −2900, west of
 // NYC's west shore) and invent Central Park / sidewalk heights on the
-// flat basin floor. Ground is y = 0 everywhere; spawns cluster at the
+// flat basin floor. Ground is y = 0 at street level (the elevated
+// decks ride on top of that model, issue #207); spawns cluster at the
 // tile spawn with the same relative offsets the NYC spawns use.
 // `env.webglFallback` (main.js passes the live renderer backend): on the
 // WebGL2 fallback the crowd material's storage-buffer skinning
@@ -757,7 +763,10 @@ export function controllerOptions(tile, env = {}) {
     // controllers push ground modes out of them (see taipei-union.js).
     excludeRects: unionExclusionRects(tile.geodata.frame.boxes, bb),
     clampToShore: false,
-    groundHeight: () => 0,
+    // Issue #207: the ground model — the flat basin floor, plus
+    // the elevated road decks wherever the caller's current
+    // height (the hint) puts it on one (js/taipei-drive.js).
+    groundHeight: (x, z, mode, yHint) => buildDriveModel(tile.geodata.elevatedRoads).sample(x, z, yHint),
     speedScale: 2,
     // Helicopter (user request 2026-10-24): ceiling above 600 m — 750
     // clears Taipei 101 (508 m) with margin — and ascend/descend 5×
@@ -1021,10 +1030,14 @@ export async function buildTaipeiGround(scene, tile, deps = {}) {
   // exactly, 1.03 km² of tint under parks, 715k m² under water
   // (census on the issue). The visible winner of every overlap is
   // unchanged — it is exactly the surface the Y stack picked.
+  // Issue #213: interchange-loop interiors join the tint
+  // input BEFORE consumption, so loop grass is part of the
+  // same one-winner family and cannot double-paint against
+  // parks/water/band either.
   const lawnParks = geo.parks.filter((p) => !isPlazaPark(p));
   const plazaParks = geo.parks.filter(isPlazaPark);
   const greenFamily = consumeGreenFamilyOverlaps({
-    tint: buildGreenTintLayers(geo.green),
+    tint: [...buildGreenTintLayers(geo.green), ...buildLoopTintLayers(geo.loopSites)],
     band: (geo.riverside?.polys || []).map((p) => p.ring),
     water: geo.water.map((w) => w.ring),
     parks: lawnParks.map((p) => p.ring),
@@ -1355,26 +1368,42 @@ export async function buildTaipeiGround(scene, tile, deps = {}) {
   } catch (err) {
     console.warn('[taipei-signs] sign atlas build failed; glyph signs remain', err);
   }
+  // Issue #218: runtime settings (deps.settings, resolved by
+  // main.js from URL params / localStorage via js/settings.js):
+  // the density preset the plan is built with, and whether the
+  // special buildings (Taipei 101 + registry landmarks + airport
+  // site structures) are visible. Absent or invalid values fall
+  // back to the pre-#218 boot exactly (Fine density, specials on).
+  const bootSettings = {
+    density: deps.settings?.density === 'coarse' || deps.settings?.density === 'dense' ? deps.settings.density : 'fine',
+    specials: deps.settings?.specials !== false,
+  };
   const buildingsStart = performance.now();
-  const plan = planTaipeiBuildings(geo);
-  const cityBlocks = deps.buildCityBlocks
+  let plan = planTaipeiBuildings(geo, { density: bootSettings.density });
+  let cityBlocks = deps.buildCityBlocks
     ? deps.buildCityBlocks(scene, taipeiCityBlocksOptions(geo, plan))
     : null;
   // Issue #57: the landmark builders take the TSL facade factories
   // injected (taipei-buildings.js stays import-free for the node
   // suite); ./tsl-materials.js is already on the Pages preload list.
   const landmarkFactories = { createCurtainWallMaterial, createPreWarBuildingMaterial };
-  const tower = createTaipei101(THREE, plan, landmarkFactories);
-  if (tower) group.add(tower);
-  const landmarkTowers = createTaipeiLandmarkTowers(THREE, plan, landmarkFactories);
-  if (landmarkTowers) group.add(landmarkTowers);
+  const specialGroups = [];
+  const addSpecial = (g) => {
+    if (!g) return;
+    g.visible = bootSettings.specials;
+    group.add(g);
+    specialGroups.push(g);
+  };
+  addSpecial(createTaipei101(THREE, plan, landmarkFactories));
+  addSpecial(createTaipeiLandmarkTowers(THREE, plan, landmarkFactories));
   // Songshan Airport site structures (issue #135): the terminal
   // complex, rendered with the landmark massing path but kept
   // off the registry (no pins/search) — see
   // AIRPORT_SITE_STRUCTURES in js/taipei-buildings.js.
   if (plan.siteStructures?.length) {
     const siteStructures = createTaipeiLandmarkTowers(THREE, { landmarkTowers: plan.siteStructures }, landmarkFactories);
-    if (siteStructures) { siteStructures.name = 'TaipeiAirportSiteStructures'; group.add(siteStructures); }
+    if (siteStructures) siteStructures.name = 'TaipeiAirportSiteStructures';
+    addSpecial(siteStructures);
   }
   console.info(`[taipei-buildings] ${plan.lots.length} buildings via upstream building system + Taipei 101 massing (508 m) + ${plan.landmarkTowers.length} landmark structures planned in ${Math.round(performance.now() - buildingsStart)}ms`);
   await completeStage('buildings', `${plan.lots.length} buildings, ${plan.landmarkTowers.length} landmark structures + Taipei 101`);
@@ -1410,45 +1439,117 @@ export async function buildTaipeiGround(scene, tile, deps = {}) {
     // the MRT cuttings are not).
     ...trenchSlots.map((s) => s.flatMap((pt) => pt)),
   ];
-  const treePlan = planStreetTrees(geo, plan, { exclusions: treeExclusions });
-  const parkTreePlan = planParkTrees(geo, plan, { exclusions: treeExclusions });
-  const treeMesh = buildStreetTreeMesh(treePlan.trees);
-  if (treeMesh) group.add(treeMesh);
-  // Issue #222: park trees render per canopy variant (the street
-  // mesh above keeps the original single look).
-  const parkByVariant = { banyan: [], palm: [], conifer: [], round: [] };
-  for (const t of parkTreePlan.trees) (parkByVariant[t.variant] || parkByVariant.round).push(t);
-  const variantMeshes = [
-    instancedFromGeometry(banyanTreeGeometry(), parkByVariant.banyan, 'TaipeiParkBanyanTrees', 0),
-    instancedFromGeometry(palmTreeGeometry(), parkByVariant.palm, 'TaipeiParkPalmTrees', 0),
-    instancedFromGeometry(coniferTreeGeometry(), parkByVariant.conifer, 'TaipeiParkConiferTrees', 0),
-    instancedFromGeometry(parkRoundTreeGeometry(), parkByVariant.round, 'TaipeiParkRoundTrees', 0),
-  ];
-  for (const mesh of variantMeshes) if (mesh) group.add(mesh);
-  console.info(`[taipei-trees] ${treePlan.trees.length} street trees (${treePlan.stats.sidewalk} sidewalk, ${treePlan.stats.median} median${treePlan.stats.capped ? `, capped at ${treePlan.stats.cap}` : ''}) + ${parkTreePlan.trees.length} park trees${parkTreePlan.stats.capped ? ` (capped at ${parkTreePlan.stats.cap})` : ''} (banyan ${parkByVariant.banyan.length}, palm ${parkByVariant.palm.length}, conifer ${parkByVariant.conifer.length}, round ${parkByVariant.round.length}) planned in ${Math.round(performance.now() - treesStart)}ms`);
-  // Issue #222: park amenity dressing — same exclusions as the
-  // trees, planned after the building plan so furniture keeps
-  // out of lots and landmark sites; one InstancedMesh per kit
-  // class, built inside this stage (the stage list is a pinned
-  // contract; park greenery + furniture is the one stage).
-  const amenityStart = performance.now();
-  const amenityPlan = planParkAmenities(geo, plan, { exclusions: treeExclusions });
-  const amenityMeshes = buildParkAmenityMeshes(amenityPlan);
-  for (const mesh of amenityMeshes) group.add(mesh);
-  const amenityTotal = Object.values(amenityPlan.items).reduce((s, v) => s + v.length, 0);
-  console.info(`[taipei-parks] ${amenityTotal} amenity items (${Object.entries(amenityPlan.items).map(([k, v]) => `${k} ${v.length}`).join(', ')}) in ${amenityPlan.stats.parksDressed} parks (${amenityPlan.stats.parksPathless} pathless parks get trees only) planned in ${Math.round(performance.now() - amenityStart)}ms`);
-  await completeStage('trees', `${treePlan.trees.length + parkTreePlan.trees.length} trees, ${amenityTotal} park amenity items`);
+  // Issue #218: tree planning depends on the building plan (trees
+  // keep out of the lots), so it is a closure the density switch
+  // below can re-run against a fresh plan.
+  const buildTrees = (forPlan) => {
+    const street = planStreetTrees(geo, forPlan, { exclusions: treeExclusions });
+    const park = planParkTrees(geo, forPlan, { exclusions: treeExclusions });
+    const meshes = [];
+    const streetMesh = buildStreetTreeMesh(street.trees);
+    if (streetMesh) meshes.push(streetMesh);
+    // Issue #222: park trees render per canopy variant (the street
+    // mesh above keeps the original single look).
+    const parkByVariant = { banyan: [], palm: [], conifer: [], round: [] };
+    for (const t of park.trees) (parkByVariant[t.variant] || parkByVariant.round).push(t);
+    for (const mesh of [
+      instancedFromGeometry(banyanTreeGeometry(), parkByVariant.banyan, 'TaipeiParkBanyanTrees', 0),
+      instancedFromGeometry(palmTreeGeometry(), parkByVariant.palm, 'TaipeiParkPalmTrees', 0),
+      instancedFromGeometry(coniferTreeGeometry(), parkByVariant.conifer, 'TaipeiParkConiferTrees', 0),
+      instancedFromGeometry(parkRoundTreeGeometry(), parkByVariant.round, 'TaipeiParkRoundTrees', 0),
+    ]) if (mesh) meshes.push(mesh);
+    // Issue #222: park amenity dressing — same exclusions as the
+    // trees, planned after the building plan so furniture keeps
+    // out of lots and landmark sites; one InstancedMesh per kit
+    // class, built inside this stage (the stage list is a pinned
+    // contract; park greenery + furniture is the one stage).
+    const amenityStart = performance.now();
+    const amenityPlan = planParkAmenities(geo, forPlan, { exclusions: treeExclusions });
+    for (const mesh of buildParkAmenityMeshes(amenityPlan)) meshes.push(mesh);
+    const amenityTotal = Object.values(amenityPlan.items).reduce((s, v) => s + v.length, 0);
+    console.info(`[taipei-parks] ${amenityTotal} amenity items (${Object.entries(amenityPlan.items).map(([k, v]) => `${k} ${v.length}`).join(', ')}) in ${amenityPlan.stats.parksDressed} parks (${amenityPlan.stats.parksPathless} pathless parks get trees only) planned in ${Math.round(performance.now() - amenityStart)}ms`);
+    return { street, park, amenityPlan, amenityTotal, parkByVariant, meshes };
+  };
+  let trees = buildTrees(plan);
+  for (const mesh of trees.meshes) group.add(mesh);
+  console.info(`[taipei-trees] ${trees.street.trees.length} street trees (${trees.street.stats.sidewalk} sidewalk, ${trees.street.stats.median} median${trees.street.stats.capped ? `, capped at ${trees.street.stats.cap}` : ''}) + ${trees.park.trees.length} park trees${trees.park.stats.capped ? ` (capped at ${trees.park.stats.cap})` : ''} planned in ${Math.round(performance.now() - treesStart)}ms`);
+  await completeStage('trees', `${trees.street.trees.length + trees.park.trees.length} trees, ${trees.amenityTotal} park amenity items`);
+
+  // Issue #218: main.js drives ONE cityBlocks object per frame, so
+  // the boot returns a stable facade over the current
+  // buildCityBlocks result; a density switch swaps the build
+  // underneath it. allBlocks is a live array refilled in place —
+  // the map system captured it at construction. Geometries of a
+  // torn-down build are disposed (its materials are per-build
+  // factory products over shared atlas textures and are left to
+  // the GC — bounded at a handful per switch).
+  const allBlocksLive = [];
+  const syncAllBlocks = () => {
+    allBlocksLive.length = 0;
+    if (cityBlocks?.allBlocks) allBlocksLive.push(...cityBlocks.allBlocks);
+  };
+  syncAllBlocks();
+  const cityBlocksFacade = {
+    get group() { return cityBlocks?.group ?? null; },
+    colliders: [],
+    allBlocks: allBlocksLive,
+    update: (x, z, force) => { if (cityBlocks) cityBlocks.update(x, z, force); },
+    updateLights: (camera) => { if (cityBlocks?.updateLights) cityBlocks.updateLights(camera); },
+  };
+  const disposeBuilt = (obj) => {
+    if (!obj) return;
+    obj.traverse((o) => { if (o.geometry) o.geometry.dispose(); });
+  };
+  const taipeiSettings = {
+    get density() { return bootSettings.density; },
+    get specials() { return bootSettings.specials; },
+    // Re-plan and rebuild the building + tree layers in place —
+    // no reload. Synchronous (the plan is CPU-bound); the panel
+    // yields a frame before calling so its busy state paints.
+    // Returns the new census + wall-clock cost, or null for an
+    // unknown preset.
+    setDensity(preset) {
+      if (preset !== 'coarse' && preset !== 'fine' && preset !== 'dense') return null;
+      if (preset === bootSettings.density) return { density: preset, lots: plan.lots.length, ms: 0 };
+      const t0 = performance.now();
+      for (const mesh of trees.meshes) { group.remove(mesh); disposeBuilt(mesh); }
+      if (cityBlocks) { scene.remove(cityBlocks.group); disposeBuilt(cityBlocks.group); }
+      bootSettings.density = preset;
+      plan = planTaipeiBuildings(geo, { density: preset });
+      cityBlocks = deps.buildCityBlocks
+        ? deps.buildCityBlocks(scene, taipeiCityBlocksOptions(geo, plan))
+        : null;
+      syncAllBlocks();
+      trees = buildTrees(plan);
+      for (const mesh of trees.meshes) group.add(mesh);
+      result.buildings = plan;
+      const ms = Math.round(performance.now() - t0);
+      console.info(`[taipei-settings] density -> ${preset}: ${plan.lots.length} buildings replanned and rebuilt in ${ms}ms`);
+      return { density: preset, lots: plan.lots.length, ms };
+    },
+    setSpecialsVisible(visible) {
+      bootSettings.specials = !!visible;
+      for (const g of specialGroups) g.visible = bootSettings.specials;
+      return bootSettings.specials;
+    },
+  };
 
   scene.add(group);
-  return {
+  const result = {
     group,
     buildings: plan,
-    cityBlocks,
+    cityBlocks: cityBlocksFacade,
     sidewalks: [],
     footprints: [],
-    colliders: [],
+    // Issue #207: main.js merges these into the controllers'
+    // collider set beside cityBlocks' own lot colliders — deck
+    // parapets, registry/site structures, Taipei 101, MRT
+    // stations and the depot (js/taipei-drive.js).
+    colliders: taipeiExtraColliders(geo, plan),
     highwayLanes: [],
     allBlocks: [],
     update: null,
+    taipeiSettings,
   };
+  return result;
 }

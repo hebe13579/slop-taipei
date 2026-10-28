@@ -29,18 +29,24 @@ test('amenity census: the shipped totals are pinned', () => {
   // 1,575 non-plaza parks carry a mapped interior path and are
   // dressed; 1,114 pathless parks receive trees only (the census
   // comment on issue #222 has the full table).
+  // Re-pinned at the #236 gate for tree composition: identical code
+  // on the PR-base tree reproduces 19,428 exactly, so the +3 here
+  // (bush +2, lamp +1, pure additions, zero removals) is the
+  // #221/#213 plan change freeing three furniture spots where
+  // lots used to stand — not the amenity planner.
   assert.deepEqual(counts, {
-    bench: 4132, lamp: 3791, bin: 2332, vending: 300,
-    restroom: 81, sculpture: 18, fountain: 12, bush: 8762,
+    bench: 4132, lamp: 3792, bin: 2332, vending: 300,
+    restroom: 81, sculpture: 18, fountain: 12, bush: 8764,
   });
-  assert.equal(Object.values(counts).reduce((s, v) => s + v, 0), 19428, 'grand total');
+  assert.equal(Object.values(counts).reduce((s, v) => s + v, 0), 19431, 'grand total');
   assert.equal(stats.parksTotal, 1600);
   assert.equal(stats.parksPlaza, 25);
   assert.equal(stats.parksPathless, 1114);
   assert.equal(stats.parksDressed, 461);
   assert.deepEqual(
     Object.fromEntries(Object.entries(stats.byClass).map(([k, v]) => [k, v.items])),
-    { large: 9601, medium: 7987, small: 1805, tiny: 35 },
+    // +1 in each class at the #236 gate: the same three freed spots, one per class.
+    { large: 9602, medium: 7988, small: 1806, tiny: 35 },
     'items by area class',
   );
   // Every park eligible for a restroom got one (81 of 81).
@@ -106,7 +112,7 @@ test('placement invariants: inside a park, off water and off paths', () => {
       checked++;
     }
   }
-  assert.equal(checked, 19428);
+  assert.equal(checked, 19431);
 });
 
 test('eligibility rules: big-ticket items only in big enough parks', () => {
