@@ -206,18 +206,18 @@ test('real tile: exactly one cap per grounded multi-arm junction, centres and ar
   // caps in the tile are the two mouth caps (gone) and the
   // 民族東路 x 復興北路 / 濱江街 junction caps (reshaped around
   // the shortened stubs).
-  assert.equal(junctions.length, 2699, `junctions ${junctions.length}`);
-  assert.equal(caps.length, 2621, `caps ${caps.length}`);
-  assert.equal(caps.filter((c) => c.kind === 'box').length, 557, 'box caps');
-  assert.equal(caps.filter((c) => c.kind === 'fitted').length, 2064, 'fitted caps');
+  assert.equal(junctions.length, 2871, `junctions ${junctions.length}`); // merged-tree re-pin at the #186 gate: 2,699 on main, 2,873 pinned by #186 on its stale base, 2,871 measured on the merged tree
+  assert.equal(caps.length, 2793, `caps ${caps.length}`); // merged-tree re-pin at the #186 gate: 2,621 main / 2,795 #186-stale-base / 2,793 merged
+  assert.equal(caps.filter((c) => c.kind === 'box').length, 586, 'box caps'); // merged-tree re-pin at the #186 gate: 557 main / 588 #186-stale-base / 586 merged
+  assert.equal(caps.filter((c) => c.kind === 'fitted').length, 2207, 'fitted caps'); // merged-tree re-pin at the #186 gate: 2,064 main / 2,207 merged (box 586 + fitted 2,207 = the 2,793 caps)
   // Area re-pinned for issue #196: 650,838 -> 650,470 (-368 m²,
   // old-vs-new cap diff by centre): the two mouth caps are gone
   // (north 331.0 m², south 75.0 m²) and the neighbouring junction
   // caps grow around the shortened stubs (濱江街 959 -> 993 m²,
   // 民族東路 x 復興北路 1,016 -> 1,020 m²). Every other cap in
   // the tile is identical; the fitted total below is unchanged.
-  assert.equal(Math.round(caps.reduce((s, c) => s + c.area, 0)), 650470, 'cap area census');
-  assert.equal(Math.round(caps.filter((c) => c.kind === 'fitted').reduce((s, c) => s + c.area, 0)), 159678,
+  assert.equal(Math.round(caps.reduce((s, c) => s + c.area, 0)), 689142, 'cap area census'); // merged-tree re-pin at the #186 gate: 650,470 main / 689,142 merged (+38,672 m² of caps in the #186 strip)
+  assert.equal(Math.round(caps.filter((c) => c.kind === 'fitted').reduce((s, c) => s + c.area, 0)), 173457, // merged-tree re-pin at the #186 gate: 159,678 main / 173,457 merged
     'fitted cap area census (overlap construction since #145)');
   // Census addition for issue #163 (junction fix v2): the ring
   // counts/areas above are unchanged BY CONSTRUCTION — the #163
@@ -245,8 +245,10 @@ test('real tile: exactly one cap per grounded multi-arm junction, centres and ar
   // the drop pass removes the strips of dropped caps plus any
   // strip touching no ribbon and no sibling: 2,618 -> 2,479
   // strips, 129,142 -> 122,201 m² on this (unclipped) wiring.
-  assert.equal(caps.reduce((s, c) => s + (c.extras || []).length, 0), 2479, 'extension strip census');
-  assert.equal(caps.reduce((s, c) => s + (c.extraArea || 0), 0), 122201, 'extension strip area census');
+  // Strip census re-pinned for issue #186: 2,479 -> 2,638
+  // strips, 122,201 -> 129,177 m2, on the strip-grown tile.
+  assert.equal(caps.reduce((s, c) => s + (c.extras || []).length, 0), 2638, 'extension strip census');
+  assert.equal(caps.reduce((s, c) => s + (c.extraArea || 0), 0), 129177, 'extension strip area census');
   for (const c of caps) if (c.kind === 'box') assert.equal((c.extras || []).length, 0, 'box caps carry no strips');
   const capByJ = new Map();
   junctions.forEach((j, ji) => {
@@ -417,10 +419,14 @@ test('real tile: no painted band, median strip or dash quad centre inside a cap'
   // builders still put exactly 0 median quads inside the
   // occluders (asserted above), so rendered output is
   // unchanged by the correction; only the census pin moves.
+  // Bite re-pinned for issue #186: the occluder set grows with
+  // the strip (caps 2,623 -> 2,795) — 1,656 band, 3,262 edge and
+  // 3,066 median quad centres (median pin below); the clipped
+  // builders still put exactly 0 there.
   const unclipped = buildPaintedBands(beds);
-  assert.equal(unclipped.band.filter(inOcc).length, 1533,
+  assert.equal(unclipped.band.filter(inOcc).length, 1656,
     `unclipped bands inside occluders: ${unclipped.band.filter(inOcc).length}`);
-  assert.equal(unclipped.edges.filter(inOcc).length, 3026,
+  assert.equal(unclipped.edges.filter(inOcc).length, 3262,
     `unclipped edges inside occluders: ${unclipped.edges.filter(inOcc).length}`);
   // Bite re-pinned for issue #167: deck-flagged beds' strips no
   // longer join the ground lists this census reads (they route to
@@ -443,7 +449,7 @@ test('real tile: no painted band, median strip or dash quad centre inside a cap'
   // within 35 m of the south mouth). The clipped builders still
   // put exactly 0 inside (asserted above); band/edge bites are
   // unchanged.
-  assert.equal([...unclippedMedians.plain, ...unclippedMedians.planted].filter(inOcc).length, 2838,
+  assert.equal([...unclippedMedians.plain, ...unclippedMedians.planted].filter(inOcc).length, 3064, // merged-tree re-pin at the #186 gate: 2,838 on main, 3,066 pinned by #186 on its stale base, 3,064 measured merged
     'unclipped medians inside occluders');
 });
 
@@ -595,7 +601,7 @@ test('issue #75: every major junction box is covered corner to corner by its box
   // Re-pinned for issue #196: 579 -> 577 — the two dissolved
   // 復北地下道 mouth clusters were majors (their caps were box
   // caps); every surviving major still passes (a)-(c) above.
-  assert.equal(major, 577, `major junctions audited ${major}`);
+  assert.equal(major, 605, `major junctions audited ${major}`); // merged-tree re-pin at the #186 gate: 577 main / 607 #186-stale-base / 605 merged
 });
 
 test('issue #75: crosswalk and stop-line centres at major junctions lie on asphalt', () => {
@@ -885,7 +891,9 @@ test('issue #145: every minor junction box is covered by its overlap cap', () =>
     for (const v of poly)
       assert.ok(distToPoly(v, box) <= 21, `junction ${ji} cap vertex overshoots the box by ${distToPoly(v, box).toFixed(1)} m`);
   });
-  assert.equal(minor, 2115, `minor junctions audited ${minor}`);
+  // Re-pinned for issue #186: 2,115 -> 2,259 minors on the
+  // strip-grown tile.
+  assert.equal(minor, 2259, `minor junctions audited ${minor}`);
 });
 
 test('issue #163: short fitted arms extend to the box edge — strips, never tongues', () => {

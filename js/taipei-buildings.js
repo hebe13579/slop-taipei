@@ -391,6 +391,10 @@ function ribbonHitsLot(r, minX, maxX, minZ, maxZ) {
 //              plan: radius r along x, rz along z (a scaled cylinder)
 //   dome     { rx, rz, h, y0?, dx?, dz? }   half-ellipsoid: radii rx
 //              (x) and rz (z), rising h above y0
+//   wheel    { y0, h, dx?, dz? }   Ferris wheel: y0 = bottom
+//              elevation, h = diameter (rim + spokes + cabins in
+//              the tile x-y plane). Airborne mass — its ground
+//              contact is separate box parts (issue #186).
 //
 // `site` is the lot-exclusion rectangle (centred on the structure,
 // dx/dz offset allowed); `plaza` is an extra exclusion rectangle that
@@ -418,6 +422,84 @@ function taoZhuParts() {
     parts.push({ type: 'box', w: 50, d: 32, h: segH, y0: 5 + i * segH, rotY: (i * 4.5 * Math.PI) / 180 });
   }
   parts.push({ type: 'cylinder', r: 10, h: 0.5, y0: 92.7 });
+  return parts;
+}
+
+// Issue #166 (Tianmu/Beitou batch): a school running track as flat
+// painted parts — a capsule (one rotated box for the straights plus
+// unrotated discs at the ends, since cylinder parts cannot rotate)
+// in rust red with a narrower green infield capsule on top. (cx, cz)
+// is the capsule centre in structure space, `straight` the distance
+// between the end-disc centres, `width` the full track width and
+// `fieldWidth` the infield width.
+function trackCapsuleParts(cx, cz, straight, width, fieldWidth, rotY, trackColor, fieldColor) {
+  const ex = (straight / 2) * Math.cos(rotY), ez = (straight / 2) * Math.sin(rotY);
+  const capsule = (w, h) => [
+    { type: 'box', w: straight, d: w, h, y0: 0.02, dx: cx, dz: cz, rotY, flat: trackColor },
+    { type: 'cylinder', r: w / 2, h, y0: 0.02, dx: cx + ex, dz: cz + ez, flat: trackColor },
+    { type: 'cylinder', r: w / 2, h, y0: 0.02, dx: cx - ex, dz: cz - ez, flat: trackColor },
+  ];
+  const field = capsule(fieldWidth, 0.36).map((p) => ({ ...p, flat: fieldColor }));
+  return [...capsule(width, 0.3), ...field];
+}
+
+// Tianmu Baseball Stadium (issue #166): the project's first
+// stadium form — an elliptical stepped bowl of tangent segment
+// boxes around an open field, generated like taoZhuParts().
+// Siting is measured, not eyeballed (posted on issue #166): the
+// OSM stadium-grounds way 172953503 spans lon 121.53163–121.53446
+// and the Red Line corridor's east edge is lon 121.533, so the
+// bowl straddles the tile edge (≈90% of the grounds east of it).
+// Per the decision recorded on the issue, the bowl is modelled
+// COMPLETE at its true position — only drawn geometry crosses
+// the edge; no ground, lots or roads are generated past it. The
+// field centre (satellite digitisation, Esri z18) is
+// (25.11380, 121.53360) — dx 46.4, dz −17.7 in structure space;
+// the OSM stands outline (way 518853867) spans lon
+// 121.53213–121.53415, lat 25.11278–25.11450 around it.
+function tianmuStadiumParts() {
+  const FC = { x: 46.4, z: -17.7 }; // measured field centre
+  const parts = [
+    // Warning-track ring (rust) under the grass ellipse, then the
+    // dirt infield diamond (axis home→centre-field at +37°).
+    { type: 'cylinder', r: 67, rz: 63, h: 0.3, y0: 0.02, dx: FC.x, dz: FC.z, flat: 0x9c5a40 },
+    { type: 'cylinder', r: 62, rz: 58, h: 0.36, y0: 0.02, dx: FC.x, dz: FC.z, flat: 0x4e7d32 },
+    { type: 'box', w: 50, d: 50, h: 0.14, y0: 0.36, dx: 10.1, dz: -15.5, rotY: -0.646, flat: 0xc2a06b },
+  ];
+  const seg = (a, b, h, d, w, phiDeg, flat) => {
+    const phi = (phiDeg * Math.PI) / 180;
+    // Ellipse tangent direction (map angle) -> authored rotY.
+    const alphaT = Math.atan2(b * Math.cos(phi), -a * Math.sin(phi));
+    parts.push({ type: 'box', w, d, h, dx: FC.x + a * Math.cos(phi), dz: FC.z - b * Math.sin(phi), rotY: -alphaT, flat });
+  };
+  // Main bowl: two stepped tiers wrapping home plate (west) and
+  // both foul lines; phi is CCW from east in map space. The NE
+  // outfield stays low, as on the real bowl.
+  for (let phi = 95; phi <= 335; phi += 15) {
+    seg(76, 64, 8.5, 13, 22, phi, 0xd6d0c2);
+    seg(89, 76, 14, 13, 25, phi, 0xcac3b2);
+  }
+  // Outfield berm seating: one low tier.
+  for (let phi = -30; phi <= 90; phi += 15) seg(82, 68, 5, 10, 23, phi, 0xd6d0c2);
+  // The white scalloped shell canopy over the main stand behind
+  // home (phi ≈ 196°): three flattened domes centred on the
+  // mid-tier line so they roof the stands instead of hovering
+  // over the outer wall, the middle shell a step higher.
+  for (const [phi, y0] of [[178, 14], [196, 14.8], [214, 14]]) {
+    const p = (phi * Math.PI) / 180;
+    parts.push({ type: 'dome', rx: 15, rz: 10, h: 7, y0, dx: FC.x + 82 * Math.cos(p), dz: FC.z - 69 * Math.sin(p), flat: { color: 0xf4f1ea, roughness: 0.6, metalness: 0.05 } });
+  }
+  // Centre-field scoreboard on the berm.
+  parts.push({ type: 'box', w: 18, d: 2.5, h: 9, y0: 5, dx: FC.x + 65.5, dz: FC.z - 40.9, rotY: -2.216, flat: 0x1c2733 });
+  // Four light towers at the rim; the 30 m overall height is an
+  // estimate from photographs (no published figure).
+  for (const phi of [-40, 40, 150, 232]) {
+    const p = (phi * Math.PI) / 180;
+    const ex = 95 * Math.cos(p), nz = 82 * Math.sin(p);
+    const alphaT = Math.atan2(82 * Math.cos(p), -95 * Math.sin(p));
+    parts.push({ type: 'box', w: 1.8, d: 1.8, h: 30, dx: FC.x + ex, dz: FC.z - nz, flat: 0x8f979e });
+    parts.push({ type: 'box', w: 8, d: 3, h: 3, y0: 27, dx: FC.x + ex, dz: FC.z - nz, rotY: -alphaT, flat: 0xd8dde2 });
+  }
   return parts;
 }
 
@@ -1829,6 +1911,301 @@ const LANDMARK_STRUCTURES = [
       { type: 'dome', rx: 22, rz: 22, h: 17, y0: 36, dx: 29.6, dz: -4.5, flip: true, flat: { color: 0xc2c5c7, roughness: 0.55, metalness: 0.25 } },
     ],
   },
+  // Batch 8 (issue #166, Tianmu/Beitou): five registry entries —
+  // a department store, the project's first stadium, and three
+  // school campuses. All siting is measured from OSM footprints
+  // (PBF extract) cross-checked against Esri satellite; heights
+  // are floors × 3.6 m unless a figure is published, and every
+  // height in this batch is flagged estimated except where the
+  // registry comment says otherwise.
+  {
+    // Dayeh Takashimaya, 忠誠路二段 55號 — the Tianmu department
+    // store inside the Red Line corridor strip. One slab on the
+    // OSM outline (relation 6821492, lon 121.53111–121.53224,
+    // lat 25.11118–25.11236): a 5F retail podium (21 m) fitted to
+    // the outline's tilted frame (−0.175 rad — the corners are
+    // pulled inboard of the outline so nothing crosses the
+    // 忠誠路二段 / 53巷 carriageways), a lower NE shoulder block
+    // (15 m, the parking annex under the outline's diagonal
+    // north edge) and the taller east slab (parking + 12F top,
+    // Wikipedia: 12 floors above ground) at 47 m ≈ 12 × 3.9 m —
+    // no published metric height, so estimated. The mass split
+    // is the satellite read (grey podium roof west, taller
+    // slab east).
+    id: 'dayeh-takashimaya', name: 'Dayeh Takashimaya', nameZh: '大葉高島屋',
+    lat: 25.11177, lon: 121.531675, realHeight: 47, estimated: true, color: 0xd8c49c,
+    site: { w: 122, d: 139, dx: 0, dz: 0 },
+    facade: { kind: 'prewar', stoneColor: 0xd8c49c, trimColor: 0xb39b74, windowGlassColor: 0x2c3844, windowWidth: 3.4, floorHeight: 3.9, litProbability: 0.35, warmth: 0.6, seed: 57.41 },
+    parts: [
+      { type: 'box', w: 92, d: 110, h: 21, dx: 0, dz: -1, rotY: -0.175 },
+      { type: 'box', w: 42, d: 26, h: 15, dx: 22, dz: -44, rotY: -0.175 },
+      { type: 'box', w: 34, d: 108, h: 47, dx: 30, dz: -2, rotY: -0.175 },
+    ],
+  },
+  {
+    // Tianmu Baseball Stadium — stands bowl + light towers +
+    // open field, generated by tianmuStadiumParts() (measured
+    // siting and the tile-edge straddle are documented there and
+    // on issue #166). 30 m is the light-tower estimate.
+    id: 'tianmu-stadium', name: 'Tianmu Baseball Stadium', nameZh: '天母棒球場',
+    lat: 25.11364, lon: 121.53314, realHeight: 30, estimated: true, color: 0xcfc8bb,
+    site: { w: 190, d: 172, dx: 42, dz: -18 },
+    facade: { kind: 'prewar', stoneColor: 0xcfc8bb, trimColor: 0xa9a294, windowGlassColor: 0x2e3a46, windowWidth: 4.5, floorHeight: 4.2, litProbability: 0.15, warmth: 0.5, seed: 57.42 },
+    parts: tianmuStadiumParts(),
+  },
+  {
+    // Shipai Junior High School — the eastern of the two Shipai
+    // campuses (relation 4630268); the named OSM buildings are
+    // modelled at their measured rects: 勤學樓 (way 202909351),
+    // 七年級教室 (202909352), 八年級教室 (202909364), 辦公室
+    // (202909365), 廁所大樓 (202909246), 活動中心 (sports_centre
+    // 202909073) and the 風雨操場 roof (202909083) as posts + a
+    // slab. The 操場 (202909068) is the flat painted track
+    // capsule; 籃球場 (202909060) and 游泳池 (202909082) are flat
+    // slabs. No OSM levels tags — classroom blocks at an
+    // estimated 4F × 3.6 m.
+    id: 'shipai-junior-high', name: 'Shipai Junior High School', nameZh: '石牌國中',
+    lat: 25.1159, lon: 121.5136, realHeight: 14.4, estimated: true, color: 0xd9cfc0,
+    site: { w: 212, d: 208, dx: 3, dz: 4 },
+    facade: { kind: 'prewar', stoneColor: 0xd9cfc0, trimColor: 0xb0a58e, windowGlassColor: 0x2e3a46, windowWidth: 2.6, floorHeight: 3.6, litProbability: 0.25, warmth: 0.55, seed: 57.43 },
+    parts: [
+      { type: 'box', w: 86.4, d: 10.9, h: 14.4, dx: -20.2, dz: 65.3, rotY: -0.433 },
+      { type: 'box', w: 100, d: 15, h: 14.4, dx: -31.8, dz: 34.2, rotY: -0.443 },
+      { type: 'box', w: 113, d: 10.9, h: 14.4, dx: 11.1, dz: 89.7, rotY: -0.447 },
+      { type: 'box', w: 62.7, d: 10.8, h: 14.4, dx: 23.2, dz: 44.3, rotY: 1.108 },
+      { type: 'box', w: 14.5, d: 10.3, h: 7.2, dx: -47.5, dz: 96.4, rotY: 1.072 },
+      { type: 'box', w: 30.7, d: 19.6, h: 10, dx: 50.4, dz: 11.1, rotY: 0.984 },
+      { type: 'box', w: 0.9, d: 0.9, h: 6.5, dx: 49.6, dz: 30, flat: 0xb9bcbe },
+      { type: 'box', w: 0.9, d: 0.9, h: 6.5, dx: 62, dz: 56.4, flat: 0xb9bcbe },
+      { type: 'box', w: 0.9, d: 0.9, h: 6.5, dx: 30.8, dz: 38.8, flat: 0xb9bcbe },
+      { type: 'box', w: 0.9, d: 0.9, h: 6.5, dx: 43.2, dz: 65.2, flat: 0xb9bcbe },
+      { type: 'box', w: 31.3, d: 22.8, h: 0.7, y0: 6.5, dx: 46.4, dz: 47.6, rotY: 1.129, flat: 0x8a8d90 },
+      ...trackCapsuleParts(-8.1, -45.4, 44, 48, 40, -2.107, 0xa04a30, 0x4e7d32),
+      { type: 'box', w: 38.5, d: 57.3, h: 0.25, y0: 0.02, dx: -70.7, dz: -3.3, rotY: -0.419, flat: 0x3f6d8e },
+      { type: 'box', w: 43.7, d: 29.3, h: 0.35, y0: 0.02, dx: 82.7, dz: 68.7, rotY: 1.117, flat: 0x3f8fbf },
+    ],
+  },
+  {
+    // Qingjiang Elementary School — campus fully inside the
+    // tile (buildings span lon 121.50628–121.50783, lat
+    // 25.12569–25.12721, west of the corridor's heart but well
+    // east of its 121.494 edge). The five named 樓 at their OSM
+    // rects: 丹鳳樓 (way 224819890), 陽明樓 (224823940, the only
+    // one with an OSM levels tag: 4), 觀音樓 (224825864), 七星樓
+    // (224826063), 大屯樓 (224826217), plus 活動中心 (224828172),
+    // 幼兒園 (224826611) and the 小操場 (224826678) as a flat
+    // painted field. Blocks at 4F × 3.6 m following 陽明樓's tag.
+    id: 'qingjiang-elementary', name: 'Qingjiang Elementary School', nameZh: '清江國小',
+    lat: 25.12645, lon: 121.50705, realHeight: 14.4, estimated: true, color: 0xd6c8b4,
+    site: { w: 152, d: 168, dx: -5, dz: 3 },
+    facade: { kind: 'prewar', stoneColor: 0xd6c8b4, trimColor: 0xab9c80, windowGlassColor: 0x2e3a46, windowWidth: 2.6, floorHeight: 3.6, litProbability: 0.25, warmth: 0.55, seed: 57.44 },
+    parts: [
+      { type: 'box', w: 40, d: 10.9, h: 14.4, dx: 52.5, dz: -15.5, rotY: 1.012 },
+      { type: 'box', w: 26.4, d: 12.7, h: 14.4, dx: 22.2, dz: -27.7, rotY: -0.555 },
+      { type: 'box', w: 44.8, d: 7.8, h: 14.4, dx: -4, dz: -32.1, rotY: 1.009 },
+      { type: 'box', w: 57.9, d: 10.9, h: 14.4, dx: 26.2, dz: -56.5, rotY: 1.012 },
+      { type: 'box', w: 43.8, d: 10.2, h: 14.4, dx: -10.1, dz: -63.1, rotY: -0.555 },
+      { type: 'box', w: 44.8, d: 27.6, h: 10, dx: -51.5, dz: 61, rotY: -0.55 },
+      { type: 'box', w: 29.4, d: 7.2, h: 7.2, dx: 14.1, dz: 31.2, rotY: -0.616 },
+      { type: 'box', w: 36, d: 30, h: 0.25, y0: 0.02, dx: 31.3, dz: -3.3, rotY: 0.601, flat: 0xa04a30 },
+      { type: 'box', w: 31, d: 25, h: 0.32, y0: 0.02, dx: 31.3, dz: -3.3, rotY: 0.601, flat: 0x4e7d32 },
+    ],
+  },
+  {
+    // Jianguo High School — full campus (relation 3392608),
+    // INSIDE the tile per the user's correction on this issue:
+    // the 紅樓 (way 202768775) stands at lat 25.03065–25.03101,
+    // north of box A's 25.0285 south edge. The Red Building is
+    // the centrepiece: brick slab (99 × 17 m on the OSM outline,
+    // axis −15°) with its two end towers and grey caps; ~17 m
+    // overall from photo proportions (no published figure —
+    // estimated). (A porch/fountain flourish was cut at the
+    // render gate: unverifiable at this scale and colliding
+    // with 莊敬樓's footprint.)
+    // Classroom blocks at their OSM rects and tagged levels:
+    // 正誼樓 4F (202768950, an L of two slabs on its outline),
+    // 莊敬樓 4F (202768788), 科學館 4F (202768580), 自強樓 4F
+    // (202768582), 明道樓 3F (202768758), 格物樓 3F (202768744),
+    // 活動中心 4F (202768754), 資源大樓 (1158623539, L of two
+    // slabs, 5F estimated) and 夢紅樓 7F (252994053). The track
+    // is the flat capsule around the rugby pitch (202768453).
+    id: 'jianguo-high-school', name: 'Jianguo High School', nameZh: '建國中學',
+    lat: 25.0303, lon: 121.5126, realHeight: 25.2, estimated: true, color: 0xd9d2c4,
+    site: { w: 246, d: 232, dx: 6, dz: 8 },
+    facade: { kind: 'prewar', stoneColor: 0xd9d2c4, trimColor: 0xb3aa97, windowGlassColor: 0x2e3a46, windowWidth: 2.8, floorHeight: 3.6, litProbability: 0.25, warmth: 0.55, seed: 57.45 },
+    parts: [
+      { type: 'box', w: 99, d: 17, h: 11, dx: -34.3, dz: -56.5, rotY: -0.262, flat: { color: 0x9c4a36, roughness: 0.92, metalness: 0.02 } },
+      { type: 'box', w: 100, d: 18, h: 0.8, y0: 11, dx: -34.3, dz: -56.5, rotY: -0.262, flat: 0x67635c },
+      { type: 'box', w: 13, d: 19, h: 16, dx: -72.9, dz: -46.1, rotY: -0.262, flat: { color: 0x9c4a36, roughness: 0.92, metalness: 0.02 } },
+      { type: 'box', w: 14.5, d: 20.5, h: 1.1, y0: 16, dx: -72.9, dz: -46.1, rotY: -0.262, flat: 0x67635c },
+      { type: 'box', w: 13, d: 19, h: 16, dx: 4.3, dz: -66.9, rotY: -0.262, flat: { color: 0x9c4a36, roughness: 0.92, metalness: 0.02 } },
+      { type: 'box', w: 14.5, d: 20.5, h: 1.1, y0: 16, dx: 4.3, dz: -66.9, rotY: -0.262, flat: 0x67635c },
+      { type: 'box', w: 61, d: 11, h: 14.4, dx: -65.1, dz: -18.3, rotY: -0.266 },
+      { type: 'box', w: 38, d: 11, h: 14.4, dx: -97.6, dz: -29.8, rotY: 1.29 },
+      { type: 'box', w: 33.2, d: 23, h: 14.4, dx: -27.2, dz: -32.1, rotY: 1.299 },
+      { type: 'box', w: 30.3, d: 28, h: 14.4, dx: 90.9, dz: -16.6, rotY: 1.33 },
+      { type: 'box', w: 41.2, d: 11.3, h: 14.4, dx: 94.9, dz: 27.7, rotY: 1.302 },
+      { type: 'box', w: 72.7, d: 11, h: 10.8, dx: -95.8, dz: 56.5, rotY: 1.299 },
+      { type: 'box', w: 64, d: 12.2, h: 10.8, dx: 61.2, dz: 90.3, rotY: -0.246 },
+      { type: 'box', w: 56.9, d: 44.2, h: 14.4, dx: -13.1, dz: 93, rotY: -0.244 },
+      { type: 'box', w: 64, d: 15, h: 18, dx: 114.1, dz: -42.1, rotY: 1.512 },
+      { type: 'box', w: 36, d: 13, h: 18, dx: 90.9, dz: -62, rotY: 0.297 },
+      { type: 'box', w: 48, d: 26.6, h: 25.2, dx: 74.7, dz: -86.4, rotY: -0.213 },
+      // The courts east of the track, from the OSM pitch ways,
+      // one painted slab per row (a single union rect overshoots
+      // the diagonal band and clips the campus east drive):
+      // volleyball 1087155062-63 north, acrylic basketball
+      // 202768713 / 1087155058-60 south, the two tennis courts
+      // 202768661 / 1087550733 east, and the baseball practice
+      // ground (1271725984) at the SE.
+      { type: 'box', w: 24, d: 55, h: 0.25, y0: 0.02, dx: 60.6, dz: 10.5, rotY: -0.265, flat: 0x3f6d8e },
+      { type: 'box', w: 63, d: 37, h: 0.25, y0: 0.02, dx: 52.5, dz: 60.3, rotY: -0.265, flat: 0x3f6d8e },
+      { type: 'box', w: 32, d: 33, h: 0.25, y0: 0.02, dx: 118.6, dz: 16, rotY: -0.265, flat: 0x3f7d6b },
+      { type: 'box', w: 26, d: 21, h: 0.25, y0: 0.02, dx: 123.1, dz: 64.1, rotY: -0.265, flat: 0x4e7d32 },
+      ...trackCapsuleParts(-9.1, 28.8, 68, 60, 47.7, -0.265, 0xa04a30, 0x4e7d32),
+    ],
+  },
+  {
+    // Batch 8 (issues #149 + #186): the National Palace Museum on
+    // its terraced hillfoot in Waishuangxi — the palace-style main
+    // hall (第一展覽區/正館, OSM way 203799171: a ~140 x ~120 m
+    // outline incl. terrace, building levels 4) with cream walls
+    // and pale-green glazed-tile roofs, the administration pair
+    // west of the ceremonial axis, the white marble 天下為公
+    // pailou at the plaza, and the glass restaurant block
+    // south-east. Composition measured from the OSM ways and the
+    // user's aerial (npm-evidence/npm-user-photo.png; Esri
+    // satellite agrees): the hall runs E-W at the grounds' north,
+    // its forecourt terrace opens south to the 華表大道 — OSM's
+    // named pedestrian axis, which leaves the forecourt steps at
+    // (25.10143, 121.54895) and runs SSW to (25.10027, 121.54953),
+    // ~65 m EAST of the hall centreline; the pailou (way
+    // 1167548671) stands mid-avenue at (25.10084, 121.54940),
+    // the 華表 pair below the steps. 文會堂 (way 226936389) is
+    // the annex west of the hall. 研究大樓 (way 226936384,
+    // height 16) is a diamond-plan
+    // slab (rotY 45°) west of the axis; 第二展覽區 (way 226936385,
+    // height 16) is the big green-roofed block at the grounds'
+    // south-west (its OSM outline wraps a courtyard; modelled as
+    // its west mass). The grounds themselves are a special site
+    // (TAIPEI_GEO.npmSite, PR1 of #186): no procedural lots
+    // anywhere in this entry's field. No published overall height
+    // exists for the hall — 27.5 m is FORM-DERIVED (estimated:
+    // true): podium 6 + 4-floor walls 13 + main hip roof 6.5,
+    // with the raised central tier (box 4 + ridge 4.5) setting
+    // the apex, proportions read off the user's aerial. The
+    // hall's ~1.5° plan tilt and the two small 華表 pillars
+    // flanking the avenue (r ~1 m at this scale) are recorded
+    // simplifications: the avenue pillars ARE modelled; the
+    // tilt is not (ridge parts cannot rotate).
+    id: 'national-palace-museum', name: 'National Palace Museum', nameZh: '國立故宮博物院',
+    lat: 25.10219, lon: 121.54859, realHeight: 27.5, color: 0xe7dec5, estimated: true,
+    site: { w: 220, d: 190, dx: 0, dz: 45 },
+    plaza: { w: 110, d: 300, dx: 45, dz: 210 },
+    facade: { kind: 'prewar', stoneColor: 0xe8dfc6, trimColor: 0x9a8f74, windowGlassColor: 0x2c3844, windowWidth: 2.2, floorHeight: 3.3, litProbability: 0.22, warmth: 0.6, seed: 149.11 },
+    parts: [
+      // Terraced podium (two stone tiers) hugging the hall — the
+      // grounds' service drives loop around it on every side
+      // (issue-#42 audit, measured at the gate).
+      { type: 'box', w: 122, d: 68, h: 3, dx: -4, dz: 1, flat: 0xcfc9bb },
+      { type: 'box', w: 114, d: 62, h: 3, y0: 3, dx: -4, dz: 1, flat: 0xd8d3c4 },
+      // Main hall: cream block + pale-green hip roof (ridge at the
+      // origin = hall centre), raised central tier, end pavilions.
+      { type: 'box', w: 132, d: 36, h: 13, y0: 6 },
+      { type: 'ridge', w: 136, d: 40, h: 0, ridgeH: 6.5, y0: 19, flat: 0x55806a },
+      { type: 'box', w: 46, d: 24, h: 4, y0: 19 },
+      { type: 'ridge', w: 50, d: 27, h: 0, ridgeH: 4.5, y0: 23, flat: 0x55806a },
+      { type: 'box', w: 14, d: 14, h: 3.5, y0: 19, dx: -52 },
+      { type: 'box', w: 14, d: 14, h: 3.5, y0: 19, dx: 52 },
+      { type: 'box', w: 16.5, d: 16.5, h: 1.1, y0: 22.5, dx: -52, flat: 0x4a7a63 },
+      { type: 'box', w: 16.5, d: 16.5, h: 1.1, y0: 22.5, dx: 52, flat: 0x4a7a63 },
+      // The forecourt terrace floor on the podium's south face.
+      { type: 'box', w: 112, d: 16, h: 1.2, y0: 6, dz: 25, flat: 0xd8d3c4 },
+      // 文會堂 (OSM way 226936389): the annex west of the hall —
+      // modelled as its north mass; the service lane bends
+      // through the south of its OSM outline (a courtyard side).
+      { type: 'box', w: 48, d: 30, h: 13, dx: -34, dz: 48 },
+      { type: 'box', w: 50, d: 32, h: 1.3, y0: 13, dx: -34, dz: 47, flat: 0x4a7a63 },
+      // Forecourt stair terraces descending to the 華表大道 head
+      // (the avenue leaves the steps at (25.10143, 121.54895),
+      // dx +36 — the stairs centre on it, audited clear of the
+      // steps roadbeds).
+      { type: 'box', w: 34, d: 10, h: 4, dx: 50, dz: 92, flat: 0xd8d3c4 },
+      { type: 'box', w: 34, d: 10, h: 2, dx: 50, dz: 102, flat: 0xcfc9bb },
+      // The twin 華表 pillars flanking the avenue below the steps.
+      { type: 'cylinder', r: 1.0, h: 9.5, dx: 24, dz: 112, flat: 0xf2efe6 },
+      { type: 'cylinder', r: 1.0, h: 9.5, dx: 52, dz: 112, flat: 0xf2efe6 },
+      // 天下為公 pailou mid-avenue (OSM way 1167548671:
+      // 25.10082–25.10086 x 121.54926–121.54953, a 27 m span) —
+      // four white marble posts, two lintels, green rooflets.
+      { type: 'box', w: 1.7, d: 1.7, h: 8.5, dx: 73, dz: 150, flat: 0xf2efe6 },
+      { type: 'box', w: 1.7, d: 1.7, h: 8.5, dx: 82, dz: 150, flat: 0xf2efe6 },
+      { type: 'box', w: 1.7, d: 1.7, h: 8.5, dx: 91, dz: 150, flat: 0xf2efe6 },
+      { type: 'box', w: 1.7, d: 1.7, h: 8.5, dx: 100, dz: 150, flat: 0xf2efe6 },
+      { type: 'box', w: 31, d: 2.4, h: 1.6, y0: 7.0, dx: 86.5, dz: 150, flat: 0xf2efe6 },
+      { type: 'box', w: 33, d: 4.6, h: 0.7, y0: 8.55, dx: 86.5, dz: 150, flat: 0x4a7a63 },
+      { type: 'box', w: 23, d: 2.2, h: 1.2, y0: 8.6, dx: 86.5, dz: 150, flat: 0xf2efe6 },
+      { type: 'box', w: 25, d: 4.2, h: 0.7, y0: 9.75, dx: 86.5, dz: 150, flat: 0x4a7a63 },
+      // 研究大樓: the diamond-plan administration slab, h 16
+      // (OSM). A single service loop wraps its island on all
+      // sides and the OSM outline's own corners graze that
+      // loop's roadbed, so the slab is modelled at 25 m square
+      // (real plan ~52 m sides incl. apron) — the largest
+      // diamond the loop admits inside the audit tolerance.
+      { type: 'box', w: 25, d: 25, h: 16, dx: -23, dz: 143, rotY: Math.PI / 4 },
+      { type: 'box', w: 25, d: 25, h: 1.4, y0: 16, dx: -23, dz: 143, rotY: Math.PI / 4, flat: 0x4a7a63 },
+      { type: 'box', w: 14, d: 14, h: 2.6, y0: 17.4, dx: -23, dz: 143, rotY: Math.PI / 4 },
+      { type: 'box', w: 17, d: 17, h: 1.1, y0: 20, dx: -23, dz: 143, rotY: Math.PI / 4, flat: 0x4a7a63 },
+      // 第二展覽區: the big green-roofed block, grounds SW, h 16
+      // (OSM), kept east of the 113巷35弄 lane on its west flank.
+      { type: 'box', w: 48, d: 72, h: 16, dx: -6, dz: 245 },
+      { type: 'box', w: 48, d: 68, h: 1.6, y0: 16, dx: -6, dz: 245, flat: 0x55806a },
+      { type: 'box', w: 30, d: 34, h: 3, y0: 17.6, dx: -6, dz: 245 },
+      { type: 'box', w: 34, d: 38, h: 1.2, y0: 20.6, dx: -6, dz: 245, flat: 0x4a7a63 },
+      // The glass restaurant block south-east of the hall among
+      // the Zhishan Garden trees (plot = OSM way 226936387),
+      // turned to the garden drive that loops its east side.
+      { type: 'box', w: 48, d: 26, h: 12, dx: 130, dz: 186, rotY: -0.85, facade: { kind: 'curtain', glassTint: 0x6d8a94, frameTint: 0xb9bcbe, windowWidth: 3.4, floorHeight: 3.6, litProbability: 0.3, warmth: 0.55, reflectivity: 0.7, seed: 149.12 } },
+    ],
+  },
+  {
+    // Batch 8 (issue #186): Miramar Entertainment Park, Dazhi —
+    // the mall and its Ferris wheel (OSM node 5121602758,
+    // tourism=attraction), the registry origin AT the wheel on
+    // the mall's south front. Published (zh.wikipedia,
+    // 美麗華百樂園): the wheel's total height is 100 m with 48
+    // cabins, boarding at the 5F roof plaza; the commonly
+    // published wheel diameter is 70 m — modelled as y0 30
+    // (roofline) + 70 = apex 100. Massing measured from OSM
+    // way 155816458 (the mall building proper: dx -109..+56,
+    // dz -98..+13 rel. the wheel) and way 1191618576 (the wider
+    // complex incl. the north annex): main glass slab, the
+    // curved drum at its NW, the taller IMAX east wing, and the
+    // low annex north of 植福路 (which the complex bridges —
+    // the roadbed runs between the two masses, audited). The
+    // separate parking structure west of 敬業三路 is not
+    // modelled. The wheel's ground contact is the pylon pair +
+    // crossbeam (plain boxes, audited); the 'wheel' part itself
+    // is airborne mass (rim/spokes/cabins) outside the audit's
+    // vocabulary by design.
+    id: 'miramar-entertainment-park', name: 'Miramar Entertainment Park', nameZh: '美麗華百樂園',
+    lat: 25.08290, lon: 121.55772, realHeight: 100, color: 0x7fa3ad,
+    site: { w: 230, d: 215, dx: -28, dz: -80 },
+    facade: { kind: 'curtain', glassTint: 0x51707c, frameTint: 0xa8b0ae, windowWidth: 3.4, floorHeight: 3.8, litProbability: 0.36, warmth: 0.55, reflectivity: 0.8, seed: 186.21 },
+    sign: { text: 'MIRAMAR', w: 46, h: 6.5, y: 25, dx: -24, dz: -1.2, bg: '#1d2a30', fg: '#e8f0ee', accent: '#c8372d' },
+    parts: [
+      { type: 'box', w: 150, d: 92, h: 32, dx: -24, dz: -48 },
+      { type: 'cylinder', r: 26, h: 32, dx: -78, dz: -70 },
+      { type: 'box', w: 62, d: 40, h: 38, dx: 28, dz: -84, facade: { kind: 'curtain', glassTint: 0x3d5a66, frameTint: 0x9aa39f, windowWidth: 3.4, floorHeight: 3.8, litProbability: 0.3, warmth: 0.5, reflectivity: 0.8, seed: 186.22 } },
+      { type: 'box', w: 120, d: 36, h: 20, dx: -10, dz: -138, flat: 0x8d9296 },
+      // Boarding-plaza deck + the wheel's portal frame.
+      { type: 'box', w: 36, d: 12, h: 2, y0: 29, dz: 2, flat: 0xd8d5cc },
+      { type: 'box', w: 3.4, d: 3.4, h: 35, y0: 30, dx: -13.5, flat: 0xe9e7e0 },
+      { type: 'box', w: 3.4, d: 3.4, h: 35, y0: 30, dx: 13.5, flat: 0xe9e7e0 },
+      { type: 'box', w: 30.4, d: 3.4, h: 3.2, y0: 61.8, flat: 0xe9e7e0 },
+      { type: 'wheel', y0: 30, h: 70, flat: 0xe9e7e0, cabinFlat: 0xc8ccd2 },
+    ],
+  },
 ];
 
 // Songshan Airport site structures (issue #135): the terminal
@@ -2089,7 +2466,7 @@ export const HEIGHT_JOIN = {
 };
 
 export function planTaipeiBuildings(geodata) {
-  const stats = { blocksSeen: 0, blocksFine: 0, lotsFine: 0, blocksSkippedSmall: 0, blocksSkippedParkWater: 0, blocksSkippedGreen: 0, blocksSkippedAirfield: 0, blocksSkippedOutsideUnion: 0, lotsDroppedVacancy: 0, lotsDroppedParkWater: 0, lotsDroppedGreen: 0, lotsDroppedRiverside: 0, lotsDroppedAirfield: 0, lotsDroppedTowerSite: 0, lotsDroppedRoad: 0, lotsDroppedMedian: 0, lotsDroppedOutsideUnion: 0, lotsDroppedTrackBed: 0, lotsDroppedTrackPierce: 0, lotsDroppedPier: 0, blocksRotated: 0, lotsRotated: 0, lotsPackedFrontage: 0, lotsTallFrontage: 0, heightsPermit: 0, heightsOsmHeight: 0, heightsOsmLevels: 0, heightsDoor: 0, heightsField: 0, heightsProc: 0, lotsFrontagePulled: 0, lotsFrontageFlush: 0, lotsFrontageHeldNoBed: 0, lotsFrontageHeldBlocked: 0, frontagePullMetres: 0 };
+  const stats = { blocksSeen: 0, blocksFine: 0, lotsFine: 0, blocksSkippedSmall: 0, blocksSkippedParkWater: 0, blocksSkippedGreen: 0, blocksSkippedAirfield: 0, blocksSkippedNpmSite: 0, blocksSkippedOutsideUnion: 0, lotsDroppedVacancy: 0, lotsDroppedParkWater: 0, lotsDroppedGreen: 0, lotsDroppedRiverside: 0, lotsDroppedAirfield: 0, lotsDroppedNpmSite: 0, lotsDroppedTowerSite: 0, lotsDroppedRoad: 0, lotsDroppedMedian: 0, lotsDroppedOutsideUnion: 0, lotsDroppedTrackBed: 0, lotsDroppedTrackPierce: 0, lotsDroppedPier: 0, blocksRotated: 0, lotsRotated: 0, lotsPackedFrontage: 0, lotsTallFrontage: 0, heightsPermit: 0, heightsOsmHeight: 0, heightsOsmLevels: 0, heightsDoor: 0, heightsField: 0, heightsProc: 0, lotsFrontagePulled: 0, lotsFrontageFlush: 0, lotsFrontageHeldNoBed: 0, lotsFrontageHeldBlocked: 0, frontagePullMetres: 0 };
   // Union-of-boxes tile (issue #60): the geodata frame carries the
   // tile's boxes; ground exists only inside them. Raster blocks are
   // masked to the union by the builder, but a block's bbox can still
@@ -2155,14 +2532,20 @@ export function planTaipeiBuildings(geodata) {
   // BY RULE, not only where OSM happens to tag a park. The builder
   // flags the Tamsui's water polygons (river: 'tamsui' — the recovered
   // bankfull polygon, relation 4010571) and carries the band width on
-  // geodata.riverside.bandM. Lots inside the water already drop as
+  // geodata.riverside.bandM. Issue #186 extends the same flag to the
+  // Keelung's Dazhi reach (river: 'keelung', strip-scoped in the
+  // builder). Lots inside the water already drop as
   // park/water; this distance verdict covers the untagged slivers the
   // tags miss — wharf aprons, levee strips, floodplain — which is
   // exactly where the #125 phantom lots stood (192 in the Dadaocheng
   // frame alone, on the park strip and in the river itself).
   const RIVERSIDE_BAND_M = geodata.riverside?.bandM ?? 30;
+  // Flagged rivers: the Tamsui (issue #137) and, since issue #186,
+  // the Keelung's Dazhi reach — the builder scopes the Keelung flag
+  // to the airport-north strip, so this verdict stays strip-local
+  // there while the Tamsui band runs tile-wide as before.
   const tamsuiRings = [];
-  for (const w of geodata.water || []) if (w.river === 'tamsui') tamsuiRings.push({ ring: w.ring, bb: ringBbox(w.ring) });
+  for (const w of geodata.water || []) if (w.river) tamsuiRings.push({ ring: w.ring, bb: ringBbox(w.ring) });
   const nearTamsui = (x, z) => {
     for (const p of tamsuiRings) {
       if (x < p.bb.minX - RIVERSIDE_BAND_M || x > p.bb.maxX + RIVERSIDE_BAND_M ||
@@ -2187,6 +2570,28 @@ export function planTaipeiBuildings(geodata) {
   };
   const nearAirfield = (x, z) => {
     for (const p of airfieldPolys) {
+      if (x < p.bb.minX - CORNER_CLEARANCE || x > p.bb.maxX + CORNER_CLEARANCE ||
+          z < p.bb.minZ - CORNER_CLEARANCE || z > p.bb.maxZ + CORNER_CLEARANCE) continue;
+      if (pointInRing(x, z, p.ring)) return true;
+      if (distToRing(x, z, p.ring) < CORNER_CLEARANCE) return true;
+    }
+    return false;
+  };
+  // Issues #149/#186: the National Palace Museum grounds are a
+  // special site on the airfield pattern (geodata.npmSite.site, from
+  // OSM way 827791918) — no procedural lots on the terraces/gardens;
+  // the museum itself is a registry landmark.
+  const npmSitePolys = [];
+  for (const s of geodata.npmSite?.site || []) npmSitePolys.push({ ring: s.ring, bb: ringBbox(s.ring) });
+  const inNpmSite = (x, z) => {
+    for (const p of npmSitePolys) {
+      if (x < p.bb.minX || x > p.bb.maxX || z < p.bb.minZ || z > p.bb.maxZ) continue;
+      if (pointInRing(x, z, p.ring)) return true;
+    }
+    return false;
+  };
+  const nearNpmSite = (x, z) => {
+    for (const p of npmSitePolys) {
       if (x < p.bb.minX - CORNER_CLEARANCE || x > p.bb.maxX + CORNER_CLEARANCE ||
           z < p.bb.minZ - CORNER_CLEARANCE || z > p.bb.maxZ + CORNER_CLEARANCE) continue;
       if (pointInRing(x, z, p.ring)) return true;
@@ -2563,9 +2968,9 @@ export function planTaipeiBuildings(geodata) {
     // mirrors mrtStationFootprint in js/taipei-mrt-stations.js (this
     // module stays import-free by convention; keep the two in sync).
     const L = s.length || 112;
-    const Wd = s.width || (s.kind === 'jiantan' ? 24 : s.kind === 'beitou' ? 33 : s.kind === 'at-grade' ? 16.5 : s.kind === 'wenhu' ? 20 : s.kind === 'entrance' ? 7 : 21.5);
-    const hw = s.kind === 'jiantan' ? (Wd + 2) / 2 : s.kind === 'beitou' ? (Wd + 2.6) / 2 : s.kind === 'xinbeitou' ? (Wd + 1.2) / 2 : s.kind === 'at-grade' ? (Wd + 4.6) / 2 : s.kind === 'wenhu' ? (Wd + 1.6) / 2 : s.kind === 'entrance' ? (Wd + 1.6) / 2 : (Wd + 1.9) / 2;
-    const hl = s.kind === 'jiantan' ? 122 : s.kind === 'beitou' ? (L + 4) / 2 : s.kind === 'xinbeitou' ? (L + 2.4) / 2 : s.kind === 'wenhu' ? (L + 1.2) / 2 : s.kind === 'entrance' ? (L + 1.6) / 2 : L / 2;
+    const Wd = s.width || (s.kind === 'jiantan' ? 24 : s.kind === 'beitou' ? 33 : s.kind === 'at-grade' ? 16.5 : s.kind === 'wenhu' ? 20 : s.kind === 'wenhu-open' ? 20 : s.kind === 'entrance' ? 7 : 21.5);
+    const hw = s.kind === 'jiantan' ? (Wd + 2) / 2 : s.kind === 'beitou' ? (Wd + 2.6) / 2 : s.kind === 'xinbeitou' ? (Wd + 1.2) / 2 : s.kind === 'at-grade' ? (Wd + 4.6) / 2 : s.kind === 'wenhu' ? (Wd + 1.6) / 2 : s.kind === 'wenhu-open' ? (Wd + 2.2) / 2 : s.kind === 'entrance' ? (Wd + 1.6) / 2 : (Wd + 1.9) / 2;
+    const hl = s.kind === 'jiantan' ? 122 : s.kind === 'beitou' ? (L + 4) / 2 : s.kind === 'xinbeitou' ? (L + 2.4) / 2 : s.kind === 'wenhu' ? (L + 1.2) / 2 : s.kind === 'wenhu-open' ? (L + 1.2) / 2 : s.kind === 'entrance' ? (L + 1.6) / 2 : L / 2;
     const cy = Math.cos(s.yaw), sy = Math.sin(s.yaw);
     let minX = Infinity, maxX = -Infinity, minZ = Infinity, maxZ = -Infinity;
     for (const [lx, lz] of [[-hw, -hl], [hw, -hl], [hw, hl], [-hw, hl]]) {
@@ -2626,6 +3031,7 @@ export function planTaipeiBuildings(geodata) {
     if (inPoly(block.cx, block.cz)) { stats.blocksSkippedParkWater++; continue; }
     if (inGreen(block.cx, block.cz)) { stats.blocksSkippedGreen++; continue; }
     if (inAirfield(block.cx, block.cz)) { stats.blocksSkippedAirfield++; continue; }
+    if (inNpmSite(block.cx, block.cz)) { stats.blocksSkippedNpmSite++; continue; }
     if (!inUnion(block.cx, block.cz)) { stats.blocksSkippedOutsideUnion++; continue; }
     const big = block.area > 40000;
     const pitchMul = big ? 1.7 : 1.0;
@@ -2794,6 +3200,8 @@ export function planTaipeiBuildings(geodata) {
         if (theta && tamsuiRings.length && corners.some(([px, pz]) => nearTamsui(px, pz))) { stats.lotsDroppedRiverside++; continue; }
         if (inAirfield(cx, cz)) { stats.lotsDroppedAirfield++; continue; }
         if (theta && corners.some(([px, pz]) => nearAirfield(px, pz))) { stats.lotsDroppedAirfield++; continue; }
+        if (inNpmSite(cx, cz)) { stats.lotsDroppedNpmSite++; continue; }
+        if (theta && corners.some(([px, pz]) => nearNpmSite(px, pz))) { stats.lotsDroppedNpmSite++; continue; }
         if (!inUnion(cx, cz)) { stats.lotsDroppedOutsideUnion++; continue; }
         let onLandmarkSite = false;
         for (const s of exclusionSites) {
@@ -2970,6 +3378,43 @@ export function planTaipeiBuildings(geodata) {
           lots[i].hSrc = 'field';
         }
       }
+    }
+  }
+  // Issue #139, second look (found at the #186 merge gate): the
+  // field blend above is the one height change that lands AFTER
+  // the block loop's pierce check, and it can raise a 'proc' lot
+  // through a guideway its drawn height cleared — a field lot
+  // beside the Xinbeitou branch, drawn under the clearance, was
+  // blended to 14 m against a 7.2 m underside. Re-run the track
+  // verdict for every field-blended lot at its final height and
+  // drop the piercers, exactly as the block loop would have.
+  // (Bed is position-only and cannot change here; the #185 pull
+  // re-checks its own moves with final heights in pullClear.)
+  if (trackGrid) {
+    const dropIdx = new Set();
+    for (let i = 0; i < lots.length; i++) {
+      const lot = lots[i];
+      if (lot.hSrc !== 'field') continue;
+      const c = lot.rot ? Math.cos(lot.rot) : 1, s = lot.rot ? Math.sin(lot.rot) : 0;
+      const grown = lotCorners(lot.x, lot.z, lot.w + 2 * TRACK_MARGIN_M, lot.d + 2 * TRACK_MARGIN_M, c, s);
+      let mnx = Infinity, mxx = -Infinity, mnz = Infinity, mxz = -Infinity;
+      for (const [px, pz] of grown) {
+        if (px < mnx) mnx = px;
+        if (px > mxx) mxx = px;
+        if (pz < mnz) mnz = pz;
+        if (pz > mxz) mxz = pz;
+      }
+      const track = trackVerdict(lot.x, lot.z, grown, mnx, mxx, mnz, mxz);
+      if (track.under < Infinity && lot.h > track.under - TRACK_CLEARANCE_M) dropIdx.add(i);
+    }
+    if (dropIdx.size) {
+      stats.lotsDroppedTrackPierce += dropIdx.size;
+      const keptLots = lots.filter((_, i) => !dropIdx.has(i));
+      lots.length = 0; lots.push(...keptLots);
+      const keptProc = lotProcH.filter((_, i) => !dropIdx.has(i));
+      lotProcH.length = 0; lotProcH.push(...keptProc);
+      const keptFront = lotFront.filter((_, i) => !dropIdx.has(i));
+      lotFront.length = 0; lotFront.push(...keptFront);
     }
   }
   for (const lot of lots) {
@@ -4354,6 +4799,39 @@ export function createTaipeiLandmarkTowers(THREE, plan, factories) {
       } else if (part.type === 'ridge') {
         mesh = new THREE.Mesh(ridgeGeometry(THREE, part), partMaterial(part, true));
         mesh.position.set(s.x, y0, s.z);
+      } else if (part.type === 'wheel') {
+        // Ferris wheel (issue #186, Miramar): authored as y0 = the
+        // wheel's bottom elevation and h = its diameter, so the
+        // landmark test's part-top formula (y0 + h) reads the apex.
+        // The wheel stands in the tile x-y plane (axle along z);
+        // its ground contact is the separate pylon boxes in the
+        // registry entry, which the issue-#42 audit sees — the
+        // wheel part itself is airborne mass (rim, spokes, cabins)
+        // and stays out of the audit's part vocabulary on purpose.
+        const g = new THREE.Group();
+        const R = part.h / 2, cy = y0 + R;
+        const rimMat = partMaterial(part, false);
+        const cabinMat = part.cabinFlat !== undefined ? flatPartMaterial(part.cabinFlat, false) : rimMat;
+        const addMesh = (geo, mat, x, y, z, rz) => {
+          const m = new THREE.Mesh(geo, mat);
+          m.position.set(x, y, z);
+          if (rz) m.rotation.z = rz;
+          m.castShadow = true;
+          g.add(m);
+        };
+        addMesh(new THREE.TorusGeometry(R - 1.0, 1.05, 8, 56), rimMat, 0, cy, 0);
+        addMesh(new THREE.TorusGeometry(R * 0.86, 0.55, 6, 48), rimMat, 0, cy, 0);
+        for (let i = 0; i < 12; i++) {
+          const a = (i / 12) * Math.PI * 2;
+          addMesh(new THREE.BoxGeometry(0.5, R * 0.86, 0.5), rimMat, Math.cos(a) * R * 0.43, cy + Math.sin(a) * R * 0.43, 0, a - Math.PI / 2);
+        }
+        addMesh(new THREE.BoxGeometry(5.2, 5.2, 5.6), rimMat, 0, cy, 0);
+        for (let i = 0; i < 16; i++) {
+          const a = (i / 16) * Math.PI * 2;
+          addMesh(new THREE.BoxGeometry(3.6, 3.9, 3.4), cabinMat, Math.cos(a) * (R - 1.0), cy + Math.sin(a) * (R - 1.0) - 1.4, 0);
+        }
+        g.position.set(s.x + (part.dx || 0), 0, s.z + (part.dz || 0));
+        mesh = g;
       }
       if (mesh) {
         mesh.castShadow = true;

@@ -135,15 +135,25 @@ test('geodata: removed areas match the #206 census (tile-wide)', () => {
   // with tools/taipei/census-green-overlaps.mjs and re-pin.
   const near = (v, target) => Math.abs(v - target) <= target * 0.03;
   assert.ok(near(fam.removed.parks, 51347), `parks removed ${fam.removed.parks.toFixed(0)}`);
-  assert.ok(near(fam.removed.water, 347273), `water removed ${fam.removed.water.toFixed(0)}`);
+  // Water re-pinned at the #224 gate for issue #186: measured
+  // 359,915 on the post-#186 tile — the strip's Keelung River
+  // reach and Dazhi water add +12,642 m² (+3.6%) of
+  // water-x-above-family overlap. Parks (51,347) and band
+  // (3,013,763) reproduce the original census to <1 m² on the
+  // same tree, and tint (3,726,596 measured) stays inside the
+  // original ±3% band unedited.
+  assert.ok(near(fam.removed.water, 359915), `water removed ${fam.removed.water.toFixed(0)}`);
   assert.ok(near(fam.removed.band, 3013763), `band removed ${fam.removed.band.toFixed(0)}`);
   assert.ok(near(fam.removed.tint, 3685780), `tint removed ${fam.removed.tint.toFixed(0)}`);
-  // One probe-counted residue tile-wide: a hole the subtraction
-  // primitive's last-resort fallback keeps even solo (its sample
-  // probe still lands inside afterwards). Raster puts the total
-  // surviving cross-set overlap at ~3k m² in the wetland corner —
-  // three orders below the 4.3 km² the census found before.
-  assert.ok(fam.unresolved <= 1, `unresolved ${fam.unresolved}`);
+  // Probe-counted residue tile-wide: holes the subtraction
+  // primitive's last-resort fallback keeps even solo (their
+  // sample probes still land inside afterwards). One on the
+  // pre-#186 tile; the #186 strip's water/green geometry adds
+  // a second of the same class. Raster puts the total
+  // surviving cross-set overlap at ~3k m² in the wetland
+  // corner — three orders below the 4.3 km² the census found
+  // before.
+  assert.ok(fam.unresolved <= 2, `unresolved ${fam.unresolved}`);
 });
 
 test('geodata: no double-painted samples left on the Guandu plain', () => {

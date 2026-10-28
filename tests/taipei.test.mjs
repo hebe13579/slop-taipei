@@ -584,6 +584,28 @@ test('landmark structures: true positions and heights, sites kept clear', (t) =>
     'shin-kong-mitsukoshi-a8': { h: 38.5, x: 181.7, z: -584.0 },
     'shin-kong-mitsukoshi-a9': { h: 49.5, x: 168.9, z: -403.3 },
     'shin-kong-mitsukoshi-a11': { h: 33, x: 227.6, z: -403.3 },
+    // Batch 9 (issue #166, Tianmu/Beitou): positions are the
+    // measured siting anchors (Takashimaya: OSM relation 6821492
+    // outline centre; the stadium: its OSM grounds/structure
+    // centre with the bowl modelled complete across the corridor
+    // edge — see the issue; the schools: their campus centres).
+    // All five heights are estimates (floors × 3.6 m; Takashimaya
+    // 12F published but no metric height; the stadium's 30 m is
+    // its light towers) — flagged estimated in the registry.
+    'dayeh-takashimaya': { h: 47, x: -3363, z: -8726 },
+    'tianmu-stadium': { h: 30, x: -3215, z: -8933 },
+    'shipai-junior-high': { h: 14.4, x: -5187, z: -9183 },
+    'qingjiang-elementary': { h: 14.4, x: -5848, z: -10352 },
+    'jianguo-high-school': { h: 25.2, x: -5288, z: 299 },
+    // Batch 8 (issues #149 + #186): the National Palace Museum —
+    // 27.5 m is FORM-DERIVED, not published (OSM way 203799171:
+    // levels 4; podium 6 + walls 13 + hip roofs, central tier
+    // apex — see registry), position the OSM main-hall outline
+    // centre (25.10219, 121.54859). Miramar: the 100 m is the
+    // PUBLISHED wheel apex (zh.wikipedia); position the OSM
+    // wheel node 5121602758 on the mall's south front.
+    'national-palace-museum': { h: 27.5, x: -1656.1, z: -7664.4 },
+    'miramar-entertainment-park': { h: 100, x: -734.7, z: -5527.6 },
   };
   assert.equal(plan.landmarkTowers.length, Object.keys(expected).length, 'all verified structures present');
   const partTop = (p) => (p.y0 || 0) + p.h + (p.type === 'ridge' ? p.ridgeH : 0);
@@ -719,12 +741,24 @@ test('landmark batch 3: two-slab Cathay rebuild, W, Songshan, Eslite, Arena', ()
     // halls: floor-count estimates (zh-Wikipedia floors x 5.5 m),
     // no published metres — the Four Seasons (RSHP 180 m) and
     // Farglory (208.3 m) heights in the same batch ARE published
-    // and stay unflagged.
+    // and stay unflagged. Batch 9 (issue #166) adds five more:
+    // Takashimaya's 47 m (12F published, no metric height), the
+    // stadium's 30 m light towers, and the three school campuses
+    // (floors × 3.6 m from OSM levels where tagged, estimated
+    // elsewhere).
+    // Batch 8 (issue #186) adds the National Palace Museum: its
+    // 27.5 m is form-derived (no published overall height; OSM
+    // levels 4 + the roof stack in the registry), flagged the
+    // same way. (Miramar's 100 m wheel apex IS published, so it
+    // is not in the exclusion list.)
     if (s.id !== 'eslite-spectrum-songyan' && s.id !== 'taipei-arena'
       && s.id !== 'national-concert-hall' && s.id !== 'national-theater'
       && s.id !== 'beimen'
       && s.id !== 'shin-kong-mitsukoshi-a4' && s.id !== 'shin-kong-mitsukoshi-a8'
-      && s.id !== 'shin-kong-mitsukoshi-a9' && s.id !== 'shin-kong-mitsukoshi-a11') {
+      && s.id !== 'shin-kong-mitsukoshi-a9' && s.id !== 'shin-kong-mitsukoshi-a11'
+      && s.id !== 'dayeh-takashimaya' && s.id !== 'tianmu-stadium'
+      && s.id !== 'shipai-junior-high' && s.id !== 'qingjiang-elementary'
+      && s.id !== 'jianguo-high-school' && s.id !== 'national-palace-museum') {
       assert.equal(s.estimated, false, `${s.id} height is published, not estimated`);
     }
   }
@@ -1160,7 +1194,28 @@ test('taiwan types: family zoning, distribution and rooftop clamp', (t) => {
   // core/height rules assign it — glass 4,109 -> 7,834. The
   // palette rules are unedited; the census moves because the
   // plan does.
-  assert.equal(glass, 7834, 'glass family counts after #136 + #139 + #135 + #142, composed with #134 + #137, #144, #165 and #124');
+  // Issue #166 (Tianmu/Beitou batch), measured on the merged
+  // tree by lot-by-lot diff of the options lots against the
+  // same plan without the five new registry entries: the sites
+  // exclude 141 fine lots (masonry -92, Taiwan -44, glass -5)
+  // and 16 kept lots re-roll family (glass -> masonry 1,
+  // masonry -> glass 1, net 0): glass 7,834 - 5 = 7,829.
+  // Issue #186 (NPM strip), measured on the merge tree at the
+  // merge gate by lot-by-lot diff against main: the strip's
+  // 3,919 lots (probe bbox x -3227..504, z <= -4995) carry
+  // 359 glass, and the boundary re-cut churn south of the old
+  // airport-box edge nets +22 more: glass 7,829 + 381 = 8,210.
+  // The old tile otherwise reproduces main lot for lot (the
+  // gate restored main's block order in the merged geodata —
+  // see the taipei-mrt clearance composition note).
+  // Gate correction (hotfix): the #201 registry sites then
+  // clear 29 lots on this fabric, 1 of them glass: 8,209.
+  assert.equal(glass, 8209, 'glass family counts after #136 + #139 + #135 + #142, composed with #134 + #137, #144, #165, #124, #166 and #186');
+  // (The #186 PR2 branch carried its own stale-base version of
+  // this composition — glass 4,120 -> 4,419 on the pre-#124
+  // plan — which the merge union initially kept as a duplicate
+  // assert on the same variable; removed at the gate hotfix.
+  // The merged-tree composition above is the shipped one.)
   const masonry = opts.lots.filter((l) => l.mat <= 2).length;
   // Range re-based for issue #65: the exact ribbon exclusion removed
   // ~4,400 masonry lots that stood on ribbons or in medians; masonry
@@ -1193,6 +1248,12 @@ test('taiwan types: family zoning, distribution and rooftop clamp', (t) => {
   // together are 63,750 (89.1%), the local fabric as before.
   // The range is re-based to the new census with headroom.
   assert.ok(masonry > 30000 && masonry < 40000, `masonry 0-2 reduced but still present (${masonry})`);
+  // (The #186 PR2 branch's stale-base masonry range — 20,896 of
+  // 42,142 lots, range 12,000-22,000 — was a duplicate assert on
+  // this variable from the same union; removed at the gate
+  // hotfix like the glass duplicate above. On the shipped tree
+  // masonry is 36,732: the #200-tree 36,753 less the 21 masonry
+  // lots among the 29 the #201 sites clear.)
   assert.equal(typeof opts.rooftopGearClamp, 'function', 'options carry the rooftop-gear clamp');
 
   const lot = { x0: 0, x1: 9, z0: 0, z1: 14 };
@@ -1285,11 +1346,19 @@ test('arcade parts: recessed core and full-perimeter colonnade', (t) => {
   // inset core would vanish) and keep the flat F7 facade. What the
   // gate passes, the arcade still covers completely: every one of
   // the 2,977 size-eligible F7 lots carries its arcade.
+  // Issue #166: the five Tianmu/Beitou sites remove 11 F7 lots
+  // (net of the family re-rolls, diffed lot by lot on the
+  // merged tree) — 6,444.
+  // Issue #186 (NPM strip), same gate diff as the glass pin
+  // above: the strip carries 322 F7 and the boundary re-cut
+  // churn nets +7: 6,444 + 329 = 6,773. Gate correction
+  // (hotfix): 2 of the 29 lots the #201 sites clear are F7:
+  // 6,771.
   const opts = taipeiCityBlocksOptions(TAIPEI_GEO, planTaipeiBuildings(TAIPEI_GEO));
   const f7 = opts.lots.filter((l) => l.mat === 7);
   const withArcade = f7.filter((l) => l.arcade);
   const eligible = f7.filter((l) => (l.x1 - l.x0) >= 11 && (l.z1 - l.z0) >= 11);
-  assert.equal(f7.length, 6455, 'F7 census after #124');
+  assert.equal(f7.length, 6771, 'F7 census after #124, composed with #166 and #186');
   assert.equal(withArcade.length, eligible.length, `every size-eligible F7 lot carries the arcade (${withArcade.length}/${eligible.length})`);
   const totalCols = withArcade.reduce((s, l) => s + l.arcade.columns.length, 0);
   assert.ok(totalCols / withArcade.length < 30, `columns per arcade lot sane (${(totalCols / withArcade.length).toFixed(1)})`);
