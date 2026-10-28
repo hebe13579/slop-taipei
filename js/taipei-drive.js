@@ -70,7 +70,7 @@
 // Colliders without minY are ground-based and behave exactly as
 // upstream's always have.
 
-import { PARAPET_H, PARAPET_T, ASPHALT_LIFT, LOW_BED_MAX, LOW_BED_H } from './taipei-viaduct.js';
+import { PARAPET_H, PARAPET_T, ASPHALT_LIFT, LOW_BED_MAX, LOW_BED_H, parapetTrims } from './taipei-viaduct.js';
 import { mrtStationFootprint } from './taipei-mrt-stations.js';
 
 export const DRIVE_CELL = 48;          // spatial-hash cell, m (the nearColliders idiom)
@@ -112,8 +112,12 @@ export function buildDriveModel(elevated) {
   const cells = new Map();
   const parapetColliders = [];
   let segments = 0, elevatedSegments = 0;
+  // Issue #239: the parapet colliders follow the same mouth trims
+  // as the visual strips — a trimmed fence has no invisible wall.
+  const trims = parapetTrims(elevated);
 
-  for (const line of elevated.lines || []) {
+  for (let li = 0; li < (elevated.lines || []).length; li++) {
+    const line = elevated.lines[li];
     const n = (line.pts?.length || 0) / 2;
     if (n < 2) continue;
     const half = (line.width || 6) / 2;
@@ -152,15 +156,23 @@ export function buildDriveModel(elevated) {
         // local frame puts +z along the segment (sn = ux,
         // cs = uz gives local +z -> (ux, uz)); the strip centre
         // sits half a parapet thickness inside the slab edge.
-        const mx = (ax + bx) / 2, mz = (az + bz) / 2;
+        // Issue #239: one collider per KEPT interval of each strip
+        // (the mouth trims), not one per whole segment.
         const off = half - PARAPET_T / 2;
         const nx = -seg.uz, nz = seg.ux; // left normal, the renderer's n
-        const maxY = Math.max(hA, hB) + PARAPET_H;
-        const minY = Math.max(0, Math.min(hA, hB) - depth);
-        for (const s of [1, -1]) {
-          parapetColliders.push(obbCollider(
-            mx + s * nx * off, mz + s * nz * off,
-            PARAPET_T / 2, len / 2, seg.uz, seg.ux, maxY, minY));
+        const hAt = (t) => hA + (hB - hA) * t;
+        const segTrim = trims.lines[li]?.segments[i];
+        for (const [s, list] of [[1, segTrim?.left], [-1, segTrim?.right]]) {
+          for (const [t0, t1] of list || [[0, 1]]) {
+            if (!(t1 > t0)) continue;
+            const tm = (t0 + t1) / 2;
+            const mx = ax + (bx - ax) * tm, mz = az + (bz - az) * tm;
+            const maxY = Math.max(hAt(t0), hAt(t1)) + PARAPET_H;
+            const minY = Math.max(0, Math.min(hAt(t0), hAt(t1)) - depth);
+            parapetColliders.push(obbCollider(
+              mx + s * nx * off, mz + s * nz * off,
+              PARAPET_T / 2, ((t1 - t0) * len) / 2, seg.uz, seg.ux, maxY, minY));
+          }
         }
       }
     }
@@ -197,7 +209,7 @@ export function buildDriveModel(elevated) {
   const model = {
     sample,
     parapetColliders,
-    stats: { segments, elevatedSegments, cells: cells.size },
+    stats: { segments, elevatedSegments, cells: cells.size, parapetTrimmedM: trims.stats.blockedM },
   };
   modelCache.set(elevated, model);
   return model;
