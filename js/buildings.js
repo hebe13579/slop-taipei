@@ -3164,13 +3164,17 @@ function buildCityBlocks(scene, opts = null) {
             q = -along / 2 + p.u * along;
           }
           // Surface point on the slope + a step along its outward
-          // normal (sheet half-thickness + patch half-thickness), so
-          // the patch sits ON the sheet, never beside it.
+          // normal, so the patch sits ON the sheet, never floating:
+          // for a single pitch the step is sheet half-thickness +
+          // patch half-thickness (0.045 + 0.025) off the sheet's
+          // centre plane; for a gable the prism face IS the surface,
+          // so the step is just the patch half-thickness.
+          const step = a.form === 'gable' ? 0.025 : 0.07;
           const surfY = a.form === 'gable'
             ? a.y + a.h + rise - q * tanP
-            : a.y + a.h + 0.06 + rise + 0.045 - q * tanP;
-          const nDs = a.form === 'gable' ? sigma * (q - 0.075 * sinP) : lowSign * (q - 0.075 * sinP);
-          placeAt(p.v * across, surfY + 0.075 * cosP, nDs);
+            : a.y + a.h + 0.06 + rise - q * tanP;
+          const nDs = a.form === 'gable' ? sigma * (q - step * sinP) : lowSign * (q - step * sinP);
+          placeAt(p.v * across, surfY + step * cosP, nDs);
           if (a.axis === 'z') {
             dummy.rotation.set((a.form === 'gable' ? sigma : a.dir) * a.pitch, ry, 0);
             dummy.scale.set(p.w, 0.05, p.d);
