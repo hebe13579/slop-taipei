@@ -2321,7 +2321,7 @@ export const HEIGHT_JOIN = {
 };
 
 export function planTaipeiBuildings(geodata) {
-  const stats = { blocksSeen: 0, blocksFine: 0, lotsFine: 0, blocksSkippedSmall: 0, blocksSkippedParkWater: 0, blocksSkippedGreen: 0, blocksSkippedAirfield: 0, blocksSkippedOutsideUnion: 0, lotsDroppedVacancy: 0, lotsDroppedParkWater: 0, lotsDroppedGreen: 0, lotsDroppedRiverside: 0, lotsDroppedAirfield: 0, lotsDroppedTowerSite: 0, lotsDroppedRoad: 0, lotsDroppedMedian: 0, lotsDroppedOutsideUnion: 0, lotsDroppedTrackBed: 0, lotsDroppedTrackPierce: 0, lotsDroppedPier: 0, blocksRotated: 0, lotsRotated: 0, lotsPackedFrontage: 0, lotsTallFrontage: 0, heightsPermit: 0, heightsOsmHeight: 0, heightsOsmLevels: 0, heightsDoor: 0, heightsField: 0, heightsProc: 0, lotsFrontagePulled: 0, lotsFrontageFlush: 0, lotsFrontageHeldNoBed: 0, lotsFrontageHeldBlocked: 0, frontagePullMetres: 0 };
+  const stats = { blocksSeen: 0, blocksFine: 0, lotsFine: 0, blocksSkippedSmall: 0, blocksSkippedParkWater: 0, blocksSkippedGreen: 0, blocksSkippedAirfield: 0, blocksSkippedNpmSite: 0, blocksSkippedOutsideUnion: 0, lotsDroppedVacancy: 0, lotsDroppedParkWater: 0, lotsDroppedGreen: 0, lotsDroppedRiverside: 0, lotsDroppedAirfield: 0, lotsDroppedNpmSite: 0, lotsDroppedTowerSite: 0, lotsDroppedRoad: 0, lotsDroppedMedian: 0, lotsDroppedOutsideUnion: 0, lotsDroppedTrackBed: 0, lotsDroppedTrackPierce: 0, lotsDroppedPier: 0, blocksRotated: 0, lotsRotated: 0, lotsPackedFrontage: 0, lotsTallFrontage: 0, heightsPermit: 0, heightsOsmHeight: 0, heightsOsmLevels: 0, heightsDoor: 0, heightsField: 0, heightsProc: 0, lotsFrontagePulled: 0, lotsFrontageFlush: 0, lotsFrontageHeldNoBed: 0, lotsFrontageHeldBlocked: 0, frontagePullMetres: 0 };
   // Union-of-boxes tile (issue #60): the geodata frame carries the
   // tile's boxes; ground exists only inside them. Raster blocks are
   // masked to the union by the builder, but a block's bbox can still
@@ -2387,14 +2387,20 @@ export function planTaipeiBuildings(geodata) {
   // BY RULE, not only where OSM happens to tag a park. The builder
   // flags the Tamsui's water polygons (river: 'tamsui' — the recovered
   // bankfull polygon, relation 4010571) and carries the band width on
-  // geodata.riverside.bandM. Lots inside the water already drop as
+  // geodata.riverside.bandM. Issue #186 extends the same flag to the
+  // Keelung's Dazhi reach (river: 'keelung', strip-scoped in the
+  // builder). Lots inside the water already drop as
   // park/water; this distance verdict covers the untagged slivers the
   // tags miss — wharf aprons, levee strips, floodplain — which is
   // exactly where the #125 phantom lots stood (192 in the Dadaocheng
   // frame alone, on the park strip and in the river itself).
   const RIVERSIDE_BAND_M = geodata.riverside?.bandM ?? 30;
+  // Flagged rivers: the Tamsui (issue #137) and, since issue #186,
+  // the Keelung's Dazhi reach — the builder scopes the Keelung flag
+  // to the airport-north strip, so this verdict stays strip-local
+  // there while the Tamsui band runs tile-wide as before.
   const tamsuiRings = [];
-  for (const w of geodata.water || []) if (w.river === 'tamsui') tamsuiRings.push({ ring: w.ring, bb: ringBbox(w.ring) });
+  for (const w of geodata.water || []) if (w.river) tamsuiRings.push({ ring: w.ring, bb: ringBbox(w.ring) });
   const nearTamsui = (x, z) => {
     for (const p of tamsuiRings) {
       if (x < p.bb.minX - RIVERSIDE_BAND_M || x > p.bb.maxX + RIVERSIDE_BAND_M ||
@@ -2419,6 +2425,28 @@ export function planTaipeiBuildings(geodata) {
   };
   const nearAirfield = (x, z) => {
     for (const p of airfieldPolys) {
+      if (x < p.bb.minX - CORNER_CLEARANCE || x > p.bb.maxX + CORNER_CLEARANCE ||
+          z < p.bb.minZ - CORNER_CLEARANCE || z > p.bb.maxZ + CORNER_CLEARANCE) continue;
+      if (pointInRing(x, z, p.ring)) return true;
+      if (distToRing(x, z, p.ring) < CORNER_CLEARANCE) return true;
+    }
+    return false;
+  };
+  // Issues #149/#186: the National Palace Museum grounds are a
+  // special site on the airfield pattern (geodata.npmSite.site, from
+  // OSM way 827791918) — no procedural lots on the terraces/gardens;
+  // the museum itself is a registry landmark.
+  const npmSitePolys = [];
+  for (const s of geodata.npmSite?.site || []) npmSitePolys.push({ ring: s.ring, bb: ringBbox(s.ring) });
+  const inNpmSite = (x, z) => {
+    for (const p of npmSitePolys) {
+      if (x < p.bb.minX || x > p.bb.maxX || z < p.bb.minZ || z > p.bb.maxZ) continue;
+      if (pointInRing(x, z, p.ring)) return true;
+    }
+    return false;
+  };
+  const nearNpmSite = (x, z) => {
+    for (const p of npmSitePolys) {
       if (x < p.bb.minX - CORNER_CLEARANCE || x > p.bb.maxX + CORNER_CLEARANCE ||
           z < p.bb.minZ - CORNER_CLEARANCE || z > p.bb.maxZ + CORNER_CLEARANCE) continue;
       if (pointInRing(x, z, p.ring)) return true;
@@ -2795,9 +2823,9 @@ export function planTaipeiBuildings(geodata) {
     // mirrors mrtStationFootprint in js/taipei-mrt-stations.js (this
     // module stays import-free by convention; keep the two in sync).
     const L = s.length || 112;
-    const Wd = s.width || (s.kind === 'jiantan' ? 24 : s.kind === 'beitou' ? 33 : s.kind === 'at-grade' ? 16.5 : s.kind === 'wenhu' ? 20 : s.kind === 'entrance' ? 7 : 21.5);
-    const hw = s.kind === 'jiantan' ? (Wd + 2) / 2 : s.kind === 'beitou' ? (Wd + 2.6) / 2 : s.kind === 'xinbeitou' ? (Wd + 1.2) / 2 : s.kind === 'at-grade' ? (Wd + 4.6) / 2 : s.kind === 'wenhu' ? (Wd + 1.6) / 2 : s.kind === 'entrance' ? (Wd + 1.6) / 2 : (Wd + 1.9) / 2;
-    const hl = s.kind === 'jiantan' ? 122 : s.kind === 'beitou' ? (L + 4) / 2 : s.kind === 'xinbeitou' ? (L + 2.4) / 2 : s.kind === 'wenhu' ? (L + 1.2) / 2 : s.kind === 'entrance' ? (L + 1.6) / 2 : L / 2;
+    const Wd = s.width || (s.kind === 'jiantan' ? 24 : s.kind === 'beitou' ? 33 : s.kind === 'at-grade' ? 16.5 : s.kind === 'wenhu' ? 20 : s.kind === 'wenhu-open' ? 20 : s.kind === 'entrance' ? 7 : 21.5);
+    const hw = s.kind === 'jiantan' ? (Wd + 2) / 2 : s.kind === 'beitou' ? (Wd + 2.6) / 2 : s.kind === 'xinbeitou' ? (Wd + 1.2) / 2 : s.kind === 'at-grade' ? (Wd + 4.6) / 2 : s.kind === 'wenhu' ? (Wd + 1.6) / 2 : s.kind === 'wenhu-open' ? (Wd + 2.2) / 2 : s.kind === 'entrance' ? (Wd + 1.6) / 2 : (Wd + 1.9) / 2;
+    const hl = s.kind === 'jiantan' ? 122 : s.kind === 'beitou' ? (L + 4) / 2 : s.kind === 'xinbeitou' ? (L + 2.4) / 2 : s.kind === 'wenhu' ? (L + 1.2) / 2 : s.kind === 'wenhu-open' ? (L + 1.2) / 2 : s.kind === 'entrance' ? (L + 1.6) / 2 : L / 2;
     const cy = Math.cos(s.yaw), sy = Math.sin(s.yaw);
     let minX = Infinity, maxX = -Infinity, minZ = Infinity, maxZ = -Infinity;
     for (const [lx, lz] of [[-hw, -hl], [hw, -hl], [hw, hl], [-hw, hl]]) {
@@ -2858,6 +2886,7 @@ export function planTaipeiBuildings(geodata) {
     if (inPoly(block.cx, block.cz)) { stats.blocksSkippedParkWater++; continue; }
     if (inGreen(block.cx, block.cz)) { stats.blocksSkippedGreen++; continue; }
     if (inAirfield(block.cx, block.cz)) { stats.blocksSkippedAirfield++; continue; }
+    if (inNpmSite(block.cx, block.cz)) { stats.blocksSkippedNpmSite++; continue; }
     if (!inUnion(block.cx, block.cz)) { stats.blocksSkippedOutsideUnion++; continue; }
     const big = block.area > 40000;
     const pitchMul = big ? 1.7 : 1.0;
@@ -3026,6 +3055,8 @@ export function planTaipeiBuildings(geodata) {
         if (theta && tamsuiRings.length && corners.some(([px, pz]) => nearTamsui(px, pz))) { stats.lotsDroppedRiverside++; continue; }
         if (inAirfield(cx, cz)) { stats.lotsDroppedAirfield++; continue; }
         if (theta && corners.some(([px, pz]) => nearAirfield(px, pz))) { stats.lotsDroppedAirfield++; continue; }
+        if (inNpmSite(cx, cz)) { stats.lotsDroppedNpmSite++; continue; }
+        if (theta && corners.some(([px, pz]) => nearNpmSite(px, pz))) { stats.lotsDroppedNpmSite++; continue; }
         if (!inUnion(cx, cz)) { stats.lotsDroppedOutsideUnion++; continue; }
         let onLandmarkSite = false;
         for (const s of exclusionSites) {
@@ -3202,6 +3233,43 @@ export function planTaipeiBuildings(geodata) {
           lots[i].hSrc = 'field';
         }
       }
+    }
+  }
+  // Issue #139, second look (found at the #186 merge gate): the
+  // field blend above is the one height change that lands AFTER
+  // the block loop's pierce check, and it can raise a 'proc' lot
+  // through a guideway its drawn height cleared — a field lot
+  // beside the Xinbeitou branch, drawn under the clearance, was
+  // blended to 14 m against a 7.2 m underside. Re-run the track
+  // verdict for every field-blended lot at its final height and
+  // drop the piercers, exactly as the block loop would have.
+  // (Bed is position-only and cannot change here; the #185 pull
+  // re-checks its own moves with final heights in pullClear.)
+  if (trackGrid) {
+    const dropIdx = new Set();
+    for (let i = 0; i < lots.length; i++) {
+      const lot = lots[i];
+      if (lot.hSrc !== 'field') continue;
+      const c = lot.rot ? Math.cos(lot.rot) : 1, s = lot.rot ? Math.sin(lot.rot) : 0;
+      const grown = lotCorners(lot.x, lot.z, lot.w + 2 * TRACK_MARGIN_M, lot.d + 2 * TRACK_MARGIN_M, c, s);
+      let mnx = Infinity, mxx = -Infinity, mnz = Infinity, mxz = -Infinity;
+      for (const [px, pz] of grown) {
+        if (px < mnx) mnx = px;
+        if (px > mxx) mxx = px;
+        if (pz < mnz) mnz = pz;
+        if (pz > mxz) mxz = pz;
+      }
+      const track = trackVerdict(lot.x, lot.z, grown, mnx, mxx, mnz, mxz);
+      if (track.under < Infinity && lot.h > track.under - TRACK_CLEARANCE_M) dropIdx.add(i);
+    }
+    if (dropIdx.size) {
+      stats.lotsDroppedTrackPierce += dropIdx.size;
+      const keptLots = lots.filter((_, i) => !dropIdx.has(i));
+      lots.length = 0; lots.push(...keptLots);
+      const keptProc = lotProcH.filter((_, i) => !dropIdx.has(i));
+      lotProcH.length = 0; lotProcH.push(...keptProc);
+      const keptFront = lotFront.filter((_, i) => !dropIdx.has(i));
+      lotFront.length = 0; lotFront.push(...keptFront);
     }
   }
   for (const lot of lots) {

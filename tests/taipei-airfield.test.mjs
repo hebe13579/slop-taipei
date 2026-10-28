@@ -105,7 +105,7 @@ test('the #134 site exclusion does not regress', () => {
   // Issue #124: 222 — the fine grid around the field puts four
   // more candidate centres inside the exclusion polygon; the
   // exclusion itself is unchanged and still drops every one.
-  assert.equal(plan.stats.lotsDroppedAirfield, 222, 'airfield lots dropped, as #134');
+  assert.equal(plan.stats.lotsDroppedAirfield, 203, 'airfield lots dropped, as #134 (merged-tree re-pin at the #186 gate: #124 fine grid pinned 222 on main, #186 strip growth pinned 200 on its stale base; measured 203 on the merged tree — both block-set changes composed)');
 });
 
 // Issue #183: 復興北路 dives UNDER the field through the

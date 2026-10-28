@@ -468,16 +468,44 @@ const isTamsuiElement = (el) => {
   }
   return false;
 };
+// Issue #186: the same flag for the Keelung River at the Dazhi reach —
+// the #137 riverside rule applies to the airport-north strip from day
+// one. Scoped by the per-piece test in collectWaterPolys: a piece is
+// flagged only when one of its vertices stands in the reach fronting
+// the strip (the 6-airport lon span, lat > 25.070). Measured on the
+// extract: the bankfull polygon's north bank tops out at lat 25.07766
+// in this span — the river itself never enters the strip; the band
+// protects the strip's levee/park frontage from its bank line. The
+// west and east reaches stay unflagged on purpose: standing lots sit
+// within 30 m of their banks (9 measured on the west reach,
+// npm186-evidence) and the #186 acceptance is zero lot change outside
+// the strip.
+const keelungCentrelinePts = [];
+for (const el of load('osm_water.json').elements) {
+  if (el.type === 'way' && el.tags?.waterway === 'river' && (el.tags.name || '') === '基隆河') keelungCentrelinePts.push(...geomPts(el));
+}
+const isKeelungElement = (el) => {
+  if (!keelungCentrelinePts.length) return false;
+  for (const rawRing of elRings(el)) {
+    if (rawRing.length < 4) continue;
+    for (const [x, z] of keelungCentrelinePts) if (pointInPtsRing(x, z, rawRing)) return true;
+  }
+  return false;
+};
+const [STRIP_X0] = toWorld(121.533, 25.070);
+const [STRIP_X1, STRIP_ZN] = toWorld(121.570, 25.070);
+const pieceInStrip = (ring) => ring.some(([x, z]) => x > STRIP_X0 + 5 && x < STRIP_X1 - 5 && z < STRIP_ZN);
 function collectWaterPolys() {
   const out = [];
   for (const el of load('osm_water.json').elements) {
     const tamsui = isTamsuiElement(el);
+    const keelung = tamsui ? false : isKeelungElement(el);
     for (const rawRing of elRings(el)) {
       if (rawRing.length < 4) continue;
       for (const ring of clipRingUnion(rawRing, BOXES_WORLD)) {
         const area = Math.abs(ringArea(ring));
         if (area < 50) continue;
-        out.push({ name: el.tags?.name || el.tags?.['name:en'] || '', ring: flat(ring), area, ...(tamsui ? { river: 'tamsui' } : {}) });
+        out.push({ name: el.tags?.name || el.tags?.['name:en'] || '', ring: flat(ring), area, ...(tamsui ? { river: 'tamsui' } : {}), ...(keelung && pieceInStrip(ring) ? { river: 'keelung' } : {}) });
       }
     }
   }
@@ -563,7 +591,7 @@ const parks = parksRaw.map(({ name, ring }) => ({ name, ring }));
 const waterArea = waterRaw.reduce((s, w) => s + w.area, 0);
 const parksArea = parksRaw.reduce((s, p) => s + p.area, 0);
 
-// ---- Tamsui riverside band (issue #137) ----
+// ---- Tamsui riverside band (issue #137; Keelung Dazhi reach added by issue #186) ----
 // The planner enforces the band as a distance verdict against the
 // flagged Tamsui rings (bandM below is the single source — the
 // planner reads it off geodata.riverside). For the aerial read this
@@ -611,19 +639,19 @@ const offsetRingOutward = (ring, d) => {
 const riversidePolys = [];
 const riversideSkipped = [];
 for (const w of waterRaw) {
-  if (w.river !== 'tamsui') continue;
+  if (!w.river) continue;
   let done = false;
   for (const f of [1, 0.6]) {
     const off = offsetRingOutward(w.ring, RIVERSIDE_BAND_M * f);
     if (off && !ringSelfIntersects(off)) {
-      for (const piece of clipRingUnion(off, BOXES_WORLD)) riversidePolys.push({ name: '淡水河', ring: flat(piece) });
+      for (const piece of clipRingUnion(off, BOXES_WORLD)) riversidePolys.push({ name: w.name || '淡水河', ring: flat(piece) });
       done = true; break;
     }
   }
   if (!done) riversideSkipped.push(`${w.name || 'unnamed'} (${(w.area / 1e6).toFixed(2)} km2)`);
 }
 if (riversideSkipped.length) console.log(`[taipei-geodata] riverside band polygons skipped (offset self-intersects; planner distance verdict unaffected): ${riversideSkipped.join('; ')}`);
-console.log(`[taipei-geodata] tamsui: ${waterRaw.filter((w) => w.river === 'tamsui').length} water polygons flagged, riverside band ${RIVERSIDE_BAND_M} m -> ${riversidePolys.length} band polygons (issue #137)`);
+console.log(`[taipei-geodata] tamsui: ${waterRaw.filter((w) => w.river === 'tamsui').length} water polygons flagged, riverside band ${RIVERSIDE_BAND_M} m -> ${riversidePolys.length} band polygons (issue #137); keelung (Dazhi reach, issue #186): ${waterRaw.filter((w) => w.river === 'keelung').length} water polygons flagged`);
 
 // ---- Songshan Airport airfield (issue #134) ----
 // osm_aeroway.json (extract-from-pbf.py): the aerodrome boundary
@@ -690,6 +718,36 @@ if (fs.existsSync(path.join(DATA, 'osm_aeroway.json'))) {
     console.log(`[taipei-geodata] airfield: Songshan site ${site.length} ring(s), ${surfaces.length} hard-surface polygons (issue #134); paint: ${paintRunway.length} runway, ${paintTaxiways.length} taxiway centrelines, ${paintStands.length} stands (issue #135)`);
   } else {
     console.warn('[taipei-geodata] WARNING: osm_aeroway.json present but no aerodrome site ring — airport exclusion inactive');
+  }
+}
+
+// ---- National Palace Museum grounds (issues #149 / #186) ----
+// osm_sites.json (extract-from-pbf.py): the museum grounds polygon
+// (OSM way 827791918, landuse=recreation_ground named
+// 國立故宮博物院 — measured lat 25.09908-25.10407 x lon
+// 121.54701-121.55056) as a special SITE on the airport pattern:
+// the planner drops every procedural lot inside it, and the museum
+// itself is a registry landmark (issue #149). The grounds' tag pair
+// reaches no other classifier (green_class reads
+// leisure=recreation_ground, is_park reads leisure=park), so without
+// this pass the terraces and gardens would be planned over.
+let npmSite = null;
+if (fs.existsSync(path.join(DATA, 'osm_sites.json'))) {
+  const site = [];
+  for (const el of load('osm_sites.json').elements) {
+    for (const rawRing of elRings(el)) {
+      if (rawRing.length < 4) continue;
+      for (const ring of clipRingUnion(rawRing, BOXES_WORLD)) {
+        if (Math.abs(ringArea(ring)) < 1000) continue;
+        site.push({ name: el.tags?.name || '', ring: flat(ring) });
+      }
+    }
+  }
+  if (site.length) {
+    npmSite = { site };
+    console.log(`[taipei-geodata] npm site: National Palace Museum grounds ${site.length} ring(s) (issues #149/#186)`);
+  } else {
+    console.warn('[taipei-geodata] WARNING: osm_sites.json present but no museum grounds ring — NPM exclusion inactive');
   }
 }
 
@@ -872,6 +930,7 @@ const TAIPEI_GEO = {
 // Songshan airfield site + hard surfaces.
 TAIPEI_GEO.riverside = { bandM: RIVERSIDE_BAND_M, polys: riversidePolys };
 if (airfield) TAIPEI_GEO.airfield = airfield;
+if (npmSite) TAIPEI_GEO.npmSite = npmSite;
 
 // ---- terrain skin grids (issue #129) ----
 // Baked by tools/taipei/build-terrain.mjs from SRTM GL1 into
@@ -957,7 +1016,7 @@ const lotPlan = planTaipeiBuildings(TAIPEI_GEO);
     console.log(`[taipei-geodata] mrt red line: ${mrt.stats.lineWays} line ways (${JSON.stringify(mrt.stats.byFormKm)} km by form), ${mrt.stats.pathsFound}/13 station paths, ${mrt.stats.crossoverWays} crossover ways -> ${ms.lines} deck lines (${ms.lineKm} km), piers ${ms.piers} (${ms.piersMerged} twin-merged, ${ms.piersRejectedRoad} road-rejected, ${ms.piersRejectedLot} lot-rejected); ${mrt.stations.length} stations (10 elevated + ${mrt.stations.length - 10} at-grade); depot: ${mrt.stats.yardWays} yard ways (${mrt.stats.yardKm} km), ${mrt.stats.depotHalls} halls`);
     if (wenhuDigest) {
       const ws = wenhuDigest.stats;
-      console.log(`[taipei-geodata] mrt wenhu line: ${ws.lineWays} line ways (${JSON.stringify(ws.byFormKm)} km by form), ${ws.pathsFound}/6 station paths, ${ws.crossoverWays} crossover ways; ${wenhuDigest.stations.length} station defs (4 elevated barrel-vault + 3 Songshan Airport entrances)`);
+      console.log(`[taipei-geodata] mrt wenhu line: ${ws.lineWays} line ways (${JSON.stringify(ws.byFormKm)} km by form), ${ws.pathsFound}/7 station paths, ${ws.crossoverWays} crossover ways; ${wenhuDigest.stations.length} station defs (4 elevated barrel-vault + 1 open elevated (Jiannan Rd) + 3 Dazhi entrances + 3 Songshan Airport entrances, issue #186)`);
     }
   } else {
     console.log('[taipei-geodata] mrt: osm_railways.json absent — no MRT decks/stations emitted');

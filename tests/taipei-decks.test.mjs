@@ -66,7 +66,11 @@ test('every deck-flagged roadbed is covered by deck geometry', () => {
   // strip adds the 環河南路/水源快速道路 beds; the deck LINES grow
   // 329 -> 397 (93.1 -> 129.5 km) on the same ground (validate.mjs
   // corroborates: 336 flagged beds agree across builders).
-  assert.equal(deckBeds.length, 336, 'deck-flagged bed count');
+  // Census re-pinned for issue #186: 336 -> 340 — the grown
+  // airport box completes the 大直橋 deck beds (the bridge was
+  // clipped at the old north edge) and adds the strip's small
+  // river bridges （自強/復興/望星）; deck lines 397 -> 405.
+  assert.equal(deckBeds.length, 340, 'deck-flagged bed count');
   for (const b of deckBeds) {
     let samples = 0, covered = 0;
     for (let i = 0; i + 3 < b.pts.length; i += 2) {
@@ -260,15 +264,15 @@ test('ground network unchanged: beds, junctions and caps exactly as before decks
   // (the 復北地下道 north apron stub is clipped into its portal
   // approach cut; generation-map rework v6), junctions 2,701 ->
   // 2,699 (the two portal-mouth stub clusters dissolve).
-  assert.equal(TAIPEI_GEO.roadbeds.length, 13577, 'roadbed count unchanged (deck beds are flagged, not removed)');
+  assert.equal(TAIPEI_GEO.roadbeds.length, 14546, 'roadbed count on the merged tree (13,577 on main + 969 beds in the #186 airport-north strip; the one remaining #186-signature bed is a zero-point stub the post-#196 builder routes to roadTunnels instead)');
   const junctions = detectJunctions(carriageways);
-  assert.equal(junctions.length, 2699, 'ground junction detection unchanged');
+  assert.equal(junctions.length, 2871, 'ground junction detection on the merged tree (2,699 main + 172 in the #186 strip; re-pinned at the #186 gate)');
   const caps = planJunctionCaps(carriageways, junctions);
   // Gate re-pin (PR #78 onto post-#77 main): caps = junctions minus the 7
   // junctions claimed by #77's handcrafted roundabout sites (Renai 4 +
   // Dongmen 3). The invariant this test protects is unchanged: decks do not
   // remove a single cap — the delta is #77's, documented in its audit.
-  assert.equal(caps.length, 2621, 'junction caps still planned over the full bed set, deck beds included (2699 detected − 7 roundabout-claimed, #77; − 71 groundless phantoms dropped by the issue #178 ORPHAN rule — 20 of them the deck-interchange clusters this layer sits on; − 2 portal-mouth caps dissolved by the issue #196 approach cuts)');
+  assert.equal(caps.length, 2793, 'junction caps still planned over the full bed set, deck beds included (2,871 detected − 7 roundabout-claimed, #77; − 71 groundless phantoms dropped by the issue #178 ORPHAN rule — merged-tree re-pin at the #186 gate: 2,621 on main, 2,795 pinned by #186 on its stale base, 2,793 measured merged)');
 });
 
 test('viaduct renderer: synthetic box section with parapets', () => {
