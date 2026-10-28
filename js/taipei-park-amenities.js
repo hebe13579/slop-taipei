@@ -309,7 +309,12 @@ export function planParkAmenities(geodata, plan, opts = {}) {
     // --- restroom (first: the biggest footprint claims its spot)
     if (area >= RESTROOM_MIN_AREA) {
       let done = false;
-      const anchors = entrances.slice(0, 2).map((e, ei) => {
+      // Anchors: the four busiest entrances, then the longest
+      // path's midpoint lawns. A headline entrance can sit in a
+      // path braid no search ring escapes (Da'an's 信義路 main
+      // entrance: fifty tries, all on paths) — the block belongs
+      // NEAR an entrance, not necessarily the busiest one.
+      const anchors = entrances.slice(0, 4).map((e, ei) => {
         const side = hash01(`${key}|wc|side|${ei}`) < 0.5 ? 1 : -1;
         return {
           x: e.x + e.ix * 7 + (-e.iz) * side * (e.half + 4.4),
@@ -317,15 +322,19 @@ export function planParkAmenities(geodata, plan, opts = {}) {
           face: e,
         };
       });
-      if (!anchors.length && myWays.length) {
+      if (myWays.length) {
         const w = myWays.reduce((a, b) => (b.len > a.len ? b : a));
         const st = walkStations(w.pts, Math.max(w.len, 1), w.len / 2)[0];
-        if (st) anchors.push({ x: st.x, z: st.z, face: null });
+        if (st) {
+          for (const sgn of [1, -1]) {
+            anchors.push({ x: st.x + st.nx * sgn * (w.half + 6), z: st.z + st.nz * sgn * (w.half + 6), face: null });
+          }
+        }
       }
       for (const a of anchors) {
         if (done) break;
         const tries = [[a.x, a.z]];
-        for (const rr of [3.5, 7, 10.5]) for (let k = 0; k < 8; k++) {
+        for (const rr of [3.5, 7, 10.5, 15]) for (let k = 0; k < 8; k++) {
           const t = (k / 8) * Math.PI * 2 + hash01(`${key}|wc|${rr}`) * 0.6;
           tries.push([a.x + Math.cos(t) * rr, a.z + Math.sin(t) * rr]);
         }
