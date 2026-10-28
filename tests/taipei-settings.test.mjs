@@ -100,32 +100,36 @@ test('density fine (default): the shipped plan, byte-identical', () => {
   const implicit = fingerprint(planTaipeiBuildings(TAIPEI_GEO));
   const explicit = fingerprint(planTaipeiBuildings(TAIPEI_GEO, { density: 'fine' }));
   assert.deepEqual(explicit, implicit, 'explicit fine == implicit default plan');
-  assert.equal(implicit.lots, 75429);
-  assert.equal(implicit.hash, '53a1c43f');
-  assert.equal(implicit.stats.blocksFine, 2901);
-  assert.equal(implicit.stats.lotsFine, 46402);
+  // Re-pinned at the merge gate on the composed tile (68,570-lot plan
+  // after #221 campus clearing): the PR base predated #186/#221, so its
+  // fingerprints described an older city. The identity that matters —
+  // explicit fine == implicit default — is asserted above and holds.
+  assert.equal(implicit.lots, 68570);
+  assert.equal(implicit.hash, '5ce99501');
+  assert.equal(implicit.stats.blocksFine, 2897);
+  assert.equal(implicit.stats.lotsFine, 44923);
 });
 
 test('density coarse: the pre-#124 rule (fine classifier never fires)', () => {
   const fp = fingerprint(planTaipeiBuildings(TAIPEI_GEO, { density: 'coarse' }));
-  assert.equal(fp.lots, 42059);
-  assert.equal(fp.hash, '712df21b');
+  assert.equal(fp.lots, 36191); // re-pinned at the merge gate: composed tile (see the fine test)
+  assert.equal(fp.hash, '9a2285d3');
   assert.equal(fp.stats.blocksFine, 0);
   assert.equal(fp.stats.lotsFine, 0);
 });
 
 test('density dense: the #124 study draft at ~100k lots', () => {
   const fp = fingerprint(planTaipeiBuildings(TAIPEI_GEO, { density: 'dense' }));
-  assert.equal(fp.lots, 100726);
-  assert.equal(fp.hash, '3531c88f');
-  assert.equal(fp.stats.blocksFine, 2901, 'dense keeps the fine classifier — only the pitch tightens');
-  assert.equal(fp.stats.lotsFine, 71699);
+  assert.equal(fp.lots, 93228); // re-pinned at the merge gate: composed tile (see the fine test)
+  assert.equal(fp.hash, 'b2dcb854');
+  assert.equal(fp.stats.blocksFine, 2897, 'dense keeps the fine classifier — only the pitch tightens');
+  assert.equal(fp.stats.lotsFine, 69581);
 });
 
 test('density unknown value plans as fine', () => {
   const fp = fingerprint(planTaipeiBuildings(TAIPEI_GEO, { density: 'huge' }));
-  assert.equal(fp.lots, 75429);
-  assert.equal(fp.hash, '53a1c43f');
+  assert.equal(fp.lots, 68570); // re-pinned at the merge gate: composed tile (see the fine test)
+  assert.equal(fp.hash, '5ce99501');
 });
 
 // Source contracts for the UI surface (the browser evidence in the

@@ -2075,6 +2075,16 @@ function buildCityBlocks(scene, opts = null) {
       : mat >= 3
         ? { cornice: false, roof: 'mech', shops: 0.3, awnings: false }
         : { roof: 'prewar', wtP: 0.35, shops: 0.3, awnings: false });
+    // Issue #207: the base collider populateBlock emits for every
+    // Manhattan block (the lot's mass up to BLOCK_COLLIDER_TOP;
+    // commit above already emitted colliders for parts taller
+    // than that). Without it a registry lot's lower mass — and a
+    // low lot's whole body — stayed ghost even with collection
+    // on. Pushed here, while xf still holds the lot's frame, so a
+    // turned lot gets the oriented collider its geometry wears.
+    if (blockDetail.maxH > 0) {
+      pushCollider(minX + 0.5, maxX - 0.5, minZ + 0.5, maxZ - 0.5, Math.min(BLOCK_COLLIDER_TOP, blockDetail.maxH));
+    }
     // Issue #17 rooftop-gear clamp: when the caller supplies a gear policy
     // (Taipei does, via taipeiCityBlocksOptions), it rewrites the committed
     // gear — there it removes water towers entirely and shrinks HVAC units

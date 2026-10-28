@@ -74,9 +74,16 @@ function createBusDestinationTexture() {
 
 const clamp = (x, lo, hi) => Math.max(lo, Math.min(hi, x));
 
-function createTrafficSystem(scene, sidewalks, obstacles) {
+// env (issue #210 experiment): { networkEnv, pedestrians, carCount, busCount } — forwarded to
+// buildRoadNetwork so the vehicle machinery can run on another tile's road graph. env null is
+// the NYC behaviour, unchanged. pedestrians: false skips the pedestrian system entirely (the
+// routes builder is fed by NYC block data a tile cannot honestly supply).
+function createTrafficSystem(scene, sidewalks, obstacles, env = null) {
   const group = new THREE.Group();
   group.name = 'ManhattanTrafficAndPedestrians';
+  const numCars = env && env.carCount != null ? env.carCount : NUM_CARS;
+  const numBuses = env && env.busCount != null ? env.busCount : NUM_BUSES;
+  const pedsEnabled = !env || env.pedestrians !== false;
   let collisionListener = null;
   const collisionEvent = { a: null, b: null, kind: 'vehicle', x: 0, y: 0, z: 0, nx: 0, ny: 0, nz: 0, speed: 0 };
 
@@ -102,7 +109,7 @@ function createTrafficSystem(scene, sidewalks, obstacles) {
   // =========================================================================
   // 0. ROAD NETWORK
   // =========================================================================
-  const network = buildRoadNetwork(sidewalks, obstacles);
+  const network = buildRoadNetwork(sidewalks, obstacles, env ? (env.networkEnv || null) : null);
   const { nodes, edges, connector, curvePoint } = network;
 
   // Sides of an intersection (road-network.js step 9): a grid intersection's are 0 east, 1 west, 2 south, 3 north;
@@ -184,7 +191,7 @@ function createTrafficSystem(scene, sidewalks, obstacles) {
   let suvCount = 0;
   let nypdCount = 0;
 
-  for (let i = 0; i < NUM_CARS; i++) {
+  for (let i = 0; i < numCars; i++) {
     const isNYPD = (i % 40) === 6;
     const isTaxi = !isNYPD && (i % 5) === 0;
     const isSUV = !isNYPD && !isTaxi && (i % 2 === 0);
@@ -229,8 +236,8 @@ function createTrafficSystem(scene, sidewalks, obstacles) {
   }
   const bodyMeshes = Object.values(bodies).flatMap((b) => [b.near, b.far]);
 
-  const carWheelLeftInst = new THREE.InstancedMesh(carWheelLeftGeo, carWheelMat, NUM_CARS * 2);
-  const carWheelRightInst = new THREE.InstancedMesh(carWheelRightGeo, carWheelMat, NUM_CARS * 2);
+  const carWheelLeftInst = new THREE.InstancedMesh(carWheelLeftGeo, carWheelMat, numCars * 2);
+  const carWheelRightInst = new THREE.InstancedMesh(carWheelRightGeo, carWheelMat, numCars * 2);
 
   // 3D Collision Spark & Debris Particle Pool
   const MAX_SPARKS = 120;
@@ -265,7 +272,7 @@ function createTrafficSystem(scene, sidewalks, obstacles) {
 
   // NYPD roof light bars (the blue & white livery is painted by the sedan material from the instance's carState)
   const nypdBarInst = new THREE.InstancedMesh(buildLightbarGeometry(BODY_SPECS.sedan), createLightbarMaterial(), Math.max(1, nypdCount));
-  const carShadowInst = new THREE.InstancedMesh(unitPlane, contactShadowMat, NUM_CARS);
+  const carShadowInst = new THREE.InstancedMesh(unitPlane, contactShadowMat, numCars);
   carShadowInst.renderOrder = 998;
 
   for (const m of bodyMeshes) m.castShadow = m.receiveShadow = true;
@@ -286,7 +293,7 @@ function createTrafficSystem(scene, sidewalks, obstacles) {
   // =========================================================================
   const busBodyGeo = buildLoftedBusBodyGeometry();
   // Per-instance lamp state the bus material reads: brake lights, left (+x) & right (-x) turn signals (renderBus)
-  const busStates = new THREE.InstancedBufferAttribute(new Float32Array(NUM_BUSES * 4), 4);
+  const busStates = new THREE.InstancedBufferAttribute(new Float32Array(numBuses * 4), 4);
   busBodyGeo.setAttribute('busState', busStates);
   // Destination signs above the windshield, by the front door & above the rear window
   const busHeaderGeo = buildBusSignGeometry();
@@ -297,11 +304,11 @@ function createTrafficSystem(scene, sidewalks, obstacles) {
   });
 
   const busWheelMat = createBusWheelMaterial();
-  const busBodyInst = new THREE.InstancedMesh(busBodyGeo, busBodyMat, NUM_BUSES);
-  const busHeaderInst = new THREE.InstancedMesh(busHeaderGeo, busDestMat, NUM_BUSES);
-  const busWheelLeftInst = new THREE.InstancedMesh(buildBusWheelGeo(-1), busWheelMat, NUM_BUSES * 2);
-  const busWheelRightInst = new THREE.InstancedMesh(buildBusWheelGeo(1), busWheelMat, NUM_BUSES * 2);
-  const busShadowInst = new THREE.InstancedMesh(unitPlane, contactShadowMat, NUM_BUSES);
+  const busBodyInst = new THREE.InstancedMesh(busBodyGeo, busBodyMat, numBuses);
+  const busHeaderInst = new THREE.InstancedMesh(busHeaderGeo, busDestMat, numBuses);
+  const busWheelLeftInst = new THREE.InstancedMesh(buildBusWheelGeo(-1), busWheelMat, numBuses * 2);
+  const busWheelRightInst = new THREE.InstancedMesh(buildBusWheelGeo(1), busWheelMat, numBuses * 2);
+  const busShadowInst = new THREE.InstancedMesh(unitPlane, contactShadowMat, numBuses);
   busShadowInst.renderOrder = 998;
 
   busBodyInst.castShadow = busBodyInst.receiveShadow = true;
@@ -309,7 +316,7 @@ function createTrafficSystem(scene, sidewalks, obstacles) {
   busWheelRightInst.castShadow = busWheelRightInst.receiveShadow = true;
 
   const buses = [];
-  for (let i = 0; i < NUM_BUSES; i++) buses.push(createVehicle(true, 6.0, 1.3, 3.6, BUS_DRIVER, 8 + (i % 3)));
+  for (let i = 0; i < numBuses; i++) buses.push(createVehicle(true, 6.0, 1.3, 3.6, BUS_DRIVER, 8 + (i % 3)));
   const vehicles = [...cars, ...buses];
   group.add(busBodyInst, busHeaderInst, busWheelLeftInst, busWheelRightInst);
 
@@ -319,6 +326,7 @@ function createTrafficSystem(scene, sidewalks, obstacles) {
   // One instanced draw per level of detail; every pedestrian has a PersonRig that plants its footsteps on the
   // sidewalk (no sliding), with their own build, height, sex, hair, clothes and gait
   const pedCrowd = new PersonCrowd(NUM_PEDS);
+  if (!pedsEnabled) for (const m of pedCrowd.meshes) m.count = 0; // nothing is ever placed (issue #210)
   const hash = (i, salt) => {
     const v = Math.sin(i * 12.9898 + salt * 78.233) * 43758.5453;
     return v - Math.floor(v);
@@ -1389,7 +1397,7 @@ function createTrafficSystem(scene, sidewalks, obstacles) {
   // 7. PEDESTRIANS
   // =========================================================================
   const KERB = 1.6; // how far along a crosswalk track pedestrians wait to cross (the curb is 2 m along)
-  const pedRoutes = createPedestrianRoutes(network, blockAt);
+  const pedRoutes = pedsEnabled ? createPedestrianRoutes(network, blockAt) : null;
   const track = { ax: 0, az: 0, ux: 0, uz: 1, len: 1, node: null, side: 0, line: 0, route: null };
 
   function sidewalkTrack(e) {
@@ -2064,28 +2072,30 @@ function createTrafficSystem(scene, sidewalks, obstacles) {
     if (visibleBuses > 0) flagRange(busStates, visibleBuses);
     updateTrafficLights();
 
-    // 2. Pedestrians
-    for (const n of walkedNodes) n.walkers.length = 0;
-    walkedNodes.length = 0;
-    let pedBudget = jump ? NUM_PEDS : 6;
-    for (let scanned = 0; scanned < NUM_PEDS && pedBudget > 0; scanned++) {
-      const p = peds[pedCursor];
-      pedCursor = (pedCursor + 1) % NUM_PEDS;
-      const d = p.placed ? Math.hypot(p.x - focusX, p.z - focusZ) : Infinity;
-      if (d <= (jump ? NEAR_RADIUS : PED_RADIUS)) continue;
-      pedBudget--;
-      spawnPed(p, jump ? 0 : 60, jump ? NEAR_RADIUS : 280, !jump);
+    // 2. Pedestrians (skipped wholesale when the environment disables them, issue #210)
+    if (pedsEnabled) {
+      for (const n of walkedNodes) n.walkers.length = 0;
+      walkedNodes.length = 0;
+      let pedBudget = jump ? NUM_PEDS : 6;
+      for (let scanned = 0; scanned < NUM_PEDS && pedBudget > 0; scanned++) {
+        const p = peds[pedCursor];
+        pedCursor = (pedCursor + 1) % NUM_PEDS;
+        const d = p.placed ? Math.hypot(p.x - focusX, p.z - focusZ) : Infinity;
+        if (d <= (jump ? NEAR_RADIUS : PED_RADIUS)) continue;
+        pedBudget--;
+        spawnPed(p, jump ? 0 : 60, jump ? NEAR_RADIUS : 280, !jump);
+      }
+      meet(dt);
+      gatherCurbs();
+      pedCrowd.begin();
+      for (let i = 0; i < NUM_PEDS; i++) {
+        const p = peds[i];
+        if (!p.placed) continue;
+        walk(p, dt);
+        renderPed(p, dt);
+      }
+      pedCrowd.end();
     }
-    meet(dt);
-    gatherCurbs();
-    pedCrowd.begin();
-    for (let i = 0; i < NUM_PEDS; i++) {
-      const p = peds[i];
-      if (!p.placed) continue;
-      walk(p, dt);
-      renderPed(p, dt);
-    }
-    pedCrowd.end();
 
     // 3. Collision sparks, including the player's own impacts against buildings
     if (playerEntity && playerEntity.lastCollisionSpark) {

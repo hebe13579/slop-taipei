@@ -960,12 +960,39 @@ test('clearance (issue #139): census by counterfactual, audit exact', (t) => {
   // 55 plus one strip lot under the Dazhi resurface guideway
   // (centre (-1376, -5819), h 8, probed at the gate). The
   // counterfactual (no track data) is unaffected.
+  // Composed with issue #186 PR2 (the NPM + Miramar registry
+  // landmarks) at the same gate: the two new sites clear 29
+  // more lots — all 'proc' lots under the Miramar site and
+  // the NPM margins (the NPM grounds themselves were already
+  // lot-free via the PR1 npmSite rule) — so both anchors
+  // move together (counterfactual 76,097 -> 76,068, shipped
+  // 75,429 -> 75,400) and the #139-family removals stay 668.
+  // Bed (28) and pierce (56) counters are unchanged: neither
+  // site stands on an at-grade bed or under a guideway. (The
+  // PR2 branch's own stale-base text cited 48 lots on its
+  // coarse tree; 29 is the fine merged tree's measure.)
+  // Composed with issue #226 (creeks at channel width) at this
+  // gate: the counterfactual anchor moves 76,068 -> 76,235
+  // (+167) and the shipped plan 75,400 -> 75,520 (+120), so
+  // the #139-family removals total 715 here, not 668. The +47
+  // delta growth is NOT track verdicts — bed (28), pierce (56)
+  // and pier (16) counters reproduce main exactly — it is the
+  // depot/station SITE exclusions: the counterfactual strips
+  // the depot and station defs, and the narrowed 貴子坑溪/
+  // 磺港溪 buffers release bank land inside those sites.
+  // Diffed at the gate: every extra delta lot sits in the
+  // 北投機廠 cells (25.134-25.138, 121.489-121.492).
+  // Composed with issue #213 at the #227 gate: the loop
+  // exclusion is not a #139 input either — it removes the
+  // same 131 lots from BOTH anchors (counterfactual 76,104,
+  // shipped 75,389), so the #139-family removals stay 715
+  // and the bed/pierce/pier counters are again unchanged.
   const before = planTaipeiBuildings({
     ...TAIPEI_GEO,
     mrtDecks: undefined, mrtDepot: undefined,
     mrtStations: stations.filter((s) => s.kind !== 'at-grade' && s.kind !== 'wenhu' && s.kind !== 'entrance' && s.kind !== 'wenhu-open'),
   });
-  assert.equal(before.lots.length, 76097, 'counterfactual plan reproduces the pre-#139 lot count, less the #144 site lots (7), the #135 parcel exclusions (47), the #165 site exclusions (31) and the #166 site exclusions (143) — on the #124 fine plan composed with the #186 strip (+3,986 measured at the #186 merge gate), per the composition note above');
+  assert.equal(before.lots.length, 69236, 'counterfactual plan reproduces the pre-#139 lot count, less the #144 site lots (7), the #135 parcel exclusions (47), the #165 site exclusions (31) and the #166 site exclusions (143) — on the #124 fine plan composed with the #186 strip (+3,957 measured at the #186 merge gate, incl. the PR2 landmark sites below), per the composition note above; composed with issue #221 at the merge gate: the counterfactual plan loses 6,868 lots to campus clearing (49 more than the real plan figure of 6,819 — without track exclusions the coarse fabric packs 49 extra lots onto campus-adjacent land, which the school exclusion then also clears)');
   // 463 lots removed on this tree (524 on the pre-expansion
   // tree): 433 inside the Beitou depot + at-grade station sites
   // (398 with centres inside the depot site rect alone; the rest
@@ -980,7 +1007,7 @@ test('clearance (issue #139): census by counterfactual, audit exact', (t) => {
   // Four Seasons D3 parcel + 2 under the Mitsukoshi A4 hall; the
   // Farglory / A8 / A9 / A11 sites exclude none — their blocks were
   // already lot-free there).
-  assert.equal(plan.lots.length, 75429, 'shipped plan lot count after the #139 removals, the #144 site exclusion, the #135 parcel exclusions, the #146 dive drops, the #165 site exclusions and the #166 site exclusions (141) — re-based on the #124 fine plan composed with the #186 strip (counterfactual 76,097 − 668 #139-family removals on the merged tree; re-pinned at the #186 merge gate)');
+  assert.equal(plan.lots.length, 68570, 'shipped plan lot count after the #139 removals, the #144 site exclusion, the #135 parcel exclusions, the #146 dive drops, the #165 site exclusions and the #166 site exclusions (141) — re-based on the #124 fine plan composed with the #186 strip (counterfactual 76,068 − 668 #139-family removals on the merged tree; re-pinned at the #186 merge gate) and with issue #226 (counterfactual 76,235 − 715 #139-family removals; re-pinned at the #226 merge gate) and with issue #213 (counterfactual 76,104 − 715; re-pinned at the #227 merge gate) and with issue #221 (counterfactual 69,236 − 666 on the composed tree; re-pinned at the #221 merge gate)');
   // Merged-tree check at the #186 gate: bed drops reproduce
   // main's 28 EXACTLY — probed per bed at the gate, all at
   // the two at-grade Beitou clusters, none in the strip (its
@@ -991,7 +1018,7 @@ test('clearance (issue #139): census by counterfactual, audit exact', (t) => {
   // candidates stood on the Beitou beds. Restoring main's
   // block order restored the count. The audit below (no KEPT
   // lot on a bed) is unchanged and still exact.
-  assert.equal(plan.stats.lotsDroppedTrackBed, 28, 'planner bed drops agree with the census (13 on the coarse grid; the fine grid stands more candidates on the at-grade Beitou bed; 28 reproduced exactly on the #186 merged tree, per the note above)');
+  assert.equal(plan.stats.lotsDroppedTrackBed, 27, 'planner bed drops agree with the census (13 on the coarse grid; the fine grid stands more candidates on the at-grade Beitou bed; 28 reproduced exactly on the #186 merged tree, per the note above; issue #221 composition: 27 — one bed candidate stands on campus land and the school exclusion drops it first, counted under lotsDroppedSchool; probed at the merge gate: schools layer off reproduces 28 and the full 75,389-lot plan)');
   assert.equal(plan.stats.lotsDroppedTrackPierce, 56, 'planner pierce drops agree with the census (15 Red + 2 Wenhu on the coarse grid, issue #146; 55 on main after the #166 Shipai site pre-emption; 56 on the #186 merged tree = main\'s 55 + one strip lot under the Dazhi resurface guideway, per the gate-fix note above)');
   let bed = 0, pierce = 0, keptUnder = 0;
   for (const lot of plan.lots) {

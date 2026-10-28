@@ -185,8 +185,15 @@ test('geodata: median bed counts match the regenerated evidence list', () => {
   // x3 remain name-excluded. The eligibility census above is
   // unchanged (the tunnel bed was excluded, never counted).
   assert.equal(stats.excludedUnderpass, 3); // 象山隧道 x3
-  assert.ok(stats.plantedKm > 28 && stats.plantedKm < 30, `planted rendered ${stats.plantedKm} km`);
-  assert.ok(stats.plainKm > 68 && stats.plainKm < 71, `plain rendered ${stats.plainKm} km`);
+  // Length bands re-based for issue #186 (measured on the
+  // merged tree at the gate): the strip's divided avenues add
+  // their median lengths to the post-#167 baselines — planted
+  // 29.026 -> 31.587 km （北安路/至善路/內湖路 planted medians),
+  // plain 69.218 -> 75.559 km (the strip's long plain median
+  // runs). Bed-count pins above are unchanged in kind (202 /
+  // 438 / 71 measured on the same tree).
+  assert.ok(stats.plantedKm > 30.5 && stats.plantedKm < 32.6, `planted rendered ${stats.plantedKm} km`);
+  assert.ok(stats.plainKm > 74 && stats.plainKm < 77, `plain rendered ${stats.plainKm} km`);
 });
 
 test('medianStripWidth clamps to 1.2–3.5 m at 8% of bed width', () => {

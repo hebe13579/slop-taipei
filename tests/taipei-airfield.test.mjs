@@ -105,7 +105,14 @@ test('the #134 site exclusion does not regress', () => {
   // Issue #124: 222 — the fine grid around the field puts four
   // more candidate centres inside the exclusion polygon; the
   // exclusion itself is unchanged and still drops every one.
-  assert.equal(plan.stats.lotsDroppedAirfield, 203, 'airfield lots dropped, as #134 (merged-tree re-pin at the #186 gate: #124 fine grid pinned 222 on main, #186 strip growth pinned 200 on its stale base; measured 203 on the merged tree — both block-set changes composed)');
+  // Issue #186 gate correction: an interim merged-tree reading
+  // of 203 was measured on the first merged regeneration,
+  // whose blocks array was reordered (the planner seeds draws
+  // by block index, so the fabric re-rolled). With main's
+  // block order restored in the shipped geodata, the count
+  // reproduces main's 222 exactly — the strip growth does not
+  // touch the airfield polygon's candidate set.
+  assert.equal(plan.stats.lotsDroppedAirfield, 222, 'airfield lots dropped, as #134 (222 on main and on the #186 merged tree with restored block order; the interim 203 was a re-rolled-regeneration artefact)');
 });
 
 // Issue #183: 復興北路 dives UNDER the field through the
@@ -233,7 +240,11 @@ test('airfield road tunnel: the dive is suppressed, the mouths dressed, the rout
 });
 
 test('terminal site structures: placed, topped, lot-free, off the registry', () => {
-  const byId = Object.fromEntries(plan.siteStructures.map((s) => [s.id, s]));
+  // Issue #221: generated school campuses share
+  // plan.siteStructures with the airport structures; they are
+  // audited in taipei-schools.test.mjs. This test keeps its
+  // scope: the airport structures only.
+  const byId = Object.fromEntries(plan.siteStructures.filter((s) => !s.school).map((s) => [s.id, s]));
   const expected = {
     'songshan-terminal-t1-west': { x: -1318, z: -3427, top: 17.6 },
     'songshan-terminal-t1-east': { x: -1138, z: -3462, top: 17.6 },

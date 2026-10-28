@@ -151,8 +151,11 @@ class ThirdPersonControllerManager {
   //     movement/teleports clamp to, instead of ISLAND_BOUNDS.
   //   clampToShore: false — skip the Manhattan shoreline clamp
   //     (getIslandBoundsAtZ); a flat tile has no shoreline.
-  //   groundHeight(x, z, mode) — replace the NYC ground model (Central
-  //     Park / Bryant Park / block sidewalks) wholesale.
+  //   groundHeight(x, z, mode, yHint) — replace the NYC ground model
+  //     (Central Park / Bryant Park / block sidewalks) wholesale.
+  //     yHint is the asking entity's current height: a stacked world
+  //     (a tile's elevated decks, issue #207) answers the surface
+  //     the entity is actually on; the NYC model ignores it.
   //   spawnByMode: { person|car|cyclist|helicopter: {x, y, z, heading} } —
   //     per-mode spawn overrides (any field may be omitted).
   //   idleWalkZ: {min, max} — z range the uncontrolled pedestrian strolls;
@@ -456,12 +459,18 @@ class ThirdPersonControllerManager {
     if (!Number.isFinite(heading)) heading = ent.heading;
     const heli = this.activeMode === 'helicopter';
     const altitude = heli ? Math.max(0.25, Math.min(this._heliCeiling(), savedAltitude ?? Math.max(92, ent.position.y))) : 0;
-    const destination = this.findTeleportPosition(x, z, heading, altitude);
+    // Issue #207: a restored ground-mode entity may have been
+    // standing on a deck — the saved altitude (main.js passes the
+    // saved y for every mode) is the ground model's height hint,
+    // so the arrival lands back on its own level. Fresh teleports
+    // hint the entity's current height instead.
+    const yHint = savedAltitude != null && Number.isFinite(savedAltitude) ? savedAltitude : ent.position.y;
+    const destination = this.findTeleportPosition(x, z, heading, altitude, yHint);
     if (destination) {
       ent.position.x = destination.x;
       ent.position.z = destination.z;
       ent.heading = heading;
-      ent.position.y = heli ? altitude : this.getGroundHeight(destination.x, destination.z, this.activeMode);
+      ent.position.y = heli ? altitude : this.getGroundHeight(destination.x, destination.z, this.activeMode, yHint);
     }
     ent.speed = 0;
     if (this.activeMode === 'person') {
@@ -496,7 +505,7 @@ class ThirdPersonControllerManager {
 
   // Find a fully clear arrival before moving the player. Sequential collision pushes can leave a player trapped
   // between overlapping buildings, so test whole candidate footprints instead; retain the old position if none fits.
-  findTeleportPosition(x, z, heading, altitude) {
+  findTeleportPosition(x, z, heading, altitude, yHint = null) {
     if (!Number.isFinite(x) || !Number.isFinite(z)) return null;
     const heli = this.activeMode === 'helicopter';
     const car = this.activeMode === 'car';
@@ -532,7 +541,7 @@ class ThirdPersonControllerManager {
     };
     const clear = (p) => {
       if (!p) return false;
-      const baseY = heli ? altitude : this.getGroundHeight(p.x, p.z, this.activeMode);
+      const baseY = heli ? altitude : this.getGroundHeight(p.x, p.z, this.activeMode, yHint);
       const y = heli ? altitude : this.activeMode === 'person' ? baseY + 1 : 1;
       // Keep other player models out of both the arrival and its default chase view. A corridor also prevents a
       // parked car between camera and character from hiding the character even when the camera itself is outside it.
@@ -545,6 +554,7 @@ class ThirdPersonControllerManager {
       }
       for (const c of this.nearColliders(p.x, p.z, reach)) {
         if (y > c.maxY + 1.5) continue;
+        if (c.minY != null && y + 1 < c.minY) continue; // issue #207: floored colliders don't block arrivals below them
         if (p.x + extX <= c.minX || p.x - extX >= c.maxX || p.z + extZ <= c.minZ || p.z - extZ >= c.maxZ) continue;
         if (c.obb) {
           const o = c.obb, dx = p.x - o.cx, dz = p.z - o.cz;
@@ -1002,9 +1012,10 @@ class ThirdPersonControllerManager {
     return !!b && !(b.park > 0.6 && !b.median);
   }
 
-  getGroundHeight(x, z, mode = 'person') {
-    // A tile world supplies its own ground model (Taipei: the flat basin floor).
-    if (this.worldOpts?.groundHeight) return this.worldOpts.groundHeight(x, z, mode);
+  getGroundHeight(x, z, mode = 'person', yHint = null) {
+    // A tile world supplies its own ground model (Taipei: the flat
+    // basin floor plus its elevated decks, issue #207).
+    if (this.worldOpts?.groundHeight) return this.worldOpts.groundHeight(x, z, mode, yHint);
     // Inside Central Park (5th Ave to Central Park West, 59th St to 110th St)
     const cp = CENTRAL_PARK_BOUNDS;
     if (x > cp.minX && x < cp.maxX && z > cp.minZ && z < cp.maxZ) {
@@ -1094,6 +1105,12 @@ class ThirdPersonControllerManager {
     for (let i = 0; i < near.length; i++) {
       const c = near[i];
       if (yHeight > c.maxY + 1.5) continue;
+      // Issue #207: a collider with a floor (minY — a deck parapet,
+      // an elevated station body, a landmark part bridging over a
+      // passage) blocks only entities whose span reaches it;
+      // everyone below passes under. NYC colliders never carry
+      // minY, so the Manhattan path is unchanged.
+      if (c.minY != null && yHeight + 1 < c.minY) continue;
 
       if (
         pos.x + extX > c.minX &&
@@ -1213,7 +1230,7 @@ class ThirdPersonControllerManager {
   // pedals, helmet on its head
   poseCharacters(dt) {
     const p = this.entities.person;
-    const air = p.position.y - this.getGroundHeight(p.position.x, p.position.z, 'person');
+    const air = p.position.y - this.getGroundHeight(p.position.x, p.position.z, 'person', p.position.y);
     p.rig.update(dt, p.position.x, p.position.z, p.heading, personGround, this, air > 0.02 ? air : 0);
     if (p.figure) {
       p.figure.poseFromRig(p.rig);
@@ -1307,7 +1324,7 @@ class ThirdPersonControllerManager {
     p.position.z += Math.cos(p.heading) * p.speed * dt;
     this.resolveHorizontalCollision(p.position, 0.48, p.position.y + 1.0);
 
-    const groundY = this.getGroundHeight(p.position.x, p.position.z, 'person');
+    const groundY = this.getGroundHeight(p.position.x, p.position.z, 'person', p.position.y);
     if (this.keys.up && p.position.y <= groundY + 0.02) {
       p.verticalVel = 5.2;
     }
@@ -1357,8 +1374,11 @@ class ThirdPersonControllerManager {
     c.vx *= tireGripDamp;
     c.vz *= tireGripDamp;
 
-    this.resolveHorizontalCollision(c.position, 1.35, 1.0, c);
-    c.position.y = this.getGroundHeight(c.position.x, c.position.z, 'car');
+    // Issue #207: the car's span is measured from its actual
+    // height (on a tile deck it can sit metres up); in NYC the car
+    // never leaves y = 0, so position.y + 1.0 is the old constant.
+    this.resolveHorizontalCollision(c.position, 1.35, c.position.y + 1.0, c);
+    c.position.y = this.getGroundHeight(c.position.x, c.position.z, 'car', c.position.y);
 
     // 3-DOF Spring-Damper Chassis Suspension (Pitch, Roll & Vertical Heave)
     const targetPitch = -Math.max(-1, Math.min(1, acceleration / drive.acceleration)) * 0.026;
@@ -1410,8 +1430,8 @@ class ThirdPersonControllerManager {
 
     b.position.x += Math.sin(b.heading) * b.speed * dt;
     b.position.z += Math.cos(b.heading) * b.speed * dt;
-    this.resolveHorizontalCollision(b.position, 0.65, 1.0, null, b);
-    b.position.y = this.getGroundHeight(b.position.x, b.position.z, 'cyclist');
+    this.resolveHorizontalCollision(b.position, 0.65, b.position.y + 1.0, null, b);
+    b.position.y = this.getGroundHeight(b.position.x, b.position.z, 'cyclist', b.position.y);
 
     const targetLean = -turnInput * Math.min(1.0, Math.abs(b.speed) / 9.0) * 0.34;
     b.leanAngle += (targetLean - b.leanAngle) * Math.min(1, dt * 9);
