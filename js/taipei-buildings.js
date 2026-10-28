@@ -2504,7 +2504,7 @@ function fitCampusRect(pts) {
 // local side index (0:+u end, 1:-u end, 2:+v side, 3:-v side) whose
 // frontage the gate opens on. Parts come back in structure space
 // (dx/dz relative to the structure origin at the ring centroid).
-function generateSchoolCampus(ground, frame, gateSide, origin) {
+function generateSchoolCampus(ground, frame, gateSide, origin, opts = {}) {
   const seed = schoolSeedOf(ground.osmType, ground.osmId);
   const draw = (salt) => hash01(seed ^ (salt * 0x9e37 + 0x221));
   const kind = ground.kind;
@@ -2574,16 +2574,21 @@ function generateSchoolCampus(ground, frame, gateSide, origin) {
   // track archetype through the ordinary fit below.
   const trackMapped = !!(ground.stats && (ground.stats.hasTrack || (ground.stats.largestPitchM2 || 0) >= 3000));
   const denseBuilt = !!(ground.stats && ground.stats.buildings >= 10 && !trackMapped);
+  // planSchoolCampuses retries a track-only outcome with
+  // forceCompact set: the compact layout's perimeter rows use
+  // the frame differently and fit dense old urban plots where a
+  // track leaves no slab room.
+  const forceCompact = !!opts.forceCompact;
   // The fitted rect can overhang a concave ring; probe the capsule
   // (cap tips, straight edges, cap shoulders) against the ring so
   // a track never spills onto the neighbouring lots or roads.
-  const trackInRing = (tc) => {
+  const trackInRing = (tc, vOff = 0) => {
     const hl = (tc.straight + tc.width) / 2 - 1, hw = tc.width / 2, hs = tc.straight / 2;
     const probes = [[0, 0], [-hl, 0], [hl, 0], [0, -hw], [0, hw], [-hs, -hw], [-hs, hw], [hs, -hw], [hs, hw],
       [-hl + tc.width / 4, -hw * 0.7], [-hl + tc.width / 4, hw * 0.7], [hl - tc.width / 4, -hw * 0.7], [hl - tc.width / 4, hw * 0.7]];
-    return probes.every(([u, v]) => inRing(u, v));
+    return probes.every(([u, v]) => inRing(u, vOff + v));
   };
-  if (!isKinder && !denseBuilt) {
+  if (!isKinder && !denseBuilt && !forceCompact) {
     const variants = [
       { name: 'U', bandA: rowBand, bandB: rowBand, ends: true },
       { name: 'parallel', bandA: rowBand, bandB: rowBand, ends: false },
@@ -2591,19 +2596,23 @@ function generateSchoolCampus(ground, frame, gateSide, origin) {
       { name: 'court-side', bandA: rowBand, bandB: courtBand, ends: false },
       { name: 'bare', bandA: 6, bandB: 6, ends: false },
     ];
-    // Seeded preference among variants, but a bigger track class
-    // always beats a smaller one (the class loop is the outer one).
-    // 'bare' (a track with no slab rows at all) is demoted to last
-    // resort within every class: slabs around the track are the
-    // signature look, so a class that fits with rows never reads
-    // as an empty field.
-    const prefSeeded = variants.map((v, i) => [draw(900 + i), i]).sort((a, b) => b[0] - a[0]).map(([, i]) => variants[i]);
-    const pref = [...prefSeeded.filter((v) => v.name !== 'bare'), ...prefSeeded.filter((v) => v.name === 'bare')];
-    for (const tc of SCHOOL_TRACK_CLASSES) {
-      if (tc.cls === 'mini' && frame.area > 26000) continue; // a big ground never takes the mini loop
-      const overallL = tc.straight + tc.width;
-      for (const v of pref) {
-        if (tc.width + v.bandA + v.bandB <= D - 1 && overallL <= W - 16 && trackInRing(tc)) { track = tc; variant = v; break; }
+    // Two passes over (class, variant): pass 1 takes the largest
+    // track class that fits WITH slab rows around it (seeded
+    // variant preference inside the class); pass 2 allows the
+    // 'bare' variant. Slabs around the track are the signature
+    // look, so a smaller track with buildings beats a bigger
+    // empty field (a 192x87 m ground took a bare 400 m loop over
+    // a rowed 300 m one before this ordering).
+    const pref = variants.map((v, i) => [draw(900 + i), i]).sort((a, b) => b[0] - a[0]).map(([, i]) => variants[i]);
+    for (const allowBare of [false, true]) {
+      for (const tc of SCHOOL_TRACK_CLASSES) {
+        if (tc.cls === 'mini' && frame.area > 26000) continue; // a big ground never takes the mini loop
+        const overallL = tc.straight + tc.width;
+        for (const v of pref) {
+          if (!allowBare && v.name === 'bare') continue;
+          if (tc.width + v.bandA + v.bandB <= D - 1 && overallL <= W - 16 && trackInRing(tc, (v.bandA - v.bandB) / 2)) { track = tc; variant = v; break; }
+        }
+        if (track) break;
       }
       if (track) break;
     }
@@ -2616,10 +2625,16 @@ function generateSchoolCampus(ground, frame, gateSide, origin) {
   }
 
   let trackHalfW = 0, trackL = 0;
+  // Asymmetric variants (L, court-side) carry different bands on
+  // the two sides; the fit test budgets width + bandA + bandB
+  // against D, which only closes if the track sits OFF-centre,
+  // shifted toward the lighter band by half the difference. All
+  // v coordinates of the track layout hang off this offset.
+  const vOff = track ? (variant.bandA - variant.bandB) / 2 : 0;
   if (track) {
     trackHalfW = track.width / 2; trackL = track.straight + track.width;
-    placed.push({ u: 0, v: 0, w: trackL, d: track.width });
-    const [tx, tz] = toWorld(0, 0);
+    placed.push({ u: 0, v: vOff, w: trackL, d: track.width });
+    const [tx, tz] = toWorld(0, vOff);
     for (const p of trackCapsuleParts(Math.round((tx - origin.x) * 10) / 10, Math.round((tz - origin.z) * 10) / 10,
       track.straight, track.width, track.width - 12, theta, SCHOOL_TRACK_RED, SCHOOL_FIELD_GREEN)) parts.push(p);
   }
@@ -2632,10 +2647,13 @@ function generateSchoolCampus(ground, frame, gateSide, origin) {
     const hallD = 17 + draw(salt++) * 4;
     const hallW = Math.min(track ? track.width - 6 : D - 2 * (M + slabDepth) - 4, 36);
     const hallH = Math.round((8.5 + draw(salt++) * 4) * 10) / 10;
-    const hu = hallEnd * (W / 2 - M - hallD / 2);
-    if (hallW >= 18 && addBox(hu, 0, hallW, hallD, hallH, { rot: Math.PI / 2 })) {
+    // With a track, the hall anchors beyond the capsule tip (the
+    // registry's AABB test would otherwise eat it); the frame
+    // position wins when it is already further out.
+    const hu = hallEnd * (track ? Math.max(W / 2 - M - hallD / 2, trackL / 2 + hallD / 2 + 2) : W / 2 - M - hallD / 2);
+    if (hallW >= 18 && addBox(hu, vOff, hallW, hallD, hallH, { rot: Math.PI / 2 })) {
       noteTop(hallH);
-      addBox(hu, 0, hallW + 1.2, hallD + 1.2, 0.5, { y0: hallH, rot: Math.PI / 2, flat: 0x8a8d90, noReg: true, skipFit: true });
+      addBox(hu, vOff, hallW + 1.2, hallD + 1.2, 0.5, { y0: hallH, rot: Math.PI / 2, flat: 0x8a8d90, noReg: true, skipFit: true });
     } else hallEnd = 0;
   }
 
@@ -2666,11 +2684,11 @@ function generateSchoolCampus(ground, frame, gateSide, origin) {
   if (track) {
     const rowV = trackHalfW + 3.5 + slabDepth / 2;
     const uFrom = -W / 2 + M, uTo = W / 2 - M;
-    if (variant.bandA >= rowBand) fillRow(-rowV, uFrom, uTo);
-    if (variant.bandB >= rowBand) fillRow(rowV, uFrom, uTo);
+    if (variant.bandA >= rowBand) fillRow(vOff - rowV, uFrom, uTo);
+    if (variant.bandB >= rowBand) fillRow(vOff + rowV, uFrom, uTo);
     if (variant.bandB >= courtBand && variant.bandA < courtBand) {
       // courts row on the +v side
-      const cv = trackHalfW + 3.5 + 9;
+      const cv = vOff + trackHalfW + 3.5 + 9;
       let cu = -trackL / 2 + 16;
       const nCourts = Math.min(3, Math.floor(trackL / 34));
       for (let i = 0; i < nCourts; i++) {
@@ -2679,11 +2697,15 @@ function generateSchoolCampus(ground, frame, gateSide, origin) {
       }
     }
     if (variant.ends) {
-      // End slabs at the non-hall end, spanning the track's width.
-      const endU = (hallEnd === 1 ? -1 : 1) * (W / 2 - M - slabDepth / 2);
-      let v = -trackHalfW + 2;
-      while (v + 22 <= trackHalfW - 1) {
-        const len = Math.min(22 + draw(salt++) * 14, trackHalfW - 1 - v);
+      // End slabs at the non-hall end, spanning the track's
+      // width, anchored just beyond the capsule tip (anchoring
+      // at the frame edge left them stranded across the yard on
+      // long grounds, and the AABB registry ate them when they
+      // sat at the tip itself).
+      const endU = (hallEnd === 1 ? -1 : 1) * (trackL / 2 + 2 + slabDepth / 2);
+      let v = vOff - trackHalfW + 2;
+      while (v + 22 <= vOff + trackHalfW - 1) {
+        const len = Math.min(22 + draw(salt++) * 14, vOff + trackHalfW - 1 - v);
         if (len < 16) break;
         const floors = floorsFor(slabFloors[0], slabFloors[1]);
         const h = Math.round(floors * 3.6 * 10) / 10;
@@ -2736,7 +2758,7 @@ function generateSchoolCampus(ground, frame, gateSide, origin) {
   // rect, each containment- and overlap-tested like every other
   // part, so what lands is clipped to the ground by construction.
   let scattered = false;
-  if (buildingCount === 0 && !track) {
+  if (buildingCount === 0) {
     const cand = [];
     for (let u = -W / 2 + M + 12; u <= W / 2 - M - 12; u += 26)
       for (let v = -D / 2 + M + 8; v <= D / 2 - M - 8; v += 20) cand.push([u, v]);
@@ -2992,9 +3014,21 @@ export function planSchoolCampuses(geodata, landmarkSites, carriageways, originL
     let ox = 0, oz = 0;
     for (const [x, z] of pts) { ox += x; oz += z; }
     const origin = { x: Math.round((ox / pts.length) * 10) / 10, z: Math.round((oz / pts.length) * 10) / 10 };
-    const gen = generateSchoolCampus(g, frame, gateSide, origin);
-    if (gen.slabCount === 0 && !gen.trackClass && gen.parts.length <= 50) {
-      rep.skip = 'no-fit (even the compact layout places nothing)';
+    let gen = generateSchoolCampus(g, frame, gateSide, origin);
+    if (gen.slabCount === 0 && gen.trackClass) {
+      // A track fits the ground but leaves no room a classroom
+      // slab can use (dense old urban plots — 南門國小's class):
+      // retry as the compact archetype before calling it no-fit.
+      const retry = generateSchoolCampus(g, frame, gateSide, origin, { forceCompact: true });
+      if (retry.slabCount > 0) gen = retry;
+    }
+    if (gen.slabCount === 0) {
+      // A campus with no classroom slab is not a campus — skip it
+      // honestly (the ground still excludes lots) rather than
+      // rendering a lone track or a fence around nothing.
+      rep.skip = gen.trackClass
+        ? 'no-fit (a track fits the ground but no classroom slab does)'
+        : 'no-fit (even the compact layout places nothing)';
       continue;
     }
     rep.archetype = gen.archetype;
@@ -3765,7 +3799,15 @@ export function planTaipeiBuildings(geodata) {
         if (inAirfield(cx, cz)) { stats.lotsDroppedAirfield++; continue; }
         if (theta && corners.some(([px, pz]) => nearAirfield(px, pz))) { stats.lotsDroppedAirfield++; continue; }
         if (inSchool(cx, cz)) { stats.lotsDroppedSchool++; continue; }
-        if (theta && corners.some(([px, pz]) => nearSchool(px, pz))) { stats.lotsDroppedSchool++; continue; }
+        // The school corner verdict runs for UNROTATED lots too
+        // (their axis corners): campus grounds are not in the
+        // raster block mask, so a block can straddle a boundary
+        // and an axis lot centred off-campus could otherwise
+        // overhang the ring by metres. (Park/green land never
+        // faces this — it is masked upstream of the blocks.)
+        const schoolCorners = theta ? corners
+          : [[cx - w / 2, cz - d / 2], [cx + w / 2, cz - d / 2], [cx + w / 2, cz + d / 2], [cx - w / 2, cz + d / 2]];
+        if (schoolCorners.some(([px, pz]) => nearSchool(px, pz))) { stats.lotsDroppedSchool++; continue; }
         if (!inUnion(cx, cz)) { stats.lotsDroppedOutsideUnion++; continue; }
         let onLandmarkSite = false;
         for (const s of exclusionSites) {
@@ -4138,7 +4180,9 @@ export function planTaipeiBuildings(geodata) {
       if (inAirfield(nx, nz)) return false;
       if (turned && corners.some(([px, pz]) => nearAirfield(px, pz))) return false;
       if (inSchool(nx, nz)) return false;
-      if (turned && corners.some(([px, pz]) => nearSchool(px, pz))) return false;
+      const schoolCorners = turned ? corners
+        : [[nx - w / 2, nz - d / 2], [nx + w / 2, nz - d / 2], [nx + w / 2, nz + d / 2], [nx - w / 2, nz + d / 2]];
+      if (schoolCorners.some(([px, pz]) => nearSchool(px, pz))) return false;
       if (!inUnion(nx, nz)) return false;
       for (const s of exclusionSites) {
         if (nx + w / 2 > s.minX && nx - w / 2 < s.maxX && nz + d / 2 > s.minZ && nz - d / 2 < s.maxZ) return false;

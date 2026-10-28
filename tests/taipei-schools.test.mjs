@@ -76,14 +76,14 @@ test('census decomposition closes: generated + skipped-with-reason = every groun
   assert.equal(report.length, 198, 'one report row per ground');
   const generated = report.filter((r) => !r.skip);
   const skipped = report.filter((r) => r.skip);
-  assert.equal(generated.length, 178);
-  assert.equal(skipped.length, 20);
+  assert.equal(generated.length, 177);
+  assert.equal(skipped.length, 21);
   assert.equal(generated.length + skipped.length, report.length, 'no ground unaccounted');
   for (const r of skipped) assert.ok(typeof r.skip === 'string' && r.skip.length > 4, `skip reason recorded for ${r.key}`);
   assert.equal(campuses.length, generated.length, 'one site structure per generated campus');
   const reasons = {};
   for (const r of skipped) reasons[r.skip.split(' (')[0].split(' by ')[0]] = (reasons[r.skip.split(' (')[0].split(' by ')[0]] || 0) + 1;
-  assert.deepEqual(reasons, { 'registry campus': 3, subsumed: 1, 'no-fit': 5, 'building-footprint-scale': 11 });
+  assert.deepEqual(reasons, { 'registry campus': 3, subsumed: 1, 'no-fit': 6, 'building-footprint-scale': 11 });
 });
 
 test('the #166 handcrafted campuses are skipped as registry grounds', () => {
@@ -168,7 +168,7 @@ test('generation is deterministic and the plan counts are pinned', () => {
   const again = planTaipeiBuildings(TAIPEI_GEO);
   assert.equal(JSON.stringify(again.siteStructures.filter((s) => s.school)),
     JSON.stringify(campuses), 'same geodata, same campuses, byte for byte');
-  assert.equal(plan.lots.length, 65315);
+  assert.equal(plan.lots.length, 65246);
   assert.equal(plan.stats.blocksSkippedSchool, 175);
-  assert.equal(plan.stats.lotsDroppedSchool, 65315_DROPPED_SCHOOL);
+  assert.equal(plan.stats.lotsDroppedSchool, 3029);
 });
