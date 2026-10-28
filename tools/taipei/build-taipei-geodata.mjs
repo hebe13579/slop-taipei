@@ -20,6 +20,7 @@ import { fileURLToPath } from 'node:url';
 import { pedestrianLayout } from './pedestrian-layout.mjs';
 import { buildElevated, buildMrtDecks } from './build-elevated.mjs';
 import { deriveLoopSites } from './build-loops.mjs';
+import { deriveSkybridges } from './build-skybridges.mjs';
 import { digestRedLine, digestWenhuLine } from './build-mrt.mjs';
 import { planTaipeiBuildings } from '../../js/taipei-buildings.js';
 
@@ -1080,6 +1081,19 @@ if (npmSite) TAIPEI_GEO.npmSite = npmSite;
   const loops = deriveLoopSites(TAIPEI_GEO);
   if (loops.sites.length) TAIPEI_GEO.loopSites = loops.sites;
   console.log(`[taipei-geodata] loop sites: ${loops.stats.accepted} enclosed components -> ${loops.sites.length} rings, ${(loops.stats.acceptedAreaM2 / 1e4).toFixed(2)} ha (of ${loops.stats.components} land components)${loops.stats.droppedMismatch ? `; ${loops.stats.droppedMismatch} dropped on ring-proof mismatch` : ''} (issue #213)`);
+}
+
+// ---- Xinyi pedestrian skybridge network (issue #212) ----
+// The district's 空橋 ways sit in osm_roads.json as bridge=yes /
+// layer=1 footways that the road pass leaves undrawn; the derive
+// step (tools/taipei/build-skybridges.mjs) chains them into
+// world-frame centrelines and js/taipei-skybridges.js draws the
+// decks. Pure scenery data — the planner, roadbeds and junction
+// systems never see it.
+{
+  const sky = deriveSkybridges(roadsElements, toWorld);
+  if (sky.segments.length) TAIPEI_GEO.skybridges = sky.segments;
+  console.log(`[taipei-geodata] skybridges: ${sky.stats.waysKept} OSM bridge ways -> ${sky.stats.chains} chains, ${sky.stats.totalLenM} m (${sky.stats.flagshipSegs} flagship-width segments; excluded: ${sky.stats.excludedRings} terrace ring, ${sky.stats.excludedOutside} outside the district window; ${sky.stats.fragmentsDropped} fragments dropped) (issue #212)`);
 }
 
 // ---- terrain skin grids (issue #129) ----
