@@ -13,7 +13,7 @@ import { ribbonsQuads, jointFramesFor } from './taipei-ribbons.js';
 import { buildMrtStationGeometry, buildMrtDepotGeometry } from './taipei-mrt-stations.js';
 import { buildBridgeGeometry } from './taipei-bridges.js';
 import { buildTerrainSkinGeometry } from './taipei-terrain.js';
-import { buildGreenTintLayers, GREEN_TINT_Y } from './taipei-green.js';
+import { buildGreenTintLayers, buildLoopTintLayers, GREEN_TINT_Y } from './taipei-green.js';
 import { unionExclusionRects, clipRectToBoxes } from './taipei-union.js';
 import { createCurtainWallMaterial, createPreWarBuildingMaterial, createTaipeiMarkingMaterial, setTaipeiSignAtlases } from './tsl-materials.js';
 import { drawBandAtlas, drawBladeAtlas, BAND_ATLAS, BLADE_ATLAS, TAIPEI_BAND_SIGNS, TAIPEI_BLADE_SIGNS } from './taipei-signs.js';
@@ -825,7 +825,10 @@ export async function buildTaipeiGround(scene, tile, deps = {}) {
   // winner — wetland channels stay water, park interiors stay lawn.
   // Visual-only: the planner never reads this (its byte-identity is
   // pinned in tests/green-tint.test.mjs).
-  const greenTint = buildGreenTintLayers(geo.green);
+  // Issue #213: interchange-loop interiors join the same tint
+  // stack in the open-grass tone — empty grass between the
+  // carriageways reads green, not block grey.
+  const greenTint = [...buildGreenTintLayers(geo.green), ...buildLoopTintLayers(geo.loopSites)];
   for (const layer of greenTint) {
     addLayer(flatPolygonGeometry(clipRingsToSlots(layer.rings, trenchSlots), GREEN_TINT_Y), mat(layer.tone, 0.95), 'TaipeiGreenTint');
   }

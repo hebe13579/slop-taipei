@@ -2321,7 +2321,7 @@ export const HEIGHT_JOIN = {
 };
 
 export function planTaipeiBuildings(geodata) {
-  const stats = { blocksSeen: 0, blocksFine: 0, lotsFine: 0, blocksSkippedSmall: 0, blocksSkippedParkWater: 0, blocksSkippedGreen: 0, blocksSkippedAirfield: 0, blocksSkippedOutsideUnion: 0, lotsDroppedVacancy: 0, lotsDroppedParkWater: 0, lotsDroppedGreen: 0, lotsDroppedRiverside: 0, lotsDroppedAirfield: 0, lotsDroppedTowerSite: 0, lotsDroppedRoad: 0, lotsDroppedMedian: 0, lotsDroppedOutsideUnion: 0, lotsDroppedTrackBed: 0, lotsDroppedTrackPierce: 0, lotsDroppedPier: 0, blocksRotated: 0, lotsRotated: 0, lotsPackedFrontage: 0, lotsTallFrontage: 0, heightsPermit: 0, heightsOsmHeight: 0, heightsOsmLevels: 0, heightsDoor: 0, heightsField: 0, heightsProc: 0, lotsFrontagePulled: 0, lotsFrontageFlush: 0, lotsFrontageHeldNoBed: 0, lotsFrontageHeldBlocked: 0, frontagePullMetres: 0 };
+  const stats = { blocksSeen: 0, blocksFine: 0, lotsFine: 0, blocksSkippedSmall: 0, blocksSkippedParkWater: 0, blocksSkippedGreen: 0, blocksSkippedAirfield: 0, blocksSkippedLoop: 0, blocksSkippedOutsideUnion: 0, lotsDroppedVacancy: 0, lotsDroppedParkWater: 0, lotsDroppedGreen: 0, lotsDroppedRiverside: 0, lotsDroppedAirfield: 0, lotsDroppedLoop: 0, lotsDroppedTowerSite: 0, lotsDroppedRoad: 0, lotsDroppedMedian: 0, lotsDroppedOutsideUnion: 0, lotsDroppedTrackBed: 0, lotsDroppedTrackPierce: 0, lotsDroppedPier: 0, blocksRotated: 0, lotsRotated: 0, lotsPackedFrontage: 0, lotsTallFrontage: 0, heightsPermit: 0, heightsOsmHeight: 0, heightsOsmLevels: 0, heightsDoor: 0, heightsField: 0, heightsProc: 0, lotsFrontagePulled: 0, lotsFrontageFlush: 0, lotsFrontageHeldNoBed: 0, lotsFrontageHeldBlocked: 0, frontagePullMetres: 0 };
   // Union-of-boxes tile (issue #60): the geodata frame carries the
   // tile's boxes; ground exists only inside them. Raster blocks are
   // masked to the union by the builder, but a block's bbox can still
@@ -2419,6 +2419,33 @@ export function planTaipeiBuildings(geodata) {
   };
   const nearAirfield = (x, z) => {
     for (const p of airfieldPolys) {
+      if (x < p.bb.minX - CORNER_CLEARANCE || x > p.bb.maxX + CORNER_CLEARANCE ||
+          z < p.bb.minZ - CORNER_CLEARANCE || z > p.bb.maxZ + CORNER_CLEARANCE) continue;
+      if (pointInRing(x, z, p.ring)) return true;
+      if (distToRing(x, z, p.ring) < CORNER_CLEARANCE) return true;
+    }
+    return false;
+  };
+  // Issue #213: interchange-loop interiors — land enclosed by
+  // interchange carriageways (cloverleaf infields and the pockets
+  // between carriageways), derived at build time into
+  // geodata.loopSites by tools/taipei/build-loops.mjs. The lot
+  // gauntlet's road tests clear the carriageways themselves but
+  // not the ground they enclose, and OSM's green layer tags only
+  // some infields; this class clears the rest, tested exactly
+  // like the airfield site. A geodata without the layer (an older
+  // build) plans exactly as before.
+  const loopPolys = [];
+  for (const s of geodata.loopSites || []) loopPolys.push({ ring: s.ring, bb: ringBbox(s.ring) });
+  const inLoop = (x, z) => {
+    for (const p of loopPolys) {
+      if (x < p.bb.minX || x > p.bb.maxX || z < p.bb.minZ || z > p.bb.maxZ) continue;
+      if (pointInRing(x, z, p.ring)) return true;
+    }
+    return false;
+  };
+  const nearLoop = (x, z) => {
+    for (const p of loopPolys) {
       if (x < p.bb.minX - CORNER_CLEARANCE || x > p.bb.maxX + CORNER_CLEARANCE ||
           z < p.bb.minZ - CORNER_CLEARANCE || z > p.bb.maxZ + CORNER_CLEARANCE) continue;
       if (pointInRing(x, z, p.ring)) return true;
@@ -2858,6 +2885,7 @@ export function planTaipeiBuildings(geodata) {
     if (inPoly(block.cx, block.cz)) { stats.blocksSkippedParkWater++; continue; }
     if (inGreen(block.cx, block.cz)) { stats.blocksSkippedGreen++; continue; }
     if (inAirfield(block.cx, block.cz)) { stats.blocksSkippedAirfield++; continue; }
+    if (inLoop(block.cx, block.cz)) { stats.blocksSkippedLoop++; continue; }
     if (!inUnion(block.cx, block.cz)) { stats.blocksSkippedOutsideUnion++; continue; }
     const big = block.area > 40000;
     const pitchMul = big ? 1.7 : 1.0;
@@ -3026,6 +3054,8 @@ export function planTaipeiBuildings(geodata) {
         if (theta && tamsuiRings.length && corners.some(([px, pz]) => nearTamsui(px, pz))) { stats.lotsDroppedRiverside++; continue; }
         if (inAirfield(cx, cz)) { stats.lotsDroppedAirfield++; continue; }
         if (theta && corners.some(([px, pz]) => nearAirfield(px, pz))) { stats.lotsDroppedAirfield++; continue; }
+        if (inLoop(cx, cz)) { stats.lotsDroppedLoop++; continue; }
+        if (theta && corners.some(([px, pz]) => nearLoop(px, pz))) { stats.lotsDroppedLoop++; continue; }
         if (!inUnion(cx, cz)) { stats.lotsDroppedOutsideUnion++; continue; }
         let onLandmarkSite = false;
         for (const s of exclusionSites) {
