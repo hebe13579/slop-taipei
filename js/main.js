@@ -135,8 +135,9 @@ async function initApp() {
   // M1 PR for the precise stub list): no boroughs, NYC landmarks, piers,
   // Central Park specifics or East River bridges exist in a tile.
   // Buildings are NOT stubbed: the tile's ground builder runs upstream's
-  // buildCityBlocks on the tile's planned lots (issue #11). Traffic and
-  // pedestrians stay off until their data exists.
+  // buildCityBlocks on the tile's planned lots (issue #11). Pedestrians stay
+  // stubbed; traffic stays stubbed too unless the ?traffic= experiment flag
+  // is set (issue #210, hooked up below after the colliders exist).
   let cityGrid, boroughs, cityBlocks, streetDetails, trafficSystem, highwayTraffic;
   let landmarkColliders = [];
   let tileBoot = null;
@@ -190,6 +191,26 @@ async function initApp() {
     highwayTraffic = createHighwayTraffic(scene, cityGrid.highwayLanes);
     buildRoadPaint(scene, trafficSystem.network);
     markInit('roadPaint');
+  } else {
+    // Issue #210 EXPERIMENT: traffic generation for the tile, behind ?traffic= (see
+    // js/taipei-traffic.js). Default off — the inert stub above stays and boot is
+    // unchanged. With the flag, the upstream vehicle system runs on the tile's own
+    // road graph: vehicles only (no pedestrians, no signalized junctions). The
+    // obstacle lists are the tile's own (both empty): Taipei's roads are
+    // building-free by construction, and building colliders are deliberately NOT
+    // passed — a rotated lot's AABB overhangs its carriageway and would prune
+    // honest lanes. window.__traffic is the #210 measurement handle, set only
+    // when the flag is on.
+    const { trafficCountFromSearch, taipeiTrafficEnv } = await import('./taipei-traffic.js');
+    const trafficCount = trafficCountFromSearch(window.location.search);
+    if (trafficCount > 0) {
+      trafficSystem = createTrafficSystem(scene, cityGrid.sidewalks, [
+        ...cityGrid.footprints,
+        ...streetDetails.footprints
+      ], taipeiTrafficEnv(trafficCount));
+      window.__traffic = trafficSystem;
+      markInit('traffic');
+    }
   }
 
   // 4. Initialize Third-Person Controllers (Person, Car, Cyclist, Helicopter) & Multi-Camera System
