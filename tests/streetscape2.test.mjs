@@ -405,6 +405,16 @@ test('issue #178: with boot-exact exclusions (full cap surface), no tree stands 
   // the rest. The invariant below is untouched and still
   // measured on this wiring: with the boot-exact exclusions, 0
   // trees stand on the full surface and both caps still fill.
+  // Re-pinned for issue #186 (gate hotfix): the count is 1
+  // again. Measured on the merged tree at the gate (and 0 on
+  // pre-#186 main, 1301d547, same test): the strip's new beds
+  // and caps reshuffle the candidate stream, and one sidewalk
+  // candidate at (1193.1,-2374.6) — Xinyi, 25.0544, 121.5768 —
+  // lands on a clipped cap piece under the OLD exclusions: the
+  // same sentinel class as the original ji1029. This assert
+  // pins the counterfactual (the old wiring's luck), not the
+  // shipped behaviour — the boot-exact invariant below still
+  // measures 0 on this tree.
   const { groundContactPolys } = await import('../js/taipei-viaduct.js');
   const geo = TAIPEI_GEO;
   const plan = planTaipeiBuildings(geo);
@@ -421,8 +431,8 @@ test('issue #178: with boot-exact exclusions (full cap surface), no tree stands 
   ];
   const before = [...planStreetTrees(geo, plan, { exclusions: oldExclusions }).trees,
     ...planParkTrees(geo, plan, { exclusions: oldExclusions }).trees];
-  assert.equal(before.filter((t) => pointInAnyPoly(surfGrid, surfPolys, [t.x, t.z])).length, 0,
-    'no tree stands on the full surface under the old ring+extras exclusions (the #178 sentinel was re-rolled away by #185 — see the comment above)');
+  assert.equal(before.filter((t) => pointInAnyPoly(surfGrid, surfPolys, [t.x, t.z])).length, 1,
+    'one tree stands on the full surface under the old ring+extras exclusions (the #186 candidate reshuffle re-rolled a sentinel back in — see the comment above)');
   const exclusions = [
     ...caps.flatMap((c) => capSurfacePolys(c).map((p) => p.flatMap((pt) => pt))),
     ...sites.flatMap((s) => [s.disc.ring, ...s.aprons.map((a) => a.ring)]),
