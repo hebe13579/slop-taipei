@@ -5407,6 +5407,11 @@ export function taipeiCityBlocksOptions(geodata, plan = planTaipeiBuildings(geod
     // plus one per part above its 26 m block top, exactly the
     // set Manhattan collides with.
     colliders: true,
+    // Issue #240: lot facade materials fade their procedural detail
+    // with distance — far buildings stay visible as faint flat
+    // boxes. Specials are exempt because their factories never
+    // receive this flag (their materials cannot take the faded path).
+    farFade: true,
     // Issue #17: Taipei's rooftop-gear policy (no water towers; HVAC units
     // clamped to the roof) — buildCityBlocks' lot mode applies it to the
     // committed gear of every lot when present.

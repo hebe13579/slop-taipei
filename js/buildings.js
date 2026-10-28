@@ -479,7 +479,11 @@ function buildCityBlocks(scene, opts = null) {
       wallRoughness: 0.9
     }]
   ];
-  const materials = facades.map(([create, opts]) => create({ ...opts, boxLocal: true }));
+  // Issue #240: Taipei lots fade facade detail with distance
+  // (taipeiCityBlocksOptions sets farFade); the no-opts Manhattan
+  // call passes nothing, so NYC materials are byte-identical.
+  const lotFarFade = !!opts?.farFade;
+  const materials = facades.map(([create, styleOpts]) => create({ ...styleOpts, boxLocal: true, farFade: lotFarFade }));
   // Storey height of each facade: buildings are massed in whole storeys so every window row lines up across tiers
   const storeys = facades.map(([, opts]) => opts.floorHeight);
 
