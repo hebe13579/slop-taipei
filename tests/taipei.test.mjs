@@ -597,6 +597,15 @@ test('landmark structures: true positions and heights, sites kept clear', (t) =>
     'shipai-junior-high': { h: 14.4, x: -5187, z: -9183 },
     'qingjiang-elementary': { h: 14.4, x: -5848, z: -10352 },
     'jianguo-high-school': { h: 25.2, x: -5288, z: 299 },
+    // Batch 8 (issues #149 + #186): the National Palace Museum —
+    // 27.5 m is FORM-DERIVED, not published (OSM way 203799171:
+    // levels 4; podium 6 + walls 13 + hip roofs, central tier
+    // apex — see registry), position the OSM main-hall outline
+    // centre (25.10219, 121.54859). Miramar: the 100 m is the
+    // PUBLISHED wheel apex (zh.wikipedia); position the OSM
+    // wheel node 5121602758 on the mall's south front.
+    'national-palace-museum': { h: 27.5, x: -1656.1, z: -7664.4 },
+    'miramar-entertainment-park': { h: 100, x: -734.7, z: -5527.6 },
   };
   assert.equal(plan.landmarkTowers.length, Object.keys(expected).length, 'all verified structures present');
   const partTop = (p) => (p.y0 || 0) + p.h + (p.type === 'ridge' ? p.ridgeH : 0);
@@ -737,6 +746,11 @@ test('landmark batch 3: two-slab Cathay rebuild, W, Songshan, Eslite, Arena', ()
     // stadium's 30 m light towers, and the three school campuses
     // (floors × 3.6 m from OSM levels where tagged, estimated
     // elsewhere).
+    // Batch 8 (issue #186) adds the National Palace Museum: its
+    // 27.5 m is form-derived (no published overall height; OSM
+    // levels 4 + the roof stack in the registry), flagged the
+    // same way. (Miramar's 100 m wheel apex IS published, so it
+    // is not in the exclusion list.)
     if (s.id !== 'eslite-spectrum-songyan' && s.id !== 'taipei-arena'
       && s.id !== 'national-concert-hall' && s.id !== 'national-theater'
       && s.id !== 'beimen'
@@ -744,7 +758,7 @@ test('landmark batch 3: two-slab Cathay rebuild, W, Songshan, Eslite, Arena', ()
       && s.id !== 'shin-kong-mitsukoshi-a9' && s.id !== 'shin-kong-mitsukoshi-a11'
       && s.id !== 'dayeh-takashimaya' && s.id !== 'tianmu-stadium'
       && s.id !== 'shipai-junior-high' && s.id !== 'qingjiang-elementary'
-      && s.id !== 'jianguo-high-school') {
+      && s.id !== 'jianguo-high-school' && s.id !== 'national-palace-museum') {
       assert.equal(s.estimated, false, `${s.id} height is published, not estimated`);
     }
   }
@@ -899,14 +913,15 @@ test('landmark batch 5: beimen gate on its junction island', () => {
 // through taipeiCityBlocksOptions. The adapter must be a faithful,
 // deterministic transcription of the plan: one upstream lot per planned
 // lot, same footprint and height, a valid facade material index, the
-// tile frame as bounds, and colliders off (visual-only parity).
+// tile frame as bounds, and — since issue #207 reversed the pre-#207
+// visual-only parity — colliders collected (tile buildings are solid).
 test('buildings options: plan faithfully adapted for the upstream building system', (t) => {
   const plan = planTaipeiBuildings(TAIPEI_GEO);
   const opts = taipeiCityBlocksOptions(TAIPEI_GEO, plan);
   const again = taipeiCityBlocksOptions(TAIPEI_GEO, plan);
   assert.deepEqual(opts, again, 'options deterministic across calls');
   assert.equal(opts.lots.length, plan.lots.length, 'one upstream lot per planned lot');
-  assert.equal(opts.colliders, false, 'tile buildings stay visual-only');
+  assert.equal(opts.colliders, true, 'issue #207: tile buildings are solid — colliders collected');
   assert.deepEqual(opts.bounds, TAIPEI_GEO.frame.bbox, 'streaming bounds are the tile frame');
   assert.deepEqual(opts.initial, [0, 0], 'first detail stream centres on the tile origin');
   t.diagnostic(`upstream lots: ${opts.lots.length}, mats ${JSON.stringify(opts.lots.reduce((m, l) => { m[l.mat] = (m[l.mat] || 0) + 1; return m; }, {}))}`);
@@ -1186,13 +1201,32 @@ test('taiwan types: family zoning, distribution and rooftop clamp', (t) => {
   // exclude 141 fine lots (masonry -92, Taiwan -44, glass -5)
   // and 16 kept lots re-roll family (glass -> masonry 1,
   // masonry -> glass 1, net 0): glass 7,834 - 5 = 7,829.
-  // Issue #221 (school generator), measured on this tree by
-  // lot-by-lot diff of the options lots against the same plan
-  // with the campus layer removed: the campus exclusions
-  // remove 6,212 keys (masonry 3,591, Taiwan 2,013, glass 608)
-  // and 345 kept lots re-roll family (net glass +15):
-  // glass 7,829 - 608 + 15 = 7,236.
-  assert.equal(glass, 7236, 'glass family counts after #136 + #139 + #135 + #142, composed with #134 + #137, #144, #165, #124, #166 and #221 (campus land is lot-proof: -593 glass-family lots net)');
+  // Issue #186 (NPM strip), measured on the merge tree at the
+  // merge gate by lot-by-lot diff against main: the strip's
+  // 3,919 lots (probe bbox x -3227..504, z <= -4995) carry
+  // 359 glass, and the boundary re-cut churn south of the old
+  // airport-box edge nets +22 more: glass 7,829 + 381 = 8,210.
+  // The old tile otherwise reproduces main lot for lot (the
+  // gate restored main's block order in the merged geodata —
+  // see the taipei-mrt clearance composition note).
+  // Gate correction (hotfix): the #201 registry sites then
+  // clear 29 lots on this fabric, 1 of them glass: 8,209.
+  // Issue #226: 8,215 (+6 — the Beitou/Tianmu creek-corridor
+  // blocks re-draw on the released bank land).
+  // Issue #213: 8,203 (−12 — loop-adjacent blocks re-draw).
+  // Issue #219 (stepped massing), measured on the merged tree
+  // at the #228 gate: the facade rules key the glass families
+  // on height bands, and stepping steps 3,653 sibling lots
+  // down from their joined heights — 362 of them cross below
+  // the glass band and re-roll to the masonry/Taiwan families.
+  // facadeMatFor is unedited; the census moves because the
+  // heights do: glass 8,203 − 362 = 7,841.
+  assert.equal(glass, 7213, 'glass family counts after #136 + #139 + #135 + #142, composed with #134 + #137, #144, #165, #124, #166, #186, #226, #213, #219 and #221 (campus clearing removes 628 glass lots)');
+  // (The #186 PR2 branch carried its own stale-base version of
+  // this composition — glass 4,120 -> 4,419 on the pre-#124
+  // plan — which the merge union initially kept as a duplicate
+  // assert on the same variable; removed at the gate hotfix.
+  // The merged-tree composition above is the shipped one.)
   const masonry = opts.lots.filter((l) => l.mat <= 2).length;
   // Range re-based for issue #65: the exact ribbon exclusion removed
   // ~4,400 masonry lots that stood on ribbons or in medians; masonry
@@ -1225,6 +1259,12 @@ test('taiwan types: family zoning, distribution and rooftop clamp', (t) => {
   // together are 63,750 (89.1%), the local fabric as before.
   // The range is re-based to the new census with headroom.
   assert.ok(masonry > 30000 && masonry < 40000, `masonry 0-2 reduced but still present (${masonry})`);
+  // (The #186 PR2 branch's stale-base masonry range — 20,896 of
+  // 42,142 lots, range 12,000-22,000 — was a duplicate assert on
+  // this variable from the same union; removed at the gate
+  // hotfix like the glass duplicate above. On the shipped tree
+  // masonry is 36,732: the #200-tree 36,753 less the 21 masonry
+  // lots among the 29 the #201 sites clear.)
   assert.equal(typeof opts.rooftopGearClamp, 'function', 'options carry the rooftop-gear clamp');
 
   const lot = { x0: 0, x1: 9, z0: 0, z1: 14 };
@@ -1320,14 +1360,26 @@ test('arcade parts: recessed core and full-perimeter colonnade', (t) => {
   // Issue #166: the five Tianmu/Beitou sites remove 11 F7 lots
   // (net of the family re-rolls, diffed lot by lot on the
   // merged tree) — 6,444.
-  // Issue #221: the school grounds remove the F7 lots standing
-  // on campus land — 5,971 (net -477 against the schools-off
-  // options census of 6,448 on this rebuilt geodata).
+  // Issue #186 (NPM strip), same gate diff as the glass pin
+  // above: the strip carries 322 F7 and the boundary re-cut
+  // churn nets +7: 6,444 + 329 = 6,773. Gate correction
+  // (hotfix): 2 of the 29 lots the #201 sites clear are F7:
+  // 6,771.
+  // Issue #226: 6,782 (+11 — the same Beitou/Tianmu
+  // creek-corridor re-draws as the glass pin above).
+  // Issue #213: 6,770 (−12, the same loop-adjacent re-draws
+  // as the glass pin above).
+  // Issue #219 (stepped massing): the mirror of the glass
+  // re-pin above — F7 is the low Taiwan shophouse family, and
+  // stepped sibling lots dropping into its height band re-roll
+  // into it (+436): 6,770 + 436 = 7,206. The arcade rule itself
+  // is unedited; every size-eligible F7 lot still carries its
+  // arcade (asserted below, unedited).
   const opts = taipeiCityBlocksOptions(TAIPEI_GEO, planTaipeiBuildings(TAIPEI_GEO));
   const f7 = opts.lots.filter((l) => l.mat === 7);
   const withArcade = f7.filter((l) => l.arcade);
   const eligible = f7.filter((l) => (l.x1 - l.x0) >= 11 && (l.z1 - l.z0) >= 11);
-  assert.equal(f7.length, 5971, 'F7 census after #124, composed with #166 and #221');
+  assert.equal(f7.length, 6687, 'F7 census after #124, composed with #166, #186, #226, #213, #219 and #221 (campus clearing removes 519 F7 lots)');
   assert.equal(withArcade.length, eligible.length, `every size-eligible F7 lot carries the arcade (${withArcade.length}/${eligible.length})`);
   const totalCols = withArcade.reduce((s, l) => s + l.arcade.columns.length, 0);
   assert.ok(totalCols / withArcade.length < 30, `columns per arcade lot sane (${(totalCols / withArcade.length).toFixed(1)})`);

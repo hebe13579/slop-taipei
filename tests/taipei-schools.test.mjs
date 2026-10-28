@@ -64,26 +64,26 @@ for (const s of TAIPEI_GEO.schools || []) {
 test('geodata carries the schools layer (issue #221)', () => {
   const pieces = TAIPEI_GEO.schools;
   assert.ok(Array.isArray(pieces), 'TAIPEI_GEO.schools emitted by the geodata builder');
-  assert.equal(pieces.length, 226, 'clipped ground pieces in tile');
+  assert.equal(pieces.length, 246, 'clipped ground pieces in tile (226 on the PR base; re-derived at the merge gate on the composed tile — the #186 strip frame admits 20 more pieces)');
   for (const p of pieces) {
     assert.ok(p.osmId && p.kind && Array.isArray(p.ring) && p.ring.length >= 8, 'piece shape');
     assert.ok(p.area >= 100, 'builder drops sub-100 m² pieces');
   }
-  assert.equal(mainRingByKey.size, 198, 'distinct OSM education grounds in tile');
+  assert.equal(mainRingByKey.size, 218, 'distinct OSM education grounds in tile (198 on the PR base; +20 grounds on the composed tile, incl. the #186-strip campuses the gate re-extract admitted)');
 });
 
 test('census decomposition closes: generated + skipped-with-reason = every ground', () => {
-  assert.equal(report.length, 198, 'one report row per ground');
+  assert.equal(report.length, 218, 'one report row per ground');
   const generated = report.filter((r) => !r.skip);
   const skipped = report.filter((r) => r.skip);
-  assert.equal(generated.length, 177);
-  assert.equal(skipped.length, 21);
+  assert.equal(generated.length, 196); // 177 on the PR base; +19 of the 20 new grounds generate
+  assert.equal(skipped.length, 22); // +1: 私立奧爾仕幼兒園 is building-footprint-scale
   assert.equal(generated.length + skipped.length, report.length, 'no ground unaccounted');
   for (const r of skipped) assert.ok(typeof r.skip === 'string' && r.skip.length > 4, `skip reason recorded for ${r.key}`);
   assert.equal(campuses.length, generated.length, 'one site structure per generated campus');
   const reasons = {};
   for (const r of skipped) reasons[r.skip.split(' (')[0].split(' by ')[0]] = (reasons[r.skip.split(' (')[0].split(' by ')[0]] || 0) + 1;
-  assert.deepEqual(reasons, { 'registry campus': 3, subsumed: 1, 'no-fit': 6, 'building-footprint-scale': 11 });
+  assert.deepEqual(reasons, { 'registry campus': 3, subsumed: 1, 'no-fit': 6, 'building-footprint-scale': 12 });
 });
 
 test('the #166 handcrafted campuses are skipped as registry grounds', () => {
@@ -168,7 +168,7 @@ test('generation is deterministic and the plan counts are pinned', () => {
   const again = planTaipeiBuildings(TAIPEI_GEO);
   assert.equal(JSON.stringify(again.siteStructures.filter((s) => s.school)),
     JSON.stringify(campuses), 'same geodata, same campuses, byte for byte');
-  assert.equal(plan.lots.length, 65246);
-  assert.equal(plan.stats.blocksSkippedSchool, 175);
-  assert.equal(plan.stats.lotsDroppedSchool, 3029);
+  assert.equal(plan.lots.length, 68570); // the composed plan: 75,389 − 6,819 campus-cleared lots
+  assert.equal(plan.stats.blocksSkippedSchool, 193);
+  assert.equal(plan.stats.lotsDroppedSchool, 3323);
 });

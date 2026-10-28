@@ -73,6 +73,9 @@ export function mrtStationFootprint(st) {
     // wenhu: the concourse tier / flat side roofs are the widest
     // parts (the vault crowns stay inside the body width).
     case 'wenhu': return { hw: (Wd + 1.6) / 2, hl: (L + 1.2) / 2 };
+    // wenhu-open (issue #186): the single spanning canopy's eaves
+    // are the widest part.
+    case 'wenhu-open': return { hw: (Wd + 2.2) / 2, hl: (L + 1.2) / 2 };
     // entrance: the canopy slab overhangs the glass pavilion.
     case 'entrance': return { hw: (Wd + 1.6) / 2, hl: (L + 1.6) / 2 };
     default: return { hw: (Wd + 1.9) / 2, hl: L / 2 };
@@ -83,7 +86,7 @@ export function mrtStationFootprint(st) {
 // clamps in tools/taipei/build-mrt.mjs).
 export const MRT_STATION_DEFAULT_WIDTH = {
   standard: 21.5, jiantan: 24, beitou: 33, xinbeitou: 21.5, 'at-grade': 16.5,
-  wenhu: 20, entrance: 7,
+  wenhu: 20, 'wenhu-open': 20, entrance: 7,
 };
 
 export function buildMrtStationGeometry(stations) {
@@ -296,6 +299,44 @@ export function buildMrtStationGeometry(stations) {
       // Central skylight strip over the slot + glazed ends.
       box(0, 0, L * 0.97, 3.4, 13.5, 13.8, C.wenhuTrim);
       for (const e of [1, -1]) box(e * (L / 2 - 0.3), 0, 0.5, Wp - 0.6, 9.15, 13.3, C.glass);
+    } else if (st.kind === 'wenhu-open') {
+      // Issue #186: the Neihu-section open station (Dazhi, Jiannan
+      // Rd). No concourse box and no barrel vaults: tall columns
+      // carry the platform tier directly, a slim service box hangs
+      // under the track slot (the street stays open at the sides),
+      // half-height glazed screens edge the platforms, and ONE
+      // shallow barrel canopy spans platforms + slot together —
+      // the arched roof these two stations read by.
+      const Wp = Math.min(Wd, 20);           // platform tier width
+      const platIn = 3.65, platOut = Wp / 2 - 0.7;
+      const platW = platOut - platIn, platC = platIn + platW / 2;
+      for (const u of [-L / 3, 0, L / 3]) box(u, 0, 2.0, 2.0, 0, 9.15, C.concrete);
+      // Slim under-slot service box (concourse plant / stairs core).
+      box(0, 0, L * 0.9, platIn * 2 + 1.2, 6.6, 9.15, C.wenhuBody);
+      box(0, 0, L * 0.9, platIn * 2 + 0.4, 6.32, 6.6, C.wenhuTrim);
+      // Platform slabs + half-height glazed screens + top rails.
+      for (const s of [1, -1]) {
+        box(0, s * platC, L * 0.97, platW, 9.15, 9.95, C.platform);
+        box(0, s * (Wp / 2 - 0.3), L * 0.97, 0.4, 9.95, 11.0, C.glass);
+        box(0, s * (Wp / 2 - 0.3), L * 0.97, 0.6, 11.0, 11.25, C.wenhuTrim);
+      }
+      // The spanning canopy: seven tilted slabs on a shallow
+      // circular arc across the whole tier (springing 11.6 at the
+      // eaves, ~2.6 m rise), trim strip at the crown.
+      const springY = 11.6, rise = 2.6;
+      const halfSpan = Wp / 2 + 0.55;
+      const R = (halfSpan * halfSpan + rise * rise) / (2 * rise);
+      const phiMax = Math.asin(halfSpan / R);
+      const SEG = 7;
+      for (let i = 0; i < SEG; i++) {
+        const phi = -phiMax + ((i + 0.5) * 2 * phiMax) / SEG;
+        const cx = R * Math.sin(phi);
+        const cyy = springY + rise - R + R * Math.cos(phi);
+        const chord = 2 * R * Math.sin(phiMax / SEG) + 0.18;
+        tiltBox(cx, cyy, 0, chord, 0.28, L * 0.97, -phi, 0, C.wenhuRoof);
+      }
+      box(0, 0, L * 0.97, 3.0, springY + rise - 0.15, springY + rise + 0.15, C.wenhuTrim);
+      for (const e of [1, -1]) box(e * (L / 2 - 0.3), 0, 0.5, Wp - 0.6, 9.15, 11.4, C.glass);
     } else if (st.kind === 'entrance') {
       // Issue #146: a Songshan Airport exit pavilion — the
       // underground station's whole surface presence: a low

@@ -60,6 +60,19 @@ const HERE = path.dirname(fileURLToPath(import.meta.url));
 export const DECK_CLASSES = new Set(['motorway', 'motorway_link', 'trunk', 'trunk_link', 'primary', 'primary_link', 'secondary', 'secondary_link', 'tertiary', 'tertiary_link']);
 export const DECK_DEPTH = 1.8;          // box-section depth, m
 export const RAMP_SLOPE = 0.06;         // max |dh| per metre along the graph
+// Per-way ramp-slope overrides (issue #211), keyed by OSM way id.
+// The Nanjing West Rd exit ramp (713760135, layer 3) must hold its
+// 21 m plateau over the Civic Blvd crossing (layer 2, top 15 m) per
+// its layer tag and the satellite braid, but its plateau ends only
+// ~90 m before that crossing and its Nanjing West Rd portal binds
+// the other side: inside the tile-wide 6% cap no profile separates
+// the crossing (over = hold the plateau, then shed at ~9.2%; under
+// = shed 12 m in 90 m). The real ramp dives steeply; this one way
+// relaxes at 9.5% so it crosses at its full layer top. The slope
+// checks (validate.mjs, tests/taipei-decks.test.mjs) read the same
+// table via slopeCapForWay — the invariant is per-way.
+export const SLOPE_OVERRIDES = { 713760135: 0.095 };
+export const slopeCapForWay = (wayId) => SLOPE_OVERRIDES[wayId] ?? RAMP_SLOPE;
 export const PIER_SPACING_M = 32;       // pier candidate rhythm along a line
 export const PIER_MIN_UNDERSIDE = 2.5;  // no pier where the deck is this close to grade
 export const PIER_TWIN_MERGE_M = 22;    // same-name twin candidates this close share one pier
@@ -70,7 +83,13 @@ const NON_CARRIAGEWAY = new Set(['footway', 'path', 'steps', 'pedestrian', 'cycl
 // A deck (layer >= 1, or any bridge tag) — the generation map's
 // predicate (build-generation-map.mjs isElevatedTags), verbatim.
 export const isElevatedTags = (tags) => parseInt(tags.layer || '0', 10) >= 1 || (!!tags.bridge && tags.bridge !== 'no');
-export const deckTopForLayer = (layer) => 9 + 6 * (Math.min(Math.max(layer, 1), 3) - 1);
+// Layer tops run to L5 (issue #211): the old cap at L3 flattened
+// every layer >= 4 way to 21 m, collapsing the tile's three genuine
+// multi-level stacks (Zhoumei x Fuguo, Huanhe x Civic x Luoyang,
+// Zhengqi Bridge — 12 ways carry layer >= 4) into one height so
+// their decks interpenetrated at 13 crossings. L4 = 27 m, L5 = 33 m,
+// the same +6 m per layer the L1-L3 steps already use.
+export const deckTopForLayer = (layer) => 9 + 6 * (Math.min(Math.max(layer, 1), 5) - 1);
 // Effective layer for height purposes: a bridge-only way (no layer
 // tag, or layer 0) counts as layer 1.
 const effectiveLayer = (tags) => {
@@ -200,7 +219,7 @@ function makeHeap() {
 // road path's records reproduce the pre-#118 behaviour exactly.
 //   roadbeds: the geodata roadbeds (runtime shape: pts flat, width, deck flag)
 //   lots:     planTaipeiBuildings output lots ({x, z, w, d} axis-aligned)
-function buildDeckSet(ways, roadbeds, lots, stats) {
+function buildDeckSet(ways, roadbeds, lots, stats, opts = {}) {
   const selected = ways.filter((w) => w.emit);
   stats.waysSelected = selected.length;
 
@@ -214,9 +233,9 @@ function buildDeckSet(ways, roadbeds, lots, stats) {
   const inSetNode = new Set();
   const inGroundNode = new Set();
   const adj = new Map();       // key -> [{ to, len }]
-  const addAdj = (a, b, len) => {
+  const addAdj = (a, b, len, wayId) => {
     if (!adj.has(a)) adj.set(a, []);
-    adj.get(a).push({ to: b, len });
+    adj.get(a).push({ to: b, len, wayId });
   };
   for (const w of ways) {
     for (let i = 0; i < w.pts.length; i++) {
@@ -231,7 +250,7 @@ function buildDeckSet(ways, roadbeds, lots, stats) {
         const prev = keyOf(w, i - 1);
         if (w.inSet && prev !== k) {
           const len = Math.hypot(w.pts[i][0] - w.pts[i - 1][0], w.pts[i][1] - w.pts[i - 1][1]);
-          if (len > 0.01) { addAdj(prev, k, len); addAdj(k, prev, len); }
+          if (len > 0.01) { addAdj(prev, k, len, w.id); addAdj(k, prev, len, w.id); }
         }
       }
     }
@@ -247,7 +266,8 @@ function buildDeckSet(ways, roadbeds, lots, stats) {
     const [h, k] = heap.pop();
     if (h > (height.get(k) ?? Infinity)) continue;
     for (const e of adj.get(k) || []) {
-      const cand = Math.min(target.get(e.to) ?? 0, h + RAMP_SLOPE * e.len);
+      const slope = opts.slopeOverrides ? (opts.slopeOverrides[e.wayId] ?? RAMP_SLOPE) : RAMP_SLOPE;
+      const cand = Math.min(target.get(e.to) ?? 0, h + slope * e.len);
       if (cand < (height.get(e.to) ?? Infinity) - 1e-9) { height.set(e.to, cand); heap.push(cand, e.to); }
     }
   }
@@ -591,7 +611,7 @@ export function buildElevated(elements, roadbeds, lots) {
       lineWidth: Object.hasOwn(WIDTH_OVERRIDES, name) ? WIDTH_OVERRIDES[name] : q(roadWidth(el.tags) + SHOULDER_M),
     });
   }
-  return buildDeckSet(records, roadbeds, lots, stats);
+  return buildDeckSet(records, roadbeds, lots, stats, { slopeOverrides: SLOPE_OVERRIDES });
 }
 
 // buildMrtDecks(records, roadbeds, lots): the MRT deck pass

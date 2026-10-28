@@ -19,6 +19,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { pedestrianLayout } from './pedestrian-layout.mjs';
 import { buildElevated, buildMrtDecks } from './build-elevated.mjs';
+import { deriveLoopSites } from './build-loops.mjs';
 import { digestRedLine, digestWenhuLine } from './build-mrt.mjs';
 import { planTaipeiBuildings } from '../../js/taipei-buildings.js';
 
@@ -370,8 +371,10 @@ function collectPolys(file, minArea) {
   return out;
 }
 // Rivers: in this tile OSM maps the Keelung River as a centreline only (no bank
-// polygon), so derive a surface by buffering the centreline. Default width 160 m
-// (no width tag in OSM for these ways) — flagged derived:'centreline-buffer'.
+// polygon), so derive a surface by buffering the centreline. Default width
+// depends on the waterway class (issue #223: 160 m for 河-named rivers,
+// 20 m for 溪-named creeks / unnamed ways; an OSM width tag wins over
+// both) — flagged derived:'centreline-buffer'.
 const riverPolys = [];
 // Issue #102: the flat 160 m default folds any stream whose meanders
 // run closer together than the ribbon is wide — every Beitou/Tianmu
@@ -414,6 +417,55 @@ const bufferLineVar = (pts, halfArr) => {
     right.push([pts[i][0] - nx * halfArr[i], pts[i][1] - nz * halfArr[i]]);
   }
   return [...left, ...right.reverse(), left[0]];
+};
+// Issue #223: road-clearance cap for centreline buffers. A creek's
+// channel is bounded by the carriageways that flank it — at the type
+// site the 貴子坑溪 canal runs BETWEEN the 中央北路二段257巷 /
+// 承德路七段401巷620弄 bank lanes, and the shipped roadbeds are the
+// surveyed evidence of where the banks are. Each centreline vertex's
+// half-width is therefore also capped at (distance to the nearest
+// PARALLEL carriageway segment − that road's half width − 1 m of
+// bank margin): the water stops at the road edge instead of flowing
+// under both lanes. Only parallel segments count (|cos| > 0.82, the
+// crossing/bridge case must not pinch the channel), deck beds are
+// excluded (a viaduct overhead does not bound the channel at ground
+// level; the ground streets beneath it cap it themselves), and the
+// cap floors at 3 m so a reach whose centreline runs under a road
+// (a culverted stretch) keeps a thread of water instead of vanishing.
+// Segments are filed under 50 m cells grown by 110 m — more than the
+// widest buffer (80 m) + the widest road half (~11 m) + margin — so a
+// vertex's own cell lists every segment that could cap it, and the
+// per-vertex minimum is order-independent (deterministic output).
+const ROAD_CAP_CELL = 50;
+const roadSegs = [];
+const roadSegGrid = new Map();
+if (roadbeds) {
+  for (const b of roadbeds) {
+    if (b.deck) continue;
+    const pts = b.pts || [];
+    for (let i = 0; i + 3 < pts.length; i += 2) {
+      const s = { ax: pts[i], az: pts[i + 1], bx: pts[i + 2], bz: pts[i + 3], half: (b.width || 6) / 2 };
+      const idx = roadSegs.length; roadSegs.push(s);
+      const x0 = Math.floor((Math.min(s.ax, s.bx) - 110) / ROAD_CAP_CELL), x1 = Math.floor((Math.max(s.ax, s.bx) + 110) / ROAD_CAP_CELL);
+      const z0 = Math.floor((Math.min(s.az, s.bz) - 110) / ROAD_CAP_CELL), z1 = Math.floor((Math.max(s.az, s.bz) + 110) / ROAD_CAP_CELL);
+      for (let cx = x0; cx <= x1; cx++) for (let cz = z0; cz <= z1; cz++) {
+        const k = `${cx},${cz}`;
+        if (!roadSegGrid.has(k)) roadSegGrid.set(k, []);
+        roadSegGrid.get(k).push(idx);
+      }
+    }
+  }
+}
+const roadCapHalfAt = (px, pz, ux, uz) => {
+  let best = Infinity;
+  for (const si of roadSegGrid.get(`${Math.floor(px / ROAD_CAP_CELL)},${Math.floor(pz / ROAD_CAP_CELL)}`) || []) {
+    const s = roadSegs[si];
+    const sx = s.bx - s.ax, sz = s.bz - s.az, sl = Math.hypot(sx, sz) || 1;
+    if (Math.abs((sx * ux + sz * uz) / sl) < 0.82) continue;
+    const d = segPtDist([px, pz], [s.ax, s.az], [s.bx, s.bz]) - s.half - 1;
+    if (d < best) best = d;
+  }
+  return best;
 };
 const ringSelfIntersects = (pts) => {
   const cross = (p1, p2, p3, p4) => {
@@ -468,16 +520,44 @@ const isTamsuiElement = (el) => {
   }
   return false;
 };
+// Issue #186: the same flag for the Keelung River at the Dazhi reach —
+// the #137 riverside rule applies to the airport-north strip from day
+// one. Scoped by the per-piece test in collectWaterPolys: a piece is
+// flagged only when one of its vertices stands in the reach fronting
+// the strip (the 6-airport lon span, lat > 25.070). Measured on the
+// extract: the bankfull polygon's north bank tops out at lat 25.07766
+// in this span — the river itself never enters the strip; the band
+// protects the strip's levee/park frontage from its bank line. The
+// west and east reaches stay unflagged on purpose: standing lots sit
+// within 30 m of their banks (9 measured on the west reach,
+// npm186-evidence) and the #186 acceptance is zero lot change outside
+// the strip.
+const keelungCentrelinePts = [];
+for (const el of load('osm_water.json').elements) {
+  if (el.type === 'way' && el.tags?.waterway === 'river' && (el.tags.name || '') === '基隆河') keelungCentrelinePts.push(...geomPts(el));
+}
+const isKeelungElement = (el) => {
+  if (!keelungCentrelinePts.length) return false;
+  for (const rawRing of elRings(el)) {
+    if (rawRing.length < 4) continue;
+    for (const [x, z] of keelungCentrelinePts) if (pointInPtsRing(x, z, rawRing)) return true;
+  }
+  return false;
+};
+const [STRIP_X0] = toWorld(121.533, 25.070);
+const [STRIP_X1, STRIP_ZN] = toWorld(121.570, 25.070);
+const pieceInStrip = (ring) => ring.some(([x, z]) => x > STRIP_X0 + 5 && x < STRIP_X1 - 5 && z < STRIP_ZN);
 function collectWaterPolys() {
   const out = [];
   for (const el of load('osm_water.json').elements) {
     const tamsui = isTamsuiElement(el);
+    const keelung = tamsui ? false : isKeelungElement(el);
     for (const rawRing of elRings(el)) {
       if (rawRing.length < 4) continue;
       for (const ring of clipRingUnion(rawRing, BOXES_WORLD)) {
         const area = Math.abs(ringArea(ring));
         if (area < 50) continue;
-        out.push({ name: el.tags?.name || el.tags?.['name:en'] || '', ring: flat(ring), area, ...(tamsui ? { river: 'tamsui' } : {}) });
+        out.push({ name: el.tags?.name || el.tags?.['name:en'] || '', ring: flat(ring), area, ...(tamsui ? { river: 'tamsui' } : {}), ...(keelung && pieceInStrip(ring) ? { river: 'keelung' } : {}) });
       }
     }
   }
@@ -528,7 +608,7 @@ for (const el of load('osm_water.json').elements) {
     riverCoverage.set(el.id, inside / inU.length);
   }
 }
-const riverBooked = { capped: [], dropped: [], covered: [] };
+const riverBooked = { capped: [], dropped: [], covered: [], roadCapped: [] };
 for (const el of load('osm_water.json').elements) {
   if (el.type !== 'way' || el.tags?.waterway !== 'river' || !el.geometry) continue;
   const all = geomPts(el);
@@ -536,9 +616,35 @@ for (const el of load('osm_water.json').elements) {
   if (near.length < 2) continue;
   if ((riverCoverage.get(el.id) ?? 0) >= 0.9) { riverBooked.covered.push(`${el.tags.name || el.id} (${(riverCoverage.get(el.id) * 100).toFixed(0)}% inside mapped polygons)`); continue; }
   const wtag = parseFloat(el.tags.width || '');
-  const baseHalf = (Number.isFinite(wtag) ? wtag : 160) / 2;
+  // Issue #223: the flat 160 m default is a RIVER width, but every
+  // polygon-uncovered waterway in this tile is a Beitou/Tianmu creek
+  // （磺溪， 磺港溪， 貴子坑溪， 水磨坑溪， …) whose real channel is
+  // 10–30 m — satellite at the type site shows the 貴子坑溪 canal
+  // between its bank lanes at ~12–15 m — so the river default drew
+  // each creek ~165 m wide and swallowed the bank roads whole.
+  // Creek-named (…溪） and unnamed ways now default to 20 m; 河-named
+  // ways keep the 160 m river default (the in-tile 河 ways —
+  // 淡水河/基隆河 — carry true bankfull polygons and are skipped by
+  // the coverage rule above anyway). The road cap below then
+  // tightens each flanked vertex to the surveyed channel.
+  const nm = el.tags.name || '';
+  const baseHalf = (Number.isFinite(wtag) ? wtag : (!nm || nm.endsWith('溪') ? 20 : 160)) / 2;
   const clear = vertexClearances(near);
-  const halfArr = clear.map((c) => Math.max(1.5, Math.min(baseHalf, 0.45 * c)));
+  let roadCappedVerts = 0;
+  const halfArr = clear.map((c, i) => {
+    let h = Math.max(1.5, Math.min(baseHalf, 0.45 * c));
+    if (roadSegs.length) {
+      const a = near[Math.max(0, i - 1)], b = near[Math.min(near.length - 1, i + 1)];
+      const ux = b[0] - a[0], uz = b[1] - a[1];
+      const L = Math.hypot(ux, uz);
+      if (L > 0) {
+        const cap = roadCapHalfAt(near[i][0], near[i][1], ux / L, uz / L);
+        if (Number.isFinite(cap) && cap < h) { h = Math.max(3, cap); roadCappedVerts++; }
+      }
+    }
+    return h;
+  });
+  if (roadCappedVerts) riverBooked.roadCapped.push(`${nm || el.id}: ${roadCappedVerts}/${near.length} verts`);
   const minHalf = Math.min(...halfArr);
   if (minHalf < baseHalf) riverBooked.capped.push(`${el.tags.name || el.id}: min half-width ${minHalf.toFixed(1)} m at the tight vertex (base ${baseHalf.toFixed(0)})`);
   let pieces = null;
@@ -556,14 +662,72 @@ for (const el of load('osm_water.json').elements) {
 if (riverBooked.capped.length) console.log(`[taipei-geodata] river buffers width-capped by centreline clearance: ${riverBooked.capped.join('; ')}`);
 if (riverBooked.dropped.length) console.log(`[taipei-geodata] river buffers dropped (self-intersecting at every width): ${riverBooked.dropped.join('; ')}`);
 if (riverBooked.covered.length) console.log(`[taipei-geodata] river buffers skipped (bankfull polygon mapped, issue #134): ${riverBooked.covered.join('; ')}`);
-const waterRaw = [...collectedWater, ...riverPolys];
+if (riverBooked.roadCapped.length) console.log(`[taipei-geodata] river buffers width-capped by flanking roads (issue #223): ${riverBooked.roadCapped.join('; ')}`);
+let waterRaw = [...collectedWater, ...riverPolys];
+// Issue #223: the box set overlaps in the Beitou corridor corner
+// (corridor 121.494–121.533 × 25.055–25.133 vs Beitou box
+// 121.464–121.510 × 25.113–25.150), so clipRingUnion emits a reach
+// once per covering box and the smaller piece can sit entirely
+// inside its sibling — the shipped 磺港溪 pair was 69,107 m² plus a
+// contained 56,309 m² copy of the same reach, and water tile-wide
+// carried 22 exact-duplicate rings (45,997 m²). Duplicate water
+// double-draws (the stacking class #206 chases in the green family),
+// so drop the copies — under two deliberately narrow rules, because
+// the first cut of this fix (any same-name containment) ate real
+// features: ponds named like their neighbours and unnamed river
+// pieces that share the empty name with everything else.
+//   * exact copy: an identical ring under the same name (the empty
+//     name included) is the same feature drawn twice — always drop.
+//   * contained sibling: NAMED rings only, and only when the
+//     container is at most 2× the candidate's area — clip siblings
+//     are near-equal (the 磺港溪 pair: 1.23×), while a real pond
+//     inside a river bend or an unnamed confluence piece sits
+//     inside something 10–400× its size and is a distinct feature.
+// Containment is judged generously (every vertex inside the
+// container or within 1.5 m of its edge — a clip sibling's boundary
+// vertices sit ON the seam). Parks/green carry the same clip
+// artifact but are out of this issue's scope.
+{
+  const ptInOrNearRing = (x, z, ring) => {
+    if (pointInFlatRing(x, z, ring)) return true;
+    let m = Infinity;
+    for (let i = 0; i < ring.length; i += 2) {
+      const j = (i + 2) % ring.length;
+      m = Math.min(m, segPtDist([x, z], [ring[i], ring[i + 1]], [ring[j], ring[j + 1]]));
+    }
+    return m <= 1.5;
+  };
+  // Decide drops largest-first (a container is always kept before
+  // the piece it contains), then filter in the ORIGINAL order so the
+  // shipped array's ordering is untouched apart from the removals.
+  const sorted = [...waterRaw].sort((a, b) => b.area - a.area);
+  const keptByName = new Map();
+  const drop = new Set();
+  for (const w of sorted) {
+    const siblings = keptByName.get(w.name) || [];
+    let dup = false;
+    for (const k of siblings) {
+      if (k.ring.length === w.ring.length && k.ring.every((v, i) => v === w.ring[i])) { dup = true; break; }
+      if (!w.name || k.area > 2 * w.area) continue;
+      const kb = flatRingBbox(k.ring), wb = flatRingBbox(w.ring);
+      if (wb.minX < kb.minX - 1.5 || wb.maxX > kb.maxX + 1.5 || wb.minZ < kb.minZ - 1.5 || wb.maxZ > kb.maxZ + 1.5) continue;
+      let allIn = true;
+      for (let i = 0; i < w.ring.length; i += 2) if (!ptInOrNearRing(w.ring[i], w.ring[i + 1], k.ring)) { allIn = false; break; }
+      if (allIn) { dup = true; break; }
+    }
+    if (dup) { drop.add(w); continue; }
+    siblings.push(w); keptByName.set(w.name, siblings);
+  }
+  if (drop.size) console.log(`[taipei-geodata] water: dropped ${drop.size} duplicate/contained same-name rings (issue #223)`);
+  waterRaw = waterRaw.filter((w) => !drop.has(w));
+}
 const parksRaw = collectPolys('osm_parks.json', 100);
 const water = waterRaw.map(({ name, ring, derived, river }) => ({ name, ring, ...(derived ? { derived } : {}), ...(river ? { river } : {}) }));
 const parks = parksRaw.map(({ name, ring }) => ({ name, ring }));
 const waterArea = waterRaw.reduce((s, w) => s + w.area, 0);
 const parksArea = parksRaw.reduce((s, p) => s + p.area, 0);
 
-// ---- Tamsui riverside band (issue #137) ----
+// ---- Tamsui riverside band (issue #137; Keelung Dazhi reach added by issue #186) ----
 // The planner enforces the band as a distance verdict against the
 // flagged Tamsui rings (bandM below is the single source — the
 // planner reads it off geodata.riverside). For the aerial read this
@@ -611,19 +775,19 @@ const offsetRingOutward = (ring, d) => {
 const riversidePolys = [];
 const riversideSkipped = [];
 for (const w of waterRaw) {
-  if (w.river !== 'tamsui') continue;
+  if (!w.river) continue;
   let done = false;
   for (const f of [1, 0.6]) {
     const off = offsetRingOutward(w.ring, RIVERSIDE_BAND_M * f);
     if (off && !ringSelfIntersects(off)) {
-      for (const piece of clipRingUnion(off, BOXES_WORLD)) riversidePolys.push({ name: '淡水河', ring: flat(piece) });
+      for (const piece of clipRingUnion(off, BOXES_WORLD)) riversidePolys.push({ name: w.name || '淡水河', ring: flat(piece) });
       done = true; break;
     }
   }
   if (!done) riversideSkipped.push(`${w.name || 'unnamed'} (${(w.area / 1e6).toFixed(2)} km2)`);
 }
 if (riversideSkipped.length) console.log(`[taipei-geodata] riverside band polygons skipped (offset self-intersects; planner distance verdict unaffected): ${riversideSkipped.join('; ')}`);
-console.log(`[taipei-geodata] tamsui: ${waterRaw.filter((w) => w.river === 'tamsui').length} water polygons flagged, riverside band ${RIVERSIDE_BAND_M} m -> ${riversidePolys.length} band polygons (issue #137)`);
+console.log(`[taipei-geodata] tamsui: ${waterRaw.filter((w) => w.river === 'tamsui').length} water polygons flagged, riverside band ${RIVERSIDE_BAND_M} m -> ${riversidePolys.length} band polygons (issue #137); keelung (Dazhi reach, issue #186): ${waterRaw.filter((w) => w.river === 'keelung').length} water polygons flagged`);
 
 // ---- Songshan Airport airfield (issue #134) ----
 // osm_aeroway.json (extract-from-pbf.py): the aerodrome boundary
@@ -690,6 +854,36 @@ if (fs.existsSync(path.join(DATA, 'osm_aeroway.json'))) {
     console.log(`[taipei-geodata] airfield: Songshan site ${site.length} ring(s), ${surfaces.length} hard-surface polygons (issue #134); paint: ${paintRunway.length} runway, ${paintTaxiways.length} taxiway centrelines, ${paintStands.length} stands (issue #135)`);
   } else {
     console.warn('[taipei-geodata] WARNING: osm_aeroway.json present but no aerodrome site ring — airport exclusion inactive');
+  }
+}
+
+// ---- National Palace Museum grounds (issues #149 / #186) ----
+// osm_sites.json (extract-from-pbf.py): the museum grounds polygon
+// (OSM way 827791918, landuse=recreation_ground named
+// 國立故宮博物院 — measured lat 25.09908-25.10407 x lon
+// 121.54701-121.55056) as a special SITE on the airport pattern:
+// the planner drops every procedural lot inside it, and the museum
+// itself is a registry landmark (issue #149). The grounds' tag pair
+// reaches no other classifier (green_class reads
+// leisure=recreation_ground, is_park reads leisure=park), so without
+// this pass the terraces and gardens would be planned over.
+let npmSite = null;
+if (fs.existsSync(path.join(DATA, 'osm_sites.json'))) {
+  const site = [];
+  for (const el of load('osm_sites.json').elements) {
+    for (const rawRing of elRings(el)) {
+      if (rawRing.length < 4) continue;
+      for (const ring of clipRingUnion(rawRing, BOXES_WORLD)) {
+        if (Math.abs(ringArea(ring)) < 1000) continue;
+        site.push({ name: el.tags?.name || '', ring: flat(ring) });
+      }
+    }
+  }
+  if (site.length) {
+    npmSite = { site };
+    console.log(`[taipei-geodata] npm site: National Palace Museum grounds ${site.length} ring(s) (issues #149/#186)`);
+  } else {
+    console.warn('[taipei-geodata] WARNING: osm_sites.json present but no museum grounds ring — NPM exclusion inactive');
   }
 }
 
@@ -904,6 +1098,22 @@ const TAIPEI_GEO = {
 // Songshan airfield site + hard surfaces.
 TAIPEI_GEO.riverside = { bandM: RIVERSIDE_BAND_M, polys: riversidePolys };
 if (airfield) TAIPEI_GEO.airfield = airfield;
+if (npmSite) TAIPEI_GEO.npmSite = npmSite;
+
+// ---- interchange-loop interiors (issue #213) ----
+// Land enclosed by interchange carriageways (cloverleaf infields,
+// inter-carriageway pockets) is non-buildable ground, derived from
+// the roadbeds + water + park/green layers by
+// tools/taipei/build-loops.mjs and consumed by the planner exactly
+// like the airfield site. Derived here — before the lot plan below
+// — so the builder's plan (which places the deck piers) and the
+// runtime plan read the same exclusion.
+{
+  const loops = deriveLoopSites(TAIPEI_GEO);
+  if (loops.sites.length) TAIPEI_GEO.loopSites = loops.sites;
+  console.log(`[taipei-geodata] loop sites: ${loops.stats.accepted} enclosed components -> ${loops.sites.length} rings, ${(loops.stats.acceptedAreaM2 / 1e4).toFixed(2)} ha (of ${loops.stats.components} land components)${loops.stats.droppedMismatch ? `; ${loops.stats.droppedMismatch} dropped on ring-proof mismatch` : ''} (issue #213)`);
+}
+
 TAIPEI_GEO.schools = schools;
 
 // ---- terrain skin grids (issue #129) ----
@@ -990,7 +1200,7 @@ const lotPlan = planTaipeiBuildings(TAIPEI_GEO);
     console.log(`[taipei-geodata] mrt red line: ${mrt.stats.lineWays} line ways (${JSON.stringify(mrt.stats.byFormKm)} km by form), ${mrt.stats.pathsFound}/13 station paths, ${mrt.stats.crossoverWays} crossover ways -> ${ms.lines} deck lines (${ms.lineKm} km), piers ${ms.piers} (${ms.piersMerged} twin-merged, ${ms.piersRejectedRoad} road-rejected, ${ms.piersRejectedLot} lot-rejected); ${mrt.stations.length} stations (10 elevated + ${mrt.stations.length - 10} at-grade); depot: ${mrt.stats.yardWays} yard ways (${mrt.stats.yardKm} km), ${mrt.stats.depotHalls} halls`);
     if (wenhuDigest) {
       const ws = wenhuDigest.stats;
-      console.log(`[taipei-geodata] mrt wenhu line: ${ws.lineWays} line ways (${JSON.stringify(ws.byFormKm)} km by form), ${ws.pathsFound}/6 station paths, ${ws.crossoverWays} crossover ways; ${wenhuDigest.stations.length} station defs (4 elevated barrel-vault + 3 Songshan Airport entrances)`);
+      console.log(`[taipei-geodata] mrt wenhu line: ${ws.lineWays} line ways (${JSON.stringify(ws.byFormKm)} km by form), ${ws.pathsFound}/7 station paths, ${ws.crossoverWays} crossover ways; ${wenhuDigest.stations.length} station defs (4 elevated barrel-vault + 1 open elevated (Jiannan Rd) + 3 Dazhi entrances + 3 Songshan Airport entrances, issue #186)`);
     }
   } else {
     console.log('[taipei-geodata] mrt: osm_railways.json absent — no MRT decks/stations emitted');

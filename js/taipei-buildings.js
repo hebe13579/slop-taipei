@@ -391,6 +391,10 @@ function ribbonHitsLot(r, minX, maxX, minZ, maxZ) {
 //              plan: radius r along x, rz along z (a scaled cylinder)
 //   dome     { rx, rz, h, y0?, dx?, dz? }   half-ellipsoid: radii rx
 //              (x) and rz (z), rising h above y0
+//   wheel    { y0, h, dx?, dz? }   Ferris wheel: y0 = bottom
+//              elevation, h = diameter (rim + spokes + cabins in
+//              the tile x-y plane). Airborne mass — its ground
+//              contact is separate box parts (issue #186).
 //
 // `site` is the lot-exclusion rectangle (centred on the structure,
 // dx/dz offset allowed); `plaza` is an extra exclusion rectangle that
@@ -2061,6 +2065,147 @@ const LANDMARK_STRUCTURES = [
       ...trackCapsuleParts(-9.1, 28.8, 68, 60, 47.7, -0.265, 0xa04a30, 0x4e7d32),
     ],
   },
+  {
+    // Batch 8 (issues #149 + #186): the National Palace Museum on
+    // its terraced hillfoot in Waishuangxi — the palace-style main
+    // hall (第一展覽區/正館, OSM way 203799171: a ~140 x ~120 m
+    // outline incl. terrace, building levels 4) with cream walls
+    // and pale-green glazed-tile roofs, the administration pair
+    // west of the ceremonial axis, the white marble 天下為公
+    // pailou at the plaza, and the glass restaurant block
+    // south-east. Composition measured from the OSM ways and the
+    // user's aerial (npm-evidence/npm-user-photo.png; Esri
+    // satellite agrees): the hall runs E-W at the grounds' north,
+    // its forecourt terrace opens south to the 華表大道 — OSM's
+    // named pedestrian axis, which leaves the forecourt steps at
+    // (25.10143, 121.54895) and runs SSW to (25.10027, 121.54953),
+    // ~65 m EAST of the hall centreline; the pailou (way
+    // 1167548671) stands mid-avenue at (25.10084, 121.54940),
+    // the 華表 pair below the steps. 文會堂 (way 226936389) is
+    // the annex west of the hall. 研究大樓 (way 226936384,
+    // height 16) is a diamond-plan
+    // slab (rotY 45°) west of the axis; 第二展覽區 (way 226936385,
+    // height 16) is the big green-roofed block at the grounds'
+    // south-west (its OSM outline wraps a courtyard; modelled as
+    // its west mass). The grounds themselves are a special site
+    // (TAIPEI_GEO.npmSite, PR1 of #186): no procedural lots
+    // anywhere in this entry's field. No published overall height
+    // exists for the hall — 27.5 m is FORM-DERIVED (estimated:
+    // true): podium 6 + 4-floor walls 13 + main hip roof 6.5,
+    // with the raised central tier (box 4 + ridge 4.5) setting
+    // the apex, proportions read off the user's aerial. The
+    // hall's ~1.5° plan tilt and the two small 華表 pillars
+    // flanking the avenue (r ~1 m at this scale) are recorded
+    // simplifications: the avenue pillars ARE modelled; the
+    // tilt is not (ridge parts cannot rotate).
+    id: 'national-palace-museum', name: 'National Palace Museum', nameZh: '國立故宮博物院',
+    lat: 25.10219, lon: 121.54859, realHeight: 27.5, color: 0xe7dec5, estimated: true,
+    site: { w: 220, d: 190, dx: 0, dz: 45 },
+    plaza: { w: 110, d: 300, dx: 45, dz: 210 },
+    facade: { kind: 'prewar', stoneColor: 0xe8dfc6, trimColor: 0x9a8f74, windowGlassColor: 0x2c3844, windowWidth: 2.2, floorHeight: 3.3, litProbability: 0.22, warmth: 0.6, seed: 149.11 },
+    parts: [
+      // Terraced podium (two stone tiers) hugging the hall — the
+      // grounds' service drives loop around it on every side
+      // (issue-#42 audit, measured at the gate).
+      { type: 'box', w: 122, d: 68, h: 3, dx: -4, dz: 1, flat: 0xcfc9bb },
+      { type: 'box', w: 114, d: 62, h: 3, y0: 3, dx: -4, dz: 1, flat: 0xd8d3c4 },
+      // Main hall: cream block + pale-green hip roof (ridge at the
+      // origin = hall centre), raised central tier, end pavilions.
+      { type: 'box', w: 132, d: 36, h: 13, y0: 6 },
+      { type: 'ridge', w: 136, d: 40, h: 0, ridgeH: 6.5, y0: 19, flat: 0x55806a },
+      { type: 'box', w: 46, d: 24, h: 4, y0: 19 },
+      { type: 'ridge', w: 50, d: 27, h: 0, ridgeH: 4.5, y0: 23, flat: 0x55806a },
+      { type: 'box', w: 14, d: 14, h: 3.5, y0: 19, dx: -52 },
+      { type: 'box', w: 14, d: 14, h: 3.5, y0: 19, dx: 52 },
+      { type: 'box', w: 16.5, d: 16.5, h: 1.1, y0: 22.5, dx: -52, flat: 0x4a7a63 },
+      { type: 'box', w: 16.5, d: 16.5, h: 1.1, y0: 22.5, dx: 52, flat: 0x4a7a63 },
+      // The forecourt terrace floor on the podium's south face.
+      { type: 'box', w: 112, d: 16, h: 1.2, y0: 6, dz: 25, flat: 0xd8d3c4 },
+      // 文會堂 (OSM way 226936389): the annex west of the hall —
+      // modelled as its north mass; the service lane bends
+      // through the south of its OSM outline (a courtyard side).
+      { type: 'box', w: 48, d: 30, h: 13, dx: -34, dz: 48 },
+      { type: 'box', w: 50, d: 32, h: 1.3, y0: 13, dx: -34, dz: 47, flat: 0x4a7a63 },
+      // Forecourt stair terraces descending to the 華表大道 head
+      // (the avenue leaves the steps at (25.10143, 121.54895),
+      // dx +36 — the stairs centre on it, audited clear of the
+      // steps roadbeds).
+      { type: 'box', w: 34, d: 10, h: 4, dx: 50, dz: 92, flat: 0xd8d3c4 },
+      { type: 'box', w: 34, d: 10, h: 2, dx: 50, dz: 102, flat: 0xcfc9bb },
+      // The twin 華表 pillars flanking the avenue below the steps.
+      { type: 'cylinder', r: 1.0, h: 9.5, dx: 24, dz: 112, flat: 0xf2efe6 },
+      { type: 'cylinder', r: 1.0, h: 9.5, dx: 52, dz: 112, flat: 0xf2efe6 },
+      // 天下為公 pailou mid-avenue (OSM way 1167548671:
+      // 25.10082–25.10086 x 121.54926–121.54953, a 27 m span) —
+      // four white marble posts, two lintels, green rooflets.
+      { type: 'box', w: 1.7, d: 1.7, h: 8.5, dx: 73, dz: 150, flat: 0xf2efe6 },
+      { type: 'box', w: 1.7, d: 1.7, h: 8.5, dx: 82, dz: 150, flat: 0xf2efe6 },
+      { type: 'box', w: 1.7, d: 1.7, h: 8.5, dx: 91, dz: 150, flat: 0xf2efe6 },
+      { type: 'box', w: 1.7, d: 1.7, h: 8.5, dx: 100, dz: 150, flat: 0xf2efe6 },
+      { type: 'box', w: 31, d: 2.4, h: 1.6, y0: 7.0, dx: 86.5, dz: 150, flat: 0xf2efe6 },
+      { type: 'box', w: 33, d: 4.6, h: 0.7, y0: 8.55, dx: 86.5, dz: 150, flat: 0x4a7a63 },
+      { type: 'box', w: 23, d: 2.2, h: 1.2, y0: 8.6, dx: 86.5, dz: 150, flat: 0xf2efe6 },
+      { type: 'box', w: 25, d: 4.2, h: 0.7, y0: 9.75, dx: 86.5, dz: 150, flat: 0x4a7a63 },
+      // 研究大樓: the diamond-plan administration slab, h 16
+      // (OSM). A single service loop wraps its island on all
+      // sides and the OSM outline's own corners graze that
+      // loop's roadbed, so the slab is modelled at 25 m square
+      // (real plan ~52 m sides incl. apron) — the largest
+      // diamond the loop admits inside the audit tolerance.
+      { type: 'box', w: 25, d: 25, h: 16, dx: -23, dz: 143, rotY: Math.PI / 4 },
+      { type: 'box', w: 25, d: 25, h: 1.4, y0: 16, dx: -23, dz: 143, rotY: Math.PI / 4, flat: 0x4a7a63 },
+      { type: 'box', w: 14, d: 14, h: 2.6, y0: 17.4, dx: -23, dz: 143, rotY: Math.PI / 4 },
+      { type: 'box', w: 17, d: 17, h: 1.1, y0: 20, dx: -23, dz: 143, rotY: Math.PI / 4, flat: 0x4a7a63 },
+      // 第二展覽區: the big green-roofed block, grounds SW, h 16
+      // (OSM), kept east of the 113巷35弄 lane on its west flank.
+      { type: 'box', w: 48, d: 72, h: 16, dx: -6, dz: 245 },
+      { type: 'box', w: 48, d: 68, h: 1.6, y0: 16, dx: -6, dz: 245, flat: 0x55806a },
+      { type: 'box', w: 30, d: 34, h: 3, y0: 17.6, dx: -6, dz: 245 },
+      { type: 'box', w: 34, d: 38, h: 1.2, y0: 20.6, dx: -6, dz: 245, flat: 0x4a7a63 },
+      // The glass restaurant block south-east of the hall among
+      // the Zhishan Garden trees (plot = OSM way 226936387),
+      // turned to the garden drive that loops its east side.
+      { type: 'box', w: 48, d: 26, h: 12, dx: 130, dz: 186, rotY: -0.85, facade: { kind: 'curtain', glassTint: 0x6d8a94, frameTint: 0xb9bcbe, windowWidth: 3.4, floorHeight: 3.6, litProbability: 0.3, warmth: 0.55, reflectivity: 0.7, seed: 149.12 } },
+    ],
+  },
+  {
+    // Batch 8 (issue #186): Miramar Entertainment Park, Dazhi —
+    // the mall and its Ferris wheel (OSM node 5121602758,
+    // tourism=attraction), the registry origin AT the wheel on
+    // the mall's south front. Published (zh.wikipedia,
+    // 美麗華百樂園): the wheel's total height is 100 m with 48
+    // cabins, boarding at the 5F roof plaza; the commonly
+    // published wheel diameter is 70 m — modelled as y0 30
+    // (roofline) + 70 = apex 100. Massing measured from OSM
+    // way 155816458 (the mall building proper: dx -109..+56,
+    // dz -98..+13 rel. the wheel) and way 1191618576 (the wider
+    // complex incl. the north annex): main glass slab, the
+    // curved drum at its NW, the taller IMAX east wing, and the
+    // low annex north of 植福路 (which the complex bridges —
+    // the roadbed runs between the two masses, audited). The
+    // separate parking structure west of 敬業三路 is not
+    // modelled. The wheel's ground contact is the pylon pair +
+    // crossbeam (plain boxes, audited); the 'wheel' part itself
+    // is airborne mass (rim/spokes/cabins) outside the audit's
+    // vocabulary by design.
+    id: 'miramar-entertainment-park', name: 'Miramar Entertainment Park', nameZh: '美麗華百樂園',
+    lat: 25.08290, lon: 121.55772, realHeight: 100, color: 0x7fa3ad,
+    site: { w: 230, d: 215, dx: -28, dz: -80 },
+    facade: { kind: 'curtain', glassTint: 0x51707c, frameTint: 0xa8b0ae, windowWidth: 3.4, floorHeight: 3.8, litProbability: 0.36, warmth: 0.55, reflectivity: 0.8, seed: 186.21 },
+    sign: { text: 'MIRAMAR', w: 46, h: 6.5, y: 25, dx: -24, dz: -1.2, bg: '#1d2a30', fg: '#e8f0ee', accent: '#c8372d' },
+    parts: [
+      { type: 'box', w: 150, d: 92, h: 32, dx: -24, dz: -48 },
+      { type: 'cylinder', r: 26, h: 32, dx: -78, dz: -70 },
+      { type: 'box', w: 62, d: 40, h: 38, dx: 28, dz: -84, facade: { kind: 'curtain', glassTint: 0x3d5a66, frameTint: 0x9aa39f, windowWidth: 3.4, floorHeight: 3.8, litProbability: 0.3, warmth: 0.5, reflectivity: 0.8, seed: 186.22 } },
+      { type: 'box', w: 120, d: 36, h: 20, dx: -10, dz: -138, flat: 0x8d9296 },
+      // Boarding-plaza deck + the wheel's portal frame.
+      { type: 'box', w: 36, d: 12, h: 2, y0: 29, dz: 2, flat: 0xd8d5cc },
+      { type: 'box', w: 3.4, d: 3.4, h: 35, y0: 30, dx: -13.5, flat: 0xe9e7e0 },
+      { type: 'box', w: 3.4, d: 3.4, h: 35, y0: 30, dx: 13.5, flat: 0xe9e7e0 },
+      { type: 'box', w: 30.4, d: 3.4, h: 3.2, y0: 61.8, flat: 0xe9e7e0 },
+      { type: 'wheel', y0: 30, h: 70, flat: 0xe9e7e0, cabinFlat: 0xc8ccd2 },
+    ],
+  },
 ];
 
 // Songshan Airport site structures (issue #135): the terminal
@@ -2318,6 +2463,26 @@ export const HEIGHT_JOIN = {
                        // before its median speaks for a lot
   fieldRadiusM: 100,   // neighbourhood-field reach for signal-less lots
   fieldMinLots: 3,     // ...and at least this many real lots inside it
+  // Issue #219: sanity guards on the join itself (census on the
+  // issue). A donor whose outline is parcel-scale, or whose claim
+  // is extreme, must be corroborated by a second source before it
+  // may speak; an uncorroborated donor is skipped and its lots
+  // fall through to the next tier like signal-less lots. The
+  // guards live here, not in the data file, so a future refresh
+  // of the layer cannot silently reintroduce the class.
+  parcelSpanM: 100,    // a footprint wider than this is a parcel
+                       // outline, not a building outline
+  extremeHeightM: 120, // an implied height at/above this is an
+                       // extreme claim (40F at the permit factor)
+  corrGapM: 40,        // a corroborating footprint's bbox may sit
+                       // this far from the donor's bbox
+  corrDoorGrowM: 25,   // door plates corroborate from this far
+                       // outside the donor's bbox
+  corrFrac: 0.5,       // corroboration must support at least
+                       // this share of the claim
+  stepMinHeightM: 30,  // stepped massing (issue #219): only joined
+  stepMinSpanM: 24,    // heights >= this on footprints >= this
+                       // wide read as a complex wall worth stepping
 };
 
 // ---------- Issue #221: procedural school campuses ----------
@@ -3057,7 +3222,7 @@ export function planSchoolCampuses(geodata, landmarkSites, carriageways, originL
 }
 
 export function planTaipeiBuildings(geodata) {
-  const stats = { blocksSeen: 0, blocksFine: 0, lotsFine: 0, blocksSkippedSmall: 0, blocksSkippedParkWater: 0, blocksSkippedGreen: 0, blocksSkippedAirfield: 0, blocksSkippedSchool: 0, blocksSkippedOutsideUnion: 0, lotsDroppedVacancy: 0, lotsDroppedParkWater: 0, lotsDroppedGreen: 0, lotsDroppedRiverside: 0, lotsDroppedAirfield: 0, lotsDroppedSchool: 0, lotsDroppedTowerSite: 0, lotsDroppedRoad: 0, lotsDroppedMedian: 0, lotsDroppedOutsideUnion: 0, lotsDroppedTrackBed: 0, lotsDroppedTrackPierce: 0, lotsDroppedPier: 0, blocksRotated: 0, lotsRotated: 0, lotsPackedFrontage: 0, lotsTallFrontage: 0, heightsPermit: 0, heightsOsmHeight: 0, heightsOsmLevels: 0, heightsDoor: 0, heightsField: 0, heightsProc: 0, lotsFrontagePulled: 0, lotsFrontageFlush: 0, lotsFrontageHeldNoBed: 0, lotsFrontageHeldBlocked: 0, frontagePullMetres: 0 };
+  const stats = { blocksSeen: 0, blocksFine: 0, lotsFine: 0, blocksSkippedSmall: 0, blocksSkippedParkWater: 0, blocksSkippedGreen: 0, blocksSkippedAirfield: 0, blocksSkippedSchool: 0, blocksSkippedLoop: 0, blocksSkippedNpmSite: 0, blocksSkippedOutsideUnion: 0, lotsDroppedVacancy: 0, lotsDroppedParkWater: 0, lotsDroppedGreen: 0, lotsDroppedRiverside: 0, lotsDroppedAirfield: 0, lotsDroppedSchool: 0, lotsDroppedLoop: 0, lotsDroppedNpmSite: 0, lotsDroppedTowerSite: 0, lotsDroppedRoad: 0, lotsDroppedMedian: 0, lotsDroppedOutsideUnion: 0, lotsDroppedTrackBed: 0, lotsDroppedTrackPierce: 0, lotsDroppedPier: 0, blocksRotated: 0, lotsRotated: 0, lotsPackedFrontage: 0, lotsTallFrontage: 0, heightsPermit: 0, heightsOsmHeight: 0, heightsOsmLevels: 0, heightsDoor: 0, heightsField: 0, heightsProc: 0, heightsGuardParcel: 0, heightsGuardExtreme: 0, heightsSteppedGroups: 0, heightsSteppedLots: 0, lotsFrontagePulled: 0, lotsFrontageFlush: 0, lotsFrontageHeldNoBed: 0, lotsFrontageHeldBlocked: 0, frontagePullMetres: 0 };
   // Union-of-boxes tile (issue #60): the geodata frame carries the
   // tile's boxes; ground exists only inside them. Raster blocks are
   // masked to the union by the builder, but a block's bbox can still
@@ -3123,14 +3288,20 @@ export function planTaipeiBuildings(geodata) {
   // BY RULE, not only where OSM happens to tag a park. The builder
   // flags the Tamsui's water polygons (river: 'tamsui' — the recovered
   // bankfull polygon, relation 4010571) and carries the band width on
-  // geodata.riverside.bandM. Lots inside the water already drop as
+  // geodata.riverside.bandM. Issue #186 extends the same flag to the
+  // Keelung's Dazhi reach (river: 'keelung', strip-scoped in the
+  // builder). Lots inside the water already drop as
   // park/water; this distance verdict covers the untagged slivers the
   // tags miss — wharf aprons, levee strips, floodplain — which is
   // exactly where the #125 phantom lots stood (192 in the Dadaocheng
   // frame alone, on the park strip and in the river itself).
   const RIVERSIDE_BAND_M = geodata.riverside?.bandM ?? 30;
+  // Flagged rivers: the Tamsui (issue #137) and, since issue #186,
+  // the Keelung's Dazhi reach — the builder scopes the Keelung flag
+  // to the airport-north strip, so this verdict stays strip-local
+  // there while the Tamsui band runs tile-wide as before.
   const tamsuiRings = [];
-  for (const w of geodata.water || []) if (w.river === 'tamsui') tamsuiRings.push({ ring: w.ring, bb: ringBbox(w.ring) });
+  for (const w of geodata.water || []) if (w.river) tamsuiRings.push({ ring: w.ring, bb: ringBbox(w.ring) });
   const nearTamsui = (x, z) => {
     for (const p of tamsuiRings) {
       if (x < p.bb.minX - RIVERSIDE_BAND_M || x > p.bb.maxX + RIVERSIDE_BAND_M ||
@@ -3155,6 +3326,55 @@ export function planTaipeiBuildings(geodata) {
   };
   const nearAirfield = (x, z) => {
     for (const p of airfieldPolys) {
+      if (x < p.bb.minX - CORNER_CLEARANCE || x > p.bb.maxX + CORNER_CLEARANCE ||
+          z < p.bb.minZ - CORNER_CLEARANCE || z > p.bb.maxZ + CORNER_CLEARANCE) continue;
+      if (pointInRing(x, z, p.ring)) return true;
+      if (distToRing(x, z, p.ring) < CORNER_CLEARANCE) return true;
+    }
+    return false;
+  };
+  // Issues #149/#186: the National Palace Museum grounds are a
+  // special site on the airfield pattern (geodata.npmSite.site, from
+  // OSM way 827791918) — no procedural lots on the terraces/gardens;
+  // the museum itself is a registry landmark.
+  const npmSitePolys = [];
+  for (const s of geodata.npmSite?.site || []) npmSitePolys.push({ ring: s.ring, bb: ringBbox(s.ring) });
+  const inNpmSite = (x, z) => {
+    for (const p of npmSitePolys) {
+      if (x < p.bb.minX || x > p.bb.maxX || z < p.bb.minZ || z > p.bb.maxZ) continue;
+      if (pointInRing(x, z, p.ring)) return true;
+    }
+    return false;
+  };
+  const nearNpmSite = (x, z) => {
+    for (const p of npmSitePolys) {
+      if (x < p.bb.minX - CORNER_CLEARANCE || x > p.bb.maxX + CORNER_CLEARANCE ||
+          z < p.bb.minZ - CORNER_CLEARANCE || z > p.bb.maxZ + CORNER_CLEARANCE) continue;
+      if (pointInRing(x, z, p.ring)) return true;
+      if (distToRing(x, z, p.ring) < CORNER_CLEARANCE) return true;
+    }
+    return false;
+  };
+  // Issue #213: interchange-loop interiors — land enclosed by
+  // interchange carriageways (cloverleaf infields and the pockets
+  // between carriageways), derived at build time into
+  // geodata.loopSites by tools/taipei/build-loops.mjs. The lot
+  // gauntlet's road tests clear the carriageways themselves but
+  // not the ground they enclose, and OSM's green layer tags only
+  // some infields; this class clears the rest, tested exactly
+  // like the airfield site. A geodata without the layer (an older
+  // build) plans exactly as before.
+  const loopPolys = [];
+  for (const s of geodata.loopSites || []) loopPolys.push({ ring: s.ring, bb: ringBbox(s.ring) });
+  const inLoop = (x, z) => {
+    for (const p of loopPolys) {
+      if (x < p.bb.minX || x > p.bb.maxX || z < p.bb.minZ || z > p.bb.maxZ) continue;
+      if (pointInRing(x, z, p.ring)) return true;
+    }
+    return false;
+  };
+  const nearLoop = (x, z) => {
+    for (const p of loopPolys) {
       if (x < p.bb.minX - CORNER_CLEARANCE || x > p.bb.maxX + CORNER_CLEARANCE ||
           z < p.bb.minZ - CORNER_CLEARANCE || z > p.bb.maxZ + CORNER_CLEARANCE) continue;
       if (pointInRing(x, z, p.ring)) return true;
@@ -3205,9 +3425,24 @@ export function planTaipeiBuildings(geodata) {
   const FP_CELL = 48;
   const fpKey = (gx, gz) => gx * 100003 + gz;
   const fpGrid = new Map();
+  // Issue #219: every footprint entry also carries its span, its
+  // centre and the height it would donate (implied), precomputed
+  // once — the sanity guards below and the stepped-massing pass
+  // after the lot loop both read them.
+  const fpEntries = [];
   if (heightLayer) {
     for (const f of heightLayer.footprints) {
-      const e = { ring: f.ring, bb: ringBbox(f.ring), src: f.src, floors: f.floors, height: f.height };
+      const bb = ringBbox(f.ring);
+      const e = {
+        idx: fpEntries.length, ring: f.ring, bb, src: f.src, floors: f.floors, height: f.height,
+        span: Math.max(bb.maxX - bb.minX, bb.maxZ - bb.minZ),
+        cx: (bb.minX + bb.maxX) / 2, cz: (bb.minZ + bb.maxZ) / 2,
+        implied: f.src === 'permit'
+          ? (f.floors > 0 ? f.floors * HEIGHT_JOIN.permitM : 0)
+          : (f.height > 0 ? f.height : (f.floors > 0 ? f.floors * HEIGHT_JOIN.osmLevelsM : 0)),
+        blocked: null,
+      };
+      fpEntries.push(e);
       const gx0 = Math.floor(e.bb.minX / FP_CELL), gx1 = Math.floor(e.bb.maxX / FP_CELL);
       const gz0 = Math.floor(e.bb.minZ / FP_CELL), gz1 = Math.floor(e.bb.maxZ / FP_CELL);
       for (let gx = gx0; gx <= gx1; gx++) for (let gz = gz0; gz <= gz1; gz++) {
@@ -3225,16 +3460,22 @@ export function planTaipeiBuildings(geodata) {
     if (!heightLayer) return null;
     const bucket = fpGrid.get(fpKey(Math.floor(x / FP_CELL), Math.floor(z / FP_CELL)));
     if (!bucket) return null;
-    let osm = null;
+    let permit = null, osm = null;
     for (const e of bucket) {
       if (x < e.bb.minX || x > e.bb.maxX || z < e.bb.minZ || z > e.bb.maxZ) continue;
       if (!pointInRing(x, z, e.ring)) continue;
-      if (e.src === 'permit' && e.floors > 0) return { src: 'permit', floors: e.floors };
-      if (e.src === 'osm' && !osm) osm = e;
+      // Issue #219: a blocked donor (uncorroborated parcel-scale
+      // or extreme claim, see the guard pass below) does not
+      // speak; the scan continues so a valid second signal under
+      // the same point still can.
+      if (e.blocked) continue;
+      if (e.src === 'permit' && e.floors > 0) { if (!permit) permit = e; }
+      else if (e.src === 'osm' && !osm) osm = e;
     }
+    if (permit) return { src: 'permit', floors: permit.floors, fpIdx: permit.idx };
     if (osm) {
-      if (osm.height > 0) return { src: 'osm-height', height: osm.height };
-      if (osm.floors > 0) return { src: 'osm-levels', floors: osm.floors };
+      if (osm.height > 0) return { src: 'osm-height', height: osm.height, fpIdx: osm.idx };
+      if (osm.floors > 0) return { src: 'osm-levels', floors: osm.floors, fpIdx: osm.idx };
     }
     return null;
   };
@@ -3259,6 +3500,72 @@ export function planTaipeiBuildings(geodata) {
     const s = [...vals].sort((a, b) => a - b);
     return s.length % 2 ? s[(s.length - 1) / 2] : (s[s.length / 2 - 1] + s[s.length / 2]) / 2;
   };
+
+  // Issue #219: the join's sanity guards, precomputed per donor.
+  // The census (on the issue) found the class: permit/OSM outlines
+  // at PARCEL scale donating a whole block's floor count to every
+  // lot inside (a 55F permit on a 161 x 152 m parcel made eight
+  // 165 m lots in low-rise Shilin), and extreme single-source
+  // claims with no second source anywhere near. A donor is
+  // GUARDED when its span is parcel-scale (> parcelSpanM) or its
+  // implied height is extreme (>= extremeHeightM); a guarded
+  // donor still speaks only when CORROBORATED — a second footprint
+  // supporting at least corrFrac of the claim with its bbox within
+  // corrGapM, or door plates within corrDoorGrowM of the bbox
+  // whose tallest floor, at the door factor, supports the same
+  // share. Every legitimate extreme in the census is corroborated
+  // (the Xinyi 54F permit by an OSM 266 m outline and 54F doors;
+  // the twin 43F permits by each other); the Shilin parcel and the
+  // 112 m / 165 m-span OSM outline in Beitou have nothing. Blocked
+  // donors are skipped by footprintSignalAt, so their lots fall
+  // through to the door / field / procedural tiers.
+  if (heightLayer) {
+    const CORR_CELL = 128;
+    const corrGrid = new Map();
+    for (const e of fpEntries) {
+      const gx0 = Math.floor((e.bb.minX - HEIGHT_JOIN.corrGapM) / CORR_CELL), gx1 = Math.floor((e.bb.maxX + HEIGHT_JOIN.corrGapM) / CORR_CELL);
+      const gz0 = Math.floor((e.bb.minZ - HEIGHT_JOIN.corrGapM) / CORR_CELL), gz1 = Math.floor((e.bb.maxZ + HEIGHT_JOIN.corrGapM) / CORR_CELL);
+      for (let gx = gx0; gx <= gx1; gx++) for (let gz = gz0; gz <= gz1; gz++) {
+        const k = fpKey(gx, gz);
+        if (!corrGrid.has(k)) corrGrid.set(k, []);
+        corrGrid.get(k).push(e);
+      }
+    }
+    const bboxGap = (a, b) => Math.hypot(
+      Math.max(0, Math.max(a.minX - b.maxX, b.minX - a.maxX)),
+      Math.max(0, Math.max(a.minZ - b.maxZ, b.minZ - a.maxZ)));
+    for (const e of fpEntries) {
+      if (!e.implied) continue;
+      const parcel = e.span > HEIGHT_JOIN.parcelSpanM;
+      if (!parcel && e.implied < HEIGHT_JOIN.extremeHeightM) continue;
+      const bar = HEIGHT_JOIN.corrFrac * e.implied;
+      let corr = false;
+      const gx0 = Math.floor((e.bb.minX - HEIGHT_JOIN.corrGapM) / CORR_CELL), gx1 = Math.floor((e.bb.maxX + HEIGHT_JOIN.corrGapM) / CORR_CELL);
+      const gz0 = Math.floor((e.bb.minZ - HEIGHT_JOIN.corrGapM) / CORR_CELL), gz1 = Math.floor((e.bb.maxZ + HEIGHT_JOIN.corrGapM) / CORR_CELL);
+      for (let gx = gx0; gx <= gx1 && !corr; gx++) for (let gz = gz0; gz <= gz1 && !corr; gz++) {
+        for (const g of corrGrid.get(fpKey(gx, gz)) || []) {
+          if (g === e || !g.implied || g.implied < bar) continue;
+          if (bboxGap(e.bb, g.bb) <= HEIGHT_JOIN.corrGapM) { corr = true; break; }
+        }
+      }
+      if (!corr && doorPts) {
+        const grow = HEIGHT_JOIN.corrDoorGrowM;
+        const dgx0 = Math.floor((e.bb.minX - grow) / DOOR_CELL), dgx1 = Math.floor((e.bb.maxX + grow) / DOOR_CELL);
+        const dgz0 = Math.floor((e.bb.minZ - grow) / DOOR_CELL), dgz1 = Math.floor((e.bb.maxZ + grow) / DOOR_CELL);
+        for (let gx = dgx0; gx <= dgx1 && !corr; gx++) for (let gz = dgz0; gz <= dgz1 && !corr; gz++) {
+          for (const di of doorGrid.get(fpKey(gx, gz)) || []) {
+            const dx = doorPts[di * 3], dz = doorPts[di * 3 + 1];
+            if (dx < e.bb.minX - grow || dx > e.bb.maxX + grow || dz < e.bb.minZ - grow || dz > e.bb.maxZ + grow) continue;
+            if (doorPts[di * 3 + 2] * HEIGHT_JOIN.doorM >= bar) { corr = true; break; }
+          }
+        }
+      }
+      if (!corr) {
+        e.blocked = parcel ? 'parcel' : 'extreme';
+        if (parcel) stats.heightsGuardParcel++; else stats.heightsGuardExtreme++;
+      }
+    }
+  }
 
   // Support piers (validate's and taipei-mrt's rule): no pier point
   // — elevated-road or MRT deck — may stand inside a planned lot's
@@ -3566,9 +3873,9 @@ export function planTaipeiBuildings(geodata) {
     // mirrors mrtStationFootprint in js/taipei-mrt-stations.js (this
     // module stays import-free by convention; keep the two in sync).
     const L = s.length || 112;
-    const Wd = s.width || (s.kind === 'jiantan' ? 24 : s.kind === 'beitou' ? 33 : s.kind === 'at-grade' ? 16.5 : s.kind === 'wenhu' ? 20 : s.kind === 'entrance' ? 7 : 21.5);
-    const hw = s.kind === 'jiantan' ? (Wd + 2) / 2 : s.kind === 'beitou' ? (Wd + 2.6) / 2 : s.kind === 'xinbeitou' ? (Wd + 1.2) / 2 : s.kind === 'at-grade' ? (Wd + 4.6) / 2 : s.kind === 'wenhu' ? (Wd + 1.6) / 2 : s.kind === 'entrance' ? (Wd + 1.6) / 2 : (Wd + 1.9) / 2;
-    const hl = s.kind === 'jiantan' ? 122 : s.kind === 'beitou' ? (L + 4) / 2 : s.kind === 'xinbeitou' ? (L + 2.4) / 2 : s.kind === 'wenhu' ? (L + 1.2) / 2 : s.kind === 'entrance' ? (L + 1.6) / 2 : L / 2;
+    const Wd = s.width || (s.kind === 'jiantan' ? 24 : s.kind === 'beitou' ? 33 : s.kind === 'at-grade' ? 16.5 : s.kind === 'wenhu' ? 20 : s.kind === 'wenhu-open' ? 20 : s.kind === 'entrance' ? 7 : 21.5);
+    const hw = s.kind === 'jiantan' ? (Wd + 2) / 2 : s.kind === 'beitou' ? (Wd + 2.6) / 2 : s.kind === 'xinbeitou' ? (Wd + 1.2) / 2 : s.kind === 'at-grade' ? (Wd + 4.6) / 2 : s.kind === 'wenhu' ? (Wd + 1.6) / 2 : s.kind === 'wenhu-open' ? (Wd + 2.2) / 2 : s.kind === 'entrance' ? (Wd + 1.6) / 2 : (Wd + 1.9) / 2;
+    const hl = s.kind === 'jiantan' ? 122 : s.kind === 'beitou' ? (L + 4) / 2 : s.kind === 'xinbeitou' ? (L + 2.4) / 2 : s.kind === 'wenhu' ? (L + 1.2) / 2 : s.kind === 'wenhu-open' ? (L + 1.2) / 2 : s.kind === 'entrance' ? (L + 1.6) / 2 : L / 2;
     const cy = Math.cos(s.yaw), sy = Math.sin(s.yaw);
     let minX = Infinity, maxX = -Infinity, minZ = Infinity, maxZ = -Infinity;
     for (const [lx, lz] of [[-hw, -hl], [hw, -hl], [hw, hl], [-hw, hl]]) {
@@ -3615,6 +3922,7 @@ export function planTaipeiBuildings(geodata) {
 
   const lots = [];
   const lotProcH = []; // issue #128: each lot's procedural draw, index-aligned with lots
+  const lotFp = []; // issue #219: each lot's winning footprint entry index (or -1), index-aligned with lots
   // Issue #185: per-lot major-face records for the street-wall pull
   // (index-aligned with lots; null when the lot stands in no face of
   // rank >= FRONTAGE_PULL_MIN_RANK). vF/uF hold [dir, rank] for each
@@ -3629,6 +3937,8 @@ export function planTaipeiBuildings(geodata) {
     if (inPoly(block.cx, block.cz)) { stats.blocksSkippedParkWater++; continue; }
     if (inGreen(block.cx, block.cz)) { stats.blocksSkippedGreen++; continue; }
     if (inAirfield(block.cx, block.cz)) { stats.blocksSkippedAirfield++; continue; }
+    if (inNpmSite(block.cx, block.cz)) { stats.blocksSkippedNpmSite++; continue; }
+    if (inLoop(block.cx, block.cz)) { stats.blocksSkippedLoop++; continue; }
     if (inSchool(block.cx, block.cz)) { stats.blocksSkippedSchool++; continue; }
     if (!inUnion(block.cx, block.cz)) { stats.blocksSkippedOutsideUnion++; continue; }
     const big = block.area > 40000;
@@ -3798,6 +4108,10 @@ export function planTaipeiBuildings(geodata) {
         if (theta && tamsuiRings.length && corners.some(([px, pz]) => nearTamsui(px, pz))) { stats.lotsDroppedRiverside++; continue; }
         if (inAirfield(cx, cz)) { stats.lotsDroppedAirfield++; continue; }
         if (theta && corners.some(([px, pz]) => nearAirfield(px, pz))) { stats.lotsDroppedAirfield++; continue; }
+        if (inNpmSite(cx, cz)) { stats.lotsDroppedNpmSite++; continue; }
+        if (theta && corners.some(([px, pz]) => nearNpmSite(px, pz))) { stats.lotsDroppedNpmSite++; continue; }
+        if (inLoop(cx, cz)) { stats.lotsDroppedLoop++; continue; }
+        if (theta && corners.some(([px, pz]) => nearLoop(px, pz))) { stats.lotsDroppedLoop++; continue; }
         if (inSchool(cx, cz)) { stats.lotsDroppedSchool++; continue; }
         // The school corner verdict runs for UNROTATED lots too
         // (their axis corners): campus grounds are not in the
@@ -3896,9 +4210,11 @@ export function planTaipeiBuildings(geodata) {
         // for signal-less lots, the field tier's blend partner, and
         // it keeps every hash consumer downstream byte-stable.
         let h = procH, hSrc = 'proc';
+        let fpIdx = -1;
         if (heightLayer) {
           const fp = footprintSignalAt(cx, cz);
           if (fp) {
+            fpIdx = fp.fpIdx;
             if (fp.src === 'permit') { h = Math.round(fp.floors * HEIGHT_JOIN.permitM * 2) / 2; hSrc = 'permit'; }
             else if (fp.src === 'osm-height') { h = Math.round(fp.height * 2) / 2; hSrc = 'osm-height'; }
             else { h = Math.round(fp.floors * HEIGHT_JOIN.osmLevelsM * 2) / 2; hSrc = 'osm-levels'; }
@@ -3931,6 +4247,7 @@ export function planTaipeiBuildings(geodata) {
         if (fine) stats.lotsFine++;
         lots.push(lot);
         lotProcH.push(procH);
+        lotFp.push(fpIdx);
         // Issue #185: this lot's grid position and the block's four
         // face ranks, for the street-wall pull below. The direct
         // faces (vF/uF: the face rows/columns the lot stands in, at
@@ -3948,6 +4265,54 @@ export function planTaipeiBuildings(geodata) {
         if (col === 0 && edgeRankULow >= FRONTAGE_PULL_MIN_RANK) uF.push([-1, edgeRankULow]);
         if (col === cols - 1 && edgeRankUHigh >= FRONTAGE_PULL_MIN_RANK) uF.push([1, edgeRankUHigh]);
         lotFront.push({ c: cosT, s: sinT, bi, row, col, vF, uF, rVL: edgeRankVLow, rVH: edgeRankVHigh, rUL: edgeRankULow, rUH: edgeRankUHigh });
+      }
+    }
+  }
+
+  // Issue #219: stepped massing for lots sharing one joined
+  // footprint. The fine-grain planner subdivides a real complex's
+  // footprint into several lots, and the join used to hand EVERY
+  // one of them the footprint's full height — a uniform wall of
+  // identical slabs where one complex stands (type site: the twin
+  // 14-level footprints at Fuguo x Chengde, 2 lots each, all four
+  // at 42 m). Now the joined height lands as the complex's
+  // massing: the lot nearest the footprint's centre keeps it, and
+  // each sibling steps down by rank — 0.90, 0.80, ... floored at
+  // 0.55 — with a small seeded jitter so the steps do not read as
+  // a staircase. Only groups tall and wide enough to read as a
+  // complex wall are stepped (implied >= stepMinHeightM on a
+  // footprint spanning >= stepMinSpanM, at least 2 lots); a lone
+  // lot, a low building or a narrow footprint keeps the joined
+  // height untouched, and hSrc still names the signal — the
+  // massing is an estimate of the complex, not a new source. This
+  // runs BEFORE the field tier, so the neighbourhood field samples
+  // the stepped complex instead of the uniform wall (the corner's
+  // field lots stood at 24-30 m on the wall's median).
+  if (heightLayer) {
+    const stepGroups = new Map();
+    for (let i = 0; i < lots.length; i++) {
+      const fi = lotFp[i];
+      if (fi < 0) continue;
+      const e = fpEntries[fi];
+      if (!e || e.implied < HEIGHT_JOIN.stepMinHeightM || e.span < HEIGHT_JOIN.stepMinSpanM) continue;
+      if (!stepGroups.has(fi)) stepGroups.set(fi, []);
+      stepGroups.get(fi).push(i);
+    }
+    for (const [fi, idxs] of stepGroups) {
+      if (idxs.length < 2) continue;
+      const e = fpEntries[fi];
+      idxs.sort((a, b) => {
+        const da = Math.hypot(lots[a].x - e.cx, lots[a].z - e.cz);
+        const db = Math.hypot(lots[b].x - e.cx, lots[b].z - e.cz);
+        return da - db || lots[a].x - lots[b].x || lots[a].z - lots[b].z;
+      });
+      stats.heightsSteppedGroups++;
+      for (let r = 1; r < idxs.length; r++) {
+        const lot = lots[idxs[r]];
+        const jitter = 0.96 + hash01((Math.round(lot.x * 10) * 73856093) ^ (Math.round(lot.z * 10) * 19349663) ^ (fi * 83492791)) * 0.07;
+        const f = Math.max(0.55, 0.9 - 0.1 * (r - 1)) * jitter;
+        const nh = Math.round(lot.h * f * 2) / 2;
+        if (nh < lot.h) { lot.h = nh; stats.heightsSteppedLots++; }
       }
     }
   }
@@ -3984,6 +4349,43 @@ export function planTaipeiBuildings(geodata) {
           lots[i].hSrc = 'field';
         }
       }
+    }
+  }
+  // Issue #139, second look (found at the #186 merge gate): the
+  // field blend above is the one height change that lands AFTER
+  // the block loop's pierce check, and it can raise a 'proc' lot
+  // through a guideway its drawn height cleared — a field lot
+  // beside the Xinbeitou branch, drawn under the clearance, was
+  // blended to 14 m against a 7.2 m underside. Re-run the track
+  // verdict for every field-blended lot at its final height and
+  // drop the piercers, exactly as the block loop would have.
+  // (Bed is position-only and cannot change here; the #185 pull
+  // re-checks its own moves with final heights in pullClear.)
+  if (trackGrid) {
+    const dropIdx = new Set();
+    for (let i = 0; i < lots.length; i++) {
+      const lot = lots[i];
+      if (lot.hSrc !== 'field') continue;
+      const c = lot.rot ? Math.cos(lot.rot) : 1, s = lot.rot ? Math.sin(lot.rot) : 0;
+      const grown = lotCorners(lot.x, lot.z, lot.w + 2 * TRACK_MARGIN_M, lot.d + 2 * TRACK_MARGIN_M, c, s);
+      let mnx = Infinity, mxx = -Infinity, mnz = Infinity, mxz = -Infinity;
+      for (const [px, pz] of grown) {
+        if (px < mnx) mnx = px;
+        if (px > mxx) mxx = px;
+        if (pz < mnz) mnz = pz;
+        if (pz > mxz) mxz = pz;
+      }
+      const track = trackVerdict(lot.x, lot.z, grown, mnx, mxx, mnz, mxz);
+      if (track.under < Infinity && lot.h > track.under - TRACK_CLEARANCE_M) dropIdx.add(i);
+    }
+    if (dropIdx.size) {
+      stats.lotsDroppedTrackPierce += dropIdx.size;
+      const keptLots = lots.filter((_, i) => !dropIdx.has(i));
+      lots.length = 0; lots.push(...keptLots);
+      const keptProc = lotProcH.filter((_, i) => !dropIdx.has(i));
+      lotProcH.length = 0; lotProcH.push(...keptProc);
+      const keptFront = lotFront.filter((_, i) => !dropIdx.has(i));
+      lotFront.length = 0; lotFront.push(...keptFront);
     }
   }
   for (const lot of lots) {
@@ -4982,7 +5384,12 @@ export function taipeiCityBlocksOptions(geodata, plan = planTaipeiBuildings(geod
     }),
     bounds: { ...geodata.frame.bbox },
     initial: [0, 0],
-    colliders: false,
+    // Issue #207: colliders collected — Taipei's buildings are
+    // solid (the pre-#207 visual-only parity is reversed by the
+    // issue). buildCityBlocks emits one base collider per lot
+    // plus one per part above its 26 m block top, exactly the
+    // set Manhattan collides with.
+    colliders: true,
     // Issue #17: Taipei's rooftop-gear policy (no water towers; HVAC units
     // clamped to the roof) — buildCityBlocks' lot mode applies it to the
     // committed gear of every lot when present.
@@ -5372,6 +5779,39 @@ export function createTaipeiLandmarkTowers(THREE, plan, factories) {
       } else if (part.type === 'ridge') {
         mesh = new THREE.Mesh(ridgeGeometry(THREE, part), partMaterial(part, true));
         mesh.position.set(s.x, y0, s.z);
+      } else if (part.type === 'wheel') {
+        // Ferris wheel (issue #186, Miramar): authored as y0 = the
+        // wheel's bottom elevation and h = its diameter, so the
+        // landmark test's part-top formula (y0 + h) reads the apex.
+        // The wheel stands in the tile x-y plane (axle along z);
+        // its ground contact is the separate pylon boxes in the
+        // registry entry, which the issue-#42 audit sees — the
+        // wheel part itself is airborne mass (rim, spokes, cabins)
+        // and stays out of the audit's part vocabulary on purpose.
+        const g = new THREE.Group();
+        const R = part.h / 2, cy = y0 + R;
+        const rimMat = partMaterial(part, false);
+        const cabinMat = part.cabinFlat !== undefined ? flatPartMaterial(part.cabinFlat, false) : rimMat;
+        const addMesh = (geo, mat, x, y, z, rz) => {
+          const m = new THREE.Mesh(geo, mat);
+          m.position.set(x, y, z);
+          if (rz) m.rotation.z = rz;
+          m.castShadow = true;
+          g.add(m);
+        };
+        addMesh(new THREE.TorusGeometry(R - 1.0, 1.05, 8, 56), rimMat, 0, cy, 0);
+        addMesh(new THREE.TorusGeometry(R * 0.86, 0.55, 6, 48), rimMat, 0, cy, 0);
+        for (let i = 0; i < 12; i++) {
+          const a = (i / 12) * Math.PI * 2;
+          addMesh(new THREE.BoxGeometry(0.5, R * 0.86, 0.5), rimMat, Math.cos(a) * R * 0.43, cy + Math.sin(a) * R * 0.43, 0, a - Math.PI / 2);
+        }
+        addMesh(new THREE.BoxGeometry(5.2, 5.2, 5.6), rimMat, 0, cy, 0);
+        for (let i = 0; i < 16; i++) {
+          const a = (i / 16) * Math.PI * 2;
+          addMesh(new THREE.BoxGeometry(3.6, 3.9, 3.4), cabinMat, Math.cos(a) * (R - 1.0), cy + Math.sin(a) * (R - 1.0) - 1.4, 0);
+        }
+        g.position.set(s.x + (part.dx || 0), 0, s.z + (part.dz || 0));
+        mesh = g;
       }
       if (mesh) {
         mesh.castShadow = true;

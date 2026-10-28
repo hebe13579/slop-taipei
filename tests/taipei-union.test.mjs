@@ -53,7 +53,9 @@ test('frame carries the six boxes and their bounding rect', () => {
   assert.ok(Math.abs(cor.minX - -7165.5) < 1, `corridor west edge ${cor.minX} = lon 121.494 (issue #134)`);
   assert.ok(Math.abs(cor.minZ - -11077.3) < 1, `corridor north edge ${cor.minZ} = lat 25.133`);
   assert.ok(Math.abs(air.minX - -3229.5) < 1 && Math.abs(air.maxX - 504.6) < 1, `airport x span ${air.minX}..${air.maxX} (lon 121.533..121.570)`);
-  assert.ok(Math.abs(air.minZ - -4984.8) < 1 && Math.abs(air.maxZ - -2437) < 1, `airport z span ${air.minZ}..${air.maxZ} (lat 25.078..25.055)`);
+  // Issue #186: the airport box grows north to lat 25.107
+  // (the National Palace Museum strip) — z -4984.8 -> -8197.2.
+  assert.ok(Math.abs(air.minZ - -8197.2) < 1 && Math.abs(air.maxZ - -2437) < 1, `airport z span ${air.minZ}..${air.maxZ} (lat 25.107..25.055)`);
   assert.ok(Math.abs(bei.minX - -10193.2) < 1 && Math.abs(bei.maxX - -5550.8) < 1, `beitou x span ${bei.minX}..${bei.maxX}`);
   assert.ok(Math.abs(bei.minZ - -12960.5) < 1 && Math.abs(bei.maxZ - -8861.9) < 1, `beitou z span ${bei.minZ}..${bei.maxZ} (lat 25.150..25.113)`);
   assert.ok(Math.abs(inc.minX - -7165.5) < 1 && Math.abs(inc.maxZ - -7864.9) < 1, `connector span ${inc.minX}..${inc.maxX} / ${inc.minZ}..${inc.maxZ}`);
@@ -101,8 +103,11 @@ test('unionExclusionRects: the six-box union leaves exactly five exclusion rects
   const near = (r, minX, maxX, minZ, maxZ) =>
     Math.abs(r.minX - minX) < 1 && Math.abs(r.maxX - maxX) < 1 && Math.abs(r.minZ - minZ) < 1 && Math.abs(r.maxZ - maxZ) < 1;
   assert.ok(rects.some((r) => near(r, -5550.8, 1513.8, -12960.5, -11077.3)), 'north strip east of Beitou (above the corridor)');
-  assert.ok(rects.some((r) => near(r, -3229.5, 1513.8, -11077.3, -4984.8)), 'NE notch east of the corridor, south-bounded by the airport (issue #134)');
-  assert.ok(rects.some((r) => near(r, 504.6, 1513.8, -4984.8, -2437)), 'notch east of the airport box, north of A (issue #134)');
+  // Issue #186: the NE notch's south bound follows the airport
+  // box's new north edge (z -8197.2, lat 25.107), and the notch
+  // east of the airport box grows with it.
+  assert.ok(rects.some((r) => near(r, -3229.5, 1513.8, -11077.3, -8197.2)), 'NE notch east of the corridor, south-bounded by the airport (issues #134/#186)');
+  assert.ok(rects.some((r) => near(r, 504.6, 1513.8, -8197.2, -2437)), 'notch east of the airport box, north of A (issues #134/#186)');
   assert.ok(rects.some((r) => near(r, -10193.2, -7165.5, -8861.9, 498.5)), 'west notch, north strip (west of the connector)');
   assert.ok(rects.some((r) => near(r, -7165.5, -6257.2, -2437, 498.5)), 'west notch, south strip (west of A only, issue #134)');
   // Abutting full coverage -> no exclusions; no boxes -> no exclusions.
