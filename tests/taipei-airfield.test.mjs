@@ -102,13 +102,10 @@ test('both runway designators are painted, thresholds keyed', () => {
 
 test('the #134 site exclusion does not regress', () => {
   assert.equal(plan.stats.blocksSkippedAirfield, 45, 'airfield blocks skipped, as #134');
-  // Issue #186: lots dropped at the airfield verdict 218 ->
-  // 200. The exclusion itself is unchanged (0 lots stand inside
-  // the site, asserted by the plan census above); the count
-  // moves because the planner seeds lots by block index, so
-  // the #186 block-set growth re-draws which candidates reach
-  // the airfield verdict before an earlier one takes them.
-  assert.equal(plan.stats.lotsDroppedAirfield, 200, 'airfield lots dropped, as #134 (count re-pinned for #186, see comment)');
+  // Issue #124: 222 — the fine grid around the field puts four
+  // more candidate centres inside the exclusion polygon; the
+  // exclusion itself is unchanged and still drops every one.
+  assert.equal(plan.stats.lotsDroppedAirfield, 203, 'airfield lots dropped, as #134 (merged-tree re-pin at the #186 gate: #124 fine grid pinned 222 on main, #186 strip growth pinned 200 on its stale base; measured 203 on the merged tree — both block-set changes composed)');
 });
 
 // Issue #183: 復興北路 dives UNDER the field through the
@@ -136,24 +133,43 @@ test('airfield road tunnel: the dive is suppressed, the mouths dressed, the rout
     const mx = (run[i] + run[i + 2]) / 2, mz = (run[i + 1] + run[i + 3]) / 2;
     assert.ok(inRing(ring, mx, mz), `suppressed segment midpoint (${mx}, ${mz}) inside the site`);
   }
-  // No bed carrying the tunnel ways paints inside the site: the
-  // only surviving bed is the north apron stub, wholly outside.
+  // No bed carrying the tunnel ways survives at all: the v5 north
+  // apron stub lay inside the #196 approach cut and was clipped
+  // with it (generation-map rework v6).
   const beds = TAIPEI_GEO.roadbeds.filter((b) => b.sourceWayIds.some((w) => t.sourceWayIds.includes(w)));
-  assert.equal(beds.length, 1, 'one surface apron stub survives (the 1.9 m south scrap folds into the tunnel length)');
-  const stub = beds[0];
-  for (let i = 0; i + 3 < stub.pts.length; i += 2) {
-    const mx = (stub.pts[i] + stub.pts[i + 2]) / 2, mz = (stub.pts[i + 1] + stub.pts[i + 3]) / 2;
-    assert.ok(!inRing(ring, mx, mz), `apron segment midpoint (${mx}, ${mz}) outside the site`);
+  assert.equal(beds.length, 0, 'no surface bed of the tunnel ways survives (the north apron is inside the approach cut)');
+  // Issue #196: every mouth records its approach cut, and no flat
+  // bed remains inside either cut corridor — the trench floor
+  // replaces them. (The one exception is documented in the map:
+  // the 迴轉道 loop bed crosses the north corridor mid-bed and
+  // stays whole as a bridge over the cut.)
+  const corridorOf = (m) => {
+    const hw = t.width / 2 + 0.3;
+    const ux = -m.tx, uz = -m.tz, nx = -uz, nz = ux;
+    const ex = m.x + ux * m.cut.lenM, ez = m.z + uz * m.cut.lenM;
+    return [[m.x + nx * hw, m.z + nz * hw], [ex + nx * hw, ez + nz * hw], [ex - nx * hw, ez - nz * hw], [m.x - nx * hw, m.z - nz * hw]];
+  };
+  for (const m of t.mouths) {
+    assert.ok(m.cut && m.cut.lenM > 20, `mouth (${m.x}, ${m.z}) carries an approach cut (${m.cut?.lenM} m)`);
+    const corr = corridorOf(m);
+    for (const b of TAIPEI_GEO.roadbeds) {
+      if (b.sourceWayIds.includes(381570082)) continue; // the bridge exemption
+      for (let i = 0; i + 3 < b.pts.length; i += 2) {
+        const mx = (b.pts[i] + b.pts[i + 2]) / 2, mz = (b.pts[i + 1] + b.pts[i + 3]) / 2;
+        assert.ok(!inRing(corr.flatMap((p) => p), mx, mz), `bed "${b.name}" segment midpoint (${mx}, ${mz}) inside a portal cut corridor`);
+      }
+    }
   }
-  const stubLen = Math.hypot(stub.pts[2] - stub.pts[0], stub.pts[3] - stub.pts[1]);
-  assert.ok(stubLen > 15 && stubLen < 25, `north apron stub ${stubLen.toFixed(1)} m`);
-  // Portal geometry: 2 mouths × (4 headwall + 2 wing) concrete
-  // quads and 2 dark bores, every face pointing the right way.
+  // Portal geometry (issue #196 trench form): 2 mouths × (4
+  // headwall + 2 retaining walls + 2 copings) concrete quads, 2
+  // dark bores and 1 asphalt floor quad per mouth, every face
+  // pointing the right way.
   const portals = buildRoadTunnelPortals(TAIPEI_GEO.airfield);
   assert.equal(portals.stats.tunnels, 1);
   assert.equal(portals.stats.mouths, 2);
-  assert.equal(portals.concrete.positions.length, 2 * 6 * 6 * 3, 'concrete soup: 6 quads per mouth');
+  assert.equal(portals.concrete.positions.length, 2 * 8 * 6 * 3, 'concrete soup: 8 quads per mouth');
   assert.equal(portals.dark.positions.length, 2 * 2 * 6 * 3, 'dark soup: 2 bores per mouth');
+  assert.equal(portals.floor.positions.length, 2 * 1 * 6 * 3, 'floor soup: 1 quad per mouth');
   const quadNormal = (arr, qi) => {
     const o = qi * 18;
     return [arr[o], arr[o + 1], arr[o + 2]];
@@ -162,18 +178,33 @@ test('airfield road tunnel: the dive is suppressed, the mouths dressed, the rout
     const ux = -m.tx, uz = -m.tz; // out of the tunnel
     const nx = -uz, nz = ux;
     for (let qi = 0; qi < 4; qi++) {
-      const n = quadNormal(portals.concrete.normals, mi * 6 + qi);
+      const n = quadNormal(portals.concrete.normals, mi * 8 + qi);
       assert.ok(n[0] * ux + n[2] * uz > 0.99, `mouth ${mi} headwall quad ${qi} faces out of the tunnel`);
     }
     for (let qi = 0; qi < 2; qi++) {
       const n = quadNormal(portals.dark.normals, mi * 2 + qi);
       assert.ok(n[0] * ux + n[2] * uz > 0.99, `mouth ${mi} bore ${qi} faces out of the tunnel`);
     }
-    // Wing walls: normals point away from the road (±n by side).
-    const w0 = quadNormal(portals.concrete.normals, mi * 6 + 4);
-    const w1 = quadNormal(portals.concrete.normals, mi * 6 + 5);
-    assert.ok(w0[0] * -nx + w0[2] * -nz > 0.9, `mouth ${mi} west wing faces outward`);
-    assert.ok(w1[0] * nx + w1[2] * nz > 0.9, `mouth ${mi} east wing faces outward`);
+    // Retaining walls: normals point INTO the cutting (±n by
+    // side); copings face up; the floor faces up the ramp.
+    const w0 = quadNormal(portals.concrete.normals, mi * 8 + 4);
+    const w1 = quadNormal(portals.concrete.normals, mi * 8 + 6);
+    assert.ok(w0[0] * nx + w0[2] * nz > 0.9, `mouth ${mi} -n wall faces into the cut`);
+    assert.ok(w1[0] * -nx + w1[2] * -nz > 0.9, `mouth ${mi} +n wall faces into the cut`);
+    for (const qi of [5, 7]) {
+      const n = quadNormal(portals.concrete.normals, mi * 8 + qi);
+      assert.ok(n[1] > 0.99, `mouth ${mi} coping quad ${qi} faces up`);
+    }
+    const fl = quadNormal(portals.floor.normals, mi);
+    assert.ok(fl[1] > 0.9, `mouth ${mi} trench floor faces up`);
+    // The face is seated at the trench bottom: the mouth's
+    // concrete spans from below the trench floor to about grade.
+    let mn = Infinity, mx = -Infinity;
+    for (let v = 0; v < 8 * 6; v++) {
+      const y = portals.concrete.positions[(mi * 8 * 6 + v) * 3 + 1];
+      mn = Math.min(mn, y); mx = Math.max(mx, y);
+    }
+    assert.ok(Math.abs(mn - -5.9) < 1e-6 && Math.abs(mx - 0.35) < 1e-6, `mouth ${mi} face spans ${mn}..${mx} m (trench bottom to grade)`);
   });
   // The drive graph never lost the route: both tunnel carriageway
   // edges exist and each connects its south portal node to its

@@ -78,11 +78,11 @@ test('geodata: class populations cover every roadbed exactly once', () => {
   // take roadbeds 11,804 -> 13,578 — deck 181 -> 207 (the
   // riverside expressway system), arterial 905 -> 1,130,
   // collector 899 -> 1,015, lane 9,819 -> 11,226.
-  // Re-pinned for issue #186: the strip to the National Palace
-  // Museum takes roadbeds 13,578 -> 14,547 — deck 207 -> 210,
-  // arterial 1,130 -> 1,181, collector 1,015 -> 1,057, lane
-  // 11,226 -> 12,099.
-  assert.deepEqual(counts, { deck: 210, arterial: 1181, collector: 1057, lane: 12099 });
+  // Re-pinned for issue #196: roadbeds 13,578 -> 13,577, arterial
+  // 1,130 -> 1,129 — the single removed bed is the 復北地下道
+  // north apron stub (secondary), clipped into the portal
+  // approach cut (generation-map rework v6).
+  assert.deepEqual(counts, { deck: 210, arterial: 1180, collector: 1057, lane: 12099 }); // merged-tree re-pin at the #186 gate: main {207,1129,1015,11226} + the #186 strip beds (deck/collector/lane exactly the #186 branch pins; arterial 1,180 — one strip way is routed to roadTunnels by the post-#196 builder); sums to the 14,546 roadbeds
 });
 
 test('medianKind: merged + width rule, planted only on wide secondary', () => {
@@ -171,18 +171,22 @@ test('geodata: median bed counts match the regenerated evidence list', () => {
   // unchanged — the rule still describes which beds WOULD carry a
   // median (taipei-markings' laneLayout reads it), and ground
   // beds' emitted quads are byte-identical to the pre-fix build.
-  // Issue #186: built beds move with the eligibility census
-  // and the +3 deck beds （自強橋/望星橋 among them): planted
-  // 189 -> 202, plain 402 -> 438, deckBedsSkipped 68 -> 71,
-  // rendered lengths planted 29.0 -> 31.59 km, plain 69.2 ->
-  // 75.56 km. excludedUnderpass unchanged: the strip's 自強隧道
-  // beds are name-excluded from eligibility in the first place.
-  assert.equal(stats.plantedBeds, 202);
-  assert.equal(stats.plainBeds, 438);
+  assert.equal(stats.plantedBeds, 202); // merged-tree re-pin at the #186 gate (189 main / 202 #186 branch / 202 merged)
+  assert.equal(stats.plainBeds, 438); // merged-tree re-pin at the #186 gate (402 main / 438 #186 branch / 438 merged)
+  // Merged-tree re-pin at the #186 gate: deckBedsSkipped 68 (main)
+  // -> 71 — the #186 strip adds exactly three deck-flagged
+  // median-eligible bridge beds （復興橋, 望星橋, 自強橋, +1 each by
+  // name census against main's geodata; every other name's count
+  // is unchanged).
   assert.equal(stats.deckBedsSkipped, 71);
-  assert.equal(stats.excludedUnderpass, 4); // 象山隧道 x3 + 復北地下道
-  assert.ok(stats.plantedKm > 31 && stats.plantedKm < 32, `planted rendered ${stats.plantedKm} km`);
-  assert.ok(stats.plainKm > 75 && stats.plainKm < 76, `plain rendered ${stats.plainKm} km`);
+  // Issue #196: excludedUnderpass 4 -> 3 — the 復北地下道 bed no
+  // longer exists as a bed at all (its surviving apron was
+  // clipped into the portal approach cut), so only the 象山隧道
+  // x3 remain name-excluded. The eligibility census above is
+  // unchanged (the tunnel bed was excluded, never counted).
+  assert.equal(stats.excludedUnderpass, 3); // 象山隧道 x3
+  assert.ok(stats.plantedKm > 28 && stats.plantedKm < 30, `planted rendered ${stats.plantedKm} km`);
+  assert.ok(stats.plainKm > 68 && stats.plainKm < 71, `plain rendered ${stats.plainKm} km`);
 });
 
 test('medianStripWidth clamps to 1.2–3.5 m at 8% of bed width', () => {

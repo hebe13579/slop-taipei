@@ -569,17 +569,15 @@ test('jiannan road station (issue #186): the open elevated side-platform form', 
 
 test('stations: no planned lot overlaps a station footprint', () => {
   const plan = planTaipeiBuildings(TAIPEI_GEO);
-  // Pinned graze (issue #186): exactly one lot enters this
-  // centre-frame check's margin — the 13.2 x 16.6 m lot centred
-  // (-1846.1, -5153.7) beside Dazhi exit 2. Physically it does
-  // NOT touch the pavilion: the lot's east edge (x -1839.5)
-  // stands 0.7 m clear of the entrance footprint AABB's west
-  // edge (x -1838.8), which is the exclusion the planner itself
-  // applies. The centre-frame check is conservative here — it
-  // charges the lot's full depth against the station's along
-  // axis in a 90-degree frame. Any NEW hit fails this pin until
-  // individually justified, same discipline as the crossing
-  // piers above.
+  // Pinned graze set (issue #186): EMPTY on the merged tree.
+  // The #186 branch pinned one graze here — a 13.2 x 16.6 m
+  // lot centred (-1846.1, -5153.7) beside Dazhi exit 2 — but
+  // that lot was drawn by the re-rolled block order of the
+  // first merged regeneration (see the clearance test's
+  // composition note); on the restored fabric no lot enters
+  // this check's margin. The pin stays strict: any hit fails
+  // until individually justified, same discipline as the
+  // crossing piers above.
   const hits = [];
   for (const s of stations) {
     const { hw, hl } = mrtStationFootprint(s);
@@ -591,7 +589,7 @@ test('stations: no planned lot overlaps a station footprint', () => {
       if (hit) hits.push(`lot at (${lot.x.toFixed(0)}, ${lot.z.toFixed(0)}) inside ${s.id}`);
     }
   }
-  assert.deepEqual(hits, ['lot at (-1846, -5154) inside mrt-dazhi-exit-2'],
+  assert.deepEqual(hits, [],
     'station-footprint grazes (pinned exception set — see comment above)');
 });
 
@@ -700,7 +698,22 @@ test('tracks (issue #139): the renderer draws ballast + rails only in track mode
   assert.ok(tracked.ballast.positions.length > 0, 'ballast strips emitted');
   assert.ok(tracked.rails.positions.length > 0, 'rail ribbons emitted');
   assert.equal(tracked.asphalt.positions.length, 0, 'track mode replaces the asphalt ribbon');
-  assert.deepEqual([...tracked.concrete.positions], [...plain.concrete.positions], 'concrete sink identical — the road deck path is byte-stable');
+  // Issue #196: this used to deep-compare the whole tile's tracked
+  // vs plain concrete. Track mode now re-profiles the four dive
+  // ramps (their slabs descend into the portal trenches), so
+  // tile-wide equality no longer holds by design. The invariant's
+  // content — track mode leaves non-dive geometry alone, and the
+  // road-deck path (plain mode) never re-profiles — is pinned on a
+  // synthetic set with no firing end:
+  const noDive = {
+    lines: [
+      { pts: [0, 0, 100, 0], width: 10.4, h: [9, 9], tracks: [-3, 3] },
+      { pts: [0, 50, 100, 50], width: 10.4, h: [0, 0], tracks: [-3, 3] },
+    ],
+    piers: [], deckDepth: 1.8,
+  };
+  assert.deepEqual([...buildDeckGeometry(noDive, { tracks: true }).concrete.positions],
+    [...buildDeckGeometry(noDive).concrete.positions], 'concrete sink identical where no dive fires');
   assert.equal(tracked.lineCount, plain.lineCount, 'same line count');
   for (let i = 0; i < tracked.ballast.positions.length; i++) assert.ok(Number.isFinite(tracked.ballast.positions[i]), 'finite ballast');
   for (let i = 0; i < tracked.rails.positions.length; i++) assert.ok(Number.isFinite(tracked.rails.positions[i]), 'finite rails');
@@ -723,22 +736,26 @@ test('tracks (issue #139): the renderer draws ballast + rails only in track mode
   for (let i = 0; i < tracked.guideway.positions.length; i++) assert.ok(Number.isFinite(tracked.guideway.positions[i]), 'finite guideway');
 });
 
-test('portal (issue #173): a lone dive end gets a shaped portal mouth; a grade join and road mode do not', () => {
+test('portal (issue #173, re-seated by #196): a lone dive end gets a trench portal; a grade join and road mode do not', () => {
   const dive = {
     lines: [{ pts: [0, 0, 100, 0], width: 10.4, h: [9, 0], tracks: [-3, 3] }],
     piers: [], deckDepth: 1.8,
   };
   const g = buildDeckGeometry(dive, { tracks: true });
-  assert.ok(g.portal.positions.length > 0, 'headwall + wing geometry emitted at the dive end');
+  assert.ok(g.portal.positions.length > 0, 'headwall + trench geometry emitted at the dive end');
   assert.ok(g.portalDark.positions.length > 0, 'dark opening emitted');
   // The headwall faces back along the line (the line runs +x and
   // dives at x=100): the first portal quad's flat normal is -x.
   assert.ok(g.portal.normals[0] < -0.99 && Math.abs(g.portal.normals[1]) < 0.01 && Math.abs(g.portal.normals[2]) < 0.01,
     `headwall normal (${g.portal.normals[0]}, ${g.portal.normals[1]}, ${g.portal.normals[2]}) faces -x`);
-  // Headwall height is the module's portal height.
-  let maxY = 0;
-  for (let i = 1; i < g.portal.positions.length; i += 3) maxY = Math.max(maxY, g.portal.positions[i]);
-  assert.ok(Math.abs(maxY - 5.2) < 1e-6, `headwall tops at ${maxY} m`);
+  // Issue #196: the headwall is re-seated at the trench bottom —
+  // its crest sits at about grade (PORTAL_FACE_TOP_M, not the old
+  // 5.2 m free-standing height) and its foot reaches the trench
+  // floor (running surface -5.2 minus the face base).
+  let maxY = -Infinity, minY = Infinity;
+  for (let i = 1; i < g.portal.positions.length; i += 3) { maxY = Math.max(maxY, g.portal.positions[i]); minY = Math.min(minY, g.portal.positions[i]); }
+  assert.ok(Math.abs(maxY - 0.35) < 1e-6, `headwall crest at ${maxY} m (about grade)`);
+  assert.ok(Math.abs(minY - -5.75) < 1e-6, `headwall foot at ${minY} m (the trench bottom)`);
   // A continuation line ending at the same point makes it a grade
   // join (the Beitou descent pattern), not a portal.
   const joined = {
@@ -776,17 +793,21 @@ test('portal (issue #173): the real tile has exactly the six dive mouths (Minqua
   // faces/wings consolidated). The Red mouths are byte-identical
   // (hash-verified at the gate against the pre-#184 emitter), and
   // each mouth still carries exactly one dark opening quad.
-  // Issue #186 re-pin (portal 48 -> 76 triangles, openings 8 ->
-  // 12): the Wenhu north resurface's twin ends pair into the
-  // same combined block at the Dazhi-side portal (+14 quads =
-  // +28 triangles, one dark opening quad per trackway), so the
-  // tile now has six mouths. The Red mouths and the airport
-  // block are unchanged (field diff at the #186 gate).
-  assert.equal(tracked.portal.positions.length / 9, 76, 'portal concrete triangles (Red 2 × 5 quads + Wenhu combined blocks 2 × 14 quads)');
-  assert.equal(tracked.portalDark.positions.length / 9, 12, 'portal opening triangles (6 mouths × 1 quad)');
+  // Issue #196 re-pin (tally unchanged at 48, composition fully
+  // replaced — measured at the gate): both pairs now dive into a
+  // shared open cut; #184's byte-identical Red control is
+  // deliberately superseded. Red cluster (one cutting, 2 stations
+  // below grade): face 4 quads + walls/coping 4 quads = 8 quads =
+  // 16 triangles. Wenhu cluster (4 below-grade stations): face 4
+  // quads + 3 wall segments × 2 sides × (wall + coping) 12 quads
+  // = 16 quads = 32 triangles. 16 + 32 = 48. The trench floors
+  // ride the ballast/guideway sinks, not this one; each of the 4
+  // mouths still carries exactly one dark opening quad.
+  assert.equal(tracked.portal.positions.length / 9, 72, 'portal concrete triangles (issue #196 trench set 48 + the #186 Wenhu resurface portal blocks 24 — merged-tree re-pin at the #186 gate)');
+  assert.equal(tracked.portalDark.positions.length / 9, 12, 'portal opening triangles (6 mouths × 1 quad — the #186 strip adds the Dazhi resurface mouth pair; merged-tree re-pin at the #186 gate: 8 main / 12 #186 branch / 12 merged)');
 });
 
-test('portal block (issue #184): twin guideway dive ends share one seated block; a lone guideway end keeps the fin form', () => {
+test('portal block (issue #184, trench form by #196): twin guideway dive ends share one cutting; a lone guideway end gets its own', () => {
   const twin = {
     lines: [
       { pts: [0, 0, 100, 0, 200, 0], width: 2.6, h: [9, 9, 0], tracks: [0], trackStyle: 'guideway' },
@@ -795,15 +816,19 @@ test('portal block (issue #184): twin guideway dive ends share one seated block;
     piers: [], deckDepth: 1.8,
   };
   const g = buildDeckGeometry(twin, { tracks: true });
-  // One combined block: face 4 + cap 1 + cheeks 2 + apron 5 +
-  // wings 2 = 14 quads = 28 triangles; one dark opening per track.
-  assert.equal(g.portal.positions.length / 9, 28, 'combined block quads (14 × 2 triangles)');
+  // Issue #196: one shared cutting instead of #184's block — face
+  // 4 quads (3 piers + lintel for 2 openings) + 1 below-grade wall
+  // segment × 2 sides × (wall + coping) 4 quads = 8 quads = 16
+  // triangles; one dark opening per track. (The trench floor rides
+  // the guideway sink.)
+  assert.equal(g.portal.positions.length / 9, 16, 'shared cutting quads (8 × 2 triangles)');
   assert.equal(g.portalDark.positions.length / 9, 4, 'two dark openings (2 quads)');
-  // Carried to grade, headwall crest at the module's portal height.
+  // The face is seated at the trench bottom: foot at the running
+  // surface minus the face base, crest at about grade.
   let minY = Infinity, maxY = 0;
   for (let i = 1; i < g.portal.positions.length; i += 3) { minY = Math.min(minY, g.portal.positions[i]); maxY = Math.max(maxY, g.portal.positions[i]); }
-  assert.equal(minY, 0, 'the block sits on the ground');
-  assert.ok(Math.abs(maxY - 5.2) < 1e-6, `headwall tops at ${maxY} m`);
+  assert.ok(Math.abs(minY - -5.75) < 1e-6, `face foot at ${minY} m (the trench bottom)`);
+  assert.ok(Math.abs(maxY - 0.35) < 1e-6, `headwall crest at ${maxY} m (about grade)`);
   // Each dark opening is centred on its own trackway (z = 0 / 4.6).
   const cz = [];
   for (let i = 0; i < g.portalDark.positions.length; i += 18) {
@@ -811,13 +836,15 @@ test('portal block (issue #184): twin guideway dive ends share one seated block;
     cz.push(+(s / 6).toFixed(2));
   }
   assert.deepEqual(cz.sort(), [0, 4.6], 'openings centred on the twin trackways');
-  // A lone narrow guideway end has no partner: #173's fin form.
+  // A lone narrow guideway end has no partner: its own cutting —
+  // face 3 quads (2 piers + lintel) + walls/coping 4 quads = 7
+  // quads = 14 triangles (issue #196; #173's fin is gone).
   const lone = {
     lines: [{ pts: [0, 0, 100, 0, 200, 0], width: 2.6, h: [9, 9, 0], tracks: [0], trackStyle: 'guideway' }],
     piers: [], deckDepth: 1.8,
   };
   const gl = buildDeckGeometry(lone, { tracks: true });
-  assert.equal(gl.portal.positions.length / 9, 10, 'lone guideway end keeps the 5-quad fin');
+  assert.equal(gl.portal.positions.length / 9, 14, 'lone guideway cutting quads (7 × 2 triangles)');
   assert.equal(gl.portalDark.positions.length / 9, 2, 'lone opening (1 quad)');
 });
 
@@ -833,10 +860,14 @@ test('portal trees (issue #173): ground-contact polygons cover at-grade and dive
   // exactly one ground-touching segment at its foot (h starts at
   // 0), so the Wenhu dive contributes one contact polygon per
   // trackway.
-  // Issue #186: +2 — the north resurface's ramps meet the tunnel
-  // at the Dazhi-side portal the same way (one contact polygon
-  // per trackway at each ramp foot).
-  assert.equal(real.length, 128, 'real-tile ground-contact segments (at-grade Beitou + the portal ramps + the Wenhu dive feet, both portals)');
+  // Issue #196 re-pin (126 -> 134, delta +8, measured per line at
+  // the gate): contact is now judged on the re-profiled dive
+  // descents, and the inserted grade-crossing point splits each
+  // dive's contact run at y=0. Each Red trackway: 1 -> 2 segments
+  // (trench + ramp foot). Each Wenhu trackway: 1 -> 4 (three
+  // descent segments under the crossing plus the segment leaving
+  // it, whose low end still touches at h=0).
+  assert.equal(real.length, 141, 'real-tile ground-contact segments (at-grade Beitou + the re-profiled dive descents + the #186 Dazhi resurface feet — merged-tree re-pin at the #186 gate: 134 main / 128 #186-stale-base / 141 merged)');
   // Every polygon is a quad around its segment.
   for (const p of real) assert.equal(p.length, 4);
 });
@@ -865,30 +896,103 @@ test('clearance (issue #139): census by counterfactual, audit exact', (t) => {
   // meets their tops (a proc lot, h 14.5 at (-1869, -3587),
   // and a door-tier lot, h 15.5 at (-2018, -3685); both
   // masonry family — diffed lot by lot at the #146 gate).
-  // Composed with issue #186 on this merged tree: the airport
-  // box grows north to the National Palace Museum. The
-  // counterfactual also strips the 'wenhu-open' kind (Jiannan
-  // Rd did not exist pre-#186; the three Dazhi defs ride the
-  // existing 'entrance' strip). Both anchors move with the
-  // tile: the counterfactual 38,803 -> 42,626 and the shipped
-  // plan 38,340 -> 42,190 (+3,733 lots inside the new strip,
-  // +117 from the block-set reshuffle — the planner seeds lots
-  // by block index, so a changed block set re-draws the plan;
-  // the block set outside the strip is byte-identical except
-  // the river/boundary seam, proven at the #186 gate). On this
-  // tree the #139-family removals total 436: 404 inside the
-  // depot + station sites (Jiannan's exclusion contributes 1),
-  // 13 on the at-grade track bed (unchanged), 19 pierce drops
-  // (+2 under the #186 north guideway).
+  // Composed with issue #165 on this merged tree: the six new
+  // Xinyi registry sites exclude 31 lots in BOTH plans (the site
+  // rule is not a #139 input either), so both anchors drop by 31
+  // more (counterfactual 38,772) and the #139 delta below is
+  // unchanged at 463 — measured at the #165 gate by the same
+  // lot-by-lot diff as the shipped-plan re-pin below.
+  // Composed with issue #124 on this merged tree: the anchors
+  // are the FINE plan's now — the counterfactual (same strips)
+  // reproduces 72,254 and the shipped plan 71,584, so the #139
+  // inputs remove 670 on the fine grid: the same depot/station
+  // sites, bed 28 and pierce 56 by the planner counters below
+  // (the fine grid puts more candidates on the at-grade bed and
+  // more tall lots under the guideways), plus 19 drops of the
+  // new pier rule — the MRT deck piers were placed against the
+  // coarse plan, so the loop and the #185 pull now test both
+  // pier sets and those 19 candidates (all under the Red Line
+  // corridor fabric) drop. The audit asserts are unchanged.
+  // Composed with issue #166 on this merged tree: the five new
+  // Tianmu/Beitou registry sites exclude 143 lots from the
+  // counterfactual and 141 from the shipped plan (the site
+  // rule is not a #139 input either; diffed lot by lot at the
+  // #166 merge gate). The 2-lot gap is the fine-grid Shipai
+  // pierce candidate and one pier-rule candidate the campus
+  // site now pre-empts: pierce 56 -> 55 and pier 19 -> 18 in
+  // the planner counters below, bed unchanged at 28.
+  // Composed with issue #186 on the #186 MERGE tree (this
+  // gate): the airport box grows north to the National Palace
+  // Museum. The counterfactual also strips the 'wenhu-open'
+  // kind (Jiannan Rd did not exist pre-#186; the three Dazhi
+  // defs ride the existing 'entrance' strip). Measured on the
+  // merged tree at the merge gate: the counterfactual anchor
+  // moves 72,111 -> 76,097 and the shipped plan 71,443 ->
+  // 75,429 — the same +3,986 on both, so the #139-family
+  // removals total 668 here, exactly as on main: bed drops
+  // reproduce main's 28 and pierce is main's 55 plus one strip
+  // drop (below). That reproduction is NOT automatic: the
+  // merge regenerated the geodata, and the first regeneration
+  // emitted the blocks array in a new order — the planner
+  // seeds each block's draws by block index, so the whole
+  // existing city silently re-rolled (plan 75,379 on that
+  // tree, bed 39, one field-pierce). The gate reordered the
+  // merged blocks back to main's order — 7,219 exact centre
+  // matches, 32 re-cut edge blocks in their predecessors'
+  // slots, the grown airport region block succeeding its
+  // parent, 388 strip blocks appended — after which a
+  // lot-by-lot diff against main matches 71,180 of 71,443
+  // lots outside the strip, the residual churn confined to
+  // the re-cut boundary bands. (The figures in this
+  // paragraph's first draft — 42,626 / 42,190 / 436 — were
+  // the #186 branch's coarse-plan numbers on its stale base
+  // and do not describe this tree.)
+  // Gate fix on this merged tree (planner, js/taipei-buildings.js):
+  // the #128 field blend runs after the block loop's pierce
+  // check — an ordering bug the re-rolled tree exposed when
+  // its audit caught one kept lot piercing the Xinbeitou
+  // branch guideway (drawn under the clearance, blended to
+  // 14 m against a 7.2 m underside at 復興崗). The planner now
+  // re-runs the track verdict for field-blended lots at their
+  // final height and drops piercers. On the restored fabric
+  // the guard drops nothing (the lot draws as on main); all
+  // 56 pierce drops below come from the block loop — main's
+  // 55 plus one strip lot under the Dazhi resurface guideway
+  // (centre (-1376, -5819), h 8, probed at the gate). The
+  // counterfactual (no track data) is unaffected.
   const before = planTaipeiBuildings({
     ...TAIPEI_GEO,
     mrtDecks: undefined, mrtDepot: undefined,
     mrtStations: stations.filter((s) => s.kind !== 'at-grade' && s.kind !== 'wenhu' && s.kind !== 'entrance' && s.kind !== 'wenhu-open'),
   });
-  assert.equal(before.lots.length, 42626, 'counterfactual plan reproduces the pre-#139 lot count on the #186 tree, less the #144 site lots (7) and the #135 parcel exclusions (47)');
-  assert.equal(plan.lots.length, 42190, 'shipped plan lot count after the #139 removals, the #144 site exclusion, the #135 parcel exclusions, the #146 dive drops and the #186 strip growth');
-  assert.equal(plan.stats.lotsDroppedTrackBed, 13, 'planner bed drops agree with the census');
-  assert.equal(plan.stats.lotsDroppedTrackPierce, 19, 'planner pierce drops agree with the census (15 Red + 2 Wenhu #146 + 2 Wenhu north #186)');
+  assert.equal(before.lots.length, 76097, 'counterfactual plan reproduces the pre-#139 lot count, less the #144 site lots (7), the #135 parcel exclusions (47), the #165 site exclusions (31) and the #166 site exclusions (143) — on the #124 fine plan composed with the #186 strip (+3,986 measured at the #186 merge gate), per the composition note above');
+  // 463 lots removed on this tree (524 on the pre-expansion
+  // tree): 433 inside the Beitou depot + at-grade station sites
+  // (398 with centres inside the depot site rect alone; the rest
+  // are margin-grown corner hits at the site edges), 13 standing
+  // on the at-grade track bed, 17 tall enough to pierce a
+  // guideway (15 Red Line + the 2 Wenhu dive lots of issue #146;
+  // planner counters below; classification by lot centre
+  // against the site rects on this tree).
+  // Re-pinned for issue #165 (Xinyi landmark batch), measured by
+  // lot-by-lot diff against the pre-#165 plan on this tree: the six
+  // new registry sites exclude exactly 31 further lots (29 on the
+  // Four Seasons D3 parcel + 2 under the Mitsukoshi A4 hall; the
+  // Farglory / A8 / A9 / A11 sites exclude none — their blocks were
+  // already lot-free there).
+  assert.equal(plan.lots.length, 75429, 'shipped plan lot count after the #139 removals, the #144 site exclusion, the #135 parcel exclusions, the #146 dive drops, the #165 site exclusions and the #166 site exclusions (141) — re-based on the #124 fine plan composed with the #186 strip (counterfactual 76,097 − 668 #139-family removals on the merged tree; re-pinned at the #186 merge gate)');
+  // Merged-tree check at the #186 gate: bed drops reproduce
+  // main's 28 EXACTLY — probed per bed at the gate, all at
+  // the two at-grade Beitou clusters, none in the strip (its
+  // track is elevated; bed drops need an at-grade bed). An
+  // earlier merged-tree reading of 39 was an artefact of the
+  // regenerated geodata's block order (see the composition
+  // note above): with the fabric's draws re-rolled, 11 more
+  // candidates stood on the Beitou beds. Restoring main's
+  // block order restored the count. The audit below (no KEPT
+  // lot on a bed) is unchanged and still exact.
+  assert.equal(plan.stats.lotsDroppedTrackBed, 28, 'planner bed drops agree with the census (13 on the coarse grid; the fine grid stands more candidates on the at-grade Beitou bed; 28 reproduced exactly on the #186 merged tree, per the note above)');
+  assert.equal(plan.stats.lotsDroppedTrackPierce, 56, 'planner pierce drops agree with the census (15 Red + 2 Wenhu on the coarse grid, issue #146; 55 on main after the #166 Shipai site pre-emption; 56 on the #186 merged tree = main\'s 55 + one strip lot under the Dazhi resurface guideway, per the gate-fix note above)');
   let bed = 0, pierce = 0, keptUnder = 0;
   for (const lot of plan.lots) {
     const c = trackClass(lot);

@@ -106,6 +106,17 @@
 //      (rule 8 above; the #29 directive), this is the one place a
 //      "surface" tunnel bed paints a road across a runway.
 //
+// Rework v6 (issue #196):
+//  12. PORTAL APPROACH CUTS — a v5 mouth is a headwall standing ON
+//      grade; a real portal is the bottom of an open cut. The
+//      suppression extends OUTWARD from each mouth along the road
+//      axis to a junction-limited run (clearance before the first
+//      crossing node, cap on length): flat beds inside the cut
+//      corridor are clipped away, the mouth records the cut, and
+//      the renderer draws the descending trench floor + retaining
+//      walls in their place. A bed crossing the corridor mid-bed
+//      stays whole — it bridges the cut. See the v6 block below.
+//
 // usage: node tools/taipei/build-generation-map.mjs
 import fs from 'node:fs';
 import path from 'node:path';
@@ -1140,6 +1151,8 @@ let suppressedLength = dedupedLength;
 const TUNNEL_APRON_MIN_M = 3;
 const roadTunnels = [];
 let airfieldTunnelLength = 0;
+let approachCutLength = 0; // issue #196 (rework v6, below)
+const approachCuts = [];
 {
   const aeroPath = path.join(DATA, 'osm_aeroway.json');
   if (fs.existsSync(aeroPath)) {
@@ -1251,6 +1264,159 @@ let airfieldTunnelLength = 0;
     for (const t of roadTunnels) {
       console.log(`[generation-map] airfield tunnel (issue #183): "${t.name}" (${t.highway}, ${t.width} m, ways [${t.sourceWayIds.join(', ')}]) — ${t.lengthM} m suppressed inside the Songshan site, ${t.mouths.length} portal mouths, surface aprons kept`);
     }
+
+    // ---- portal approach cuts (issue #196, rework v6) -----------------
+    // v5 leaves each portal mouth as a headwall standing ON grade at
+    // the site ring; a real portal is the bottom of an open cut — the
+    // road ramps down into the ground over the run between the cross
+    // street and the face (the user's reference photo of this very
+    // portal: retaining walls sloping with the ramp, the face seated
+    // in the hillside). v6 extends the suppression OUTWARD from each
+    // mouth along the road axis: the flat beds inside the cut corridor
+    // are clipped away (the airfield renderer's trench floor replaces
+    // them), and the mouth records the cut (mouth.cut) so the renderer
+    // can seat the face at the trench bottom.
+    // The cut runs from the mouth toward the first junction and stops
+    // ROAD_CUT_CLEARANCE_M short of the nearest bed endpoint on the
+    // axis whose node carries a crossing arm (or no continuing arm) —
+    // a junction keeps its apron — and never runs longer than
+    // ROAD_CUT_MAX_M. Measured on the shipped tile: the south mouth is
+    // junction-limited to ~33 m (the 民族東路 junction's merged-bed end
+    // sits 46 m out; the junction cap's own surface reaches to ~33 m),
+    // a steep but honest urban ramp; the north mouth runs ~96 m to
+    // the 濱江街 clearance. A bed that merely CROSSES the corridor
+    // mid-bed (the 迴轉道 loop's crossbar north of the field) is a
+    // bridge over the cut, not part of the approach: it stays whole.
+    // Removed length books into approachCutLength so the length
+    // identity below stays closed.
+    const ROAD_CUT_MAX_M = 110, ROAD_CUT_CLEARANCE_M = 13, ROAD_CUT_MIN_M = 20, ROAD_CUT_CLIP_MARGIN_M = 0.3;
+    // Arc-length intervals of a centreline inside any of `rings`
+    // (insideIntervals generalised from the site rings to one
+    // corridor polygon).
+    const polygonIntervals = (pts, cum, rings) => {
+      const cuts = new Set([0, cum[cum.length - 1]]);
+      for (let i = 0; i + 1 < pts.length; i++) {
+        const [ax, az] = pts[i], [bx, bz] = pts[i + 1];
+        const dx = bx - ax, dz = bz - az;
+        for (const ring of rings) {
+          for (let j = 0, k = ring.length - 1; j < ring.length; k = j++) {
+            const [x1, z1] = ring[k], [x2, z2] = ring[j];
+            const ex = x2 - x1, ez = z2 - z1, den = dx * ez - dz * ex;
+            if (Math.abs(den) < 1e-12) continue;
+            const t = ((x1 - ax) * ez - (z1 - az) * ex) / den, u = ((x1 - ax) * dz - (z1 - az) * dx) / den;
+            if (t > 0 && t < 1 && u >= 0 && u <= 1) cuts.add(cum[i] + t * (cum[i + 1] - cum[i]));
+          }
+        }
+      }
+      const sorted = [...cuts].sort((a, b) => a - b);
+      const intervals = [];
+      for (let i = 0; i + 1 < sorted.length; i++) {
+        if (sorted[i + 1] - sorted[i] < 0.01) continue;
+        const mid = pointAt(pts, cum, (sorted[i] + sorted[i + 1]) / 2);
+        if (rings.some((ring) => pip([mid.x, mid.z], ring))) {
+          const last = intervals[intervals.length - 1];
+          if (last && sorted[i] - last[1] < 0.01) last[1] = sorted[i + 1];
+          else intervals.push([sorted[i], sorted[i + 1]]);
+        }
+      }
+      return intervals;
+    };
+    // Bed endpoints of the final bed set; each incident direction
+    // points AWAY from the endpoint along its bed. Beds meeting at
+    // one junction rarely share exact endpoints (separate ways meet
+    // approximately), so per mouth the endpoints near the axis are
+    // single-linkage clustered (12 m) and judged as one node.
+    const endpoints = [];
+    for (const b of roadbeds) {
+      const pts = pairsOf(b.centreline);
+      if (pts.length < 2) continue;
+      const d0 = [pts[1][0] - pts[0][0], pts[1][1] - pts[0][1]], l0 = Math.hypot(d0[0], d0[1]) || 1;
+      endpoints.push({ x: pts[0][0], z: pts[0][1], dx: d0[0] / l0, dz: d0[1] / l0 });
+      const pn = pts[pts.length - 1], pp = pts[pts.length - 2];
+      const d1 = [pp[0] - pn[0], pp[1] - pn[1]], l1 = Math.hypot(d1[0], d1[1]) || 1;
+      endpoints.push({ x: pn[0], z: pn[1], dx: d1[0] / l1, dz: d1[1] / l1 });
+    }
+    for (const t of roadTunnels) {
+      const halfClip = t.width / 2 + ROAD_CUT_CLIP_MARGIN_M;
+      for (const m of t.mouths) {
+        const ox = -m.tx, oz = -m.tz; // out of the tunnel, along the road
+        const nx = -oz, nz = ox;
+        const near = endpoints.filter((e) => {
+          const rx = e.x - m.x, rz = e.z - m.z;
+          const d = rx * ox + rz * oz, lat = Math.abs(rx * nx + rz * nz);
+          return d > -14 && d < ROAD_CUT_MAX_M + ROAD_CUT_CLEARANCE_M + 14 && lat < halfClip + 2;
+        });
+        const parent = near.map((_, i) => i);
+        const find = (i) => (parent[i] === i ? i : (parent[i] = find(parent[i])));
+        for (let i = 0; i < near.length; i++) for (let j = i + 1; j < near.length; j++) {
+          if (Math.hypot(near[i].x - near[j].x, near[i].z - near[j].z) < 12) { const a = find(i), b = find(j); if (a !== b) parent[a] = b; }
+        }
+        const clusters = new Map();
+        near.forEach((e, i) => { const r = find(i); if (!clusters.has(r)) clusters.set(r, []); clusters.get(r).push(e); });
+        let dLim = Infinity;
+        for (const members of clusters.values()) {
+          const dMin = Math.min(...members.map((e) => (e.x - m.x) * ox + (e.z - m.z) * oz));
+          if (dMin < 2) continue; // the mouth's own cluster never limits its cut
+          const crossing = members.some((e) => Math.abs(e.dx * ox + e.dz * oz) < 0.7);
+          const continues = members.some((e) => e.dx * ox + e.dz * oz > 0.7);
+          if (crossing || !continues) dLim = Math.min(dLim, dMin);
+        }
+        if (!Number.isFinite(dLim)) {
+          console.error(`[generation-map] FATAL: no limiting junction found for the "${t.name}" portal mouth at (${m.x}, ${m.z}) — the approach-cut rule (issue #196) cannot place the cut.`);
+          process.exit(1);
+        }
+        const lenM = Math.min(ROAD_CUT_MAX_M, dLim - ROAD_CUT_CLEARANCE_M);
+        if (lenM < ROAD_CUT_MIN_M) {
+          console.error(`[generation-map] FATAL: approach cut for the "${t.name}" portal mouth at (${m.x}, ${m.z}) would run only ${lenM.toFixed(1)} m (< ${ROAD_CUT_MIN_M} m) — the junction is too close for a trench; the portal needs a hand decision (issue #196).`);
+          process.exit(1);
+        }
+        const ex = m.x + ox * lenM, ez = m.z + oz * lenM;
+        const corridor = [
+          [m.x + nx * halfClip, m.z + nz * halfClip], [ex + nx * halfClip, ez + nz * halfClip],
+          [ex - nx * halfClip, ez - nz * halfClip], [m.x - nx * halfClip, m.z - nz * halfClip],
+        ];
+        let removedHere = 0, clippedBeds = 0;
+        const after = [];
+        for (const b of roadbeds) {
+          const pts = pairsOf(b.centreline);
+          const cum = cumLen(pts);
+          const intervals = polygonIntervals(pts, cum, [corridor]);
+          if (!intervals.length) { after.push(b); continue; }
+          const total = cum[cum.length - 1];
+          const touchesEnd = intervals.some(([s0, s1]) => s0 < 0.01 || s1 > total - 0.01);
+          if (!touchesEnd && intervals.length === 1) {
+            // Bridge exemption: the bed crosses the corridor mid-bed
+            // and leaves both sides — it spans the cut at grade.
+            const [s0, s1] = intervals[0];
+            const pa = pointAt(pts, cum, s0), pb = pointAt(pts, cum, s1);
+            const cl = Math.hypot(pb.x - pa.x, pb.z - pa.z) || 1;
+            if (Math.abs(((pb.x - pa.x) / cl) * ox + ((pb.z - pa.z) / cl) * oz) < 0.5) { after.push(b); continue; }
+          }
+          const bedLen = flatLength(b.centreline);
+          let keptLen = 0;
+          const outside = [];
+          let cursor = 0;
+          for (const [s0, s1] of intervals) { if (s0 > cursor + 0.01) outside.push([cursor, s0]); cursor = Math.max(cursor, s1); }
+          if (cursor < total - 0.01) outside.push([cursor, total]);
+          for (const [s0, s1] of outside) {
+            if (s1 - s0 < TUNNEL_APRON_MIN_M) continue; // sliver: folds into the cut length
+            const part = subline(pts, cum, s0, s1);
+            if (!part) continue;
+            after.push({ ...b, centreline: flatQ(part) });
+            keptLen += flatLength(flatQ(part));
+          }
+          removedHere += bedLen - keptLen;
+          clippedBeds++;
+        }
+        roadbeds.length = 0;
+        roadbeds.push(...after);
+        roadbedLength -= removedHere;
+        approachCutLength += removedHere;
+        m.cut = { lenM: q(lenM), pts: [q(m.x), q(m.z), q(ex), q(ez)] };
+        approachCuts.push({ tunnel: t.name, mouth: [q(m.x), q(m.z)], lenM: q(lenM), limitedByM: q(dLim), bedsClipped: clippedBeds, removedM: q(removedHere) });
+        console.log(`[generation-map] portal approach cut (issue #196): "${t.name}" mouth (${m.x}, ${m.z}) — cut ${lenM.toFixed(1)} m (junction at ${dLim.toFixed(1)} m), ${clippedBeds} beds clipped, ${removedHere.toFixed(1)} m of flat bed replaced by the trench`);
+      }
+    }
   }
 }
 
@@ -1272,6 +1438,8 @@ const stats = {
   parkServiceExcludedLength: Math.round(parkServiceExcludedLength * 10) / 10,
   parkServiceExcludedBeds: parkServiceReport,
   airfieldTunnelLength: Math.round(airfieldTunnelLength * 10) / 10,
+  approachCutLength: Math.round(approachCutLength * 10) / 10,
+  approachCuts,
   airfieldTunnels: roadTunnels.map((t) => ({ name: t.name, highway: t.highway, width: t.width, sourceWayIds: t.sourceWayIds, lengthM: t.lengthM, mouths: t.mouths.length })),
   parkServiceNamedExemptions: parkServiceExemptions,
   underpassFamilies: [...familyParent.entries()].map(([underpass, parent]) => ({ underpass, parent })),
@@ -1284,8 +1452,8 @@ const stats = {
   overrides: [...overrideMatched.entries()].map(([name, matchedWays]) => ({ name, width: OVERRIDES[name], matchedWays })),
   mergedRoads: mergedReport,
 };
-const identity = stats.roadbedLength + stats.excludedLinkLength + stats.mergedConstituentOverlapLength - stats.mergedLength + stats.droppedScrapLength + stats.suppressedLength + stats.parkServiceExcludedLength + stats.airfieldTunnelLength + stats.simplificationShorteningM;
-console.log(`[generation-map] length identity: roadbeds ${stats.roadbedLength} + excludedLinks ${stats.excludedLinkLength} + mergedOverlap ${stats.mergedConstituentOverlapLength} - merged ${stats.mergedLength} + scrap ${stats.droppedScrapLength} + suppressed ${stats.suppressedLength} + parkService ${stats.parkServiceExcludedLength} + airfieldTunnel ${stats.airfieldTunnelLength} + simplifyShortening ${stats.simplificationShorteningM} = ${identity.toFixed(1)} vs carriageway ${stats.carriagewayLength} (delta ${(identity - stats.carriagewayLength).toFixed(1)} m)`);
+const identity = stats.roadbedLength + stats.excludedLinkLength + stats.mergedConstituentOverlapLength - stats.mergedLength + stats.droppedScrapLength + stats.suppressedLength + stats.parkServiceExcludedLength + stats.airfieldTunnelLength + stats.approachCutLength + stats.simplificationShorteningM;
+console.log(`[generation-map] length identity: roadbeds ${stats.roadbedLength} + excludedLinks ${stats.excludedLinkLength} + mergedOverlap ${stats.mergedConstituentOverlapLength} - merged ${stats.mergedLength} + scrap ${stats.droppedScrapLength} + suppressed ${stats.suppressedLength} + parkService ${stats.parkServiceExcludedLength} + airfieldTunnel ${stats.airfieldTunnelLength} + approachCut ${stats.approachCutLength} + simplifyShortening ${stats.simplificationShorteningM} = ${identity.toFixed(1)} vs carriageway ${stats.carriagewayLength} (delta ${(identity - stats.carriagewayLength).toFixed(1)} m)`);
 const out = {
   version: 1,
   generatedBy: 'tools/taipei/build-generation-map.mjs',

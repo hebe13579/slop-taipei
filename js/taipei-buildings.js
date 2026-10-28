@@ -28,6 +28,23 @@
 //     1.2–3 m gap between neighbouring footprints. Very large blocks
 //     (> 40,000 m² — campuses, depots, riverside tracts) use a coarser
 //     pitch and a higher vacancy rate so they don't read as carpet.
+//   - Issue #124: the fine-grain rule. The #107 reality check found
+//     ordinary blocks reading half-empty from the air (coverage
+//     0.23–0.27 of block land against a real 0.39–0.61+, grain ~15 m
+//     against a real 9–14 m), and the #124 study showed grain and
+//     coverage are the same defect: only 14–21% of grid candidates
+//     survive the exact ribbon verdicts, because a ~20 m cell
+//     straddles ribbons and edges a ~11 m cell fits between. A block
+//     whose REAL door-plate density (height-layer door points inside
+//     the block's bbox, per hectare of block land) is ≥ 60/ha is old
+//     fine fabric — Datong medians ~72/ha, the planned east ~35/ha —
+//     and subdivides fine instead: frontage pitch 9–12.5 m, depth
+//     pitch 12.5–16.5 m, gap 0.4–1.2 m, vacancy 4%, a 2 m inset
+//     (fine fabric fronts its lanes near-flush) and a 6 m minimum
+//     lot width. Big blocks are never fine. One real signal, no
+//     traced footprints, no hand-drawn zones; coarse blocks
+//     subdivide exactly as before, so the planned districts keep
+//     their grain (see the study on issue #124).
 //   - Issue #106: a block face that fronts a collector-or-better road
 //     (tertiary rank ≥ 2, measured per block edge — see the frontage
 //     section in the planner) packs its row to ZERO side gap with no
@@ -65,6 +82,21 @@
 //       tertiary/collector face (rank 2)      → 15–30 m
 //     — the Taipei pattern of tall continuous walls on the big roads
 //     with the low walk-up fabric behind them in the lanes.
+//   - Issue #185: the street-wall pull. A lot standing in a block
+//     face that fronts a major road (rank ≥ 3, the #106 face
+//     classification) is pulled toward that street after the plan is
+//     complete, until its face sits on the street section's outer
+//     edge — carriageway edge plus the section band drawn there
+//     (sidewalk band by class; the arcade reach; nothing for shared
+//     or painted sections). The grid above leaves every frontage
+//     face the 3 m inset plus half the lot gap behind that edge,
+//     and a turned grid can leave one most of a cell behind it;
+//     real Taipei fronts its avenues flush (the user's Fuxing
+//     corridor photo: facades on the walkway edge, no pale margin).
+//     The pull moves positions only — size, height, height source,
+//     colour, facade family and signs are all preserved (see the
+//     pull section for its two guards) — and interior lots and
+//     minor-road frontages are never touched.
 //   - Issue #128: where the height layer (geodata.heights, built by
 //     tools/taipei/build-heights.py from the OGDL permit/door
 //     datasets and OSM height tags) carries a REAL signal for a lot,
@@ -389,6 +421,84 @@ function taoZhuParts() {
   return parts;
 }
 
+// Issue #166 (Tianmu/Beitou batch): a school running track as flat
+// painted parts — a capsule (one rotated box for the straights plus
+// unrotated discs at the ends, since cylinder parts cannot rotate)
+// in rust red with a narrower green infield capsule on top. (cx, cz)
+// is the capsule centre in structure space, `straight` the distance
+// between the end-disc centres, `width` the full track width and
+// `fieldWidth` the infield width.
+function trackCapsuleParts(cx, cz, straight, width, fieldWidth, rotY, trackColor, fieldColor) {
+  const ex = (straight / 2) * Math.cos(rotY), ez = (straight / 2) * Math.sin(rotY);
+  const capsule = (w, h) => [
+    { type: 'box', w: straight, d: w, h, y0: 0.02, dx: cx, dz: cz, rotY, flat: trackColor },
+    { type: 'cylinder', r: w / 2, h, y0: 0.02, dx: cx + ex, dz: cz + ez, flat: trackColor },
+    { type: 'cylinder', r: w / 2, h, y0: 0.02, dx: cx - ex, dz: cz - ez, flat: trackColor },
+  ];
+  const field = capsule(fieldWidth, 0.36).map((p) => ({ ...p, flat: fieldColor }));
+  return [...capsule(width, 0.3), ...field];
+}
+
+// Tianmu Baseball Stadium (issue #166): the project's first
+// stadium form — an elliptical stepped bowl of tangent segment
+// boxes around an open field, generated like taoZhuParts().
+// Siting is measured, not eyeballed (posted on issue #166): the
+// OSM stadium-grounds way 172953503 spans lon 121.53163–121.53446
+// and the Red Line corridor's east edge is lon 121.533, so the
+// bowl straddles the tile edge (≈90% of the grounds east of it).
+// Per the decision recorded on the issue, the bowl is modelled
+// COMPLETE at its true position — only drawn geometry crosses
+// the edge; no ground, lots or roads are generated past it. The
+// field centre (satellite digitisation, Esri z18) is
+// (25.11380, 121.53360) — dx 46.4, dz −17.7 in structure space;
+// the OSM stands outline (way 518853867) spans lon
+// 121.53213–121.53415, lat 25.11278–25.11450 around it.
+function tianmuStadiumParts() {
+  const FC = { x: 46.4, z: -17.7 }; // measured field centre
+  const parts = [
+    // Warning-track ring (rust) under the grass ellipse, then the
+    // dirt infield diamond (axis home→centre-field at +37°).
+    { type: 'cylinder', r: 67, rz: 63, h: 0.3, y0: 0.02, dx: FC.x, dz: FC.z, flat: 0x9c5a40 },
+    { type: 'cylinder', r: 62, rz: 58, h: 0.36, y0: 0.02, dx: FC.x, dz: FC.z, flat: 0x4e7d32 },
+    { type: 'box', w: 50, d: 50, h: 0.14, y0: 0.36, dx: 10.1, dz: -15.5, rotY: -0.646, flat: 0xc2a06b },
+  ];
+  const seg = (a, b, h, d, w, phiDeg, flat) => {
+    const phi = (phiDeg * Math.PI) / 180;
+    // Ellipse tangent direction (map angle) -> authored rotY.
+    const alphaT = Math.atan2(b * Math.cos(phi), -a * Math.sin(phi));
+    parts.push({ type: 'box', w, d, h, dx: FC.x + a * Math.cos(phi), dz: FC.z - b * Math.sin(phi), rotY: -alphaT, flat });
+  };
+  // Main bowl: two stepped tiers wrapping home plate (west) and
+  // both foul lines; phi is CCW from east in map space. The NE
+  // outfield stays low, as on the real bowl.
+  for (let phi = 95; phi <= 335; phi += 15) {
+    seg(76, 64, 8.5, 13, 22, phi, 0xd6d0c2);
+    seg(89, 76, 14, 13, 25, phi, 0xcac3b2);
+  }
+  // Outfield berm seating: one low tier.
+  for (let phi = -30; phi <= 90; phi += 15) seg(82, 68, 5, 10, 23, phi, 0xd6d0c2);
+  // The white scalloped shell canopy over the main stand behind
+  // home (phi ≈ 196°): three flattened domes centred on the
+  // mid-tier line so they roof the stands instead of hovering
+  // over the outer wall, the middle shell a step higher.
+  for (const [phi, y0] of [[178, 14], [196, 14.8], [214, 14]]) {
+    const p = (phi * Math.PI) / 180;
+    parts.push({ type: 'dome', rx: 15, rz: 10, h: 7, y0, dx: FC.x + 82 * Math.cos(p), dz: FC.z - 69 * Math.sin(p), flat: { color: 0xf4f1ea, roughness: 0.6, metalness: 0.05 } });
+  }
+  // Centre-field scoreboard on the berm.
+  parts.push({ type: 'box', w: 18, d: 2.5, h: 9, y0: 5, dx: FC.x + 65.5, dz: FC.z - 40.9, rotY: -2.216, flat: 0x1c2733 });
+  // Four light towers at the rim; the 30 m overall height is an
+  // estimate from photographs (no published figure).
+  for (const phi of [-40, 40, 150, 232]) {
+    const p = (phi * Math.PI) / 180;
+    const ex = 95 * Math.cos(p), nz = 82 * Math.sin(p);
+    const alphaT = Math.atan2(82 * Math.cos(p), -95 * Math.sin(p));
+    parts.push({ type: 'box', w: 1.8, d: 1.8, h: 30, dx: FC.x + ex, dz: FC.z - nz, flat: 0x8f979e });
+    parts.push({ type: 'box', w: 8, d: 3, h: 3, y0: 27, dx: FC.x + ex, dz: FC.z - nz, rotY: -alphaT, flat: 0xd8dde2 });
+  }
+  return parts;
+}
+
 const LANDMARK_STRUCTURES = [
   {
     // 272 m, 48F, completed 2018 (Wikipedia / CTBUH). Dark tapered
@@ -591,6 +701,166 @@ const LANDMARK_STRUCTURES = [
       { type: 'box', w: 36, d: 216, h: 54.42 },
       { type: 'box', w: 140, d: 36, h: 54.42, dz: -52 },
       { type: 'box', w: 140, d: 36, h: 54.42, dz: 52 },
+    ],
+  },
+  {
+    // Issue #165: the Four Seasons Hotel Taipei (Yuanta), on the
+    // Xinyi D3 block directly across Xinyi Road from Taipei 101 —
+    // modelled COMPLETED, the Twin Towers (#135) precedent: the
+    // tower topped out in 2026 and the hotel is due to open in 2028.
+    // 180 m architectural height, 31F above ground / 4 below, 260
+    // keys (RSHP project sheet: architects RSHP with C.C. Jen
+    // Architects, for Yuan Lih Construction 元利建設; site area
+    // 5,121 m2). CTBUH lists a tower GFA of 77,000 m2; the zh
+    // tall-buildings list's 181.4 m spire figure is the same tower
+    // measured to the louvre tips — the registry carries the
+    // architect's published 180 m.
+    // Position is the published coordinate (Wikipedia infobox /
+    // parcel centroid of the OSM construction parcel, way
+    // 186083333 信義計畫區D3街廓), and the site rect takes that
+    // parcel's measured extent (tile x -116..+34, z +29..+107: the
+    // full D3 block between Xinyi Rd Sec 5 and Songren Rd, fronting
+    // Songzhi Rd on the east). OSM carries no building outline for
+    // the tower yet, so the plate is design-derived, stated
+    // honestly: the RSHP cover render's east elevation is a
+    // six-bay glazed slab ~54 m long; the slab's depth reads
+    // ~0.55-0.6 of its length in the same render, giving the
+    // 32 x 54 m plate below, standing at the parcel's NE corner
+    // over a full-width glazed podium (~30 m in the renders: the
+    // exoskeleton-framed lobby/ballroom stack) that runs west
+    // along Xinyi Road. The signature crown — a slanted glass-
+    // louvre array leaning back (NW) over the top floors — is
+    // three thin slabs stepping NW, the stepped-taper idiom.
+    id: 'four-seasons-hotel-taipei', name: 'Four Seasons Hotel Taipei (Yuanta)', nameZh: '元利四季酒店',
+    lat: 25.0325, lon: 121.56472, realHeight: 180, color: 0x46586a,
+    site: { w: 150, d: 78, dx: -13.2, dz: 12.4 },
+    // Blue-grey curtain glass with the design's bronze accent tone
+    // in the frame colour (the twin bronze light strips carried
+    // over from the developer's One Park Taipei).
+    facade: { kind: 'curtain', glassTint: 0x3d4f5e, frameTint: 0xa8875a, windowWidth: 2.4, floorHeight: 5.6, litProbability: 0.35, warmth: 0.62, reflectivity: 0.92, seed: 165.11 },
+    parts: [
+      { type: 'box', w: 86, d: 54, h: 30, dx: -22, dz: 1.5 },
+      { type: 'box', w: 32, d: 54, h: 132, y0: 30 },
+      { type: 'box', w: 30, d: 50, h: 6, y0: 162, dx: -1.5, dz: -1.5 },
+      { type: 'box', w: 27, d: 46, h: 6, y0: 168, dx: -3, dz: -3 },
+      { type: 'box', w: 24, d: 42, h: 6, y0: 174, dx: -4.5, dz: -4.5 },
+    ],
+  },
+  {
+    // Issue #165: Farglory Financial Center, Songgao Rd 1 —
+    // completed 2013, the district's third tower at 208.3 m, 32F
+    // (tall-buildings study; OSM way 289834528 carries height 208).
+    // The axis is that outline's minimum-area-rect centre (tile
+    // (-80.5, -733.1); the rect measures 47.1 x 40.9 m, long axis
+    // 1.1 deg off the tile axes, so the plate is axis-aligned) and
+    // the shaft plate is the outline trimmed ~1 m a side, the #42
+    // convention. Esri satellite (z19) shows NO podium — the stone
+    // shaft meets the ground directly behind its Songgao Rd
+    // entrance canopy — so the massing is the shaft alone under
+    // the signature classical crown: a tapering cap and finial
+    // block (the real crown is a domed, temple-form cap; the
+    // frustum + finial is the registry's idiom for it).
+    id: 'farglory-financial-center', name: 'Farglory Financial Center', nameZh: '遠雄金融中心',
+    lat: 25.039606, lon: 121.564201, realHeight: 208.3, color: 0xc98a6d,
+    site: { w: 52, d: 46, dx: 0, dz: 0 },
+    // Salmon-pink stone (OSM building:colour #e9967a) on the
+    // prewar stone-grid factory.
+    facade: { kind: 'prewar', stoneColor: 0xd8a583, trimColor: 0xa87a5c, windowGlassColor: 0x2a3a4a, windowWidth: 2.6, floorHeight: 5.8, litProbability: 0.3, warmth: 0.6, seed: 165.21 },
+    parts: [
+      { type: 'box', w: 45, d: 39, h: 190 },
+      { type: 'frustum', wB: 45, dB: 39, wT: 30, dT: 26, h: 14, y0: 190 },
+      { type: 'box', w: 10, d: 10, h: 4.3, y0: 204 },
+    ],
+  },
+  {
+    // Issue #165: Shin Kong Mitsukoshi Xinyi Place A4, Songgao Rd
+    // 19 (opened 2005). One of the four department-store halls of
+    // the Xinyi Place cluster, registered per hall (the Songshan
+    // terminal pattern) so each hall's site rect hugs its own
+    // measured outline. Footprint: OSM way 274647897's
+    // minimum-area rect, 84.1 x 66.2 m axis-aligned at tile
+    // (166.5, -740.5); the plate is the rect trimmed ~1 m a side.
+    // Height is ESTIMATED (flagged): no published figure — the
+    // store is 6 floors above ground (zh-Wikipedia, Shin Kong
+    // Mitsukoshi article) at a 5.5 m department-store floor
+    // height = 33 m. Flat slab + thin roof cap, the cluster's
+    // shared simple roof form. The plate is trimmed harder than
+    // the usual ~1 m: unnamed service drives in the geodata reach
+    // into the outline's west strip (their roadbeds end at tile
+    // x 129.2 at z -740 and x 129.7 at z -768 — the real building
+    // arcades over them), so the slab is two boxes east of
+    // x 130.7: the main mass plus a narrower north strip — the
+    // #42 audit's trim convention, as on the batch-1 podiums.
+    id: 'shin-kong-mitsukoshi-a4', name: 'Shin Kong Mitsukoshi Xinyi Place A4', nameZh: '新光三越信義新天地A4館',
+    lat: 25.039673, lon: 121.566652, realHeight: 33, estimated: true, color: 0xb0aa9e,
+    site: { w: 86, d: 68, dx: 0, dz: 0 },
+    facade: { kind: 'prewar', stoneColor: 0xb5b0a6, trimColor: 0x8f8a80, windowGlassColor: 0x2c3e50, windowWidth: 3.4, floorHeight: 5.5, litProbability: 0.45, warmth: 0.6, seed: 165.31 },
+    parts: [
+      { type: 'box', w: 74, d: 57, h: 31.5, dx: 1, dz: 4.5 },
+      { type: 'box', w: 74, d: 9, h: 31.5, dx: 4, dz: -27.5 },
+      { type: 'box', w: 74, d: 57, h: 1.5, y0: 31.5, dx: 1, dz: 4.5 },
+      { type: 'box', w: 74, d: 9, h: 1.5, y0: 31.5, dx: 4, dz: -27.5 },
+    ],
+  },
+  {
+    // Issue #165: Shin Kong Mitsukoshi Xinyi Place A8, Songgao Rd
+    // 12 (opened 2002) — the cluster's long slab south of Songgao
+    // Rd: OSM way 274647896's minimum-area rect, 48.9 x 137.9 m
+    // axis-aligned at tile (181.4, -585.0); plate trimmed ~1 m a
+    // side. Height ESTIMATED (flagged): 7 floors above ground
+    // (zh-Wikipedia) x 5.5 m = 38.5 m.
+    id: 'shin-kong-mitsukoshi-a8', name: 'Shin Kong Mitsukoshi Xinyi Place A8', nameZh: '新光三越信義新天地A8館',
+    lat: 25.038272, lon: 121.5668, realHeight: 38.5, estimated: true, color: 0xb5ab97,
+    site: { w: 53, d: 151, dx: 0, dz: 0 },
+    facade: { kind: 'prewar', stoneColor: 0xbfb49e, trimColor: 0x968d78, windowGlassColor: 0x2c3e50, windowWidth: 3.4, floorHeight: 5.5, litProbability: 0.45, warmth: 0.6, seed: 165.32 },
+    parts: [
+      { type: 'box', w: 49, d: 147, h: 37 },
+      { type: 'box', w: 49, d: 149, h: 1.5, y0: 37 },
+    ],
+  },
+  {
+    // Issue #165: Shin Kong Mitsukoshi Xinyi Place A9, Songshou Rd
+    // 9 (opened 2003) — the west slab of the Xiangti Ave pair:
+    // OSM way 269773067's minimum-area rect, 38.2 x 137.1 m
+    // axis-aligned at tile (168.7, -404.0); plate trimmed ~1 m a
+    // side. (The neighbouring way 269773066 is NAMED "A9" in OSM
+    // but its address/amenity tags are Songshou Rd 20, the VieShow
+    // Cinemas building — not part of this cluster.) Height
+    // ESTIMATED (flagged): 9 floors above ground (zh-Wikipedia)
+    // x 5.5 m = 49.5 m — the cluster's tallest hall. The plate
+    // is shifted east inside the outline: a service drive in the
+    // geodata runs under the hall's west arcade (its roadbed
+    // reaches tile x 152.2 at z -367), so the west face stops
+    // east of it — the #42 trim convention.
+    id: 'shin-kong-mitsukoshi-a9', name: 'Shin Kong Mitsukoshi Xinyi Place A9', nameZh: '新光三越信義新天地A9館',
+    lat: 25.036641, lon: 121.566674, realHeight: 49.5, estimated: true, color: 0xc2b8a4,
+    site: { w: 41, d: 149, dx: 0, dz: 0 },
+    facade: { kind: 'prewar', stoneColor: 0xcac0ae, trimColor: 0x9d9480, windowGlassColor: 0x2c3e50, windowWidth: 3.4, floorHeight: 5.5, litProbability: 0.45, warmth: 0.6, seed: 165.33 },
+    parts: [
+      { type: 'box', w: 34, d: 145, h: 48, dx: 2.5 },
+      { type: 'box', w: 35, d: 147, h: 1.5, y0: 48, dx: 2 },
+    ],
+  },
+  {
+    // Issue #165: Shin Kong Mitsukoshi Xinyi Place A11, Songsou
+    // Rd 11 (opened 1997, the cluster's first hall) — the east
+    // slab of the Xiangti Ave pair: OSM way 391309615's main-body
+    // rect, 51.7 x 148 m axis-aligned at tile (227.2, -404.0).
+    // The outline's narrow south tab is the skybridge toward
+    // VieShow across Songshou Rd — NOT modelled (it would cross
+    // the roadbed). Height ESTIMATED (flagged): 6 floors above
+    // ground (zh-Wikipedia) x 5.5 m = 33 m. The plate is shifted
+    // west inside the outline: the skybridge drive's roadbed
+    // crosses the outline's east face at z -370 (it reaches tile
+    // x 248.8), so the east face stops west of it — the #42 trim
+    // convention.
+    id: 'shin-kong-mitsukoshi-a11', name: 'Shin Kong Mitsukoshi Xinyi Place A11', nameZh: '新光三越信義新天地A11館',
+    lat: 25.036641, lon: 121.567255, realHeight: 33, estimated: true, color: 0xcfc5ab,
+    site: { w: 54, d: 150, dx: 0, dz: 0 },
+    facade: { kind: 'prewar', stoneColor: 0xd8cdb4, trimColor: 0xa79b7f, windowGlassColor: 0x2c3e50, windowWidth: 3.4, floorHeight: 5.5, litProbability: 0.45, warmth: 0.6, seed: 165.34 },
+    parts: [
+      { type: 'box', w: 44, d: 146, h: 31.5, dx: -3 },
+      { type: 'box', w: 46, d: 148, h: 1.5, y0: 31.5, dx: -3 },
     ],
   },
   {
@@ -1637,6 +1907,160 @@ const LANDMARK_STRUCTURES = [
       { type: 'dome', rx: 22, rz: 22, h: 17, y0: 36, dx: 29.6, dz: -4.5, flip: true, flat: { color: 0xc2c5c7, roughness: 0.55, metalness: 0.25 } },
     ],
   },
+  // Batch 8 (issue #166, Tianmu/Beitou): five registry entries —
+  // a department store, the project's first stadium, and three
+  // school campuses. All siting is measured from OSM footprints
+  // (PBF extract) cross-checked against Esri satellite; heights
+  // are floors × 3.6 m unless a figure is published, and every
+  // height in this batch is flagged estimated except where the
+  // registry comment says otherwise.
+  {
+    // Dayeh Takashimaya, 忠誠路二段 55號 — the Tianmu department
+    // store inside the Red Line corridor strip. One slab on the
+    // OSM outline (relation 6821492, lon 121.53111–121.53224,
+    // lat 25.11118–25.11236): a 5F retail podium (21 m) fitted to
+    // the outline's tilted frame (−0.175 rad — the corners are
+    // pulled inboard of the outline so nothing crosses the
+    // 忠誠路二段 / 53巷 carriageways), a lower NE shoulder block
+    // (15 m, the parking annex under the outline's diagonal
+    // north edge) and the taller east slab (parking + 12F top,
+    // Wikipedia: 12 floors above ground) at 47 m ≈ 12 × 3.9 m —
+    // no published metric height, so estimated. The mass split
+    // is the satellite read (grey podium roof west, taller
+    // slab east).
+    id: 'dayeh-takashimaya', name: 'Dayeh Takashimaya', nameZh: '大葉高島屋',
+    lat: 25.11177, lon: 121.531675, realHeight: 47, estimated: true, color: 0xd8c49c,
+    site: { w: 122, d: 139, dx: 0, dz: 0 },
+    facade: { kind: 'prewar', stoneColor: 0xd8c49c, trimColor: 0xb39b74, windowGlassColor: 0x2c3844, windowWidth: 3.4, floorHeight: 3.9, litProbability: 0.35, warmth: 0.6, seed: 57.41 },
+    parts: [
+      { type: 'box', w: 92, d: 110, h: 21, dx: 0, dz: -1, rotY: -0.175 },
+      { type: 'box', w: 42, d: 26, h: 15, dx: 22, dz: -44, rotY: -0.175 },
+      { type: 'box', w: 34, d: 108, h: 47, dx: 30, dz: -2, rotY: -0.175 },
+    ],
+  },
+  {
+    // Tianmu Baseball Stadium — stands bowl + light towers +
+    // open field, generated by tianmuStadiumParts() (measured
+    // siting and the tile-edge straddle are documented there and
+    // on issue #166). 30 m is the light-tower estimate.
+    id: 'tianmu-stadium', name: 'Tianmu Baseball Stadium', nameZh: '天母棒球場',
+    lat: 25.11364, lon: 121.53314, realHeight: 30, estimated: true, color: 0xcfc8bb,
+    site: { w: 190, d: 172, dx: 42, dz: -18 },
+    facade: { kind: 'prewar', stoneColor: 0xcfc8bb, trimColor: 0xa9a294, windowGlassColor: 0x2e3a46, windowWidth: 4.5, floorHeight: 4.2, litProbability: 0.15, warmth: 0.5, seed: 57.42 },
+    parts: tianmuStadiumParts(),
+  },
+  {
+    // Shipai Junior High School — the eastern of the two Shipai
+    // campuses (relation 4630268); the named OSM buildings are
+    // modelled at their measured rects: 勤學樓 (way 202909351),
+    // 七年級教室 (202909352), 八年級教室 (202909364), 辦公室
+    // (202909365), 廁所大樓 (202909246), 活動中心 (sports_centre
+    // 202909073) and the 風雨操場 roof (202909083) as posts + a
+    // slab. The 操場 (202909068) is the flat painted track
+    // capsule; 籃球場 (202909060) and 游泳池 (202909082) are flat
+    // slabs. No OSM levels tags — classroom blocks at an
+    // estimated 4F × 3.6 m.
+    id: 'shipai-junior-high', name: 'Shipai Junior High School', nameZh: '石牌國中',
+    lat: 25.1159, lon: 121.5136, realHeight: 14.4, estimated: true, color: 0xd9cfc0,
+    site: { w: 212, d: 208, dx: 3, dz: 4 },
+    facade: { kind: 'prewar', stoneColor: 0xd9cfc0, trimColor: 0xb0a58e, windowGlassColor: 0x2e3a46, windowWidth: 2.6, floorHeight: 3.6, litProbability: 0.25, warmth: 0.55, seed: 57.43 },
+    parts: [
+      { type: 'box', w: 86.4, d: 10.9, h: 14.4, dx: -20.2, dz: 65.3, rotY: -0.433 },
+      { type: 'box', w: 100, d: 15, h: 14.4, dx: -31.8, dz: 34.2, rotY: -0.443 },
+      { type: 'box', w: 113, d: 10.9, h: 14.4, dx: 11.1, dz: 89.7, rotY: -0.447 },
+      { type: 'box', w: 62.7, d: 10.8, h: 14.4, dx: 23.2, dz: 44.3, rotY: 1.108 },
+      { type: 'box', w: 14.5, d: 10.3, h: 7.2, dx: -47.5, dz: 96.4, rotY: 1.072 },
+      { type: 'box', w: 30.7, d: 19.6, h: 10, dx: 50.4, dz: 11.1, rotY: 0.984 },
+      { type: 'box', w: 0.9, d: 0.9, h: 6.5, dx: 49.6, dz: 30, flat: 0xb9bcbe },
+      { type: 'box', w: 0.9, d: 0.9, h: 6.5, dx: 62, dz: 56.4, flat: 0xb9bcbe },
+      { type: 'box', w: 0.9, d: 0.9, h: 6.5, dx: 30.8, dz: 38.8, flat: 0xb9bcbe },
+      { type: 'box', w: 0.9, d: 0.9, h: 6.5, dx: 43.2, dz: 65.2, flat: 0xb9bcbe },
+      { type: 'box', w: 31.3, d: 22.8, h: 0.7, y0: 6.5, dx: 46.4, dz: 47.6, rotY: 1.129, flat: 0x8a8d90 },
+      ...trackCapsuleParts(-8.1, -45.4, 44, 48, 40, -2.107, 0xa04a30, 0x4e7d32),
+      { type: 'box', w: 38.5, d: 57.3, h: 0.25, y0: 0.02, dx: -70.7, dz: -3.3, rotY: -0.419, flat: 0x3f6d8e },
+      { type: 'box', w: 43.7, d: 29.3, h: 0.35, y0: 0.02, dx: 82.7, dz: 68.7, rotY: 1.117, flat: 0x3f8fbf },
+    ],
+  },
+  {
+    // Qingjiang Elementary School — campus fully inside the
+    // tile (buildings span lon 121.50628–121.50783, lat
+    // 25.12569–25.12721, west of the corridor's heart but well
+    // east of its 121.494 edge). The five named 樓 at their OSM
+    // rects: 丹鳳樓 (way 224819890), 陽明樓 (224823940, the only
+    // one with an OSM levels tag: 4), 觀音樓 (224825864), 七星樓
+    // (224826063), 大屯樓 (224826217), plus 活動中心 (224828172),
+    // 幼兒園 (224826611) and the 小操場 (224826678) as a flat
+    // painted field. Blocks at 4F × 3.6 m following 陽明樓's tag.
+    id: 'qingjiang-elementary', name: 'Qingjiang Elementary School', nameZh: '清江國小',
+    lat: 25.12645, lon: 121.50705, realHeight: 14.4, estimated: true, color: 0xd6c8b4,
+    site: { w: 152, d: 168, dx: -5, dz: 3 },
+    facade: { kind: 'prewar', stoneColor: 0xd6c8b4, trimColor: 0xab9c80, windowGlassColor: 0x2e3a46, windowWidth: 2.6, floorHeight: 3.6, litProbability: 0.25, warmth: 0.55, seed: 57.44 },
+    parts: [
+      { type: 'box', w: 40, d: 10.9, h: 14.4, dx: 52.5, dz: -15.5, rotY: 1.012 },
+      { type: 'box', w: 26.4, d: 12.7, h: 14.4, dx: 22.2, dz: -27.7, rotY: -0.555 },
+      { type: 'box', w: 44.8, d: 7.8, h: 14.4, dx: -4, dz: -32.1, rotY: 1.009 },
+      { type: 'box', w: 57.9, d: 10.9, h: 14.4, dx: 26.2, dz: -56.5, rotY: 1.012 },
+      { type: 'box', w: 43.8, d: 10.2, h: 14.4, dx: -10.1, dz: -63.1, rotY: -0.555 },
+      { type: 'box', w: 44.8, d: 27.6, h: 10, dx: -51.5, dz: 61, rotY: -0.55 },
+      { type: 'box', w: 29.4, d: 7.2, h: 7.2, dx: 14.1, dz: 31.2, rotY: -0.616 },
+      { type: 'box', w: 36, d: 30, h: 0.25, y0: 0.02, dx: 31.3, dz: -3.3, rotY: 0.601, flat: 0xa04a30 },
+      { type: 'box', w: 31, d: 25, h: 0.32, y0: 0.02, dx: 31.3, dz: -3.3, rotY: 0.601, flat: 0x4e7d32 },
+    ],
+  },
+  {
+    // Jianguo High School — full campus (relation 3392608),
+    // INSIDE the tile per the user's correction on this issue:
+    // the 紅樓 (way 202768775) stands at lat 25.03065–25.03101,
+    // north of box A's 25.0285 south edge. The Red Building is
+    // the centrepiece: brick slab (99 × 17 m on the OSM outline,
+    // axis −15°) with its two end towers and grey caps; ~17 m
+    // overall from photo proportions (no published figure —
+    // estimated). (A porch/fountain flourish was cut at the
+    // render gate: unverifiable at this scale and colliding
+    // with 莊敬樓's footprint.)
+    // Classroom blocks at their OSM rects and tagged levels:
+    // 正誼樓 4F (202768950, an L of two slabs on its outline),
+    // 莊敬樓 4F (202768788), 科學館 4F (202768580), 自強樓 4F
+    // (202768582), 明道樓 3F (202768758), 格物樓 3F (202768744),
+    // 活動中心 4F (202768754), 資源大樓 (1158623539, L of two
+    // slabs, 5F estimated) and 夢紅樓 7F (252994053). The track
+    // is the flat capsule around the rugby pitch (202768453).
+    id: 'jianguo-high-school', name: 'Jianguo High School', nameZh: '建國中學',
+    lat: 25.0303, lon: 121.5126, realHeight: 25.2, estimated: true, color: 0xd9d2c4,
+    site: { w: 246, d: 232, dx: 6, dz: 8 },
+    facade: { kind: 'prewar', stoneColor: 0xd9d2c4, trimColor: 0xb3aa97, windowGlassColor: 0x2e3a46, windowWidth: 2.8, floorHeight: 3.6, litProbability: 0.25, warmth: 0.55, seed: 57.45 },
+    parts: [
+      { type: 'box', w: 99, d: 17, h: 11, dx: -34.3, dz: -56.5, rotY: -0.262, flat: { color: 0x9c4a36, roughness: 0.92, metalness: 0.02 } },
+      { type: 'box', w: 100, d: 18, h: 0.8, y0: 11, dx: -34.3, dz: -56.5, rotY: -0.262, flat: 0x67635c },
+      { type: 'box', w: 13, d: 19, h: 16, dx: -72.9, dz: -46.1, rotY: -0.262, flat: { color: 0x9c4a36, roughness: 0.92, metalness: 0.02 } },
+      { type: 'box', w: 14.5, d: 20.5, h: 1.1, y0: 16, dx: -72.9, dz: -46.1, rotY: -0.262, flat: 0x67635c },
+      { type: 'box', w: 13, d: 19, h: 16, dx: 4.3, dz: -66.9, rotY: -0.262, flat: { color: 0x9c4a36, roughness: 0.92, metalness: 0.02 } },
+      { type: 'box', w: 14.5, d: 20.5, h: 1.1, y0: 16, dx: 4.3, dz: -66.9, rotY: -0.262, flat: 0x67635c },
+      { type: 'box', w: 61, d: 11, h: 14.4, dx: -65.1, dz: -18.3, rotY: -0.266 },
+      { type: 'box', w: 38, d: 11, h: 14.4, dx: -97.6, dz: -29.8, rotY: 1.29 },
+      { type: 'box', w: 33.2, d: 23, h: 14.4, dx: -27.2, dz: -32.1, rotY: 1.299 },
+      { type: 'box', w: 30.3, d: 28, h: 14.4, dx: 90.9, dz: -16.6, rotY: 1.33 },
+      { type: 'box', w: 41.2, d: 11.3, h: 14.4, dx: 94.9, dz: 27.7, rotY: 1.302 },
+      { type: 'box', w: 72.7, d: 11, h: 10.8, dx: -95.8, dz: 56.5, rotY: 1.299 },
+      { type: 'box', w: 64, d: 12.2, h: 10.8, dx: 61.2, dz: 90.3, rotY: -0.246 },
+      { type: 'box', w: 56.9, d: 44.2, h: 14.4, dx: -13.1, dz: 93, rotY: -0.244 },
+      { type: 'box', w: 64, d: 15, h: 18, dx: 114.1, dz: -42.1, rotY: 1.512 },
+      { type: 'box', w: 36, d: 13, h: 18, dx: 90.9, dz: -62, rotY: 0.297 },
+      { type: 'box', w: 48, d: 26.6, h: 25.2, dx: 74.7, dz: -86.4, rotY: -0.213 },
+      // The courts east of the track, from the OSM pitch ways,
+      // one painted slab per row (a single union rect overshoots
+      // the diagonal band and clips the campus east drive):
+      // volleyball 1087155062-63 north, acrylic basketball
+      // 202768713 / 1087155058-60 south, the two tennis courts
+      // 202768661 / 1087550733 east, and the baseball practice
+      // ground (1271725984) at the SE.
+      { type: 'box', w: 24, d: 55, h: 0.25, y0: 0.02, dx: 60.6, dz: 10.5, rotY: -0.265, flat: 0x3f6d8e },
+      { type: 'box', w: 63, d: 37, h: 0.25, y0: 0.02, dx: 52.5, dz: 60.3, rotY: -0.265, flat: 0x3f6d8e },
+      { type: 'box', w: 32, d: 33, h: 0.25, y0: 0.02, dx: 118.6, dz: 16, rotY: -0.265, flat: 0x3f7d6b },
+      { type: 'box', w: 26, d: 21, h: 0.25, y0: 0.02, dx: 123.1, dz: 64.1, rotY: -0.265, flat: 0x4e7d32 },
+      ...trackCapsuleParts(-9.1, 28.8, 68, 60, 47.7, -0.265, 0xa04a30, 0x4e7d32),
+    ],
+  },
 ];
 
 // Songshan Airport site structures (issue #135): the terminal
@@ -1897,7 +2321,7 @@ export const HEIGHT_JOIN = {
 };
 
 export function planTaipeiBuildings(geodata) {
-  const stats = { blocksSeen: 0, blocksSkippedSmall: 0, blocksSkippedParkWater: 0, blocksSkippedGreen: 0, blocksSkippedAirfield: 0, blocksSkippedNpmSite: 0, blocksSkippedOutsideUnion: 0, lotsDroppedVacancy: 0, lotsDroppedParkWater: 0, lotsDroppedGreen: 0, lotsDroppedRiverside: 0, lotsDroppedAirfield: 0, lotsDroppedNpmSite: 0, lotsDroppedTowerSite: 0, lotsDroppedRoad: 0, lotsDroppedMedian: 0, lotsDroppedOutsideUnion: 0, lotsDroppedTrackBed: 0, lotsDroppedTrackPierce: 0, blocksRotated: 0, lotsRotated: 0, lotsPackedFrontage: 0, lotsTallFrontage: 0, heightsPermit: 0, heightsOsmHeight: 0, heightsOsmLevels: 0, heightsDoor: 0, heightsField: 0, heightsProc: 0 };
+  const stats = { blocksSeen: 0, blocksFine: 0, lotsFine: 0, blocksSkippedSmall: 0, blocksSkippedParkWater: 0, blocksSkippedGreen: 0, blocksSkippedAirfield: 0, blocksSkippedNpmSite: 0, blocksSkippedOutsideUnion: 0, lotsDroppedVacancy: 0, lotsDroppedParkWater: 0, lotsDroppedGreen: 0, lotsDroppedRiverside: 0, lotsDroppedAirfield: 0, lotsDroppedNpmSite: 0, lotsDroppedTowerSite: 0, lotsDroppedRoad: 0, lotsDroppedMedian: 0, lotsDroppedOutsideUnion: 0, lotsDroppedTrackBed: 0, lotsDroppedTrackPierce: 0, lotsDroppedPier: 0, blocksRotated: 0, lotsRotated: 0, lotsPackedFrontage: 0, lotsTallFrontage: 0, heightsPermit: 0, heightsOsmHeight: 0, heightsOsmLevels: 0, heightsDoor: 0, heightsField: 0, heightsProc: 0, lotsFrontagePulled: 0, lotsFrontageFlush: 0, lotsFrontageHeldNoBed: 0, lotsFrontageHeldBlocked: 0, frontagePullMetres: 0 };
   // Union-of-boxes tile (issue #60): the geodata frame carries the
   // tile's boxes; ground exists only inside them. Raster blocks are
   // masked to the union by the builder, but a block's bbox can still
@@ -2099,6 +2523,60 @@ export function planTaipeiBuildings(geodata) {
   const medianOf = (vals) => {
     const s = [...vals].sort((a, b) => a - b);
     return s.length % 2 ? s[(s.length - 1) / 2] : (s[s.length / 2 - 1] + s[s.length / 2]) / 2;
+  };
+
+  // Support piers (validate's and taipei-mrt's rule): no pier point
+  // — elevated-road or MRT deck — may stand inside a planned lot's
+  // footprint. The builders placed both pier sets against the
+  // pre-#124 plan, so the block loop owns the test now — the #185
+  // pull has always re-checked its moved lots the same way. Tested
+  // on the candidate's own frame, grown 0.1 m for the emitted lots'
+  // 0.1 m rounding, which is what the audits use.
+  const pierPtsAll = [...((geodata.elevatedRoads && geodata.elevatedRoads.piers) || []), ...((geodata.mrtDecks && geodata.mrtDecks.piers) || [])];
+  const PIER_CELL_M = 64;
+  const pierGridAll = new Map();
+  for (const p of pierPtsAll) {
+    const k = fpKey(Math.floor(p.x / PIER_CELL_M), Math.floor(p.z / PIER_CELL_M));
+    let bucket = pierGridAll.get(k);
+    if (!bucket) pierGridAll.set(k, bucket = []);
+    bucket.push(p);
+  }
+  const pierHit = (cx, cz, w, d, cosT, sinT) => {
+    const gx = Math.floor(cx / PIER_CELL_M), gz = Math.floor(cz / PIER_CELL_M);
+    for (let ix = gx - 1; ix <= gx + 1; ix++) for (let iz = gz - 1; iz <= gz + 1; iz++) {
+      for (const p of pierGridAll.get(fpKey(ix, iz)) || []) {
+        const dx = p.x - cx, dz = p.z - cz;
+        if (Math.abs(dx) <= w / 2 + 0.1 && Math.abs(dz) <= d / 2 + 0.1) return true;
+        if (Math.abs(dx * cosT + dz * sinT) <= w / 2 + 0.1 && Math.abs(-dx * sinT + dz * cosT) <= d / 2 + 0.1) return true;
+      }
+    }
+    return false;
+  };
+
+  // Issue #124: the fine-grain classifier. Door plates are the
+  // densest real-fabric signal the tile carries (137k points): old
+  // walk-up fabric registers many plates per hectare of block land,
+  // planned big-parcel districts few. Count the plates inside the
+  // block's bbox on the door grid built above; the threshold and the
+  // calibration live in the #124 study (Datong median ~72/ha,
+  // Guangfu ~35/ha; ≥ 60 classes 74% / 31% / 17% of the three sample
+  // districts' land as fine). No door layer → no fine blocks, so
+  // synthetic geodata plans exactly as before.
+  const FINE_DOORS_PER_HA = 60;
+  const blockDoorCount = (bb) => {
+    if (!doorPts) return 0;
+    let n = 0;
+    const gx0 = Math.floor(bb.minX / DOOR_CELL), gx1 = Math.floor(bb.maxX / DOOR_CELL);
+    const gz0 = Math.floor(bb.minZ / DOOR_CELL), gz1 = Math.floor(bb.maxZ / DOOR_CELL);
+    for (let gx = gx0; gx <= gx1; gx++) for (let gz = gz0; gz <= gz1; gz++) {
+      const bucket = doorGrid.get(fpKey(gx, gz));
+      if (!bucket) continue;
+      for (const di of bucket) {
+        const x = doorPts[di * 3], z = doorPts[di * 3 + 1];
+        if (x >= bb.minX && x <= bb.maxX && z >= bb.minZ && z <= bb.maxZ) n++;
+      }
+    }
+    return n;
   };
 
   // Road ribbons the lots must keep off: merged roadbeds for carriageways
@@ -2394,6 +2872,12 @@ export function planTaipeiBuildings(geodata) {
 
   const lots = [];
   const lotProcH = []; // issue #128: each lot's procedural draw, index-aligned with lots
+  // Issue #185: per-lot major-face records for the street-wall pull
+  // (index-aligned with lots; null when the lot stands in no face of
+  // rank >= FRONTAGE_PULL_MIN_RANK). vF/uF hold [dir, rank] for each
+  // qualifying face on that axis; c/s are the block frame's cos/sin.
+  const FRONTAGE_PULL_MIN_RANK = 3; // secondary or better, #106 face ranks
+  const lotFront = [];
   const blocks = geodata.blocks || [];
   for (let bi = 0; bi < blocks.length; bi++) {
     const block = blocks[bi];
@@ -2404,16 +2888,25 @@ export function planTaipeiBuildings(geodata) {
     if (inAirfield(block.cx, block.cz)) { stats.blocksSkippedAirfield++; continue; }
     if (inNpmSite(block.cx, block.cz)) { stats.blocksSkippedNpmSite++; continue; }
     if (!inUnion(block.cx, block.cz)) { stats.blocksSkippedOutsideUnion++; continue; }
-    const inset = 3.0; // street-section band margin (see header)
+    const big = block.area > 40000;
+    const pitchMul = big ? 1.7 : 1.0;
+    // Issue #124: fine-grain blocks (dense real door fabric, never
+    // big blocks) subdivide at shophouse pitch with party-wall gaps
+    // and walk-up vacancy; every other block keeps the standard
+    // subdivision byte for byte.
+    const fine = !big && blockDoorCount(block.bbox) / (block.area / 1e4) >= FINE_DOORS_PER_HA;
+    if (fine) stats.blocksFine++;
+    // Fine fabric fronts its lanes near-flush (narrow or arcade
+    // sections, not the full street-section band), so its inset is
+    // 2 m; the ribbon verdicts still police every footprint.
+    const inset = fine ? 2.0 : 3.0; // street-section band margin (see header)
     const minX = block.bbox.minX + inset, maxX = block.bbox.maxX - inset;
     const minZ = block.bbox.minZ + inset, maxZ = block.bbox.maxZ - inset;
     const innerW = maxX - minX, innerD = maxZ - minZ;
     if (innerW < 10 || innerD < 10) continue;
-    const big = block.area > 40000;
-    const pitchMul = big ? 1.7 : 1.0;
-    const vacancy = big ? 0.30 : 0.13;
-    const frontage = (15 + hash01(bi * 7919) * 10) * pitchMul;
-    const depthPitch = (15 + hash01(bi * 104729 + 3) * 7) * pitchMul;
+    const vacancy = big ? 0.30 : fine ? 0.04 : 0.13;
+    const frontage = fine ? 9 + hash01(bi * 7919) * 3.5 : (15 + hash01(bi * 7919) * 10) * pitchMul;
+    const depthPitch = fine ? 12.5 + hash01(bi * 104729 + 3) * 4 : (15 + hash01(bi * 104729 + 3) * 7) * pitchMul;
     // Issue #62: the block's lot grid turns to its fronting streets
     // (theta = 0 keeps the axis grid — the pre-#62 plan, byte for
     // byte). In the turned frame the grid spans the inset bbox's
@@ -2530,12 +3023,14 @@ export function planTaipeiBuildings(geodata) {
           cx = Math.round((minX + (col + 0.5) * cellW) * 10) / 10;
           cz = Math.round((minZ + (row + 0.5) * cellD) * 10) / 10;
         }
-        const gap = 1.2 + hash01(seed ^ 0x77c3) * 1.8;
+        const gap = fine ? 0.4 + hash01(seed ^ 0x77c3) * 0.8 : 1.2 + hash01(seed ^ 0x77c3) * 1.8;
         // Issue #106: packed rows share party walls — no gap is
         // subtracted along the packed direction, so neighbouring
         // footprints meet at the cell boundary exactly.
         const w = cellW - (packU ? 0 : gap), d = cellD - (packV ? 0 : gap);
-        if (w < 7 || d < 7) continue;
+        // Issue #124: fine lots may run to true shophouse width
+        // (6 m); the standard 7 m floor stands elsewhere.
+        if (w < (fine ? 6 : 7) || d < 7) continue;
         // Issue #62: a turned lot's true footprint, from its
         // emitted (rounded) centre and the frame angle. The lot must
         // stay inside the block's inset bbox — the same ground the
@@ -2616,6 +3111,7 @@ export function planTaipeiBuildings(geodata) {
         }
         const track = trackVerdict(cx, cz, trackGrown, tgMinX, tgMaxX, tgMinZ, tgMaxZ);
         if (track.bed) { stats.lotsDroppedTrackBed++; continue; }
+        if (pierHit(cx, cz, w, d, cosT, sinT)) { stats.lotsDroppedPier++; continue; }
         // The ribbon verdicts say nothing about the tile union
         // (issue #60): no footprint corner may hang over a dropped
         // band, where there is no ground at all.
@@ -2681,8 +3177,26 @@ export function planTaipeiBuildings(geodata) {
         if (theta) { lot.rot = Math.round(theta * 10000) / 10000; stats.lotsRotated++; }
         if (packU || packV) stats.lotsPackedFrontage++;
         if (tallFrontage) stats.lotsTallFrontage++;
+        if (fine) stats.lotsFine++;
         lots.push(lot);
         lotProcH.push(procH);
+        // Issue #185: this lot's grid position and the block's four
+        // face ranks, for the street-wall pull below. The direct
+        // faces (vF/uF: the face rows/columns the lot stands in, at
+        // rank >= FRONTAGE_PULL_MIN_RANK) are only half the story:
+        // along the avenues the raster block edge sits at or inside
+        // the carriageway edge, so the true first row/column often
+        // dies to the ribbon tests at planning and the SURVIVING
+        // front row stands one cell back, 10-25 m behind the
+        // walkway. That row is the block's de-facto frontage — the
+        // post-pass finds it as the outermost surviving lot of each
+        // face line and pulls it too (see below).
+        const vF = [], uF = [];
+        if (row === 0 && edgeRankVLow >= FRONTAGE_PULL_MIN_RANK) vF.push([-1, edgeRankVLow]);
+        if (row === rows - 1 && edgeRankVHigh >= FRONTAGE_PULL_MIN_RANK) vF.push([1, edgeRankVHigh]);
+        if (col === 0 && edgeRankULow >= FRONTAGE_PULL_MIN_RANK) uF.push([-1, edgeRankULow]);
+        if (col === cols - 1 && edgeRankUHigh >= FRONTAGE_PULL_MIN_RANK) uF.push([1, edgeRankUHigh]);
+        lotFront.push({ c: cosT, s: sinT, bi, row, col, vF, uF, rVL: edgeRankVLow, rVH: edgeRankVHigh, rUL: edgeRankULow, rUH: edgeRankUHigh });
       }
     }
   }
@@ -2721,6 +3235,43 @@ export function planTaipeiBuildings(geodata) {
       }
     }
   }
+  // Issue #139, second look (found at the #186 merge gate): the
+  // field blend above is the one height change that lands AFTER
+  // the block loop's pierce check, and it can raise a 'proc' lot
+  // through a guideway its drawn height cleared — a field lot
+  // beside the Xinbeitou branch, drawn under the clearance, was
+  // blended to 14 m against a 7.2 m underside. Re-run the track
+  // verdict for every field-blended lot at its final height and
+  // drop the piercers, exactly as the block loop would have.
+  // (Bed is position-only and cannot change here; the #185 pull
+  // re-checks its own moves with final heights in pullClear.)
+  if (trackGrid) {
+    const dropIdx = new Set();
+    for (let i = 0; i < lots.length; i++) {
+      const lot = lots[i];
+      if (lot.hSrc !== 'field') continue;
+      const c = lot.rot ? Math.cos(lot.rot) : 1, s = lot.rot ? Math.sin(lot.rot) : 0;
+      const grown = lotCorners(lot.x, lot.z, lot.w + 2 * TRACK_MARGIN_M, lot.d + 2 * TRACK_MARGIN_M, c, s);
+      let mnx = Infinity, mxx = -Infinity, mnz = Infinity, mxz = -Infinity;
+      for (const [px, pz] of grown) {
+        if (px < mnx) mnx = px;
+        if (px > mxx) mxx = px;
+        if (pz < mnz) mnz = pz;
+        if (pz > mxz) mxz = pz;
+      }
+      const track = trackVerdict(lot.x, lot.z, grown, mnx, mxx, mnz, mxz);
+      if (track.under < Infinity && lot.h > track.under - TRACK_CLEARANCE_M) dropIdx.add(i);
+    }
+    if (dropIdx.size) {
+      stats.lotsDroppedTrackPierce += dropIdx.size;
+      const keptLots = lots.filter((_, i) => !dropIdx.has(i));
+      lots.length = 0; lots.push(...keptLots);
+      const keptProc = lotProcH.filter((_, i) => !dropIdx.has(i));
+      lotProcH.length = 0; lotProcH.push(...keptProc);
+      const keptFront = lotFront.filter((_, i) => !dropIdx.has(i));
+      lotFront.length = 0; lotFront.push(...keptFront);
+    }
+  }
   for (const lot of lots) {
     if (lot.hSrc === 'permit') stats.heightsPermit++;
     else if (lot.hSrc === 'osm-height') stats.heightsOsmHeight++;
@@ -2728,6 +3279,439 @@ export function planTaipeiBuildings(geodata) {
     else if (lot.hSrc === 'door') stats.heightsDoor++;
     else if (lot.hSrc === 'field') stats.heightsField++;
     else stats.heightsProc++;
+  }
+
+  // ---- Issue #185: the street-wall pull ----
+  // Runs after the whole plan (height join and neighbourhood field
+  // included) and moves positions only: every lot keeps its size,
+  // height, height source and colour, so the plan's counts by
+  // height are untouched. Two guards keep the visuals honest:
+  //   - facadeMatFor hashes the lot's position, so a pulled
+  //     position must reproduce the lot's original facade family —
+  //     probed at one height per facadeMatFor band so the equality
+  //     holds at any height and the choice is height-regime
+  //     independent (see the probe note at the candidate search).
+  //     The search tries the flush landing first, then pull
+  //     reductions (fine steps inside the ~1 m flush band the
+  //     acceptance statistic measures, then coarser ones) and
+  //     small shifts along the face, which re-roll the position
+  //     hash without changing the setback;
+  //   - the moved footprint re-passes the block loop's whole
+  //     exclusion gauntlet (park/water, green, riverside, airfield,
+  //     union, landmark/depot sites, ribbons + median rule, MRT
+  //     bed/pierce), plus two rules the loop never needed: no
+  //     overlap with another planned lot (a face the #106 sampling
+  //     over-reached must not drag its building across the block
+  //     in front of it), and the validate.mjs rule that no
+  //     elevated-road pier stands inside a planned lot (the piers
+  //     were placed against the pre-pull plan).
+  // A lot that satisfies both moves; a lot that cannot keeps its
+  // planned position and is counted (lotsFrontageHeldBlocked /
+  // lotsFrontageHeldNoBed). Lots with no major face (direct or
+  // outermost-surviving) are never candidates, so their placement
+  // is byte-identical to before.
+  {
+    const FRONTAGE_BED_MIN_RANK = 2;  // the bed a face stands on: tertiary or better
+    const FRONTAGE_PULL_MAX_M = 20;   // sanity cap — a turned grid can leave a face a cell back
+    const FRONTAGE_PULL_MIN_M = 0.3;  // a face this close to its edge already reads flush
+    // The sidewalk band a bed of this class grows past its
+    // carriageway edge — mirrors sidewalkBandWidth in
+    // js/taipei-streetscape.js (this module stays import-free;
+    // keep the two in sync, the mrtSites/mrtStationFootprint
+    // mirror convention).
+    const frontBandWidth = (bed) => {
+      const hw = bed.highway || '';
+      let w;
+      if (hw.endsWith('_link')) w = 1.5;
+      else if (hw === 'trunk' || hw === 'primary') w = 2.5;
+      else if (hw === 'secondary') w = 2.2;
+      else if (hw === 'tertiary') w = 2.0;
+      else w = 1.5;
+      const half = Math.max((bed.width || 3) / 2, 0.75);
+      return Math.min(w, Math.max(1.2, half));
+    };
+    const FRONT_ARCADE_BAND_W = 3.6; // ARCADE_BAND_W in js/taipei-streetscape.js
+    // Fronting segments over the same carriageway set the ribbons
+    // use, each carrying its street-section reach past the bed
+    // edge: the drawn sidewalk band, the arcade reach, or nothing
+    // (shared streets; painted walkways — that band is painted
+    // INSIDE the carriageway, see js/taipei-painted.js). The
+    // non-carriageway paths join them with no band: OSM maps many
+    // avenue sidewalks as separate footway ways running between
+    // the carriageway and the blocks, and the buildings front
+    // THAT way's outer edge — a face can sit 15 m behind the bed's
+    // own band edge with the mapped sidewalk in between. A path
+    // segment carries no class of its own here: eligibility comes
+    // from the face's major classification, and every guard in
+    // pullClear (the path is itself a ribbon) still arbitrates.
+    const FRONT_CELL = 48;
+    const cellKey = (gx, gz) => gx * 100003 + gz;
+    const frontGrid = new Map();
+    const frontAdd = (pts, half, rank, band) => {
+      for (let i = 0; i + 3 < pts.length; i += 2) {
+        const sg = { ax: pts[i], az: pts[i + 1], bx: pts[i + 2], bz: pts[i + 3], half, rank, band };
+        const gx0 = Math.floor((Math.min(sg.ax, sg.bx) - 22) / FRONT_CELL), gx1 = Math.floor((Math.max(sg.ax, sg.bx) + 22) / FRONT_CELL);
+        const gz0 = Math.floor((Math.min(sg.az, sg.bz) - 22) / FRONT_CELL), gz1 = Math.floor((Math.max(sg.az, sg.bz) + 22) / FRONT_CELL);
+        for (let gx = gx0; gx <= gx1; gx++) for (let gz = gz0; gz <= gz1; gz++) {
+          const k = cellKey(gx, gz);
+          let bucket = frontGrid.get(k);
+          if (!bucket) frontGrid.set(k, bucket = []);
+          bucket.push(sg);
+        }
+      }
+    };
+    for (const bed of carriageways) {
+      const layout = bed.pedestrianLayout;
+      const band = layout === 'sidewalk' ? frontBandWidth(bed) : layout === 'arcade' ? FRONT_ARCADE_BAND_W : 0;
+      frontAdd(bed.pts || [], Math.max((bed.width || 3) / 2, 0.75), CLASS_RANK[bed.highway] || 1, band);
+    }
+    for (const way of paths) {
+      frontAdd(way.pts || [], Math.max((way.width || 3) / 2, 0.75), FRONTAGE_BED_MIN_RANK, 0);
+    }
+    // The gap between a face (centre fx/fz, outward unit normal
+    // nx/nz, unit tangent tx/tz, length len) and the street
+    // section's outer edge in front of it: the minimum over the
+    // bed segments the face actually stands on — in front of the
+    // face, running along it, tertiary or better. Sampled at the
+    // face centre and at ±40% of its length (the #106 sampling):
+    // a bed running even a few degrees off the face binds at the
+    // face's tight end, not its centre, and the ribbon verdict is
+    // an exact area test — the centre sample alone would pull
+    // the tight corner across the carriageway edge. Returns
+    // { gap, band } of the binding sample (band: the winning
+    // segment's section reach past the bed edge), or null when
+    // no bed fronts any sample (the face stands on a lane, or
+    // past the pull cap's reach).
+    const frontGapAt = (fx, fz, nx, nz, tx, tz, len) => {
+      let best = null;
+      for (const f of [-0.4, 0, 0.4]) {
+        const sx = fx + tx * f * len, sz = fz + tz * f * len;
+        const bucket = frontGrid.get(cellKey(Math.floor(sx / FRONT_CELL), Math.floor(sz / FRONT_CELL)));
+        if (!bucket) continue;
+        for (const sg of bucket) {
+          if (sg.rank < FRONTAGE_BED_MIN_RANK) continue;
+          const dx = sg.bx - sg.ax, dz = sg.bz - sg.az, L2 = dx * dx + dz * dz || 1e-9;
+          let t = ((sx - sg.ax) * dx + (sz - sg.az) * dz) / L2;
+          t = Math.max(0, Math.min(1, t));
+          const vx = sg.ax + t * dx - sx, vz = sg.az + t * dz - sz;
+          const d = Math.hypot(vx, vz);
+          if (d <= sg.half) continue;                 // sample inside the bed — not its frontage
+          if (vx * nx + vz * nz < 0.55 * d) continue;  // bed not in front of the face
+          const sl = Math.sqrt(L2);
+          if (Math.abs((dx / sl) * tx + (dz / sl) * tz) < 0.8) continue; // crosses the face, not along it
+          const gap = d - sg.half - sg.band;
+          if (gap < -0.5) continue;                    // face already past this section edge
+          if (best === null || gap < best.gap) best = { gap, band: sg.band };
+        }
+      }
+      return best;
+    };
+    // Planned lots on a grid, for the overlap guard in pullClear:
+    // a face the #106 classification over-reached (an avenue read
+    // through a lane and the block across it) must never drag its
+    // building across that block's lots. The grid is keyed on the
+    // positions lots hold when the pull starts; a pulled lot moves
+    // at most FRONTAGE_PULL_MAX_M, and pullClear reads every other
+    // lot's CURRENT position from the lots array, so querying
+    // generously around the candidate covers moved neighbours.
+    const LOT_CELL = 32;
+    const lotGrid = new Map();
+    lots.forEach((lot, li) => {
+      const r = (lot.rot ? Math.hypot(lot.w, lot.d) / 2 : Math.max(lot.w, lot.d) / 2) + 1;
+      const gx0 = Math.floor((lot.x - r) / LOT_CELL), gx1 = Math.floor((lot.x + r) / LOT_CELL);
+      const gz0 = Math.floor((lot.z - r) / LOT_CELL), gz1 = Math.floor((lot.z + r) / LOT_CELL);
+      for (let gx = gx0; gx <= gx1; gx++) for (let gz = gz0; gz <= gz1; gz++) {
+        const k = cellKey(gx, gz);
+        let bucket = lotGrid.get(k);
+        if (!bucket) lotGrid.set(k, bucket = []);
+        bucket.push(li);
+      }
+    });
+    // Support piers on a small grid (see the guard note). Issue
+    // #124: the MRT deck piers join the elevated-road piers here —
+    // the block loop tests both sets now, so a pulled lot must too.
+    const pierPts = [...((geodata.elevatedRoads && geodata.elevatedRoads.piers) || []), ...((geodata.mrtDecks && geodata.mrtDecks.piers) || [])];
+    const PIER_CELL = 64;
+    const pierGrid = new Map();
+    pierPts.forEach((p, pi) => {
+      const k = cellKey(Math.floor(p.x / PIER_CELL), Math.floor(p.z / PIER_CELL));
+      let bucket = pierGrid.get(k);
+      if (!bucket) pierGrid.set(k, bucket = []);
+      bucket.push(pi);
+    });
+    // The block loop's exclusion gauntlet at a pulled position.
+    // The one deliberate exception is the inset-bbox test: leaving
+    // the 3 m inset margin for the street section is the pull's
+    // whole point — the ribbon verdicts are the real boundary.
+    const pullClear = (lot, lotIndex, rec, nx, nz) => {
+      const { w, d, h } = lot;
+      const turned = lot.rot !== undefined;
+      const corners = turned ? lotCorners(nx, nz, w, d, rec.c, rec.s) : null;
+      let aabb = null;
+      if (turned) {
+        aabb = { minX: Infinity, maxX: -Infinity, minZ: Infinity, maxZ: -Infinity };
+        for (const [px, pz] of corners) {
+          if (px < aabb.minX) aabb.minX = px;
+          if (px > aabb.maxX) aabb.maxX = px;
+          if (pz < aabb.minZ) aabb.minZ = pz;
+          if (pz > aabb.maxZ) aabb.maxZ = pz;
+        }
+      }
+      if (inPoly(nx, nz)) return false;
+      if (turned && corners.some(([px, pz]) => nearPoly(px, pz))) return false;
+      if (inGreen(nx, nz)) return false;
+      if (turned && corners.some(([px, pz]) => nearGreen(px, pz))) return false;
+      if (tamsuiRings.length && nearTamsui(nx, nz)) return false;
+      if (turned && tamsuiRings.length && corners.some(([px, pz]) => nearTamsui(px, pz))) return false;
+      if (inAirfield(nx, nz)) return false;
+      if (turned && corners.some(([px, pz]) => nearAirfield(px, pz))) return false;
+      if (!inUnion(nx, nz)) return false;
+      for (const s of exclusionSites) {
+        if (nx + w / 2 > s.minX && nx - w / 2 < s.maxX && nz + d / 2 > s.minZ && nz - d / 2 < s.maxZ) return false;
+      }
+      if (depotHit(nx, nz, w / 2, d / 2)) return false;
+      if (turned) {
+        let siteHit = false;
+        for (const s of exclusionSites) {
+          if (aabb.maxX < s.minX || aabb.minX > s.maxX || aabb.maxZ < s.minZ || aabb.minZ > s.maxZ) continue;
+          if (quadsIntersect(corners, [[s.minX, s.minZ], [s.maxX, s.minZ], [s.maxX, s.maxZ], [s.minX, s.maxZ]])) { siteHit = true; break; }
+        }
+        if (!siteHit && depotHit(nx, nz, (aabb.maxX - aabb.minX) / 2, (aabb.maxZ - aabb.minZ) / 2)) siteHit = true;
+        if (siteHit) return false;
+      }
+      if (ribbonVerdict(nx, nz, w, d)) return false;
+      if (turned) {
+        if (rotatedRoadHit(nx, nz, w, d, rec.c, rec.s)) return false;
+        if (ribbonVerdict(nx, nz, aabb.maxX - aabb.minX, aabb.maxZ - aabb.minZ) === 'median') return false;
+      }
+      const trackGrown = lotCorners(nx, nz, w + 2 * TRACK_MARGIN_M, d + 2 * TRACK_MARGIN_M, rec.c, rec.s);
+      let tgMinX = Infinity, tgMaxX = -Infinity, tgMinZ = Infinity, tgMaxZ = -Infinity;
+      for (const [px, pz] of trackGrown) {
+        if (px < tgMinX) tgMinX = px;
+        if (px > tgMaxX) tgMaxX = px;
+        if (pz < tgMinZ) tgMinZ = pz;
+        if (pz > tgMaxZ) tgMaxZ = pz;
+      }
+      const track = trackVerdict(nx, nz, trackGrown, tgMinX, tgMaxX, tgMinZ, tgMaxZ);
+      if (track.bed) return false;
+      if (track.under < Infinity && h > track.under - TRACK_CLEARANCE_M) return false;
+      for (const [ox, oz] of [[-1, -1], [-1, 1], [1, -1], [1, 1]]) {
+        if (!inUnion(nx + (ox * w) / 2, nz + (oz * d) / 2)) return false;
+      }
+      if (turned && corners.some(([px, pz]) => !inUnion(px, pz))) return false;
+      const pcx = Math.floor(nx / PIER_CELL), pcz = Math.floor(nz / PIER_CELL);
+      for (let gx = pcx - 1; gx <= pcx + 1; gx++) for (let gz = pcz - 1; gz <= pcz + 1; gz++) {
+        for (const pi of pierGrid.get(cellKey(gx, gz)) || []) {
+          const p = pierPts[pi];
+          if (Math.abs(p.x - nx) <= w / 2 && Math.abs(p.z - nz) <= d / 2) return false;
+          if (turned) {
+            const dx = p.x - nx, dz = p.z - nz;
+            if (Math.abs(dx * rec.c + dz * rec.s) <= w / 2 && Math.abs(-dx * rec.s + dz * rec.c) <= d / 2) return false;
+          }
+        }
+      }
+      // No overlap with any other planned lot (see the lotGrid
+      // note). The candidate is shrunk a hair so the exact party-
+      // wall touches of packed rows do not read as overlaps.
+      const cand = lotCorners(nx, nz, Math.max(w - 0.12, 0.1), Math.max(d - 0.12, 0.1), rec.c, rec.s);
+      const candAabb = turned ? aabb : { minX: nx - w / 2, maxX: nx + w / 2, minZ: nz - d / 2, maxZ: nz + d / 2 };
+      const reach = Math.hypot(w, d) / 2 + 34 + FRONTAGE_PULL_MAX_M;
+      const seenLot = new Set();
+      const lgx0 = Math.floor((nx - reach) / LOT_CELL), lgx1 = Math.floor((nx + reach) / LOT_CELL);
+      const lgz0 = Math.floor((nz - reach) / LOT_CELL), lgz1 = Math.floor((nz + reach) / LOT_CELL);
+      for (let gx = lgx0; gx <= lgx1; gx++) for (let gz = lgz0; gz <= lgz1; gz++) {
+        for (const li of lotGrid.get(cellKey(gx, gz)) || []) {
+          if (li === lotIndex || seenLot.has(li)) continue;
+          seenLot.add(li);
+          const o = lots[li];
+          const oc = o.rot !== undefined
+            ? lotCorners(o.x, o.z, o.w, o.d, Math.cos(o.rot), Math.sin(o.rot))
+            : lotCorners(o.x, o.z, o.w, o.d, 1, 0);
+          // AABB reject before the SAT (most neighbours are far).
+          let oMinX = Infinity, oMaxX = -Infinity, oMinZ = Infinity, oMaxZ = -Infinity;
+          for (const [px, pz] of oc) {
+            if (px < oMinX) oMinX = px;
+            if (px > oMaxX) oMaxX = px;
+            if (pz < oMinZ) oMinZ = pz;
+            if (pz > oMaxZ) oMaxZ = pz;
+          }
+          if (oMaxX < candAabb.minX || oMinX > candAabb.maxX || oMaxZ < candAabb.minZ || oMinZ > candAabb.maxZ) continue;
+          if (quadsIntersect(cand, oc)) return false;
+        }
+      }
+      return true;
+    };
+
+    // Outermost surviving lot of every block face line (see the
+    // lotFront note): for each (block, face, line) the surviving
+    // lot closest to that face. Lines whose first cell survived
+    // resolve to that same lot (already a direct face); lines
+    // whose first cell died at planning resolve one cell back —
+    // that lot gains the face here.
+    const outerU = new Map(), outerV = new Map();
+    for (let i = 0; i < lots.length; i++) {
+      const r = lotFront[i];
+      const kU = `${r.bi}|${r.row}`, kV = `${r.bi}|${r.col}`;
+      const cu = outerU.get(kU), cv = outerV.get(kV);
+      if (!cu) outerU.set(kU, { lo: i, hi: i });
+      else {
+        if (r.col < lotFront[cu.lo].col) cu.lo = i;
+        if (r.col > lotFront[cu.hi].col) cu.hi = i;
+      }
+      if (!cv) outerV.set(kV, { lo: i, hi: i });
+      else {
+        if (r.row < lotFront[cv.lo].row) cv.lo = i;
+        if (r.row > lotFront[cv.hi].row) cv.hi = i;
+      }
+    }
+
+    for (let i = 0; i < lots.length; i++) {
+      const rec0 = lotFront[i];
+      const lot = lots[i];
+      // Effective faces: the direct ones plus any face this lot is
+      // the outermost survivor of (at major rank).
+      const vF = rec0.vF.slice(), uF = rec0.uF.slice();
+      const ou = outerU.get(`${rec0.bi}|${rec0.row}`), ov = outerV.get(`${rec0.bi}|${rec0.col}`);
+      if (ou.lo === i && rec0.col > 0 && rec0.rUL >= FRONTAGE_PULL_MIN_RANK && !uF.some(([dir]) => dir === -1)) uF.push([-1, rec0.rUL]);
+      if (ou.hi === i && rec0.rUH >= FRONTAGE_PULL_MIN_RANK && !uF.some(([dir]) => dir === 1)) uF.push([1, rec0.rUH]);
+      if (ov.lo === i && rec0.row > 0 && rec0.rVL >= FRONTAGE_PULL_MIN_RANK && !vF.some(([dir]) => dir === -1)) vF.push([-1, rec0.rVL]);
+      if (ov.hi === i && rec0.rVH >= FRONTAGE_PULL_MIN_RANK && !vF.some(([dir]) => dir === 1)) vF.push([1, rec0.rVH]);
+      if (!vF.length && !uF.length) continue;
+      const rec = { c: rec0.c, s: rec0.s, vF, uF };
+      const U = [rec.c, rec.s], V = [-rec.s, rec.c];
+      // One pull per axis. A lot spanning a one-row/one-column
+      // block stands in both faces of that axis; the more set-back
+      // face wins the pull (the other face keeps its wall, one
+      // pull's width further back). state: 'pull' (amount along
+      // unit normal n), 'flush' (every face on its section edge),
+      // 'absent' (no face on this axis), 'none' (a face exists but
+      // no fronting bed in range serves it).
+      const axisPull = (faces, N, T, halfExtent, faceLen) => {
+        if (!faces.length) return { state: 'absent' };
+        let pull = null, sawBed = false, allFlush = true;
+        for (const [dir] of faces) {
+          const n = [N[0] * dir, N[1] * dir];
+          const fg = frontGapAt(lot.x + n[0] * halfExtent, lot.z + n[1] * halfExtent, n[0], n[1], T[0], T[1], faceLen);
+          if (fg === null) { allFlush = false; continue; }
+          sawBed = true;
+          // The legal landing: the section edge, except that a
+          // band-less section (shared/painted — its edge IS the
+          // carriageway edge) keeps the ribbon rule's 0.5 m margin
+          // plus a rounding hair: the face stops 0.6 m short of
+          // the bed edge there instead of on it.
+          const amount = fg.gap - Math.max(0, 0.6 - fg.band);
+          if (amount <= 0 || fg.gap <= FRONTAGE_PULL_MIN_M) continue;
+          allFlush = false;
+          if (amount > FRONTAGE_PULL_MAX_M) continue;
+          if (!pull || amount > pull.amount) pull = { n, amount };
+        }
+        if (pull) return { state: 'pull', n: pull.n, amount: pull.amount };
+        if (sawBed && allFlush) return { state: 'flush' };
+        return { state: 'none' };
+      };
+      const pullV = axisPull(rec.vF, V, U, lot.d / 2, lot.w);
+      const pullU = axisPull(rec.uF, U, V, lot.w / 2, lot.d);
+      const pv = pullV.state === 'pull' ? pullV.amount : 0;
+      const pu = pullU.state === 'pull' ? pullU.amount : 0;
+      if (!pv && !pu) {
+        const settled = (s) => s.state === 'flush' || s.state === 'absent';
+        if (settled(pullV) && settled(pullU) && (pullV.state === 'flush' || pullU.state === 'flush')) stats.lotsFrontageFlush++;
+        else stats.lotsFrontageHeldNoBed++;
+        continue;
+      }
+      // The facade guard: facadeMatFor hashes the lot's position,
+      // so an arbitrary landing re-rolls the facade family — the
+      // candidate must reproduce the lot's family. It reads lot.h
+      // ONLY through the band thresholds 12/15/22/30/36/40, so
+      // equality is probed at one height per band (7 probes): a
+      // position that matches under every probe renders the same
+      // family at ANY height, which keeps the material census
+      // exact in the real plan AND makes the choice independent of
+      // the height regime (the heights byte-stability test plans
+      // with heights:null and expects untouched lots byte-stable —
+      // a guard keyed on the lot's own h would pick different
+      // landings in the two regimes). Vertical signs are NOT
+      // guarded: taipeiVerticalSigns gates on h < 10 and its panel
+      // count is not band-separable, and a sign's placement floats
+      // were never pinned — a pulled lot's signs re-roll, and the
+      // signed share stays inside its pinned band (measured
+      // before/after in the #185 evidence).
+      const MAT_H_PROBES = [6, 13, 18, 26, 33, 38, 50];
+      const probeLot = { ...lot };
+      const mats0 = MAT_H_PROBES.map((h) => { probeLot.h = h; return facadeMatFor(probeLot); });
+      const visualSame = (nx, nz) => {
+        probeLot.x = nx; probeLot.z = nz;
+        for (let k = 0; k < MAT_H_PROBES.length; k++) {
+          probeLot.h = MAT_H_PROBES[k];
+          if (facadeMatFor(probeLot) !== mats0[k]) return false;
+        }
+        return true;
+      };
+      const nv = pullV.state === 'pull' ? pullV.n : [0, 0];
+      const nu = pullU.state === 'pull' ? pullU.n : [0, 0];
+      // Candidate displacements [av, au, sv, su]: pull amounts on
+      // the two axes plus shifts along them (sv along U, su along
+      // V). The position hash means most exact landings re-roll the
+      // facade family, so the search walks offsets — pull
+      // reductions (fine steps inside the flush band, then coarser
+      // ones: a perpendicular ribbon clipping the pulled face's
+      // corner can sit metres deep, and a lot pulled 3 m less is
+      // still on its street) and shifts of up to 3 m ALONG the
+      // face, which re-roll the hash without changing the face's
+      // setback at all. Ordered by total offset, so the
+      // least-moved acceptable position wins; the
+      // gauntlet gets at most sixteen visual-passing candidates
+      // per lot.
+      const cands = [];
+      if (pv && pu) {
+        cands.push([pv, pu, 0, 0]);
+        // The all-band facade probe passes only ~1 position in
+        // 80, so the exact landing also gets a shift lattice
+        // (shifts along the faces re-roll the hash; the overlap
+        // and ribbon guards arbitrate the slide).
+        for (const sv of [0.6, -0.6, 1.2, -1.2, 1.8, -1.8, 2.4, -2.4]) for (const su of [0, 0.6, -0.6, 1.2, -1.2, 1.8, -1.8, 2.4, -2.4]) cands.push([pv, pu, sv, su]);
+        for (let k = 1; k <= 9; k++) {
+          const dv = Math.max(0, pv - k / 10), du = Math.max(0, pu - k / 10);
+          cands.push([dv, pu, 0, 0], [pv, du, 0, 0], [dv, du, 0, 0]);
+        }
+        // One flush face beats two almost-flush faces: the
+        // single-axis fallbacks come before the deep reductions.
+        cands.push([pv, 0, 0, 0], [0, pu, 0, 0]);
+        for (const red of [1.4, 2.0, 2.8]) {
+          const dv = Math.max(0, pv - red), du = Math.max(0, pu - red);
+          cands.push([dv, pu, 0, 0], [pv, du, 0, 0], [dv, du, 0, 0]);
+        }
+      } else if (pv || pu) {
+        const p = pv || pu;
+        const pairs = [];
+        for (let k = 0; k <= 9; k++) for (const s of [0, 0.25, -0.25, 0.5, -0.5, 0.75, -0.75, 1.0, -1.0, 1.25, -1.25, 1.5, -1.5, 1.75, -1.75, 2.0, -2.0, 2.25, -2.25, 2.5, -2.5, 2.75, -2.75, 3.0, -3.0]) pairs.push([k / 10, s]);
+        for (const red of [1.2, 1.6, 2.0, 2.6, 3.2]) for (const s of [0, 0.75, -0.75, 1.5, -1.5, 2.25, -2.25, 3.0, -3.0]) pairs.push([red, s]);
+        pairs.sort((a, b) => (a[0] + Math.abs(a[1])) - (b[0] + Math.abs(b[1])) || a[0] - b[0] || Math.abs(a[1]) - Math.abs(b[1]));
+        for (const [red, s] of pairs) {
+          if (pv) cands.push([Math.max(0, p - red), 0, s, 0]);
+          else cands.push([0, Math.max(0, p - red), 0, s]);
+        }
+      }
+      const seenPos = new Set([`${lot.x},${lot.z}`]);
+      let applied = false, gauntletTries = 0;
+      for (const [av, au, sv, su] of cands) {
+        const nx = Math.round((lot.x + nv[0] * av + nu[0] * au + U[0] * sv + V[0] * su) * 10) / 10;
+        const nz = Math.round((lot.z + nv[1] * av + nu[1] * au + U[1] * sv + V[1] * su) * 10) / 10;
+        const posKey = `${nx},${nz}`;
+        if (seenPos.has(posKey)) continue;
+        seenPos.add(posKey);
+        if (!visualSame(nx, nz)) continue;
+        if (++gauntletTries > 16) break;
+        if (!pullClear(lot, i, rec, nx, nz)) continue;
+        stats.frontagePullMetres += Math.round(Math.hypot(nx - lot.x, nz - lot.z) * 10) / 10;
+        lot.x = nx;
+        lot.z = nz;
+        stats.lotsFrontagePulled++;
+        applied = true;
+        break;
+      }
+      if (!applied) stats.lotsFrontageHeldBlocked++;
+    }
   }
 
   // Taipei 101 massing (see header): podium + 8 identical flared
