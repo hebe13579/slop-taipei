@@ -260,17 +260,19 @@ test('ground network unchanged: beds, junctions and caps exactly as before decks
   // Census re-pinned for issue #134: roadbeds 11,804 -> 13,578,
   // junctions 2,361 -> 2,701 and caps 2,354 -> 2,694 (still
   // junctions - 7 roundabout-claimed) on the enlarged tile.
-  // Census re-pinned for issue #186: roadbeds 13,578 -> 14,547,
-  // junctions 2,701 -> 2,873 on the strip-grown tile.
-  assert.equal(TAIPEI_GEO.roadbeds.length, 14547, 'roadbed count unchanged (deck beds are flagged, not removed)');
+  // Census re-pinned for issue #196: roadbeds 13,578 -> 13,577
+  // (the 復北地下道 north apron stub is clipped into its portal
+  // approach cut; generation-map rework v6), junctions 2,701 ->
+  // 2,699 (the two portal-mouth stub clusters dissolve).
+  assert.equal(TAIPEI_GEO.roadbeds.length, 14546, 'roadbed count on the merged tree (13,577 on main + 969 beds in the #186 airport-north strip; the one remaining #186-signature bed is a zero-point stub the post-#196 builder routes to roadTunnels instead)');
   const junctions = detectJunctions(carriageways);
-  assert.equal(junctions.length, 2873, 'ground junction detection unchanged');
+  assert.equal(junctions.length, 2871, 'ground junction detection on the merged tree (2,699 main + 172 in the #186 strip; re-pinned at the #186 gate)');
   const caps = planJunctionCaps(carriageways, junctions);
   // Gate re-pin (PR #78 onto post-#77 main): caps = junctions minus the 7
   // junctions claimed by #77's handcrafted roundabout sites (Renai 4 +
   // Dongmen 3). The invariant this test protects is unchanged: decks do not
   // remove a single cap — the delta is #77's, documented in its audit.
-  assert.equal(caps.length, 2795, 'junction caps still planned over the full bed set, deck beds included (2873 detected − 7 roundabout-claimed, #77; − 71 groundless phantoms dropped by the issue #178 ORPHAN rule — 20 of them the deck-interchange clusters this layer sits on; census re-pinned for issue #186, phantom count unchanged)');
+  assert.equal(caps.length, 2793, 'junction caps still planned over the full bed set, deck beds included (2,871 detected − 7 roundabout-claimed, #77; − 71 groundless phantoms dropped by the issue #178 ORPHAN rule — merged-tree re-pin at the #186 gate: 2,621 on main, 2,795 pinned by #186 on its stale base, 2,793 measured merged)');
 });
 
 test('viaduct renderer: synthetic box section with parapets', () => {

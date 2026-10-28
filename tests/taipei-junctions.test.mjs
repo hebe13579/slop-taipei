@@ -197,20 +197,27 @@ test('real tile: exactly one cap per grounded multi-arm junction, centres and ar
   // the north portal cap 204.0 -> 331.0 m² (the junction re-plans
   // around the surviving 19.5 m stub arm). Fitted total unchanged
   // at 159,678 m²; every other cap in the tile is identical.
-  // Census re-pinned for issue #186 (airport box grown north
-  // to the National Palace Museum): junctions 2,701 -> 2,873
-  // and caps 2,623 -> 2,795 (box 559 -> 588, fitted 2,064 ->
-  // 2,207); ring areas total 650,838 -> 689,510 m2 (fitted
-  // 159,678 -> 173,457 m2). Construction unchanged — the delta
-  // is the strip's road grid （北安路/敬業三路/內湖路/至善路）;
-  // the #178 phantom count is unchanged at 71 (every strip
-  // junction is grounded).
-  assert.equal(junctions.length, 2873, `junctions ${junctions.length}`);
-  assert.equal(caps.length, 2795, `caps ${caps.length}`);
-  assert.equal(caps.filter((c) => c.kind === 'box').length, 588, 'box caps');
-  assert.equal(caps.filter((c) => c.kind === 'fitted').length, 2207, 'fitted caps');
-  assert.equal(Math.round(caps.reduce((s, c) => s + c.area, 0)), 689510, 'cap area census');
-  assert.equal(Math.round(caps.filter((c) => c.kind === 'fitted').reduce((s, c) => s + c.area, 0)), 173457,
+  // Census re-pinned for issue #196 (portal trenches): the two
+  // 復北地下道 mouth clusters dissolve — the approach cuts
+  // consume the carriageway stub ends that formed them — so
+  // junctions 2,701 -> 2,699 and caps 2,623 -> 2,621, both lost
+  // caps being box caps (559 -> 557; fitted unchanged at 2,064).
+  // Proven by an old-vs-new geodata census: the only changed
+  // caps in the tile are the two mouth caps (gone) and the
+  // 民族東路 x 復興北路 / 濱江街 junction caps (reshaped around
+  // the shortened stubs).
+  assert.equal(junctions.length, 2871, `junctions ${junctions.length}`); // merged-tree re-pin at the #186 gate: 2,699 on main, 2,873 pinned by #186 on its stale base, 2,871 measured on the merged tree
+  assert.equal(caps.length, 2793, `caps ${caps.length}`); // merged-tree re-pin at the #186 gate: 2,621 main / 2,795 #186-stale-base / 2,793 merged
+  assert.equal(caps.filter((c) => c.kind === 'box').length, 586, 'box caps'); // merged-tree re-pin at the #186 gate: 557 main / 588 #186-stale-base / 586 merged
+  assert.equal(caps.filter((c) => c.kind === 'fitted').length, 2207, 'fitted caps'); // merged-tree re-pin at the #186 gate: 2,064 main / 2,207 merged (box 586 + fitted 2,207 = the 2,793 caps)
+  // Area re-pinned for issue #196: 650,838 -> 650,470 (-368 m²,
+  // old-vs-new cap diff by centre): the two mouth caps are gone
+  // (north 331.0 m², south 75.0 m²) and the neighbouring junction
+  // caps grow around the shortened stubs (濱江街 959 -> 993 m²,
+  // 民族東路 x 復興北路 1,016 -> 1,020 m²). Every other cap in
+  // the tile is identical; the fitted total below is unchanged.
+  assert.equal(Math.round(caps.reduce((s, c) => s + c.area, 0)), 689142, 'cap area census'); // merged-tree re-pin at the #186 gate: 650,470 main / 689,142 merged (+38,672 m² of caps in the #186 strip)
+  assert.equal(Math.round(caps.filter((c) => c.kind === 'fitted').reduce((s, c) => s + c.area, 0)), 173457, // merged-tree re-pin at the #186 gate: 159,678 main / 173,457 merged
     'fitted cap area census (overlap construction since #145)');
   // Census addition for issue #163 (junction fix v2): the ring
   // counts/areas above are unchanged BY CONSTRUCTION — the #163
@@ -434,7 +441,15 @@ test('real tile: no painted band, median strip or dash quad centre inside a cap'
   // still put exactly 0 inside the occluders (asserted above).
   // The band/edge bites are untouched.
   const unclippedMedians = buildMedianStrips(beds);
-  assert.equal([...unclippedMedians.plain, ...unclippedMedians.planted].filter(inOcc).length, 3066,
+  // Bite re-pinned for issue #196: 2,840 -> 2,838. The clipped
+  // beds at the 復北地下道 mouths reshape the 民族東路 x 復興北路
+  // cap: three 復興北路 median quad centres at its north edge
+  // stop biting and one 民族東路 median centre at (-2103, -3719)
+  // starts (old-vs-new census diff; every changed centre lies
+  // within 35 m of the south mouth). The clipped builders still
+  // put exactly 0 inside (asserted above); band/edge bites are
+  // unchanged.
+  assert.equal([...unclippedMedians.plain, ...unclippedMedians.planted].filter(inOcc).length, 3064, // merged-tree re-pin at the #186 gate: 2,838 on main, 3,066 pinned by #186 on its stale base, 3,064 measured merged
     'unclipped medians inside occluders');
 });
 
@@ -583,9 +598,10 @@ test('issue #75: every major junction box is covered corner to corner by its box
   // box's arterial grid （敦化北路 x 民權/民族/民生， 南京東路東段，
   // 塔悠路 x 撫遠街） and the strip's Datong majors join; every one
   // still passes (a)-(c) above.
-  // Re-pinned for issue #186: 579 -> 607 majors — the strip's
-  // divided arterials （北安路， 敬業三路， 內湖路一段， 至善路） join.
-  assert.equal(major, 607, `major junctions audited ${major}`);
+  // Re-pinned for issue #196: 579 -> 577 — the two dissolved
+  // 復北地下道 mouth clusters were majors (their caps were box
+  // caps); every surviving major still passes (a)-(c) above.
+  assert.equal(major, 605, `major junctions audited ${major}`); // merged-tree re-pin at the #186 gate: 577 main / 607 #186-stale-base / 605 merged
 });
 
 test('issue #75: crosswalk and stop-line centres at major junctions lie on asphalt', () => {

@@ -571,6 +571,32 @@ test('landmark structures: true positions and heights, sites kept clear', (t) =>
     // Jan 2023); the position is the fitted centre of the cube
     // in the OSM building relation 13913132 (see registry).
     'taipei-performing-arts-center': { h: 55, x: -4115.4, z: -5777.2 },
+    // Batch 8 (issue #165): the Xinyi batch — Four Seasons
+    // (published coordinate; RSHP's 180 m), Farglory (OSM way
+    // 289834528 minimum-area-rect centre; the study's 208.3 m) and
+    // the four Shin Kong Mitsukoshi halls (OSM rect centres of
+    // ways 274647897 / 274647896 / 269773067 / 391309615; heights
+    // ESTIMATED from the zh-Wikipedia floor counts at 5.5 m per
+    // department-store floor — see the registry comments).
+    'four-seasons-hotel-taipei': { h: 180, x: -28.3, z: 55.4 },
+    'farglory-financial-center': { h: 208.3, x: -80.6, z: -731.8 },
+    'shin-kong-mitsukoshi-a4': { h: 33, x: 166.7, z: -739.2 },
+    'shin-kong-mitsukoshi-a8': { h: 38.5, x: 181.7, z: -584.0 },
+    'shin-kong-mitsukoshi-a9': { h: 49.5, x: 168.9, z: -403.3 },
+    'shin-kong-mitsukoshi-a11': { h: 33, x: 227.6, z: -403.3 },
+    // Batch 9 (issue #166, Tianmu/Beitou): positions are the
+    // measured siting anchors (Takashimaya: OSM relation 6821492
+    // outline centre; the stadium: its OSM grounds/structure
+    // centre with the bowl modelled complete across the corridor
+    // edge — see the issue; the schools: their campus centres).
+    // All five heights are estimates (floors × 3.6 m; Takashimaya
+    // 12F published but no metric height; the stadium's 30 m is
+    // its light towers) — flagged estimated in the registry.
+    'dayeh-takashimaya': { h: 47, x: -3363, z: -8726 },
+    'tianmu-stadium': { h: 30, x: -3215, z: -8933 },
+    'shipai-junior-high': { h: 14.4, x: -5187, z: -9183 },
+    'qingjiang-elementary': { h: 14.4, x: -5848, z: -10352 },
+    'jianguo-high-school': { h: 25.2, x: -5288, z: 299 },
     // Batch 8 (issues #149 + #186): the National Palace Museum —
     // 27.5 m is FORM-DERIVED, not published (OSM way 203799171:
     // levels 4; podium 6 + walls 13 + hip roofs, central tier
@@ -711,6 +737,23 @@ test('landmark batch 3: two-slab Cathay rebuild, W, Songshan, Eslite, Arena', ()
     // national halls' 37 m is OSM-derived, not published. Batch 5
     // (issue #86) adds Beimen: its ~19 m overall height is the
     // accepted estimate — no published figure exists at all.
+    // Batch 8 (issue #165) adds the four Shin Kong Mitsukoshi
+    // halls: floor-count estimates (zh-Wikipedia floors x 5.5 m),
+    // no published metres — the Four Seasons (RSHP 180 m) and
+    // Farglory (208.3 m) heights in the same batch ARE published
+    // and stay unflagged. Batch 9 (issue #166) adds five more:
+    // Takashimaya's 47 m (12F published, no metric height), the
+    // stadium's 30 m light towers, and the three school campuses
+    // (floors × 3.6 m from OSM levels where tagged, estimated
+    // elsewhere).
+    if (s.id !== 'eslite-spectrum-songyan' && s.id !== 'taipei-arena'
+      && s.id !== 'national-concert-hall' && s.id !== 'national-theater'
+      && s.id !== 'beimen'
+      && s.id !== 'shin-kong-mitsukoshi-a4' && s.id !== 'shin-kong-mitsukoshi-a8'
+      && s.id !== 'shin-kong-mitsukoshi-a9' && s.id !== 'shin-kong-mitsukoshi-a11'
+      && s.id !== 'dayeh-takashimaya' && s.id !== 'tianmu-stadium'
+      && s.id !== 'shipai-junior-high' && s.id !== 'qingjiang-elementary'
+      && s.id !== 'jianguo-high-school') {
     // Batch 8 (issue #186) adds the National Palace Museum: its
     // 27.5 m is form-derived (no published overall height; OSM
     // levels 4 + the roof stack in the registry), flagged the
@@ -1135,6 +1178,39 @@ test('taiwan types: family zoning, distribution and rooftop clamp', (t) => {
   // are not plan lots and cannot convert: glass 4,291 - 171 =
   // 4,120. District before/after counts live in
   // xinyiwhite-evidence/.
+  // Issue #165 (Xinyi landmark batch), measured on this tree by
+  // lot-by-lot diff of the options lots against the pre-#165
+  // plan: the six new registry sites remove 31 plan lots (29 on
+  // the Four Seasons D3 parcel, 2 under the Mitsukoshi A4
+  // hall), 11 of them glass — the D3 parcel stands in the
+  // district's tall stock, so its mid-rise lots are glass by
+  // the height rule (F3 -5, F4 -2, F5 -4; the remaining
+  // removals are Taiwan -17 and masonry -3). The 8 neighbouring
+  // lots the field/frontage machinery re-rolls keep their
+  // families (two of them move their rects and persist as F4):
+  // glass 4,120 - 11 = 4,109.
+  // Issue #124 (fine-grain rule), measured on this tree: the
+  // re-subdivision multiplies the lots standing inside the
+  // glass-zoned cores (station front, Dunhua, the Xinyi
+  // fringe) and every subdivided lot keeps the family the
+  // core/height rules assign it — glass 4,109 -> 7,834. The
+  // palette rules are unedited; the census moves because the
+  // plan does.
+  // Issue #166 (Tianmu/Beitou batch), measured on the merged
+  // tree by lot-by-lot diff of the options lots against the
+  // same plan without the five new registry entries: the sites
+  // exclude 141 fine lots (masonry -92, Taiwan -44, glass -5)
+  // and 16 kept lots re-roll family (glass -> masonry 1,
+  // masonry -> glass 1, net 0): glass 7,834 - 5 = 7,829.
+  // Issue #186 (NPM strip), measured on the merge tree at the
+  // merge gate by lot-by-lot diff against main: the strip's
+  // 3,919 lots (probe bbox x -3227..504, z <= -4995) carry
+  // 359 glass, and the boundary re-cut churn south of the old
+  // airport-box edge nets +22 more: glass 7,829 + 381 = 8,210.
+  // The old tile otherwise reproduces main lot for lot (the
+  // gate restored main's block order in the merged geodata —
+  // see the taipei-mrt clearance composition note).
+  assert.equal(glass, 8210, 'glass family counts after #136 + #139 + #135 + #142, composed with #134 + #137, #144, #165, #124, #166 and #186');
   // Issue #186 composition: the strip to the National Palace
   // Museum adds 3,733 lots, 342 of them glass (the Neihu/Dazhi
   // office stock); the block-set reshuffle moves the outside
@@ -1168,6 +1244,12 @@ test('taiwan types: family zoning, distribution and rooftop clamp', (t) => {
   // lots to masonry (F0 +264, F1 +222) — 17,020 of 34,645 (49.1%);
   // masonry + Taiwan types together are 30,734 (88.7%). Still
   // inside this range unedited.
+  // Range re-based for issue #124: the fine-grain plan carries
+  // 34,666 masonry lots of 71,584 (48.4% — the same share as
+  // the #136 composition, on twice the lots); masonry + Taiwan
+  // together are 63,750 (89.1%), the local fabric as before.
+  // The range is re-based to the new census with headroom.
+  assert.ok(masonry > 30000 && masonry < 40000, `masonry 0-2 reduced but still present (${masonry})`);
   // Range re-based for issue #186: the strip's 3,733 lots are
   // mostly residential masonry fabric — 20,929 of 42,190 lots
   // (49.6%), still the largest family bloc. The ceiling moves
@@ -1260,10 +1342,25 @@ test('arcade parts: recessed core and full-perimeter colonnade', (t) => {
 
   // On the real plan: most F7 lots carry the arcade, and the colonnade
   // total stays in the stated budget (~24 facade-box instances per lot).
+  // Issue #124 re-bases the census, not the rule: the F7 population
+  // is 6,455 lots now, and the fine-grain lots are true shophouse
+  // widths (9–12.5 m), so most of them sit under the #55 viability
+  // gate (no arcade under 11 m in either dimension — the 3.6 m
+  // inset core would vanish) and keep the flat F7 facade. What the
+  // gate passes, the arcade still covers completely: every one of
+  // the 2,977 size-eligible F7 lots carries its arcade.
+  // Issue #166: the five Tianmu/Beitou sites remove 11 F7 lots
+  // (net of the family re-rolls, diffed lot by lot on the
+  // merged tree) — 6,444.
+  // Issue #186 (NPM strip), same gate diff as the glass pin
+  // above: the strip carries 322 F7 and the boundary re-cut
+  // churn nets +7: 6,444 + 329 = 6,773.
   const opts = taipeiCityBlocksOptions(TAIPEI_GEO, planTaipeiBuildings(TAIPEI_GEO));
   const f7 = opts.lots.filter((l) => l.mat === 7);
   const withArcade = f7.filter((l) => l.arcade);
-  assert.ok(withArcade.length / f7.length > 0.8, `most F7 lots carry the arcade (${withArcade.length}/${f7.length})`);
+  const eligible = f7.filter((l) => (l.x1 - l.x0) >= 11 && (l.z1 - l.z0) >= 11);
+  assert.equal(f7.length, 6773, 'F7 census after #124, composed with #166 and #186');
+  assert.equal(withArcade.length, eligible.length, `every size-eligible F7 lot carries the arcade (${withArcade.length}/${eligible.length})`);
   const totalCols = withArcade.reduce((s, l) => s + l.arcade.columns.length, 0);
   assert.ok(totalCols / withArcade.length < 30, `columns per arcade lot sane (${(totalCols / withArcade.length).toFixed(1)})`);
   t.diagnostic(`F7 lots ${f7.length}, with arcade ${withArcade.length}, total columns ${totalCols}`);

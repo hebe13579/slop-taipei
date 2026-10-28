@@ -99,7 +99,11 @@
 // gaps where no stripe pair meets), suppressing a crossing
 // whose band is >= 60% culled; stop lines
 // always yield to stripes (a stop line overlapping a surviving
-// stripe is dropped, as is one centred off asphalt); (3) FURN —
+// stripe is dropped, as is one centred off asphalt) and, since
+// issue #190, to the band quads themselves — a diagonal line
+// crosses a band in sub-threshold stripe slices yet paints
+// metres across the zebra the shader draws from the band, so
+// step (4) judges the band overlap at the same threshold; (3) FURN —
 // a signal unit deeper than 2 m inside the full junction surface
 // (capSurfacePolys: ring + strips) is relocated out along its
 // corner diagonal, with nearest-boundary exits and the #64 ribbon
@@ -867,7 +871,7 @@ export function buildJunctionFurniture(roadbeds, junctions, capsIn = null) {
     xovlGroupsDropped: 0, xovlStripesDropped: 0, xoffStripesDropped: 0,
     xoffGroupsDropped: 0, trimStripesDropped: 0,
     bandStripesDropped: 0, bandGroupsDropped: 0,
-    zebraStopLinesDropped: 0, xoffStopLinesDropped: 0,
+    zebraStopLinesDropped: 0, xoffStopLinesDropped: 0, bandStopLinesDropped: 0,
   };
   // Crosswalk groups (issue #170): one record per placed crossing
   // ({ ji, start, count, rank, width } into the stripes array, in
@@ -1522,12 +1526,27 @@ export function buildJunctionFurniture(roadbeds, junctions, capsIn = null) {
     stripes = nStripes; stripeJunction = nStripeJunction;
     bands = nBands; bandJunction = nBandJunction;
     stats.crosswalks = bands.length;
-    // (4) Stop lines yield to stripes: a line centred off the
-    // asphalt, or lying across a surviving zebra, is dropped.
-    // (The dash-suppression zones are arm geometry, computed at
-    // placement — they do not follow the line quad.)
+    // (4) Stop lines yield to stripes AND bands: a line centred
+    // off the asphalt, or lying across a surviving zebra, is
+    // dropped. The stripe test alone cannot see the defect class
+    // of issue #190: the renderer paints the BAND quads (issue
+    // #90), and a diagonal stop line crosses a band in slices —
+    // each stripe slice under STRIPE_OVERLAP_M2, the rest over
+    // the band's duty-cycle gaps — so it survived step (4) while
+    // painting up to 3.55 m2 across the zebra (tile-wide census:
+    // 90 stop x band pairs over 0.005 m2, 92.23 m2 total, 87 stop
+    // lines at 68 junctions, all same-junction; the type
+    // specimen's line slices its band's stripes at 0.204 m2 max
+    // but covers 1.260 m2 of the band). So the line is judged
+    // against the surviving bands at the same threshold; stripe
+    // cause keeps counting priority so the #170 history stays
+    // comparable. (The dash-suppression zones are arm geometry,
+    // computed at placement — they do not follow the line quad.)
     const rFrames = stripes.map(quadFrame);
     const rGrid = pairGrid(rFrames);
+    const bFrames = bands.map((b) => quadFrame(b.quad));
+    const bandR = bFrames.reduce((m, f) => Math.max(m, f.r), 0);
+    const bGrid = pairGrid(bFrames);
     const nLines = [], nLineJunction = [];
     stopLines.forEach((q, li) => {
       const f = quadFrame(q);
@@ -1537,6 +1556,11 @@ export function buildJunctionFurniture(roadbeds, junctions, capsIn = null) {
         if (clipArea(quadPts(q), quadPts(stripes[j])) > STRIPE_OVERLAP_M2) { onZebra = true; break; }
       }
       if (onZebra) { stats.zebraStopLinesDropped++; return; }
+      let onBand = false;
+      for (const j of nearIdx(bGrid, bFrames, f, bandR)) {
+        if (clipArea(quadPts(q), quadPts(bands[j].quad)) > STRIPE_OVERLAP_M2) { onBand = true; break; }
+      }
+      if (onBand) { stats.bandStopLinesDropped++; return; }
       nLines.push(q); nLineJunction.push(stopLineJunction[li]);
     });
     stopLines = nLines; stopLineJunction = nLineJunction;
@@ -1622,6 +1646,7 @@ export function buildRoadMarkings(roadbeds, medianStrips = null, caps = null, ju
       xoffGroupsDropped: furniture.stats.xoffGroupsDropped,
       trimStripesDropped: furniture.stats.trimStripesDropped,
       zebraStopLinesDropped: furniture.stats.zebraStopLinesDropped,
+      bandStopLinesDropped: furniture.stats.bandStopLinesDropped,
       xoffStopLinesDropped: furniture.stats.xoffStopLinesDropped,
       skippedArms: furniture.stats.skippedArms,
       ringArmsSkipped: furniture.stats.ringArmsSkipped,
