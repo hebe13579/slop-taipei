@@ -827,6 +827,16 @@ export function armExtension(j, a, roadbeds, kerbCtx = null) {
 // polygons a cap may not pave over: the green landuse layer,
 // the park polygons and the Tamsui riverside band. Returned as
 // point arrays in this module's shape.
+//
+// POC (#214, branch issue-214-poc-water-clip — proof only, NOT
+// for tile-wide ship without the gate): creek water polygons
+// (derived polygon-uncovered waterways and 溪-named water) join
+// the clip set. The per-junction corridor erosion below already
+// subtracts every arm's carriageway ribbon + corridor rectangle
+// from each clip polygon before cutting, so the cap keeps the
+// part that lies on the bridge deck and loses only the spill
+// onto open water. Rivers (河) stay out of this POC: their
+// crossings are wide bridge decks, a different class.
 export function capClipPolys(geodata) {
   const out = [];
   const seen = new Set();
@@ -845,6 +855,22 @@ export function capClipPolys(geodata) {
   for (const g of geodata.green || []) push(g.ring);
   for (const g of geodata.parks || []) push(g.ring);
   for (const g of (geodata.riverside && geodata.riverside.polys) || []) push(g.ring);
+  return out;
+}
+
+// POC (#214): the creek-water polygons for the separate water
+// clip in planJunctionCaps — derived (polygon-uncovered)
+// waterways and 溪-named water. Rivers (河) excluded: their
+// crossings are wide bridge decks, a different class.
+export function capWaterPolys(geodata) {
+  const out = [];
+  for (const w of geodata.water || []) {
+    if (!(w.derived || (w.name && w.name.includes('溪')))) continue;
+    if (!w.ring || w.ring.length < 6) continue;
+    const pts = [];
+    for (let i = 0; i + 1 < w.ring.length; i += 2) pts.push([w.ring[i], w.ring[i + 1]]);
+    if (pts.length >= 3) out.push(pts);
+  }
   return out;
 }
 
@@ -1406,10 +1432,11 @@ function kerbStopStrip(pts, ownBedIdx, ctx) {
 // incursion — the WEB defect is asphalt BEYOND the corridors
 // (16,210 m² before, 0 after). `radius` stays the unclipped
 // hull's design envelope.
-export function planJunctionCaps(roadbeds, junctions, sitesIn = null, clipPolysIn = null) {
+export function planJunctionCaps(roadbeds, junctions, sitesIn = null, clipPolysIn = null, waterPolysIn = null) {
   const sites = sitesIn || planRoundabouts(roadbeds, junctions);
   const claimed = new Set(sites.flatMap((s) => s.claimedJunctions));
   const clip = clipPolysIn && clipPolysIn.length ? { polys: clipPolysIn, grid: buildPolyGrid(clipPolysIn) } : null;
+  const wclip = waterPolysIn && waterPolysIn.length ? { polys: waterPolysIn, grid: buildPolyGrid(waterPolysIn) } : null;
   // Ground ribbons near each junction serve two #171 rules: the
   // TONGUE kerb stop (foreign carriageways a strip crosses) and
   // the green clip's corridor erosion. Deck beds are excluded —
@@ -1501,6 +1528,30 @@ export function planJunctionCaps(roadbeds, junctions, sitesIn = null, clipPolysI
           for (const piece of subtractPolys(overlap, corr)) if (polyArea(piece) > 0.01) effClips.push(piece);
         }
         if (!effClips.length) effClips = null;
+      }
+    }
+    // POC (#214) water clip: creek water joins the cut set, but
+    // eroded by the ACTUAL carriageway ribbons near the junction
+    // (nearRibbons — every bed, not just this junction's arms),
+    // not by the fat corridor rectangles the green clip uses.
+    // What survives the erosion is cap surface over open water
+    // with no carriageway on it — the spill. The bridge deck
+    // itself (cap ∩ water ∩ ribbon) is preserved by construction.
+    if (wclip) {
+      const bb = bboxOfPts(hull);
+      const wIdx = new Set();
+      for (let gx = Math.floor(bb[0] / 100); gx <= Math.floor(bb[2] / 100); gx++)
+        for (let gz = Math.floor(bb[1] / 100); gz <= Math.floor(bb[3] / 100); gz++)
+          for (const wi of wclip.grid.get(`${gx},${gz}`) || []) wIdx.add(wi);
+      if (wIdx.size) {
+        const near = nearRibbons(j, radius + 25);
+        const effWater = [];
+        for (const wi of wIdx) {
+          const overlap = clipByConvexPoly(wclip.polys[wi], hull);
+          if (overlap.length < 3) continue;
+          for (const piece of subtractPolys(overlap, near.polys)) if (polyArea(piece) > 0.01) effWater.push(piece);
+        }
+        if (effWater.length) effClips = effClips ? [...effClips, ...effWater] : effWater;
       }
     }
     // Ring surface: unclipped (the pre-#171 path, byte-identical)

@@ -7,7 +7,7 @@ import { buildPaintedBands } from './taipei-painted.js';
 import { buildAirfieldPaint, buildRoadTunnelPortals, roadTrenchSlots } from './taipei-airfield.js';
 import { SURFACE_TONES, surfaceClass, buildMedianStrips, isPlazaPark, isPodiumBlock, podiumCentresOf, memorialPaving, MEMORIAL_GRID_TONE } from './taipei-surfaces.js';
 import { buildRoadMarkings, detectJunctions, DASH_LEN, DASH_GAP, STRIPE_W, STRIPE_PITCH } from './taipei-markings.js';
-import { planJunctionCaps, planRoundabouts, ringPoints, capSurfacePolys, capClipPolys, CAP_Y, ISLAND_Y } from './taipei-junctions.js';
+import { planJunctionCaps, planRoundabouts, ringPoints, capSurfacePolys, capClipPolys, capWaterPolys, CAP_Y, ISLAND_Y } from './taipei-junctions.js';
 import { buildDeckGeometry, groundContactPolys, portalTrenchSlots, diveAdjustedPiers, PIER_W, PIER_D } from './taipei-viaduct.js';
 import { ribbonsQuads, jointFramesFor } from './taipei-ribbons.js';
 import { buildMrtStationGeometry, buildMrtDepotGeometry } from './taipei-mrt-stations.js';
@@ -981,7 +981,7 @@ export async function buildTaipeiGround(scene, tile, deps = {}) {
   // builder (which used to detect its own copy).
   const junctions = detectJunctions(carriageways);
   const roundabouts = planRoundabouts(carriageways, junctions);
-  const caps = planJunctionCaps(carriageways, junctions, roundabouts, capClipPolys(geo));
+  const caps = planJunctionCaps(carriageways, junctions, roundabouts, capClipPolys(geo), capWaterPolys(geo));
   const capPolys = [
     ...caps.flatMap((c) => capSurfacePolys(c)),
     ...roundabouts.flatMap((s) => [s.disc, ...s.aprons]).map((c) => ringPoints(c.ring)),
