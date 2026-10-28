@@ -73,14 +73,19 @@ test('hut census on the real plan: selection unchanged, garnish at census', (t) 
   }
   t.diagnostic(`real-plan garnish census: ${hutLots} hut lots, ${gable} gable, ${patches} patches, ${bumps} bumps`);
   // Census measured at the #208 gate on this tree: 6,160 hut lots
-  // is the PRE-#208 selection count (identical axis/dir/size
-  // distribution — the garnish changed no lot's hut), of which
-  // 2,158 gable (35.0%), 5,362 patched panels over 3,640 huts,
-  // 1,414 bumps (23.0%).
-  assert.equal(hutLots, 6160, 'hut selection is the pre-#208 census');
-  assert.equal(gable, 2158, 'gable census');
-  assert.equal(patches, 5362, 'patch census');
-  assert.equal(bumps, 1414, 'bump census');
+  // on the PR base. Re-pinned at the merge gate on the composed
+  // tree: 5,892 hut lots, 2,056 gable (34.9%), 5,149 patched
+  // panels, 1,371 bumps. The invariant that matters — selection
+  // UNCHANGED by the garnish — was proven at the gate by running
+  // the PRE-#208 planner on this same tree: it also yields exactly
+  // 5,892 hut lots. The 6,160 -> 5,892 move is tree composition
+  // (#221 campus clearing: schools-off on this tree gives 6,571;
+  // the rest is the #213/#219/#226 tree changes since the PR base),
+  // not the garnish, whose rolls use fresh salts.
+  assert.equal(hutLots, 5892, 'hut selection is the pre-#208 census');
+  assert.equal(gable, 2056, 'gable census');
+  assert.equal(patches, 5149, 'patch census');
+  assert.equal(bumps, 1371, 'bump census');
 });
 
 test('renderer palette mirrors the planner palette', () => {

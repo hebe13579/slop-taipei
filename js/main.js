@@ -19,6 +19,7 @@ import { LightingSystem } from './lighting.js';
 import { NYCMapSystem } from './nyc-map.js';
 import { setupSceneCulling, updateSceneCulling } from './scene-culling.js';
 import { CityAudioSystem } from './audio-system.js';
+import { resolveSettings, readStoredSettings, persistSettings, graphicsConfig, applyGraphicsSettings, initSettingsPanel } from './settings.js';
 
 // js/main.js
 // Main entry point for New York City (Midtown Manhattan) in Three.js WebGPURenderer & TSL (three.js dev, see index.html)
@@ -94,13 +95,21 @@ async function initApp() {
     loadingStatus.textContent = `Initializing Three.js r${THREE.REVISION} WebGPURenderer & TSL Shaders...`;
   }
 
+  // Issue #218: runtime settings (settings gear) — URL params beat
+  // localStorage beat the defaults, and the defaults are exactly
+  // the pre-#218 behaviour (see js/settings.js).
+  const settings = resolveSettings({
+    search: window.location.search,
+    stored: readStoredSettings(window.localStorage),
+  });
+
   // 1. Initialize Three.js WebGPURenderer with 32-bit float reversedDepthBuffer
   const renderer = new THREE.WebGPURenderer({
     antialias: true,
     powerPreference: 'high-performance',
     reversedDepthBuffer: true
   });
-  renderer.setPixelRatio(1.0);
+  renderer.setPixelRatio(graphicsConfig(settings.graphics, window.devicePixelRatio || 1).pixelRatio);
   renderer.setSize(window.innerWidth, window.innerHeight);
   renderer.shadowMap.enabled = true;
   renderer.lighting = new ClusteredLighting(256, 32, 28, 48);
@@ -122,6 +131,10 @@ async function initApp() {
   const scene = new THREE.Scene();
   const lightingSystem = new LightingSystem(scene, renderer);
   markInit('lighting');
+  // Issue #218: the graphics preset's shadow half (the pixel-ratio
+  // half was applied at renderer creation; re-applying is a no-op
+  // there). 'medium'/'high' keep castShadow exactly as built.
+  applyGraphicsSettings(renderer, lightingSystem.sunLight, settings.graphics, window.devicePixelRatio || 1);
 
   if (loadingStatus) {
     loadingStatus.textContent = isTaipei
@@ -135,8 +148,9 @@ async function initApp() {
   // M1 PR for the precise stub list): no boroughs, NYC landmarks, piers,
   // Central Park specifics or East River bridges exist in a tile.
   // Buildings are NOT stubbed: the tile's ground builder runs upstream's
-  // buildCityBlocks on the tile's planned lots (issue #11). Traffic and
-  // pedestrians stay off until their data exists.
+  // buildCityBlocks on the tile's planned lots (issue #11). Pedestrians stay
+  // stubbed; traffic stays stubbed too unless the ?traffic= experiment flag
+  // is set (issue #210, hooked up below after the colliders exist).
   let cityGrid, boroughs, cityBlocks, streetDetails, trafficSystem, highwayTraffic;
   let landmarkColliders = [];
   let tileBoot = null;
@@ -145,6 +159,9 @@ async function initApp() {
     tileBoot = boot;
     cityGrid = await boot.buildTaipeiGround(scene, activeTile, {
       buildCityBlocks,
+      // Issue #218: the settings the boot builds with (density
+      // preset + special-buildings visibility).
+      settings: { density: settings.density, specials: settings.specials },
       // Real staged progress (issue #63): the boot fires this as each
       // construction stage actually completes — the loader names the
       // finished stage and fills its share of the bar. No estimates:
@@ -178,6 +195,16 @@ async function initApp() {
   }
   const allColliders = [...landmarkColliders, ...cityBlocks.colliders, ...boroughs.colliders, ...(cityGrid.colliders || [])];
 
+  // Issue #218: wire the settings gear. Graphics apply in every
+  // mode; density/specials go through the Taipei boot's runtime
+  // API (null in NYC mode — the panel disables those rows there).
+  initSettingsPanel({
+    settings,
+    taipeiSettings: isTaipei ? (cityGrid.taipeiSettings || null) : null,
+    onGraphics: (preset) => applyGraphicsSettings(renderer, lightingSystem.sunLight, preset, window.devicePixelRatio || 1),
+    persist: () => persistSettings(window.localStorage, settings),
+  });
+
   if (!isTaipei) {
     // Buildings turned along non-grid streets have oriented colliders whose world bounds reach past their lots: they stay
     // inside the property line anyway, so the road network (lanes & sidewalks) doesn't need them
@@ -190,6 +217,26 @@ async function initApp() {
     highwayTraffic = createHighwayTraffic(scene, cityGrid.highwayLanes);
     buildRoadPaint(scene, trafficSystem.network);
     markInit('roadPaint');
+  } else {
+    // Issue #210 EXPERIMENT: traffic generation for the tile, behind ?traffic= (see
+    // js/taipei-traffic.js). Default off — the inert stub above stays and boot is
+    // unchanged. With the flag, the upstream vehicle system runs on the tile's own
+    // road graph: vehicles only (no pedestrians, no signalized junctions). The
+    // obstacle lists are the tile's own (both empty): Taipei's roads are
+    // building-free by construction, and building colliders are deliberately NOT
+    // passed — a rotated lot's AABB overhangs its carriageway and would prune
+    // honest lanes. window.__traffic is the #210 measurement handle, set only
+    // when the flag is on.
+    const { trafficCountFromSearch, taipeiTrafficEnv } = await import('./taipei-traffic.js');
+    const trafficCount = trafficCountFromSearch(window.location.search);
+    if (trafficCount > 0) {
+      trafficSystem = createTrafficSystem(scene, cityGrid.sidewalks, [
+        ...cityGrid.footprints,
+        ...streetDetails.footprints
+      ], taipeiTrafficEnv(trafficCount));
+      window.__traffic = trafficSystem;
+      markInit('traffic');
+    }
   }
 
   // 4. Initialize Third-Person Controllers (Person, Car, Cyclist, Helicopter) & Multi-Camera System

@@ -15,7 +15,7 @@ import { ribbonPoly, buildPolyGrid, pointInAnyPoly, pointInPoly } from '../js/ta
 import { buildMedianStrips } from '../js/taipei-surfaces.js';
 import { planTaipeiBuildings } from '../js/taipei-buildings.js';
 import { buildDeckGeometry, PARAPET_H } from '../js/taipei-viaduct.js';
-import { buildElevated, isElevatedTags, deckTopForLayer } from '../tools/taipei/build-elevated.mjs';
+import { buildElevated, isElevatedTags, deckTopForLayer, slopeCapForWay, DECK_DEPTH } from '../tools/taipei/build-elevated.mjs';
 
 const elev = TAIPEI_GEO.elevatedRoads;
 const lines = elev?.lines || [];
@@ -101,7 +101,7 @@ test('height discipline: bounds, layer tops, shared-node continuity', () => {
   }
   assert.ok(sharedChecked > 100, `continuity actually exercised (${sharedChecked} shared points)`);
   for (const l of lines) for (let i = 0; i < l.h.length; i++) {
-    assert.ok(l.h[i] >= 0 && l.h[i] <= 21.051, `h ${l.h[i]} out of [0, 21] on ${l.name}`);
+    assert.ok(l.h[i] >= 0 && l.h[i] <= deckTopForLayer(5) + 0.051, `h ${l.h[i]} out of [0, ${deckTopForLayer(5)}] on ${l.name}`); // bound was 21.051 under the L3 cap; issue #211 uncaps tops to L5 = 33 m
     if (l.h[i] > topOf(l.layer) + 0.051) {
       // Excess over the line's own layer top is legitimate only near
       // a node shared with a higher-layer way (an L1 ramp climbing
@@ -118,10 +118,13 @@ test('height discipline: bounds, layer tops, shared-node continuity', () => {
   assert.ok(peak('市民大道') >= 14.9, `市民大道 peak ${peak('市民大道')} (L2 decks)`);
 });
 
-test('ramp slope never exceeds 6%', () => {
+test('ramp slope never exceeds the per-way cap', () => {
+  // 6% tile-wide; SLOPE_OVERRIDES ways (issue #211: the Nanjing West
+  // Rd exit's steep final dive) carry their documented own cap.
   for (const l of lines) for (let i = 1; i < l.h.length; i++) {
     const d = Math.hypot(l.pts[2 * i] - l.pts[2 * i - 2], l.pts[2 * i + 1] - l.pts[2 * i - 1]);
-    if (d > 0.01) assert.ok(Math.abs(l.h[i] - l.h[i - 1]) <= 0.06 * d + 0.11, `${l.name}: slope ${(Math.abs(l.h[i] - l.h[i - 1]) / d).toFixed(3)} > 0.06`);
+    const cap = slopeCapForWay(l.wayId);
+    if (d > 0.01) assert.ok(Math.abs(l.h[i] - l.h[i - 1]) <= cap * d + 0.11, `${l.name}: slope ${(Math.abs(l.h[i] - l.h[i - 1]) / d).toFixed(3)} > ${cap}`);
   }
 });
 
@@ -195,7 +198,7 @@ test('piers: never in a lot, never in a crossing street, rhythmic on the flagshi
     return false;
   };
   for (const p of elev.piers) {
-    assert.ok(p.h > 0 && p.h <= 21, `pier height ${p.h}`);
+    assert.ok(p.h > 0 && p.h <= deckTopForLayer(5) - DECK_DEPTH + 0.11, `pier height ${p.h}`); // bound was 21 under the L3 cap; piers now reach the underside of L4/L5 decks (issue #211)
     assert.ok(!inLot(p.x, p.z), `pier inside a building lot at (${p.x}, ${p.z})`);
     if (pointInAnyPoly(medGrid, medPolys, [p.x, p.z])) continue;
     const cellKey = `${Math.floor(p.x / 100)},${Math.floor(p.z / 100)}`;
@@ -314,7 +317,11 @@ test('viaduct renderer on real data: sane merged geometry', () => {
     assert.ok(Number.isFinite(geo.concrete.positions[i]));
     maxY = Math.max(maxY, geo.concrete.positions[i]);
   }
-  assert.ok(Math.abs(maxY - (21 + PARAPET_H)) < 0.06, `highest parapet at ${maxY} (L3 cap + parapet)`);
+  // Was: maxY == 21 + PARAPET_H exactly (the L3 cap crowned the
+  // tallest deck). Issue #211 uncaps tops to L5; the tallest deck is
+  // now portal-cone-bound (31.1 m on this extract), so assert the
+  // invariant instead: above the old crown, never above L5 + parapet.
+  assert.ok(maxY > 21 + PARAPET_H && maxY <= deckTopForLayer(5) + PARAPET_H + 0.06, `highest parapet at ${maxY} (must sit between the old L3 crown and the L5 top + parapet)`);
 });
 
 test('height function + pier rules on a synthetic extract', () => {
@@ -357,6 +364,10 @@ test('height function + pier rules on a synthetic extract', () => {
   // Tag rules underpinning the set.
   assert.equal(deckTopForLayer(1), 9);
   assert.equal(deckTopForLayer(2), 15);
-  assert.equal(deckTopForLayer(4), 21, 'layer 4 capped at the L3 top');
+  // Issue #211: the L3 cap flattened genuine L4/L5 stacks into one
+  // height (13 interpenetrating crossings); tops now run to L5.
+  assert.equal(deckTopForLayer(4), 27, 'layer 4 rides one step above L3 (issue #211)');
+  assert.equal(deckTopForLayer(5), 33, 'layer 5 top (issue #211)');
+  assert.equal(deckTopForLayer(6), 33, 'layers above 5 stay at the L5 top');
   assert.ok(isElevatedTags({ layer: '1' }) && isElevatedTags({ bridge: 'viaduct' }) && !isElevatedTags({ bridge: 'no' }) && !isElevatedTags({}));
 });
