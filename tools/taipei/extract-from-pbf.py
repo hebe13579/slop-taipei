@@ -283,6 +283,13 @@ def main():
         el['campusStats'] = {
             'pitches': len(ps),
             'pitchAreaM2': round(sum(p[2] for p in ps)),
+            # The largest single sports surface: a real running
+            # track (or field) is ONE big polygon (>= ~3000 m2 for
+            # a 200 m-class track), while a dense campus's courts
+            # are many small ones — the sum alone cannot tell NTUT's
+            # seven courts from a track, so the generator's
+            # dense-built veto reads this, not the sum.
+            'largestPitchM2': round(max((p[2] for p in ps), default=0)),
             'hasTrack': any(p[3] for p in ps),
             'buildings': len(bs),
         }

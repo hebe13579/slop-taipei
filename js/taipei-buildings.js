@@ -2564,19 +2564,22 @@ function generateSchoolCampus(ground, frame, gateSide, origin) {
   const courtBand = 25;                        // courts row + margins
   let track = null, variant = null;
   // The extract's content join vetoes the track on a ground OSM
-  // maps as fully built with no sports ground at all (NTUT: 27
-  // building footprints, 0 pitches — its real field sits across
-  // the expressway, off-campus): such a ground takes the compact
-  // layout however big it is, instead of growing a fictional
-  // running track. A ground WITH a mapped track keeps the track
-  // archetype through the ordinary fit below.
-  const denseBuilt = !!(ground.stats && ground.stats.pitches === 0 && ground.stats.buildings >= 10);
+  // maps as fully built with no sports surface of track scale
+  // (NTUT: 30 building footprints, seven small courts, no track —
+  // its real field sits across the expressway, off-campus): such
+  // a ground takes the compact layout however big it is, instead
+  // of growing a fictional running track. A ground whose data
+  // carries a track — tagged as one, or one sports polygon of
+  // track scale (>= 3000 m², a 200 m-class surface) — keeps the
+  // track archetype through the ordinary fit below.
+  const trackMapped = !!(ground.stats && (ground.stats.hasTrack || (ground.stats.largestPitchM2 || 0) >= 3000));
+  const denseBuilt = !!(ground.stats && ground.stats.buildings >= 10 && !trackMapped);
   // The fitted rect can overhang a concave ring; probe the capsule
   // (cap tips, straight edges, cap shoulders) against the ring so
   // a track never spills onto the neighbouring lots or roads.
   const trackInRing = (tc) => {
     const hl = (tc.straight + tc.width) / 2 - 1, hw = tc.width / 2, hs = tc.straight / 2;
-    const probes = [[-hl, 0], [hl, 0], [0, -hw], [0, hw], [-hs, -hw], [-hs, hw], [hs, -hw], [hs, hw],
+    const probes = [[0, 0], [-hl, 0], [hl, 0], [0, -hw], [0, hw], [-hs, -hw], [-hs, hw], [hs, -hw], [hs, hw],
       [-hl + tc.width / 4, -hw * 0.7], [-hl + tc.width / 4, hw * 0.7], [hl - tc.width / 4, -hw * 0.7], [hl - tc.width / 4, hw * 0.7]];
     return probes.every(([u, v]) => inRing(u, v));
   };
@@ -2590,7 +2593,12 @@ function generateSchoolCampus(ground, frame, gateSide, origin) {
     ];
     // Seeded preference among variants, but a bigger track class
     // always beats a smaller one (the class loop is the outer one).
-    const pref = variants.map((v, i) => [draw(900 + i), i]).sort((a, b) => b[0] - a[0]).map(([, i]) => variants[i]);
+    // 'bare' (a track with no slab rows at all) is demoted to last
+    // resort within every class: slabs around the track are the
+    // signature look, so a class that fits with rows never reads
+    // as an empty field.
+    const prefSeeded = variants.map((v, i) => [draw(900 + i), i]).sort((a, b) => b[0] - a[0]).map(([, i]) => variants[i]);
+    const pref = [...prefSeeded.filter((v) => v.name !== 'bare'), ...prefSeeded.filter((v) => v.name === 'bare')];
     for (const tc of SCHOOL_TRACK_CLASSES) {
       if (tc.cls === 'mini' && frame.area > 26000) continue; // a big ground never takes the mini loop
       const overallL = tc.straight + tc.width;
@@ -2721,6 +2729,35 @@ function generateSchoolCampus(ground, frame, gateSide, origin) {
     }
   }
 
+  // --- scatter fallback: an irregular ground whose fitted rows
+  // all failed containment (a C-shaped or diagonal plot — the
+  // frame's rows and centre courts all land off-ring) still gets
+  // a campus: a few slabs seeded on a coarse grid over the fitted
+  // rect, each containment- and overlap-tested like every other
+  // part, so what lands is clipped to the ground by construction.
+  let scattered = false;
+  if (buildingCount === 0 && !track) {
+    const cand = [];
+    for (let u = -W / 2 + M + 12; u <= W / 2 - M - 12; u += 26)
+      for (let v = -D / 2 + M + 8; v <= D / 2 - M - 8; v += 20) cand.push([u, v]);
+    for (let i = cand.length - 1; i > 0; i--) {
+      const j = Math.floor(draw(8000 + i) * (i + 1));
+      [cand[i], cand[j]] = [cand[j], cand[i]];
+    }
+    let placedN = 0;
+    for (const [u, v] of cand) {
+      if (placedN >= (isKinder ? 2 : 5)) break;
+      const len = isKinder ? 13 + draw(salt++) * 8 : 20 + draw(salt++) * 14;
+      const floors = floorsFor(slabFloors[0], slabFloors[1]);
+      const h = Math.round(floors * 3.6 * 10) / 10;
+      if (addBox(u, v, len, slabDepth, h) || addBox(u, v, slabDepth, len, h, { rot: Math.PI / 2 })) { noteTop(h); placedN++; }
+    }
+    if (placedN > 0) {
+      scattered = true;
+      addBox(0, 0, 30, 18, 0.25, { y0: 0.05, flat: SCHOOL_COURT_GREEN });
+    }
+  }
+
   // --- parking near the gate (seeded, optional) ---
   if (!isKinder && draw(salt++) < 0.55) {
     const pw = 16 + draw(salt++) * 12, pd = 10 + draw(salt++) * 5;
@@ -2738,7 +2775,7 @@ function generateSchoolCampus(ground, frame, gateSide, origin) {
     : large ? (track ? 'large-track' : 'large-compact')
     : track ? `track-${variant.name}` : (frame.area < 5200 ? 'compact-mini' : 'compact');
   return {
-    archetype: clipped ? `${archetype}+clipped` : archetype,
+    archetype: (scattered ? `${archetype}+scatter` : archetype) + (clipped ? '+clipped' : ''),
     trackClass: track ? track.cls : null,
     parts, height: Math.round((maxTop || 7.2) * 10) / 10, slabCount: buildingCount,
     gateSeg: fence.gateSeg,
@@ -2910,7 +2947,7 @@ export function planSchoolCampuses(geodata, landmarkSites, carriageways, originL
     const rep = { key: g.key, osmType: g.osmType, osmId: g.osmId, kind: g.kind, name: g.name, area: g.area, pieces: g.pieces };
     if (g.stats) rep.stats = g.stats;
     report.push(rep);
-    if (g.area < 700) { rep.skip = 'building-footprint-scale (<700 m² — the way tags a building, not grounds)'; continue; }
+    if (g.area < 700) { rep.skip = 'building-footprint-scale (<700 m² in tile — the way tags a building, or only a tile-edge sliver of the ground falls in tile)'; continue; }
     const pts = ringPtsOf(g.ring);
     const bb = ringBbox(g.ring);
     // Registry campuses: overlap with a landmark site rect.
