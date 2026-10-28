@@ -3,6 +3,12 @@
 // here — taipei-boot.js wraps the layers into meshes, so node tests
 // pin the geometry directly (the taipei-terrain.js pattern).
 //
+// Issue #206 adds the family's overlap discipline at the bottom:
+// consumeGreenFamilyOverlaps() makes exactly one green-family
+// surface win per area before the boot meshes anything.
+import { subtractPolys } from './taipei-junctions.js';
+import { buildPolyGrid, pointInPoly } from './taipei-painted.js';
+//
 // Until this issue the green layer (geodata.green: farmland, wood,
 // wetland, nature reserves — osm_green.json via the geodata build)
 // was PLANNER-ONLY: it kept urban lots off green land, but the
@@ -194,4 +200,252 @@ export function buildGreenTintLayers(green) {
     }
   }
   return [...byTone.entries()].map(([tone, rings]) => ({ tone, rings }));
+}
+
+// Issue #213: interchange-loop interiors (geodata.loopSites, built
+// by tools/taipei/build-loops.mjs) are empty grass land — not parks,
+// not OSM-tagged green — so until this pass they rendered as the
+// pale block grey under the phantom buildings the planner planted
+// there. One tone layer in the sampled open-grass family
+// (GREEN_CLASS_TONES['natural:grassland'], the infields' satellite
+// read: mown grass and scrub between the carriageways), drawn by
+// the boot in the same GREEN_TINT_Y layer stack as the #141 tint,
+// so water (0.03) and parks (0.04) still win every overlap. Pure
+// like buildGreenTintLayers: the input is read, never mutated.
+export const LOOP_TINT_TONE = 0x4c7038;
+export function buildLoopTintLayers(loopSites) {
+  const rings = [];
+  for (const s of loopSites || []) {
+    if (s.ring && s.ring.length >= 6) rings.push(s.ring);
+  }
+  return rings.length ? [{ tone: LOOP_TINT_TONE, rings }] : [];
+}
+
+// ---------------------------------------------------------------------
+// Issue #206 — one green surface wins per area.
+//
+// The Y stack alone did not keep the family apart: the tint tones
+// all share GREEN_TINT_Y exactly, and the source polygons overlap
+// (a nature reserve drawn over the farmland and wetland it sits
+// in), so on the Guandu plain 1.897 km2 was double-painted by two
+// different tones at the identical height — exactly co-planar,
+// the worst z-fight there is — with the cross-layer pairs on top
+// (tint x parks 1.028 km2 at dy 0.0165, tint x water 715k m2 at
+// 0.0065, water x parks 212k m2 at 0.01; census in
+// tools/taipei/census-green-overlaps.mjs). The fix is the #171
+// cap discipline applied to the whole family: process the flat
+// green-family surfaces in stack order, highest first, and
+// subtract every survivor from the surfaces below it with
+// subtractPolys. The visible winner of every overlap is exactly
+// the one the Y order already picked — the loser simply stops
+// being drawn underneath it. Within the tint, tone layers keep
+// buildGreenTintLayers' first-use order (earlier tone wins);
+// rings inside ONE set keep their overlaps (one mesh, one tone:
+// the loser's colour is the winner's, so nothing can shimmer).
+//
+// Pure: inputs are read, never mutated (the geodata byte-identity
+// pins stand); the boot draws the returned rings instead of the
+// raw ones. Rings are flat [x, z, ...] in and out.
+const OCC_CELL_M = 100; // buildPolyGrid cell size for occluder lookup
+const ringToPts = (ring) => {
+  const pts = [];
+  for (let i = 0; i + 1 < ring.length; i += 2) pts.push([ring[i], ring[i + 1]]);
+  if (pts.length > 1) {
+    const f = pts[0], l = pts[pts.length - 1];
+    if (Math.abs(f[0] - l[0]) < 0.01 && Math.abs(f[1] - l[1]) < 0.01) pts.pop();
+  }
+  return pts;
+};
+const ptsToRing = (pts) => {
+  const flat = [];
+  for (const p of pts) flat.push(p[0], p[1]);
+  return flat;
+};
+const bboxOfPts = (pts) => {
+  let x0 = 1e18, z0 = 1e18, x1 = -1e18, z1 = -1e18;
+  for (const p of pts) { if (p[0] < x0) x0 = p[0]; if (p[1] < z0) z0 = p[1]; if (p[0] > x1) x1 = p[0]; if (p[1] > z1) z1 = p[1]; }
+  return [x0, z0, x1, z1];
+};
+const bboxHit = (a, b) => a[0] <= b[2] && b[0] <= a[2] && a[1] <= b[3] && b[1] <= a[3];
+const ptsArea = (pts) => {
+  let a = 0;
+  for (let i = 0, j = pts.length - 1; i < pts.length; j = i++) a += pts[j][0] * pts[i][1] - pts[i][0] * pts[j][1];
+  return Math.abs(a / 2);
+};
+
+export function consumeGreenFamilyOverlaps(family) {
+  const occPts = [];       // surviving higher-precedence rings (point form)
+  const occBbs = [];       // their bboxes, index-aligned with occPts
+  let occGrid = new Map(); // buildPolyGrid over occPts
+  const candidatesFor = (bb) => {
+    const seen = new Set();
+    for (let gx = Math.floor(bb[0] / OCC_CELL_M); gx <= Math.floor(bb[2] / OCC_CELL_M); gx++) {
+      for (let gz = Math.floor(bb[1] / OCC_CELL_M); gz <= Math.floor(bb[3] / OCC_CELL_M); gz++) {
+        for (const i of occGrid.get(`${gx},${gz}`) || []) seen.add(i);
+      }
+    }
+    return [...seen].filter((i) => bboxHit(bb, occBbs[i])).map((i) => occPts[i]);
+  };
+  // Two measured rules keep the subtraction exact AND fast:
+  //
+  // (1) Pre-clip every candidate clip to the subject's bbox + 1 m.
+  // subtractPolys canonicalises each clip ring in O(n^2) string
+  // work (and pairs every subject segment with every clip
+  // segment), so passing a 2,482-point park ring whole costs ~1 s
+  // PER CALL — and the big park's bbox makes it a candidate for
+  // dozens of subjects. The local piece of it is a handful of
+  // points; clip n subject is unchanged by construction, and the
+  // piece's bridge edges land 1 m outside the subject, where the
+  // difference never reaches. Subjects are NEVER split:
+  // Sutherland-Hodgman pieces are weakly simple, and the stitch
+  // walk drops lobes off them as subjects (measured: 1.05 km2 of
+  // the Guandu plain). As clips, pre-clipped pieces conserve the
+  // family footprint to the square metre.
+  //
+  // (2) Mind the HOLES. A difference whose interior is pierced
+  // by clips comes back from subtractPolys as hole-bridged
+  // ear-clipped triangles — and when the bridging stalls, its
+  // documented last resort keeps the WHOLE outer ring, hole and
+  // all. One call against the ~200 farmland cells inside the
+  // Guandu reserve ring silently kept the reserve drawn over all
+  // of them (~150k m2 of residual overlap, raster-measured).
+  // So the clips go in SMALL BATCHES (a handful of holes per call
+  // stays in the regime the junction caps prove in production),
+  // and afterwards a verification pass probes every surviving
+  // piece with each local clip's interior sample point: a clip
+  // whose sample still lands inside a piece is a hole the batch
+  // kept, and it is retried singly — one hole per call, the
+  // primitive's best case. Residues the probes cannot clear are
+  // counted in the returned stats. Triangulated spill is cleaned
+  // by rule (3) in consumeSet (centroid drop + dedupe).
+  const CLIP_BATCH_MAX = 6;    // clips per subtractPolys call
+  const CLIP_BATCH_PTS = 300;  // or this many clip points, whichever first
+  // An interior sample point of a clip ring: midpoint of its
+  // longest edge, nudged to whichever side is inside. Null for a
+  // degenerate ring (no probe possible; the batch result stands).
+  const clipSample = (pts) => {
+    let bi = -1, bl = -1;
+    for (let i = 0, j = pts.length - 1; i < pts.length; j = i++) {
+      const L = Math.hypot(pts[i][0] - pts[j][0], pts[i][1] - pts[j][1]);
+      if (L > bl) { bl = L; bi = j; }
+    }
+    if (bi < 0 || bl <= 0) return null;
+    const a = pts[bi], b = pts[(bi + 1) % pts.length];
+    const mx = (a[0] + b[0]) / 2, mz = (a[1] + b[1]) / 2;
+    const nx = -(b[1] - a[1]) / bl, nz = (b[0] - a[0]) / bl;
+    for (const s of [0.05, -0.05]) {
+      const p = [mx + nx * s, mz + nz * s];
+      if (pointInPoly(p, pts)) return p;
+    }
+    return null;
+  };
+  let unresolved = 0;
+  // Consume one set against everything already stacked above it,
+  // then stack its survivors as occluders for the sets below.
+  // Returns { rings (flat), removed } with removed in m2.
+  const consumeSet = (rings) => {
+    const out = [];
+    let inArea = 0, outArea = 0;
+    for (const ring of rings || []) {
+      const pts = ringToPts(ring);
+      if (pts.length < 3) continue;
+      inArea += ringArea(ring);
+      const sbb = bboxOfPts(pts);
+      const local = [];
+      for (const cand of candidatesFor(sbb)) {
+        const clipped = clipRingToRect(ptsToRing(cand), sbb[0] - 1, sbb[2] + 1, sbb[1] - 1, sbb[3] + 1);
+        if (clipped) { const cp = ringToPts(clipped); local.push({ pts: cp, bb: bboxOfPts(cp), sample: clipSample(cp) }); }
+      }
+      if (!local.length) { out.push(pts); outArea += ptsArea(pts); continue; }
+      let pieces = [{ pts, bb: sbb }];
+      // Subtract a clip batch from every piece it touches; pieces
+      // it misses pass through untouched (the common case — most
+      // pieces never meet most clips).
+      const subtractFromPieces = (clips) => {
+        const next = [];
+        for (const p of pieces) {
+          const hit = clips.filter((c) => bboxHit(p.bb, c.bb)).map((c) => c.pts);
+          if (!hit.length) { next.push(p); continue; }
+          for (const q of subtractPolys(p.pts, hit)) {
+            if (q.length >= 3) next.push({ pts: q, bb: bboxOfPts(q) });
+          }
+        }
+        pieces = next;
+      };
+      for (let ci = 0; ci < local.length && pieces.length;) {
+        const batch = [];
+        let acc = 0;
+        while (ci < local.length && batch.length < CLIP_BATCH_MAX) {
+          if (batch.length && acc + local[ci].pts.length > CLIP_BATCH_PTS) break;
+          batch.push(local[ci]);
+          acc += local[ci].pts.length;
+          ci++;
+        }
+        subtractFromPieces(batch);
+      }
+      // Verification: probe every surviving piece with each local
+      // clip's interior sample. A sample inside a piece means the
+      // batch kept that hole — retry the pair singly, then probe
+      // the replacements again. What still probes positive after
+      // the retry is counted unresolved in the returned stats.
+      for (let pi = 0; pi < pieces.length; pi++) {
+        for (const clip of local) {
+          if (!clip.sample) continue;
+          const inside = (p) => clip.sample[0] >= p.bb[0] && clip.sample[0] <= p.bb[2]
+            && clip.sample[1] >= p.bb[1] && clip.sample[1] <= p.bb[3]
+            && pointInPoly(clip.sample, p.pts);
+          if (!inside(pieces[pi])) continue;
+          const res = subtractPolys(pieces[pi].pts, [clip.pts])
+            .filter((q) => q.length >= 3)
+            .map((q) => ({ pts: q, bb: bboxOfPts(q) }));
+          pieces.splice(pi, 1, ...res);
+          if (res.some(inside)) unresolved++; // the hole survived even a solo call: count it and move on
+          else pi--; // cleared: re-probe the replacements against the other clips
+          break;
+        }
+      }
+      // Rule (3): triangulated differences over-cover slightly
+      // (the bridged ear-clip spills slivers into the holes it
+      // cuts and can emit a fan triangle twice — measured +231 m²
+      // on a two-hole synthetic). A triangle piece whose centroid
+      // lands inside a local clip is mostly spill: drop it, and
+      // drop exact-duplicate pieces. Legit-area loss from the
+      // centroid rule is raster-verified negligible (the Guandu
+      // box keeps its visible areas; see the #206 census).
+      const seenPiece = new Set();
+      for (const p of pieces) {
+        if (p.pts.length === 3) {
+          const c = [(p.pts[0][0] + p.pts[1][0] + p.pts[2][0]) / 3, (p.pts[0][1] + p.pts[1][1] + p.pts[2][1]) / 3];
+          if (local.some((clip) => c[0] >= clip.bb[0] && c[0] <= clip.bb[2] && c[1] >= clip.bb[1] && c[1] <= clip.bb[3] && pointInPoly(c, clip.pts))) continue;
+        }
+        const key = p.pts.map((q) => `${Math.round(q[0] * 1000)},${Math.round(q[1] * 1000)}`).sort().join(';');
+        if (seenPiece.has(key)) continue;
+        seenPiece.add(key);
+        out.push(p.pts);
+        outArea += ptsArea(p.pts);
+      }
+    }
+    for (const p of out) { occPts.push(p); occBbs.push(bboxOfPts(p)); }
+    occGrid = buildPolyGrid(occPts, OCC_CELL_M);
+    return { rings: out.map(ptsToRing), removed: Math.max(0, inArea - outArea) };
+  };
+  const plaza = consumeSet(family.plaza);
+  const parks = consumeSet(family.parks);
+  const water = consumeSet(family.water);
+  const band = consumeSet(family.band);
+  const tintIn = (family.tint || []).reduce((s, l) => s + l.rings.reduce((a, r) => a + ringArea(r), 0), 0);
+  let tintOut = 0;
+  const tint = (family.tint || []).map((layer) => {
+    const c = consumeSet(layer.rings);
+    tintOut += c.rings.reduce((a, r) => a + ringArea(r), 0);
+    return { tone: layer.tone, rings: c.rings };
+  });
+  return {
+    tint, band: band.rings, water: water.rings, parks: parks.rings, plaza: plaza.rings,
+    removed: {
+      plaza: plaza.removed, parks: parks.removed, water: water.removed, band: band.removed,
+      tint: Math.max(0, tintIn - tintOut),
+    },
+    unresolved,
+  };
 }
