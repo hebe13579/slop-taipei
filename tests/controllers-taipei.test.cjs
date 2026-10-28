@@ -430,7 +430,9 @@ test('taipei-boot wires the tile world into main.js (source contract)', () => {
   assert.match(boot, /export function controllerOptions\(tile, env = \{\}\)/);
   assert.match(boot, /bounds:\s*\{\s*minX: bb\.minX, maxX: bb\.maxX, minZ: bb\.minZ, maxZ: bb\.maxZ \}/);
   assert.match(boot, /clampToShore: false/);
-  assert.match(boot, /groundHeight: \(\) => 0/);
+  // Issue #207: the tile ground model is the deck-aware sampler
+  // (js/taipei-drive.js), not the pre-#207 constant 0.
+  assert.match(boot, /groundHeight: \(x, z, mode, yHint\) => buildDriveModel\(tile\.geodata\.elevatedRoads\)\.sample\(x, z, yHint\)/);
   // Issue #60: the union's dropped bands reach the controllers.
   assert.match(boot, /excludeRects: unionExclusionRects\(tile\.geodata\.frame\.boxes, bb\)/);
   assert.match(source, /excludeRects: Array\.isArray\(opts\.excludeRects\)/);

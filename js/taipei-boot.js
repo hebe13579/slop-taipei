@@ -9,6 +9,7 @@ import { SURFACE_TONES, surfaceClass, buildMedianStrips, isPlazaPark, isPodiumBl
 import { buildRoadMarkings, detectJunctions, DASH_LEN, DASH_GAP, STRIPE_W, STRIPE_PITCH } from './taipei-markings.js';
 import { planJunctionCaps, planRoundabouts, ringPoints, capSurfacePolys, capClipPolys, CAP_Y, ISLAND_Y } from './taipei-junctions.js';
 import { buildDeckGeometry, groundContactPolys, portalTrenchSlots, diveAdjustedPiers, PIER_W, PIER_D } from './taipei-viaduct.js';
+import { buildDriveModel, taipeiExtraColliders } from './taipei-drive.js';
 import { ribbonsQuads, jointFramesFor } from './taipei-ribbons.js';
 import { buildMrtStationGeometry, buildMrtDepotGeometry } from './taipei-mrt-stations.js';
 import { buildBridgeGeometry } from './taipei-bridges.js';
@@ -37,8 +38,12 @@ import { createBuildProgress, TAIPEI_BUILD_STAGES } from './taipei-progress.js';
 //     road-network.js derives lanes from the NYC avenue/street grid; a
 //     graph-driven network is a later increment).
 //   - NO NYC systems: no boroughs, landmarks, piers, Central Park, bridges.
-//   - NO building colliders / footprints: controllers walk/drive the
-//     flat tile at y=0 and pass through buildings for now.
+//   - Issue #207: buildings ARE solid and the elevated ROAD decks
+//     ARE drivable — js/taipei-drive.js holds the model (deck
+//     surface sampling behind groundHeight, parapet / registry /
+//     station colliders beside buildCityBlocks' own lot
+//     colliders). MRT guideways and the signature-bridge
+//     structures stay scenery: never surfaces, never colliders.
 //
 // Layer heights are a flat-ground visual stack only (land 0, block rects
 // 0.02, podium blocks 0.021, airfield site 0.022, airfield hard
@@ -551,7 +556,8 @@ function buildSignalMesh(signals) {
 // Manhattan's island bounds or shoreline, which would clamp away the
 // tile's western kilometre (Da'an Forest Park sits at x ≈ −2900, west of
 // NYC's west shore) and invent Central Park / sidewalk heights on the
-// flat basin floor. Ground is y = 0 everywhere; spawns cluster at the
+// flat basin floor. Ground is y = 0 at street level (the elevated
+// decks ride on top of that model, issue #207); spawns cluster at the
 // tile spawn with the same relative offsets the NYC spawns use.
 // `env.webglFallback` (main.js passes the live renderer backend): on the
 // WebGL2 fallback the crowd material's storage-buffer skinning
@@ -571,7 +577,10 @@ export function controllerOptions(tile, env = {}) {
     // controllers push ground modes out of them (see taipei-union.js).
     excludeRects: unionExclusionRects(tile.geodata.frame.boxes, bb),
     clampToShore: false,
-    groundHeight: () => 0,
+    // Issue #207: the ground model — the flat basin floor, plus
+    // the elevated road decks wherever the caller's current
+    // height (the hint) puts it on one (js/taipei-drive.js).
+    groundHeight: (x, z, mode, yHint) => buildDriveModel(tile.geodata.elevatedRoads).sample(x, z, yHint),
     speedScale: 2,
     // Helicopter (user request 2026-10-24): ceiling above 600 m — 750
     // clears Taipei 101 (508 m) with margin — and ascend/descend 5×
@@ -1221,7 +1230,11 @@ export async function buildTaipeiGround(scene, tile, deps = {}) {
     cityBlocks,
     sidewalks: [],
     footprints: [],
-    colliders: [],
+    // Issue #207: main.js merges these into the controllers'
+    // collider set beside cityBlocks' own lot colliders — deck
+    // parapets, registry/site structures, Taipei 101, MRT
+    // stations and the depot (js/taipei-drive.js).
+    colliders: taipeiExtraColliders(geo, plan),
     highwayLanes: [],
     allBlocks: [],
     update: null,

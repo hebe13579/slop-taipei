@@ -4196,7 +4196,12 @@ export function taipeiCityBlocksOptions(geodata, plan = planTaipeiBuildings(geod
     }),
     bounds: { ...geodata.frame.bbox },
     initial: [0, 0],
-    colliders: false,
+    // Issue #207: colliders collected — Taipei's buildings are
+    // solid (the pre-#207 visual-only parity is reversed by the
+    // issue). buildCityBlocks emits one base collider per lot
+    // plus one per part above its 26 m block top, exactly the
+    // set Manhattan collides with.
+    colliders: true,
     // Issue #17: Taipei's rooftop-gear policy (no water towers; HVAC units
     // clamped to the roof) — buildCityBlocks' lot mode applies it to the
     // committed gear of every lot when present.
