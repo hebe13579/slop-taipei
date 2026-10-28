@@ -233,7 +233,11 @@ test('airfield road tunnel: the dive is suppressed, the mouths dressed, the rout
 });
 
 test('terminal site structures: placed, topped, lot-free, off the registry', () => {
-  const byId = Object.fromEntries(plan.siteStructures.map((s) => [s.id, s]));
+  // Issue #221: generated school campuses share
+  // plan.siteStructures with the airport structures; they are
+  // audited in taipei-schools.test.mjs. This test keeps its
+  // scope: the airport structures only.
+  const byId = Object.fromEntries(plan.siteStructures.filter((s) => !s.school).map((s) => [s.id, s]));
   const expected = {
     'songshan-terminal-t1-west': { x: -1318, z: -3427, top: 17.6 },
     'songshan-terminal-t1-east': { x: -1138, z: -3462, top: 17.6 },
