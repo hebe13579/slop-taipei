@@ -88,17 +88,24 @@ test('the planner clears the loops — and only the loops move', () => {
   const plan = planTaipeiBuildings(TAIPEI_GEO);
   assert.equal(plan.stats.blocksSkippedLoop, 58, 'blocks whose centroid falls in a loop site');
   assert.equal(plan.stats.lotsDroppedLoop, 364, 'lot candidates dropped by the loop tests');
-  // 71,315: the #213 A/B on this geodata is 71,446 -> 71,315
-  // (-131 net: the 125 lots that stood inside loop rings, the
-  // remaining candidates of the 58 skipped blocks, and the
-  // frontage/packing knock-ons of the removed fabric — every
-  // other stat delta is attribution moving off the vanished
-  // candidates). The 71,446 baseline is itself a full rebuild of
-  // main: the committed geodata's plan is 71,443, and one MRT
-  // pier cluster near Beitou re-arranges on any rebuild
-  // (555 -> 554 piers; pre-existing drift, identical in a
-  // pristine rebuild of main — not a #213 effect).
-  assert.equal(plan.lots.length, 71315, 'plan lot count with the loop exclusion live');
+  // 71,315 on the worker's base: the #213 A/B there is 71,446
+  // -> 71,315 (-131 net: the 125 lots that stood inside loop
+  // rings, the remaining candidates of the 58 skipped blocks,
+  // and the frontage/packing knock-ons of the removed fabric —
+  // every other stat delta is attribution moving off the
+  // vanished candidates). The 71,446 baseline is itself a full
+  // rebuild of main: the committed geodata's plan is 71,443,
+  // and one MRT pier cluster near Beitou re-arranges on any
+  // rebuild (555 -> 554 piers; pre-existing drift, identical
+  // in a pristine rebuild of main — not a #213 effect).
+  // Re-pinned at the #227 merge gate on the merged tree: the
+  // A/B against the shipped pre-#213 plan (75,520, post-#226)
+  // is the same -131 net (75,389) and the 58/364 counters
+  // above reproduce exactly — the loop fabric is untouched by
+  // #186/#226, and the derivation on merged inputs accepts
+  // the same 62 components at 131,508 m2 vs 131,512 m2 (a
+  // 4 m2 boundary shift from the #226 creek narrowing).
+  assert.equal(plan.lots.length, 75389, 'plan lot count with the loop exclusion live');
   assert.equal(plan.stats.blocksSkippedAirfield, 45, 'airfield exclusion unmoved (#134)');
   assert.equal(plan.stats.lotsDroppedAirfield, 222, 'airfield exclusion unmoved (#134)');
   let inside = 0;
