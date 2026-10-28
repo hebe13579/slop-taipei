@@ -180,6 +180,18 @@ def main():
     aeroway = [{'type': 'way', 'id': wid, 'tags': w['tags'], 'geometry': w['geometry']}
                for wid, w in c.ways.items() if wid in tile_way_ids and 'aeroway' in w['tags']]
 
+    # Special sites (issue #186): the National Palace Museum grounds —
+    # OSM way 827791918, landuse=recreation_ground, a tag pair no other
+    # classifier takes (green_class reads leisure=recreation_ground,
+    # is_park reads leisure=park / landuse grass|forest|meadow), so
+    # without this list the grounds would be planned over. Issue #149:
+    # the grounds are a SPECIAL SITE like the airport — the builder
+    # turns this into the planner's museum-site exclusion.
+    def is_npm_site(t):
+        return t.get('landuse') == 'recreation_ground' and t.get('name') == '國立故宮博物院'
+    sites = [{'type': 'way', 'id': wid, 'tags': w['tags'], 'geometry': w['geometry']}
+             for wid, w in c.ways.items() if wid in tile_way_ids and is_npm_site(w['tags'])]
+
     for rel in c.relations:
         outer = [ref for (t, ref, role) in rel['members'] if t == 'w' and role in ('outer', '')]
         rings = stitch(outer, c.ways)
@@ -201,9 +213,11 @@ def main():
             landmarks.append(el)
         if rel['tags'].get('aeroway') == 'aerodrome':
             aeroway.append(el)
+        if is_npm_site(rel['tags']):
+            sites.append(el)
 
     import os
-    for name, els in [('osm_roads', roads), ('osm_water', water), ('osm_parks', parks), ('osm_landmarks', landmarks), ('osm_green', green), ('osm_railways', railways), ('osm_aeroway', aeroway)]:
+    for name, els in [('osm_roads', roads), ('osm_water', water), ('osm_parks', parks), ('osm_landmarks', landmarks), ('osm_green', green), ('osm_railways', railways), ('osm_aeroway', aeroway), ('osm_sites', sites)]:
         path = os.path.join(outdir, name + '.json')
         with open(path, 'w') as f:
             json.dump({'version': 0.7, 'generator': 'extract-from-pbf.py (Geofabrik Taiwan extract)', 'elements': els}, f)
