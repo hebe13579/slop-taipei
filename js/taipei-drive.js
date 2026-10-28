@@ -169,9 +169,13 @@ export function buildDriveModel(elevated) {
             const mx = ax + (bx - ax) * tm, mz = az + (bz - az) * tm;
             const maxY = Math.max(hAt(t0), hAt(t1)) + PARAPET_H;
             const minY = Math.max(0, Math.min(hAt(t0), hAt(t1)) - depth);
-            parapetColliders.push(obbCollider(
+            const pc = obbCollider(
               mx + s * nx * off, mz + s * nz * off,
-              PARAPET_T / 2, ((t1 - t0) * len) / 2, seg.uz, seg.ux, maxY, minY));
+              PARAPET_T / 2, ((t1 - t0) * len) / 2, seg.uz, seg.ux, maxY, minY);
+            // Issue #239 audit tag: which line's fence this is.
+            // Collision code reads only the geometric fields.
+            pc.wayId = line.wayId;
+            parapetColliders.push(pc);
           }
         }
       }

@@ -506,7 +506,6 @@ export function parapetTrims(elevated) {
     }
     const endsOf = (L) => [[L.pts[0], L.pts[1], 0], [L.pts[L.pts.length - 2], L.pts[L.pts.length - 1], 1]];
     for (const [key, dmin] of pairMin) {
-      if (dmin > PARAPET_JOIN_APPROACH_M) continue;
       const [li, oi] = key.split('|').map(Number);
       const A = lines[li], B = lines[oi];
       const nodes = [];
@@ -515,6 +514,14 @@ export function parapetTrims(elevated) {
           if (Math.hypot(ax - bx, az - bz) <= PARAPET_JOIN_APPROACH_M) nodes.push([ai, bi, ax, az]);
         }
       }
+      // NOTE (issue #239 scope): twin carriageways of one bridge
+      // whose digest corridors overlap without ever approaching
+      // within 2 m (福林橋: 8.6 m apart, 10.8 m wide each) are
+      // deliberately NOT eligible here — their inner fences are
+      // the directions' median, and whether the digest widths
+      // overstate the decks is a separate widths question, not a
+      // merge mouth. Only pairs that meet at a mouth are trimmed.
+      if (dmin > PARAPET_JOIN_APPROACH_M) continue;
       let continuation = false;
       if (nodes.length === 1) {
         const [ai, bi] = nodes[0];
