@@ -87,7 +87,7 @@ test('type sites: infields in, the real neighbourhood out', () => {
 test('the planner clears the loops — and only the loops move', () => {
   const plan = planTaipeiBuildings(TAIPEI_GEO);
   assert.equal(plan.stats.blocksSkippedLoop, 58, 'blocks whose centroid falls in a loop site');
-  assert.equal(plan.stats.lotsDroppedLoop, 364, 'lot candidates dropped by the loop tests');
+  assert.equal(plan.stats.lotsDroppedLoop, 363, 'lot candidates dropped by the loop tests (364 on the pre-#221 tree; issue #221 composition at the merge gate: one loop candidate stands on campus land and the school exclusion drops it first — probed with the schools layer off, the count reproduces 364 and blocksSkippedLoop stays 58)');
   // 71,315 on the worker's base: the #213 A/B there is 71,446
   // -> 71,315 (-131 net: the 125 lots that stood inside loop
   // rings, the remaining candidates of the 58 skipped blocks,
@@ -105,7 +105,7 @@ test('the planner clears the loops — and only the loops move', () => {
   // #186/#226, and the derivation on merged inputs accepts
   // the same 62 components at 131,508 m2 vs 131,512 m2 (a
   // 4 m2 boundary shift from the #226 creek narrowing).
-  assert.equal(plan.lots.length, 75389, 'plan lot count with the loop exclusion live');
+  assert.equal(plan.lots.length, 68570, 'plan lot count with the loop exclusion live (75,389 before issue #221; the #221 merge gate re-pin — campus clearing removes 6,819 lots, loop counters 58/363 reproduce as re-pinned above)');
   assert.equal(plan.stats.blocksSkippedAirfield, 45, 'airfield exclusion unmoved (#134)');
   assert.equal(plan.stats.lotsDroppedAirfield, 222, 'airfield exclusion unmoved (#134)');
   let inside = 0;

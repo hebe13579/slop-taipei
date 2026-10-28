@@ -25,7 +25,11 @@ const LANE_CLEAR = 1.2; // half width each lane keeps free of obstacles
 const CROSSWALK = 2.5; // depth between an intersection box and its stop lines
 const SHORE_MARGIN = 6;
 
-function buildRoadNetwork(sidewalks, obstacles) {
+// env (issue #210 experiment): an injected environment replaces the Manhattan data sources —
+// { roadGraph, avenues, streets, medians, onLand } — so the generic machinery below (centreline
+// streets, directed edges, movements, largest strongly connected set, arms & groups) can run on
+// another tile's road graph. With env null every source is the NYC module data, unchanged.
+function buildRoadNetwork(sidewalks, obstacles, env = null) {
   // 1. Spatial hash of ground footprints: curbs bound the roads, everything else also blocks pedestrians
   const hash = new Map();
   const cellKey = (ix, iz) => (ix + 512) * 1024 + iz + 512;
@@ -57,6 +61,7 @@ function buildRoadNetwork(sidewalks, obstacles) {
   }
 
   function onLand(minX, maxX, minZ, maxZ) {
+    if (env && env.onLand) return env.onLand(minX, maxX, minZ, maxZ);
     for (const z of [minZ, maxZ]) {
       const shore = getIslandBoundsAtZ(z);
       if (minX < shore.westX + SHORE_MARGIN || maxX > shore.eastX - SHORE_MARGIN) return false;
@@ -71,7 +76,7 @@ function buildRoadNetwork(sidewalks, obstacles) {
   // irregular sidewalks may reach a little past their curbs, a whole park's bounds take in the streets around it and a
   // median mall's bounds (Allen St, Chrystie St...) both its roadways, so only a curb right at (x, z), median malls by
   // their real outline and other obstacles under 50 m across count
-  const MEDIANS = BLOCKS.filter((b) => b.median);
+  const MEDIANS = env ? (env.medians || []) : BLOCKS.filter((b) => b.median);
   const medianBox = (r) => MEDIANS.some((b) => Math.abs(b.minX - r.minX) < 0.6 && Math.abs(b.maxX - r.maxX) < 0.6 && Math.abs(b.minZ - r.minZ) < 0.6 && Math.abs(b.maxZ - r.maxZ) < 0.6);
   const medianCells = new Map(); // 64 m cells -> the medians reaching into them
   for (const b of MEDIANS) {
@@ -116,7 +121,7 @@ function buildRoadNetwork(sidewalks, obstacles) {
       : half >= 6.8 ? [-3.6, 0, 3.6]
         : half >= 4.4 ? [-1.8, 1.8] : null);
   const avenues = [];
-  for (const ave of ALL_AVENUES) {
+  for (const ave of (env ? (env.avenues || []) : ALL_AVENUES)) {
     if (ave.isHighway) continue;
     const segs = ave.segs || [{ z0: ave.minZ, z1: ave.maxZ, dir: ave.dir }];
     // the avenue's stretch at z (or the nearest one within an intersection's reach of its ends)
@@ -224,7 +229,7 @@ function buildRoadNetwork(sidewalks, obstacles) {
   // One-way or two-way from the nearest named street inside the gap (majors and wide gaps are two-way)
   for (const p of pieces) {
     let st = null;
-    for (const s of ALL_STREETS) {
+    for (const s of (env ? (env.streets || []) : ALL_STREETS)) {
       if (Math.abs(s.z - p.z) <= p.gap / 2 && (!st || Math.abs(s.z - p.z) < Math.abs(st.z - p.z))) st = s;
     }
     const twoWay = !st || st.dir === 0 || p.gap >= 20;
@@ -255,7 +260,7 @@ function buildRoadNetwork(sidewalks, obstacles) {
   //     cross street); a street's bends get shape nodes, so every edge stays straight.
   const genRuns = centrelineStreets();
   function centrelineStreets() {
-    const RG = GEO.roadGraph;
+    const RG = (env && env.roadGraph) || GEO.roadGraph;
     const runs = [];
     if (!RG) return runs;
     const pos = [];
@@ -1070,9 +1075,11 @@ function buildRoadNetwork(sidewalks, obstacles) {
   nodes = nodes.filter((n) => n.in && n.out);
   nodes.forEach((n, i) => (n.id = i));
 
-  // 8. Signalized intersections are exactly the ones with signal heads (street-details.js)
-  for (const a of AVENUES) {
-    for (const s of STREETS) {
+  // 8. Signalized intersections are exactly the ones with signal heads (street-details.js).
+  // An injected environment has no grid signal table: every junction stays unsignalized and
+  // right of way falls to the arm groups of step 9 (the widest road is group 0).
+  for (const a of (env ? [] : AVENUES)) {
+    for (const s of (env ? [] : STREETS)) {
       const n = nodes.find((m) => Math.abs(m.x - a.x) < 4 && Math.abs(m.z - s.z) < 4);
       if (n) n.signal = true;
     }

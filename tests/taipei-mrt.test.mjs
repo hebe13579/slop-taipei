@@ -1049,7 +1049,7 @@ test('clearance (issue #139): census by counterfactual, audit exact', (t) => {
     mrtDecks: undefined, mrtDepot: undefined,
     mrtStations: stations.filter((s) => s.kind !== 'at-grade' && s.kind !== 'wenhu' && s.kind !== 'entrance' && s.kind !== 'wenhu-open'),
   });
-  assert.equal(before.lots.length, 76104, 'counterfactual plan reproduces the pre-#139 lot count, less the #144 site lots (7), the #135 parcel exclusions (47), the #165 site exclusions (31) and the #166 site exclusions (143) — on the #124 fine plan composed with the #186 strip (+3,957 measured at the #186 merge gate, incl. the PR2 landmark sites below), per the composition note above');
+  assert.equal(before.lots.length, 69236, 'counterfactual plan reproduces the pre-#139 lot count, less the #144 site lots (7), the #135 parcel exclusions (47), the #165 site exclusions (31) and the #166 site exclusions (143) — on the #124 fine plan composed with the #186 strip (+3,957 measured at the #186 merge gate, incl. the PR2 landmark sites below), per the composition note above; composed with issue #221 at the merge gate: the counterfactual plan loses 6,868 lots to campus clearing (49 more than the real plan figure of 6,819 — without track exclusions the coarse fabric packs 49 extra lots onto campus-adjacent land, which the school exclusion then also clears)');
   // 463 lots removed on this tree (524 on the pre-expansion
   // tree): 433 inside the Beitou depot + at-grade station sites
   // (398 with centres inside the depot site rect alone; the rest
@@ -1064,7 +1064,7 @@ test('clearance (issue #139): census by counterfactual, audit exact', (t) => {
   // Four Seasons D3 parcel + 2 under the Mitsukoshi A4 hall; the
   // Farglory / A8 / A9 / A11 sites exclude none — their blocks were
   // already lot-free there).
-  assert.equal(plan.lots.length, 75389, 'shipped plan lot count after the #139 removals, the #144 site exclusion, the #135 parcel exclusions, the #146 dive drops, the #165 site exclusions and the #166 site exclusions (141) — re-based on the #124 fine plan composed with the #186 strip (counterfactual 76,068 − 668 #139-family removals on the merged tree; re-pinned at the #186 merge gate) and with issue #226 (counterfactual 76,235 − 715 #139-family removals; re-pinned at the #226 merge gate) and with issue #213 (counterfactual 76,104 − 715; re-pinned at the #227 merge gate)');
+  assert.equal(plan.lots.length, 68570, 'shipped plan lot count after the #139 removals, the #144 site exclusion, the #135 parcel exclusions, the #146 dive drops, the #165 site exclusions and the #166 site exclusions (141) — re-based on the #124 fine plan composed with the #186 strip (counterfactual 76,068 − 668 #139-family removals on the merged tree; re-pinned at the #186 merge gate) and with issue #226 (counterfactual 76,235 − 715 #139-family removals; re-pinned at the #226 merge gate) and with issue #213 (counterfactual 76,104 − 715; re-pinned at the #227 merge gate) and with issue #221 (counterfactual 69,236 − 666 on the composed tree; re-pinned at the #221 merge gate)');
   // Merged-tree check at the #186 gate: bed drops reproduce
   // main's 28 EXACTLY — probed per bed at the gate, all at
   // the two at-grade Beitou clusters, none in the strip (its
@@ -1075,7 +1075,7 @@ test('clearance (issue #139): census by counterfactual, audit exact', (t) => {
   // candidates stood on the Beitou beds. Restoring main's
   // block order restored the count. The audit below (no KEPT
   // lot on a bed) is unchanged and still exact.
-  assert.equal(plan.stats.lotsDroppedTrackBed, 28, 'planner bed drops agree with the census (13 on the coarse grid; the fine grid stands more candidates on the at-grade Beitou bed; 28 reproduced exactly on the #186 merged tree, per the note above)');
+  assert.equal(plan.stats.lotsDroppedTrackBed, 27, 'planner bed drops agree with the census (13 on the coarse grid; the fine grid stands more candidates on the at-grade Beitou bed; 28 reproduced exactly on the #186 merged tree, per the note above; issue #221 composition: 27 — one bed candidate stands on campus land and the school exclusion drops it first, counted under lotsDroppedSchool; probed at the merge gate: schools layer off reproduces 28 and the full 75,389-lot plan)');
   assert.equal(plan.stats.lotsDroppedTrackPierce, 56, 'planner pierce drops agree with the census (15 Red + 2 Wenhu on the coarse grid, issue #146; 55 on main after the #166 Shipai site pre-emption; 56 on the #186 merged tree = main\'s 55 + one strip lot under the Dazhi resurface guideway, per the gate-fix note above)');
   let bed = 0, pierce = 0, keptUnder = 0;
   for (const lot of plan.lots) {
