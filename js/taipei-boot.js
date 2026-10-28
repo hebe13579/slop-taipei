@@ -13,7 +13,7 @@ import { ribbonsQuads, jointFramesFor } from './taipei-ribbons.js';
 import { buildMrtStationGeometry, buildMrtDepotGeometry } from './taipei-mrt-stations.js';
 import { buildBridgeGeometry } from './taipei-bridges.js';
 import { buildTerrainSkinGeometry } from './taipei-terrain.js';
-import { buildGreenTintLayers, GREEN_TINT_Y } from './taipei-green.js';
+import { buildGreenTintLayers, consumeGreenFamilyOverlaps, GREEN_TINT_Y } from './taipei-green.js';
 import { unionExclusionRects, clipRectToBoxes } from './taipei-union.js';
 import { createCurtainWallMaterial, createPreWarBuildingMaterial, createTaipeiMarkingMaterial, setTaipeiSignAtlases } from './tsl-materials.js';
 import { drawBandAtlas, drawBladeAtlas, BAND_ATLAS, BLADE_ATLAS, TAIPEI_BAND_SIGNS, TAIPEI_BLADE_SIGNS } from './taipei-signs.js';
@@ -825,13 +825,32 @@ export async function buildTaipeiGround(scene, tile, deps = {}) {
   // winner — wetland channels stay water, park interiors stay lawn.
   // Visual-only: the planner never reads this (its byte-identity is
   // pinned in tests/green-tint.test.mjs).
-  const greenTint = buildGreenTintLayers(geo.green);
-  for (const layer of greenTint) {
+  //
+  // Issue #206: the whole green FAMILY (plaza > parks > water >
+  // riverside band > tint tones) is consumed against itself before
+  // drawing — one surface wins per area, cut at generation time by
+  // consumeGreenFamilyOverlaps, so no two family surfaces share
+  // ground anywhere on the tile. The stacked overlaps were the
+  // Guandu flicker: 1.9 km² of co-planar tint-on-tint at Δy = 0
+  // exactly, 1.03 km² of tint under parks, 715k m² under water
+  // (census on the issue). The visible winner of every overlap is
+  // unchanged — it is exactly the surface the Y stack picked.
+  const lawnParks = geo.parks.filter((p) => !isPlazaPark(p));
+  const plazaParks = geo.parks.filter(isPlazaPark);
+  const greenFamily = consumeGreenFamilyOverlaps({
+    tint: buildGreenTintLayers(geo.green),
+    band: (geo.riverside?.polys || []).map((p) => p.ring),
+    water: geo.water.map((w) => w.ring),
+    parks: lawnParks.map((p) => p.ring),
+    plaza: plazaParks.map((p) => p.ring),
+  });
+  for (const layer of greenFamily.tint) {
     addLayer(flatPolygonGeometry(clipRingsToSlots(layer.rings, trenchSlots), GREEN_TINT_Y), mat(layer.tone, 0.95), 'TaipeiGreenTint');
   }
-  if (greenTint.length) {
-    const ringCount = greenTint.reduce((s, l) => s + l.rings.length, 0);
-    console.info(`[taipei-green] ground tint: ${ringCount} rings in ${greenTint.length} tone layers at y=${GREEN_TINT_Y} (issue #141)`);
+  if (greenFamily.tint.length) {
+    const ringCount = greenFamily.tint.reduce((s, l) => s + l.rings.length, 0);
+    const removed = greenFamily.removed;
+    console.info(`[taipei-green] ground tint: ${ringCount} rings in ${greenFamily.tint.length} tone layers at y=${GREEN_TINT_Y} (issue #141); family consumption removed ${Math.round(removed.plaza + removed.parks + removed.water + removed.band + removed.tint)} m² of double-painted ground (issue #206, unresolved=${greenFamily.unresolved})`);
   }
   // Songshan airfield (issue #134): the aerodrome site ground in a
   // muted field green-grey at 0.022 and its hard surfaces (runway,
@@ -876,17 +895,15 @@ export async function buildTaipeiGround(scene, tile, deps = {}) {
   // Tamsui riverside band (issue #137): bank-offset rings at 0.025 in
   // the park tone — under the water layer (0.03), so the channel stays
   // water and only the land-side strip reads green from the air.
-  if (geo.riverside?.polys?.length) {
-    addLayer(flatPolygonGeometry(clipRingsToSlots(geo.riverside.polys.map((p) => p.ring), trenchSlots), 0.025), mat(SURFACE_TONES.park, 0.9), 'TaipeiRiverside');
+  if (greenFamily.band.length) {
+    addLayer(flatPolygonGeometry(clipRingsToSlots(greenFamily.band, trenchSlots), 0.025), mat(SURFACE_TONES.park, 0.9), 'TaipeiRiverside');
   }
-  addLayer(flatPolygonGeometry(clipRingsToSlots(geo.water.map((w) => w.ring), trenchSlots), 0.03), mat(0x2f6d96, 0.35), 'TaipeiWater');
+  addLayer(flatPolygonGeometry(clipRingsToSlots(greenFamily.water, trenchSlots), 0.03), mat(0x2f6d96, 0.35), 'TaipeiWater');
   // Parks stay lawn-green; polygons named 廣場 are paved civic squares
   // in reality （市民廣場, 松壽廣場, 世貿廣場…) and render in the plaza
   // paving tone on their own layer (issue #29).
-  const lawnParks = geo.parks.filter((p) => !isPlazaPark(p));
-  const plazaParks = geo.parks.filter(isPlazaPark);
-  addLayer(flatPolygonGeometry(clipRingsToSlots(lawnParks.map((p) => p.ring), trenchSlots), 0.04), mat(SURFACE_TONES.park, 0.9), 'TaipeiParks');
-  if (plazaParks.length) addLayer(flatPolygonGeometry(clipRingsToSlots(plazaParks.map((p) => p.ring), trenchSlots), 0.041), mat(SURFACE_TONES.plaza, 0.95), 'TaipeiPlazas');
+  addLayer(flatPolygonGeometry(clipRingsToSlots(greenFamily.parks, trenchSlots), 0.04), mat(SURFACE_TONES.park, 0.9), 'TaipeiParks');
+  if (greenFamily.plaza.length) addLayer(flatPolygonGeometry(clipRingsToSlots(greenFamily.plaza, trenchSlots), 0.041), mat(SURFACE_TONES.plaza, 0.95), 'TaipeiPlazas');
   // CKS Memorial grounds (issue #98 follow-up): Liberty Square, its
   // forecourt, the Boulevard of Homage strip and the terrace apron
   // are paved stone inside the lawn-green memorial park — flat plaza

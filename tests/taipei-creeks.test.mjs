@@ -158,10 +158,14 @@ test('no duplicate water rings ship', () => {
 test('true polygons untouched: non-derived water area is exactly the pre-fix distinct total', () => {
   // The genuinely wide rivers （基隆河/淡水河） and every mapped pond
   // are collected polygons, not buffers. Before the fix the distinct
-  // non-derived rings summed to 5,126,411 m²; the shipped file also
-  // carried exact-duplicate copies of 20 of them. After the fix the
-  // non-derived total must equal the distinct total to the metre —
+  // non-derived rings summed to 5,126,411 m² on the pre-#186 tile; the
+  // shipped file also carried exact-duplicate copies of 20 of them.
+  // The #186 strip added 104,858 m² of polygon water （基隆河/外雙溪）,
+  // so on the merged tile the distinct total is 5,231,269 m² — verified
+  // at the #226 gate to equal current main's distinct non-derived
+  // total to the metre, with zero distinct rings missing. After the
+  // fix the non-derived total must equal that distinct total exactly —
   // proof the creek fix ate nothing real.
   const total = water.filter((w) => !w.derived).reduce((s, w) => s + ringArea(w.ring), 0);
-  assert.ok(Math.abs(total - 5126411) < 1, `non-derived water area ${Math.round(total)} m² ≠ 5,126,411 m²`);
+  assert.ok(Math.abs(total - 5231269) < 1, `non-derived water area ${Math.round(total)} m² ≠ 5,231,269 m²`);
 });

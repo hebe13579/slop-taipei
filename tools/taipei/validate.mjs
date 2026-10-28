@@ -170,7 +170,7 @@ check(roadbedM < preMergeM, 'rendered carriageway is shorter than pre-merge (mer
 // discipline, deck-flag agreement between the two builders, and the
 // pier rejection — recomputed here independently of the pipeline.
 {
-  const { isElevatedTags, DECK_CLASSES } = await import('./build-elevated.mjs');
+  const { isElevatedTags, DECK_CLASSES, deckTopForLayer, slopeCapForWay } = await import('./build-elevated.mjs');
   const elev = G.elevatedRoads;
   check(!!elev && Array.isArray(elev.lines) && elev.lines.length > 50, 'elevatedRoads present with deck lines', elev ? `${elev.lines.length} lines, ${elev.piers?.length ?? 0} piers` : 'missing');
   if (elev) {
@@ -223,8 +223,11 @@ check(roadbedM < preMergeM, 'rendered carriageway is shorter than pre-merge (mer
     // interchange legitimately rises above 9 m there (window of +-3
     // points around a shared coordinate must explain the excess).
     // And the ramp slope between consecutive points never exceeds
-    // 6% (0.11 m of slack for the 0.1 m height quantisation).
-    const topOf = (layer) => 9 + 6 * (Math.min(Math.max(layer, 1), 3) - 1);
+    // the way's slope cap (6% default; SLOPE_OVERRIDES ways carry
+    // their own — issue #211) (0.11 m of slack for the 0.1 m height
+    // quantisation). Layer tops come from the builder itself
+    // (deckTopForLayer, L1-L5 since issue #211).
+    const topOf = (layer) => deckTopForLayer(layer);
     const topAtCoord = new Map();
     for (const l of elev.lines) for (let i = 0; i < l.pts.length; i += 2) {
       const k = `${Math.round(l.pts[i] * 10)},${Math.round(l.pts[i + 1] * 10)}`;
@@ -233,7 +236,7 @@ check(roadbedM < preMergeM, 'rendered carriageway is shorter than pre-merge (mer
     let badH = 0, badSlope = 0;
     for (const l of elev.lines) {
       for (let i = 0; i < l.h.length; i++) {
-        if (!(l.h[i] >= 0 && l.h[i] <= 21 + 0.051)) badH++;
+        if (!(l.h[i] >= 0 && l.h[i] <= deckTopForLayer(5) + 0.051)) badH++;
         else if (l.h[i] > topOf(l.layer) + 0.051) {
           let allow = topOf(l.layer);
           for (let j = Math.max(0, i - 3); j <= Math.min(l.h.length - 1, i + 3); j++)
@@ -242,12 +245,12 @@ check(roadbedM < preMergeM, 'rendered carriageway is shorter than pre-merge (mer
         }
         if (i > 0) {
           const d = Math.hypot(l.pts[2 * i] - l.pts[2 * i - 2], l.pts[2 * i + 1] - l.pts[2 * i - 1]);
-          if (d > 0.01 && Math.abs(l.h[i] - l.h[i - 1]) > 0.06 * d + 0.11) badSlope++;
+          if (d > 0.01 && Math.abs(l.h[i] - l.h[i - 1]) > slopeCapForWay(l.wayId) * d + 0.11) badSlope++;
         }
       }
     }
     check(badH === 0, 'deck heights bounded by layer tops (shared-node excess only)', `${badH} violations`);
-    check(badSlope === 0, 'deck ramp slope never exceeds 6%', `${badSlope} violations`);
+    check(badSlope === 0, 'deck ramp slope never exceeds the per-way cap (6% default)', `${badSlope} violations`);
     // Deck flags: the generation map's flags (recomputed from its
     // own segment rules) and the geodata pass-through agree, and
     // every flagged bed derives from at least one deck-set way.

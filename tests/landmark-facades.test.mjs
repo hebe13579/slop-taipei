@@ -64,6 +64,11 @@ const EXPECTED_FACADES = {
   'shipai-junior-high': 'prewar',
   'qingjiang-elementary': 'prewar',
   'jianguo-high-school': 'prewar',
+  // Batch 10 (issue #186): the National Palace Museum — cream
+  // palace walls take the prewar grid (its green roofs are flat
+  // overrides); Miramar — the mall's glass slab takes curtain.
+  'national-palace-museum': 'prewar',
+  'miramar-entertainment-park': 'curtain',
 };
 
 // The only Latin wordmarks a landmark sign may carry — the ones the
@@ -80,6 +85,9 @@ const EXPECTED_SIGNS = {
   // 臺北車站 entrance band — abstract glyphs, as on the real signs.
   'shin-kong-life-tower': { glyphs: 4 },
   'taipei-main-station': { glyphs: 4 },
+  // Issue #186: the Miramar mall's south-front wordmark band —
+  // a real Latin wordmark the building itself carries.
+  'miramar-entertainment-park': { text: 'MIRAMAR' },
 };
 
 test('every landmark resolves its pinned facade treatment', () => {
