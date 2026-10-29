@@ -1248,8 +1248,10 @@ export async function buildTaipeiGround(scene, tile, deps = {}) {
   await completeStage('medians', `${medians.stats.plantedBeds + medians.stats.plainBeds} median beds, painted walkways clipped at ${capPolys.length} junction caps`);
   // Road detail (issue #45, js/taipei-markings.js): dashed white lane
   // dividers between same-direction lanes (never on a median, broken
-  // at junctions), zebra crosswalks + stop lines at signalized
-  // junctions, and one STATIC signal unit per signalized approach —
+  // at junctions), yellow centre lines on two-way beds (issue #249:
+  // double solid yellow wide, single dashed yellow narrow), zebra
+  // crosswalks + stop lines at signalized junctions, and one STATIC
+  // signal unit per signalized approach —
   // pole + horizontal 3-lamp head with unlit lenses and a static lit
   // red pedestrian panel. No phase cycle yet, and traffic does not
   // obey them; scooter waiting boxes are out of scope (user cut).
@@ -1271,9 +1273,21 @@ export async function buildTaipeiGround(scene, tile, deps = {}) {
     mat(0xf2f2f2, 0.9),
     'TaipeiRoadStopLines'
   );
+  // Centre lines (issue #249): double solid yellow on wide two-way
+  // beds, single dashed yellow on narrower two-way beds — solid
+  // quads in marking yellow, at the same markings Y as the white
+  // paint (the two never overlap in plan: the centre line is
+  // occluded by the same caps / furniture as the dividers).
+  if (markings.centerQuads.length) {
+    addLayer(
+      quadsGeometry(markings.centerQuads, 0.068),
+      mat(0xf2c200, 0.9),
+      'TaipeiRoadCenterLines'
+    );
+  }
   const signalMesh = buildSignalMesh(markings.signals);
   if (signalMesh) group.add(signalMesh);
-  console.info(`[taipei-markings] ${markings.stats.dividerKm.toFixed(1)} km of lane dividers on ${markings.stats.dividerBeds} beds; ${markings.stats.signalized} signalized junctions, ${markings.stats.crosswalks} crosswalks, ${markings.stats.stopLines} stop lines, ${markings.stats.signalUnits} static signal units (${markings.stats.signalMast} mast-arm / ${markings.stats.signalPole} corner-pole, ${markings.stats.clearanceUnresolved} unresolved corners) planned in ${Math.round(performance.now() - markingsStart)}ms`);
+  console.info(`[taipei-markings] ${markings.stats.dividerKm.toFixed(1)} km of lane dividers on ${markings.stats.dividerBeds} beds; ${markings.stats.centerDoubleKm.toFixed(1)} km double-yellow + ${markings.stats.centerDashKm.toFixed(1)} km dashed-yellow centre lines on ${markings.stats.centerBeds} beds; ${markings.stats.signalized} signalized junctions, ${markings.stats.crosswalks} crosswalks, ${markings.stats.stopLines} stop lines, ${markings.stats.signalUnits} static signal units (${markings.stats.signalMast} mast-arm / ${markings.stats.signalPole} corner-pole, ${markings.stats.clearanceUnresolved} unresolved corners) planned in ${Math.round(performance.now() - markingsStart)}ms`);
   await completeStage('markings', `${markings.stats.crosswalks} crosswalks, ${markings.stats.signalUnits} signal units`);
 
   // Elevated highway decks (issue #61, js/taipei-viaduct.js): the

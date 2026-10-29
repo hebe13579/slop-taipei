@@ -813,6 +813,13 @@ const singleEntry = (seg, pts) => {
     name: seg.name, highway: seg.highway, centreline: flatQ(simplified), width: seg.width,
     pedestrianLayout: seg.pedestrianLayout, sourceWayIds: [seg.wayId],
     ...(isDeckSegment(seg) ? { deck: true } : {}),
+    // Issue #249: carry the OSM one-way tag so the markings layer can
+    // tell a one-way street (no opposing traffic, no centre line)
+    // from a two-way one — roadbeds previously carried no oneway
+    // flag, and the lane rule's "unmerged bed = two-way" reading
+    // was a stated limit. Merged beds never carry it: a merged bed
+    // is a divided pair by construction.
+    ...(seg.oneway ? { oneway: true } : {}),
   };
 };
 // Wholly unpaired segments render as single roadbeds.
