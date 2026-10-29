@@ -19,7 +19,7 @@ import { LightingSystem } from './lighting.js';
 import { NYCMapSystem } from './nyc-map.js';
 import { setupSceneCulling, updateSceneCulling } from './scene-culling.js';
 import { CityAudioSystem } from './audio-system.js';
-import { resolveSettings, readStoredSettings, persistSettings, graphicsConfig, applyGraphicsSettings, initSettingsPanel } from './settings.js';
+import { resolveSettings, readStoredSettings, persistSettings, graphicsConfig, applyGraphicsSettings, initSettingsPanel, trafficConfig } from './settings.js';
 import { setFarFadeEnabled } from './tsl-materials.js';
 
 // js/main.js
@@ -201,6 +201,49 @@ async function initApp() {
   }
   const allColliders = [...landmarkColliders, ...cityBlocks.colliders, ...boroughs.colliders, ...(cityGrid.colliders || [])];
 
+  // Issue #210/#252: Taipei traffic, built and destroyed live from the
+  // settings gear (on/off, density, spawn range). The module import is
+  // hoisted here so the panel's onTraffic callback can apply a change
+  // the moment the user taps it; the graph itself is built lazily inside
+  // taipeiTrafficEnv on first use, so importing builds nothing. The
+  // obstacle lists are the tile's own (both empty): Taipei's roads are
+  // building-free by construction, and building colliders are deliberately
+  // NOT passed — a rotated lot's AABB overhangs its carriageway and would
+  // prune honest lanes. window.__traffic is the #210 measurement handle,
+  // set only while a system exists.
+  let taipeiTraffic = null;
+  if (isTaipei) taipeiTraffic = await import('./taipei-traffic.js');
+  const destroyTraffic = () => {
+    if (trafficSystem && trafficSystem.group) scene.remove(trafficSystem.group);
+    trafficSystem = { network: null, update() {} };
+    if (typeof window !== 'undefined') delete window.__traffic;
+  };
+  const applyTrafficConfig = (cfg) => {
+    destroyTraffic();
+    if (!cfg.enabled || !taipeiTraffic) return;
+    trafficSystem = createTrafficSystem(scene, cityGrid.sidewalks, [
+      ...cityGrid.footprints,
+      ...streetDetails.footprints
+    ], taipeiTraffic.taipeiTrafficEnv(cfg.carCount, { trafficRadius: cfg.trafficRadius }));
+    window.__traffic = trafficSystem;
+    markInit('traffic');
+  };
+
+  // The gear must show the EFFECTIVE initial state: the legacy
+  // ?traffic= flag wins over the stored setting, so sync the
+  // in-memory field (not storage — the flag must not stick after
+  // it leaves the URL) before the panel first reflects it.
+  const initialTraffic = isTaipei ? trafficConfig(settings) : { enabled: false, carCount: 0, trafficRadius: 0 };
+  if (isTaipei) {
+    const search = new URLSearchParams(window.location.search);
+    if (search.has('traffic')) {
+      const legacyCount = taipeiTraffic.trafficCountFromSearch(window.location.search);
+      initialTraffic.enabled = legacyCount > 0;
+      if (legacyCount > 0) initialTraffic.carCount = legacyCount;
+    }
+  }
+  if (isTaipei) settings.trafficEnabled = initialTraffic.enabled;
+
   // Issue #218: wire the settings gear. Graphics apply in every
   // mode; density/specials go through the Taipei boot's runtime
   // API (null in NYC mode — the panel disables those rows there).
@@ -209,6 +252,7 @@ async function initApp() {
     taipeiSettings: isTaipei ? (cityGrid.taipeiSettings || null) : null,
     onGraphics: (preset) => applyGraphicsSettings(renderer, lightingSystem.sunLight, preset, window.devicePixelRatio || 1),
     onFarDetail: (preset) => setFarFadeEnabled(preset !== 'full'),
+    onTraffic: (cfg) => applyTrafficConfig(cfg),
     persist: () => persistSettings(window.localStorage, settings),
   });
 
@@ -225,25 +269,9 @@ async function initApp() {
     buildRoadPaint(scene, trafficSystem.network);
     markInit('roadPaint');
   } else {
-    // Issue #210 EXPERIMENT: traffic generation for the tile, behind ?traffic= (see
-    // js/taipei-traffic.js). Default off — the inert stub above stays and boot is
-    // unchanged. With the flag, the upstream vehicle system runs on the tile's own
-    // road graph: vehicles only (no pedestrians, no signalized junctions). The
-    // obstacle lists are the tile's own (both empty): Taipei's roads are
-    // building-free by construction, and building colliders are deliberately NOT
-    // passed — a rotated lot's AABB overhangs its carriageway and would prune
-    // honest lanes. window.__traffic is the #210 measurement handle, set only
-    // when the flag is on.
-    const { trafficCountFromSearch, taipeiTrafficEnv } = await import('./taipei-traffic.js');
-    const trafficCount = trafficCountFromSearch(window.location.search);
-    if (trafficCount > 0) {
-      trafficSystem = createTrafficSystem(scene, cityGrid.sidewalks, [
-        ...cityGrid.footprints,
-        ...streetDetails.footprints
-      ], taipeiTrafficEnv(trafficCount));
-      window.__traffic = trafficSystem;
-      markInit('traffic');
-    }
+    // Initial traffic state: the effective config computed before the
+    // gear was wired (resolved settings, legacy ?traffic= flag winning).
+    if (initialTraffic.enabled) applyTrafficConfig(initialTraffic);
   }
 
   // 4. Initialize Third-Person Controllers (Person, Car, Cyclist, Helicopter) & Multi-Camera System

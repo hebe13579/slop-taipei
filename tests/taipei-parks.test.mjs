@@ -398,15 +398,80 @@ test('park trees carry seeded canopy variants; street trees do not', () => {
   const dist = {};
   for (const t of parkPlan.trees) {
     assert.ok(PARK_TREE_VARIANTS.includes(t.variant), `variant is a known canopy (${t.variant})`);
+    if (t.variant === 'blossom') assert.ok(['pink', 'white', 'gold'].includes(t.tone), `blossom tone is known (${t.tone})`);
     dist[t.variant] = (dist[t.variant] || 0) + 1;
   }
-  // The hash bands (40/18/20/22) after cap thinning: banyan is the
-  // plurality, every variant is a real share.
+  // The hash bands (36/18/18/18/10, issue #245) after cap thinning:
+  // banyan is the plurality, every variant is a real share; blossom
+  // is the deliberate minority (10% band, measured 9.3% on main).
   const n = parkPlan.trees.length;
   assert.ok(dist.banyan > dist.palm && dist.banyan > dist.conifer && dist.banyan > dist.round, 'banyan plurality');
-  for (const v of PARK_TREE_VARIANTS) {
+  for (const v of ['banyan', 'palm', 'conifer', 'round']) {
     assert.ok(dist[v] / n >= 0.12 && dist[v] / n <= 0.48, `${v} share in band (${(dist[v] / n).toFixed(2)})`);
   }
+  assert.ok(dist.blossom / n >= 0.06 && dist.blossom / n <= 0.16, `blossom share in band (${(dist.blossom / n).toFixed(2)})`);
   const streetPlan = planStreetTrees(TAIPEI_GEO, plan);
   assert.ok(streetPlan.trees.every((t) => t.variant === undefined), 'street trees keep the single original look');
+});
+
+test('issue #245: groves cluster the planting, heroes stand taller', () => {
+  // Grove census, pinned with the clustering parameters in the
+  // comment: grove discs 0.09–0.18 × sqrt(area), acceptance up to
+  // ~2.3x at the centre and halved on the lawn between, 5% hero
+  // roll inside groves at 1.9–2.4x. Measured on main: 1,016 grove
+  // discs, 123 kept heroes; Da-an keeps 5 groves.
+  const parkPlan = planParkTrees(TAIPEI_GEO, plan);
+  assert.ok(parkPlan.stats.groves >= 800, `grove discs seeded (${parkPlan.stats.groves})`);
+  assert.ok(parkPlan.stats.heroes >= 50, `hero trees kept (${parkPlan.stats.heroes})`);
+  const heroes = parkPlan.trees.filter((t) => t.hero);
+  assert.ok(heroes.length > 0 && heroes.every((t) => t.scale >= 1.9 && t.scale <= 2.4), 'heroes are clearly bigger');
+  assert.ok(parkPlan.trees.some((t) => t.scale <= 0.75), 'the small end survives');
+  assert.ok(Math.max(...parkPlan.trees.map((t) => t.scale)) >= 1.9, 'max scale reaches hero band');
+  // Clustering, measured two ways on main (baseline in the
+  // comment: the pre-#245 jittered grid). Capped plan, Da-an:
+  // 19.5% of trees have a neighbour within 12 m (was 7.0%).
+  // Unthinned plan, Da-an: 25 m-cell variance/mean 1.44 (was
+  // 1.06, i.e. uniform) with 54 empty cells (was 26) — lawn.
+  const daan = parkPlan.trees.filter((t) => t.park === '大安森林公園');
+  let near = 0;
+  for (let i = 0; i < daan.length; i++) {
+    for (let j = 0; j < daan.length; j++) {
+      if (i !== j && Math.hypot(daan[i].x - daan[j].x, daan[i].z - daan[j].z) <= 12) { near++; break; }
+    }
+  }
+  assert.ok(near / daan.length >= 0.15, `Da-an trees clump (${(100 * near / daan.length).toFixed(1)}% with a neighbour in 12 m)`);
+  const unthinned = planParkTrees(TAIPEI_GEO, plan, { cap: Number.MAX_SAFE_INTEGER });
+  const pts = unthinned.trees.filter((t) => t.park === '大安森林公園');
+  const park = TAIPEI_GEO.parks.find((p) => p.name === '大安森林公園');
+  const ring = park.ring;
+  let minX = Infinity, maxX = -Infinity, minZ = Infinity, maxZ = -Infinity;
+  for (let i = 0; i < ring.length; i += 2) {
+    minX = Math.min(minX, ring[i]); maxX = Math.max(maxX, ring[i]);
+    minZ = Math.min(minZ, ring[i + 1]); maxZ = Math.max(maxZ, ring[i + 1]);
+  }
+  const cells = new Map();
+  for (const t of pts) {
+    const k = Math.floor(t.x / 25) + ',' + Math.floor(t.z / 25);
+    cells.set(k, (cells.get(k) || 0) + 1);
+  }
+  const counts = [];
+  for (let gx = Math.floor(minX / 25); gx <= Math.floor(maxX / 25); gx++) {
+    for (let gz = Math.floor(minZ / 25); gz <= Math.floor(maxZ / 25); gz++) {
+      if (pointInRing((gx + 0.5) * 25, (gz + 0.5) * 25, ring)) counts.push(cells.get(gx + ',' + gz) || 0);
+    }
+  }
+  const mean = counts.reduce((s, v) => s + v, 0) / counts.length;
+  const vari = counts.reduce((s, v) => s + (v - mean) ** 2, 0) / counts.length;
+  assert.ok(vari / mean >= 1.25, `unthinned Da-an planting is clumped (var/mean ${(vari / mean).toFixed(2)})`);
+});
+
+test('issue #245: grove planting is deterministic, groves included', () => {
+  const a = planParkTrees(TAIPEI_GEO, plan);
+  const b = planParkTrees(TAIPEI_GEO, plan);
+  assert.deepEqual(
+    a.trees.map((t) => [t.x, t.z, t.scale, t.variant, t.tone || '', !!t.hero]),
+    b.trees.map((t) => [t.x, t.z, t.scale, t.variant, t.tone || '', !!t.hero]),
+    'identical inputs plant identical groves, heroes and tones',
+  );
+  assert.equal(a.stats.groves, b.stats.groves, 'grove census is deterministic');
 });
