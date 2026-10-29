@@ -522,12 +522,17 @@ export function ringArea(ring) {
   return Math.abs(a / 2);
 }
 
-// [name, minArea, gridSpacing, baseAccept, clearingCount range, edgeZone]
+// [name, minArea, gridSpacing, baseAccept, clearingCount range, edgeZone,
+//  groveCount range] — groves are the #245 cluster mechanism: seeded
+//  discs where acceptance is boosted, so a big park reads as woodland
+//  groves with open lawn between (the 向陽綠大地 structure) instead of
+//  even fuzz. Pocket parks are too small for a grove + lawn contrast
+//  and keep the even planting.
 const PARK_CLASSES = [
-  { id: 'large', minArea: 40000, spacing: 9, accept: 0.68, clearings: [3, 6], edgeZone: 16 },
-  { id: 'medium', minArea: 4000, spacing: 11, accept: 0.54, clearings: [1, 3], edgeZone: 14 },
-  { id: 'small', minArea: 400, spacing: 12.5, accept: 0.46, clearings: [0, 1], edgeZone: 10 },
-  { id: 'tiny', minArea: 0, spacing: 13, accept: 0.38, clearings: [0, 0], edgeZone: 8 },
+  { id: 'large', minArea: 40000, spacing: 9, accept: 0.68, clearings: [3, 6], edgeZone: 16, groves: [3, 6] },
+  { id: 'medium', minArea: 4000, spacing: 11, accept: 0.54, clearings: [1, 3], edgeZone: 14, groves: [1, 3] },
+  { id: 'small', minArea: 400, spacing: 12.5, accept: 0.46, clearings: [0, 1], edgeZone: 10, groves: [0, 1] },
+  { id: 'tiny', minArea: 0, spacing: 13, accept: 0.38, clearings: [0, 0], edgeZone: 8, groves: [0, 0] },
 ];
 
 export function parkSizeClass(area) {
@@ -538,12 +543,26 @@ export function parkSizeClass(area) {
 // stream as the rest of the planting (per park key + candidate
 // index, so a park's mix is stable and a thinning stride never
 // changes a survivor's variant). Shares are the hash bands:
-// banyan 40% (the Taipei park default — broad shade canopies),
-// palm 18%, conifer 20%, round 22%.
-export const PARK_TREE_VARIANTS = ['banyan', 'palm', 'conifer', 'round'];
-export function parkTreeVariant(key, ci) {
+// banyan 36% (the Taipei park default — broad shade canopies),
+// palm 18%, conifer 18%, round 18%, blossom 10% (issue #245:
+// flowering canopies — cherry/kapok/golden-shower pink, white and
+// gold; the tone is a second hash band, see parkBlossomTone).
+// Near a path (within 7 m) palms are favoured — the photo's
+// pathside/edge palms — by re-rolling non-palm outcomes toward
+// palm a quarter of the time; the global mix barely moves.
+export const PARK_TREE_VARIANTS = ['banyan', 'palm', 'conifer', 'round', 'blossom'];
+export function parkTreeVariant(key, ci, nearPath = false) {
   const r = hash01(`${key}|variant|${ci}`);
-  return r < 0.40 ? 'banyan' : r < 0.58 ? 'palm' : r < 0.78 ? 'conifer' : 'round';
+  let v = r < 0.36 ? 'banyan' : r < 0.54 ? 'palm' : r < 0.72 ? 'conifer' : r < 0.90 ? 'round' : 'blossom';
+  if (nearPath && v !== 'palm' && hash01(`${key}|palmboost|${ci}`) < 0.25) v = 'palm';
+  return v;
+}
+
+// Issue #245: blossom tone — pink is the Taipei flowering default
+// (cherry), white and gold are the kapok / golden-shower notes.
+export function parkBlossomTone(key, ci) {
+  const r = hash01(`${key}|blossom|${ci}`);
+  return r < 0.5 ? 'pink' : r < 0.8 ? 'white' : 'gold';
 }
 
 // A park polygon whose name carries 廣場 is a paved square (#29), the
@@ -675,6 +694,27 @@ export function planParkTrees(geodata, plan, opts = {}) {
       const r = (0.10 + hash01(`${key}|clear${c}r`) * 0.14) * Math.sqrt(area);
       clearings.push({ x: cx, z: cz, r });
     }
+    // Groves (issue #245): seeded cluster discs whose radius scales
+    // with the park's own size. Centres are rejection-sampled to
+    // land in the ring with a minimum separation, so groves read as
+    // distinct clumps with lawn between rather than one merged
+    // thicket; a centre that lands on a path or pond still yields
+    // few trees because the per-candidate hard exclusions below
+    // apply inside groves unchanged.
+    const nGroves = cls.groves[0] + Math.floor(hash01(`${key}|ngroves`) * (cls.groves[1] - cls.groves[0] + 1));
+    const groves = [];
+    for (let g = 0; g < nGroves; g++) {
+      const r = (0.09 + hash01(`${key}|grove${g}r`) * 0.09) * Math.sqrt(area);
+      let placed = false;
+      for (let t = 0; t < 8 && !placed; t++) {
+        const gx = minX + hash01(`${key}|grove${g}x|${t}`) * (maxX - minX);
+        const gz = minZ + hash01(`${key}|grove${g}z|${t}`) * (maxZ - minZ);
+        if (!pointInRing(gx, gz, ring)) continue;
+        if (groves.some((h) => Math.hypot(gx - h.x, gz - h.z) < 0.55 * (r + h.r))) continue;
+        groves.push({ x: gx, z: gz, r });
+        placed = true;
+      }
+    }
     // Jittered grid in a hash-rotated frame: no axis-aligned orchard.
     const ang = hash01(`${key}|rot`) * (Math.PI / 6);
     const cos = Math.cos(ang), sin = Math.sin(ang);
@@ -706,7 +746,11 @@ export function planParkTrees(geodata, plan, opts = {}) {
         if (inLot(x, z)) { rejected.lot++; continue; }
         if (inSite(x, z)) { rejected.site++; continue; }
         if (inExclusion(x, z)) { rejected.cap++; continue; }
-        // Acceptance field: base × edge bias × path bias ÷ clearings.
+        // Acceptance field: base × edge bias × path bias × grove
+        // field ÷ clearings. Inside a grove the probability rises
+        // toward the centre (up to ~2.3x); between groves it halves,
+        // so the lawn between clumps stays open while scattered
+        // trees remain. Clearings still suppress last.
         let p = cls.accept;
         let dEdge = Infinity;
         for (const s of segs) {
@@ -719,27 +763,47 @@ export function planParkTrees(geodata, plan, opts = {}) {
         let dPath = Infinity;
         for (const s of pathGrid.near(x, z)) dPath = Math.min(dPath, distToSegment(x, z, s.ax, s.az, s.bx, s.bz) - s.half);
         if (dPath < 7) p *= 1.2;
+        let inGrove = false;
+        for (const gv of groves) {
+          const d = Math.hypot(x - gv.x, z - gv.z);
+          if (d < gv.r) { inGrove = true; p *= 1 + 1.3 * (1 - d / gv.r); }
+        }
+        if (groves.length && !inGrove) p *= 0.5;
         for (const c of clearings) {
           const d = Math.hypot(x - c.x, z - c.z);
           if (d < c.r) p *= d < 0.65 * c.r ? 0.03 : 0.03 + 0.97 * ((d - 0.65 * c.r) / (0.35 * c.r));
         }
         if (hash01(`${key}|roll|${ci}`) >= Math.min(p, 1)) { rejected.probability++; continue; }
+        // Issue #245: size range widened (0.7–1.5, keeping the
+        // small end) and a few per grove are heroes — clearly
+        // bigger trees (1.9–2.4x) at the grove's heart.
+        let scale = 0.7 + hash01(`${key}|scale|${ci}`) * 0.8;
+        let hero = false;
+        if (inGrove && hash01(`${key}|hero|${ci}`) < 0.05) {
+          scale = 1.9 + hash01(`${key}|heroscale|${ci}`) * 0.5;
+          hero = true;
+        }
+        const variant = parkTreeVariant(key, ci, dPath < 7);
         trees.push({
           x, z, kind: 'park', park: park.name || '',
-          scale: 0.85 + hash01(`${key}|scale|${ci}`) * 0.6,
+          scale,
           rot: hash01(`${key}|trot|${ci}`) * Math.PI * 2,
           // Issue #222: seeded canopy variant — the boot renders
           // park trees from per-variant geometries (broad
-          // banyan-like, palm, conifer-like, round) so the park
-          // population reads distinct from the street trees,
-          // which keep the single original look. Placement,
-          // scale and rotation are untouched by the variant.
-          variant: parkTreeVariant(key, ci),
+          // banyan-like, palm, conifer-like, round, blossom) so
+          // the park population reads distinct from the street
+          // trees, which keep the single original look.
+          // Placement, scale and rotation are untouched by the
+          // variant; blossom trees carry their tone for the
+          // boot's per-tone meshes.
+          variant,
+          hero,
+          ...(variant === 'blossom' ? { tone: parkBlossomTone(key, ci) } : {}),
         });
       }
     }
     st.trees += trees.length;
-    perPark.push({ name: park.name || '', cls: cls.id, area, trees });
+    perPark.push({ name: park.name || '', cls: cls.id, area, trees, groves: groves.length });
   }
 
   let total = perPark.reduce((s, p) => s + p.trees.length, 0);
@@ -777,8 +841,15 @@ export function planParkTrees(geodata, plan, opts = {}) {
     .slice(0, 8)
     .map((p) => ({ name: p.name, area: Math.round(p.area), trees: p.trees.length }));
 
+  // Issue #245 census: grove count, hero count and variant mix, so
+  // the clustering is pinned rather than asserted from frames.
+  const byVariant = {};
+  for (const v of PARK_TREE_VARIANTS) byVariant[v] = 0;
+  let heroes = 0;
+  for (const t of trees) { byVariant[t.variant]++; if (t.hero) heroes++; }
+
   return {
     trees,
-    stats: { byClass, topParks, rejected, capped, cap, totalCandidates: Object.values(byClass).reduce((s, c) => s + c.candidates, 0) },
+    stats: { byClass, topParks, rejected, capped, cap, totalCandidates: Object.values(byClass).reduce((s, c) => s + c.candidates, 0), groves: perPark.reduce((s, p) => s + p.groves, 0), heroes, byVariant },
   };
 }
