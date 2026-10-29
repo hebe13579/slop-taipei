@@ -534,6 +534,18 @@ export function parkSizeClass(area) {
   return PARK_CLASSES.find((c) => area >= c.minArea);
 }
 
+// Issue #222: park-tree canopy variants, mixed by the same hash
+// stream as the rest of the planting (per park key + candidate
+// index, so a park's mix is stable and a thinning stride never
+// changes a survivor's variant). Shares are the hash bands:
+// banyan 40% (the Taipei park default — broad shade canopies),
+// palm 18%, conifer 20%, round 22%.
+export const PARK_TREE_VARIANTS = ['banyan', 'palm', 'conifer', 'round'];
+export function parkTreeVariant(key, ci) {
+  const r = hash01(`${key}|variant|${ci}`);
+  return r < 0.40 ? 'banyan' : r < 0.58 ? 'palm' : r < 0.78 ? 'conifer' : 'round';
+}
+
 // A park polygon whose name carries 廣場 is a paved square (#29), the
 // same predicate taipei-surfaces.js renders by — mirrored here so this
 // module stays dependency-free.
@@ -716,6 +728,13 @@ export function planParkTrees(geodata, plan, opts = {}) {
           x, z, kind: 'park', park: park.name || '',
           scale: 0.85 + hash01(`${key}|scale|${ci}`) * 0.6,
           rot: hash01(`${key}|trot|${ci}`) * Math.PI * 2,
+          // Issue #222: seeded canopy variant — the boot renders
+          // park trees from per-variant geometries (broad
+          // banyan-like, palm, conifer-like, round) so the park
+          // population reads distinct from the street trees,
+          // which keep the single original look. Placement,
+          // scale and rotation are untouched by the variant.
+          variant: parkTreeVariant(key, ci),
         });
       }
     }

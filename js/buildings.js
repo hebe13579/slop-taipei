@@ -2682,12 +2682,36 @@ function buildCityBlocks(scene, opts = null) {
     g.computeVertexNormals();
     return g;
   })();
+  // Issue #208: the gable prism — a unit gable roof (x/z in
+  // [-0.5, 0.5], y in [0, 1]; ridge along x at z=0, slopes falling
+  // to y=0 at z=±0.5, triangular end walls, no bottom). Gable huts
+  // draw this instead of the wedge cap + single sheet.
+  const hutGableGeo = (() => {
+    const R1 = [-0.5, 1, 0], R2 = [0.5, 1, 0];
+    const E1 = [-0.5, 0, -0.5], E2 = [0.5, 0, -0.5];
+    const F1 = [-0.5, 0, 0.5], F2 = [0.5, 0, 0.5];
+    const verts = new Float32Array([
+      ...R1, ...E2, ...E1, ...R1, ...R2, ...E2,   // slope toward -z
+      ...R1, ...F1, ...F2, ...R1, ...F2, ...R2,   // slope toward +z
+      ...E1, ...F1, ...R1,                        // x = -0.5 end
+      ...F2, ...E2, ...R2,                        // x = +0.5 end (R2 is its apex)
+    ]);
+    const g = new THREE.BufferGeometry();
+    g.setAttribute('position', new THREE.BufferAttribute(verts, 3));
+    g.computeVertexNormals();
+    return g;
+  })();
   const MAX_ROOFTOP_ADDS = 512;
-  const hutPalette = [0x9e3d34, 0x4a6b52, 0x7d8894, 0x8a4a3a].map((c) => new THREE.Color(c));
+  const MAX_HUT_PATCHES = 1024;
+  // Mirrors TAIPEI_HUT_COLORS in js/taipei-buildings.js (issue #208:
+  // six tones — weathered red, green, grey-blue, rust, galvanized
+  // grey-green, weathered off-white).
+  const hutPalette = [0x9e3d34, 0x4a6b52, 0x7d8894, 0x8a4a3a, 0x8fa08f, 0xcac2ae].map((c) => new THREE.Color(c));
   const hutMat = new THREE.MeshStandardNodeMaterial({ color: 0xffffff, roughness: 0.58, metalness: 0.35 });
+  const hutRoofMat = new THREE.MeshStandardNodeMaterial({ color: 0xffffff, roughness: 0.46, metalness: 0.5 });
   const hutInst = new THREE.InstancedMesh(unitBox, hutMat, MAX_ROOFTOP_ADDS);
   const hutCapInst = new THREE.InstancedMesh(hutCapGeo, hutMat, MAX_ROOFTOP_ADDS);
-  const hutRoofInst = new THREE.InstancedMesh(unitBox, new THREE.MeshStandardNodeMaterial({ color: 0xffffff, roughness: 0.46, metalness: 0.5 }), MAX_ROOFTOP_ADDS);
+  const hutRoofInst = new THREE.InstancedMesh(unitBox, hutRoofMat, MAX_ROOFTOP_ADDS);
   hutInst.castShadow = hutInst.receiveShadow = true;
   hutCapInst.castShadow = hutCapInst.receiveShadow = true;
   hutRoofInst.castShadow = hutRoofInst.receiveShadow = true;
@@ -2698,6 +2722,31 @@ function buildCityBlocks(scene, opts = null) {
     hutRoofInst.setColorAt(i, hutPalette[i % hutPalette.length]);
   }
   group.add(hutInst, hutCapInst, hutRoofInst);
+
+  // Issue #208 detail pools — the hut garnish the planner seeds on
+  // the hut record (gable prisms, patched sheet panels, roof bumps
+  // and their flat sheets). Each pool follows the #156 discipline
+  // exactly: per-instance colour written at every fill and BOTH the
+  // instanceMatrix and the instanceColor flagged for upload after
+  // the fill (see the flag block below) — an unflagged colour is
+  // the flicker that shipped twice.
+  const hutGableInst = new THREE.InstancedMesh(hutGableGeo, hutMat, MAX_ROOFTOP_ADDS);
+  const hutPatchInst = new THREE.InstancedMesh(unitBox, hutRoofMat, MAX_HUT_PATCHES);
+  const hutBumpInst = new THREE.InstancedMesh(unitBox, hutMat, MAX_ROOFTOP_ADDS);
+  const hutBumpRoofInst = new THREE.InstancedMesh(unitBox, hutRoofMat, MAX_ROOFTOP_ADDS);
+  hutGableInst.castShadow = hutGableInst.receiveShadow = true;
+  hutPatchInst.castShadow = hutPatchInst.receiveShadow = true;
+  hutBumpInst.castShadow = hutBumpInst.receiveShadow = true;
+  hutBumpRoofInst.castShadow = hutBumpRoofInst.receiveShadow = true;
+  hutGableInst.frustumCulled = hutPatchInst.frustumCulled = false;
+  hutBumpInst.frustumCulled = hutBumpRoofInst.frustumCulled = false;
+  for (let i = 0; i < MAX_ROOFTOP_ADDS; i++) {
+    hutGableInst.setColorAt(i, hutPalette[i % hutPalette.length]);
+    hutBumpInst.setColorAt(i, hutPalette[i % hutPalette.length]);
+    hutBumpRoofInst.setColorAt(i, hutPalette[i % hutPalette.length]);
+  }
+  for (let i = 0; i < MAX_HUT_PATCHES; i++) hutPatchInst.setColorAt(i, hutPalette[i % hutPalette.length]);
+  group.add(hutGableInst, hutPatchInst, hutBumpInst, hutBumpRoofInst);
 
   // 6d. Vertical signs （直式招牌， issue #56): thin panels mounted
   // perpendicular to Taiwan-type facades — real instanced boxes whose
@@ -2885,6 +2934,9 @@ function buildCityBlocks(scene, opts = null) {
     let awningCount = 0;
     let shedCount = 0;
     let hutCount = 0;
+    let gableCount = 0;
+    let patchCount = 0;
+    let bumpCount = 0;
     let vSignCount = 0;
     const signCounts = signInsts.map(() => 0);
 
@@ -3043,31 +3095,139 @@ function buildCityBlocks(scene, opts = null) {
         const across = a.axis === 'z' ? a.w : a.d;
         const slopeLen = along / Math.cos(a.pitch) + 0.5;
         const rise = along * Math.tan(a.pitch) * 0.5;
-        // Issue #100: the sloped cap (see 6c) fills the wedge under the
-        // sheet. Its geometry carries the slope — high edge at local
-        // -z — so it takes a pure turn: the yaw offset maps that edge
-        // onto the hut's high side (sheet conventions: axis 'z' is
-        // high at -dir*z, axis 'x' is high at +dir*x).
-        const capYaw = a.axis === 'z'
-          ? (a.dir > 0 ? 0 : Math.PI)
-          : (a.dir > 0 ? -Math.PI / 2 : Math.PI / 2);
-        dummy.rotation.set(0, ry + capYaw, 0);
-        dummy.position.set(a.x, a.y + a.h, a.z);
-        dummy.scale.set(across, rise * 2, along);
-        dummy.updateMatrix();
-        hutCapInst.setMatrixAt(hutCount, dummy.matrix);
-        hutCapInst.setColorAt(hutCount, hutPalette[a.colorIdx % hutPalette.length]);
-        if (a.axis === 'z') {
-          dummy.rotation.set(a.dir * a.pitch, ry, 0);
-          dummy.scale.set(across + 0.6, 0.09, slopeLen);
+        const cosRy = Math.cos(ry), sinRy = Math.sin(ry);
+        // Canonical hut frame for the #208 garnish: du = offset along
+        // the hut's across axis, ds = offset along its slope axis
+        // (both unyawed); placeAt rotates the offset by the block's
+        // turn and sets the dummy there.
+        const placeAt = (du, y, ds) => {
+          const dx = a.axis === 'z' ? du : ds;
+          const dz = a.axis === 'z' ? ds : du;
+          dummy.position.set(a.x + dx * cosRy + dz * sinRy, y, a.z - dx * sinRy + dz * cosRy);
+        };
+        if (a.form === 'gable') {
+          // Issue #208: a gable hut draws the gable prism (its own
+          // pool) instead of the wedge + sheet. The wedge slot is
+          // parked degenerate far below ground, and the sheet slot
+          // carries the ridge flashing strip along the apex — the
+          // three original pools stay in lockstep, one slot per hut.
+          dummy.rotation.set(0, ry, 0);
+          dummy.position.set(a.x, a.y - 60, a.z);
+          dummy.scale.set(0.001, 0.001, 0.001);
+          dummy.updateMatrix();
+          hutCapInst.setMatrixAt(hutCount, dummy.matrix);
+          hutCapInst.setColorAt(hutCount, hutPalette[a.colorIdx % hutPalette.length]);
+          dummy.rotation.set(0, ry, 0);
+          if (a.axis === 'z') dummy.scale.set(across + 0.6, 0.07, 0.55);
+          else dummy.scale.set(0.55, 0.07, across + 0.6);
+          dummy.position.set(a.x, a.y + a.h + rise + 0.03, a.z);
+          dummy.updateMatrix();
+          hutRoofInst.setMatrixAt(hutCount, dummy.matrix);
+          hutRoofInst.setColorAt(hutCount, hutPalette[a.colorIdx % hutPalette.length]);
+          if (gableCount < MAX_ROOFTOP_ADDS) {
+            dummy.rotation.set(0, ry + (a.axis === 'x' ? Math.PI / 2 : 0), 0);
+            dummy.position.set(a.x, a.y + a.h, a.z);
+            dummy.scale.set(across, rise, along);
+            dummy.updateMatrix();
+            hutGableInst.setMatrixAt(gableCount, dummy.matrix);
+            hutGableInst.setColorAt(gableCount, hutPalette[a.colorIdx % hutPalette.length]);
+            gableCount++;
+          }
         } else {
-          dummy.rotation.set(0, ry, a.dir * a.pitch);
-          dummy.scale.set(slopeLen, 0.09, across + 0.6);
+          // Issue #100: the sloped cap (see 6c) fills the wedge under the
+          // sheet. Its geometry carries the slope — high edge at local
+          // -z — so it takes a pure turn: the yaw offset maps that edge
+          // onto the hut's high side (sheet conventions: axis 'z' is
+          // high at -dir*z, axis 'x' is high at +dir*x).
+          const capYaw = a.axis === 'z'
+            ? (a.dir > 0 ? 0 : Math.PI)
+            : (a.dir > 0 ? -Math.PI / 2 : Math.PI / 2);
+          dummy.rotation.set(0, ry + capYaw, 0);
+          dummy.position.set(a.x, a.y + a.h, a.z);
+          dummy.scale.set(across, rise * 2, along);
+          dummy.updateMatrix();
+          hutCapInst.setMatrixAt(hutCount, dummy.matrix);
+          hutCapInst.setColorAt(hutCount, hutPalette[a.colorIdx % hutPalette.length]);
+          if (a.axis === 'z') {
+            dummy.rotation.set(a.dir * a.pitch, ry, 0);
+            dummy.scale.set(across + 0.6, 0.09, slopeLen);
+          } else {
+            dummy.rotation.set(0, ry, a.dir * a.pitch);
+            dummy.scale.set(slopeLen, 0.09, across + 0.6);
+          }
+          dummy.position.set(a.x, a.y + a.h + 0.06 + rise, a.z);
+          dummy.updateMatrix();
+          hutRoofInst.setMatrixAt(hutCount, dummy.matrix);
+          hutRoofInst.setColorAt(hutCount, hutPalette[a.colorIdx % hutPalette.length]);
         }
-        dummy.position.set(a.x, a.y + a.h + 0.06 + rise, a.z);
-        dummy.updateMatrix();
-        hutRoofInst.setMatrixAt(hutCount, dummy.matrix);
-        hutRoofInst.setColorAt(hutCount, hutPalette[a.colorIdx % hutPalette.length]);
+        // Issue #208 garnish: patched sheet panels and the roof bump.
+        // lowSign maps the canonical toward-low coordinate onto the
+        // hut's signed slope axis (single pitch: axis 'z' is low at
+        // +dir*z, axis 'x' is low at -dir*x).
+        const tanP = Math.tan(a.pitch), cosP = Math.cos(a.pitch), sinP = Math.sin(a.pitch);
+        const lowSign = a.axis === 'z' ? a.dir : -a.dir;
+        for (const p of a.patches || []) {
+          if (patchCount >= MAX_HUT_PATCHES) break;
+          let q, sigma;
+          if (a.form === 'gable') {
+            sigma = p.side;
+            const half = along / 2, pHalf = (p.d / 2) * cosP;
+            q = Math.min(Math.max(p.u * half, pHalf), half - pHalf);
+          } else {
+            sigma = 0;
+            q = -along / 2 + p.u * along;
+          }
+          // Surface point on the slope + a step along its outward
+          // normal, so the patch sits ON the sheet, never floating:
+          // for a single pitch the step is sheet half-thickness +
+          // patch half-thickness (0.045 + 0.025) off the sheet's
+          // centre plane; for a gable the prism face IS the surface,
+          // so the step is just the patch half-thickness.
+          const step = a.form === 'gable' ? 0.025 : 0.07;
+          const surfY = a.form === 'gable'
+            ? a.y + a.h + rise - q * tanP
+            : a.y + a.h + 0.06 + rise - q * tanP;
+          const nDs = a.form === 'gable' ? sigma * (q - step * sinP) : lowSign * (q - step * sinP);
+          placeAt(p.v * across, surfY + step * cosP, nDs);
+          if (a.axis === 'z') {
+            dummy.rotation.set((a.form === 'gable' ? sigma : a.dir) * a.pitch, ry, 0);
+            dummy.scale.set(p.w, 0.05, p.d);
+          } else {
+            dummy.rotation.set(0, ry, (a.form === 'gable' ? -sigma : a.dir) * a.pitch);
+            dummy.scale.set(p.d, 0.05, p.w);
+          }
+          dummy.updateMatrix();
+          hutPatchInst.setMatrixAt(patchCount, dummy.matrix);
+          hutPatchInst.setColorAt(patchCount, hutPalette[p.colorIdx % hutPalette.length]);
+          patchCount++;
+        }
+        if (a.bump && bumpCount < MAX_ROOFTOP_ADDS) {
+          const b = a.bump;
+          const bw = b.wFrac * across, bd = b.dAlong;
+          let baseY, dsC;
+          if (a.form === 'gable') {
+            dsC = 0;
+            baseY = a.y + a.h + rise - (bd / 2) * tanP - 0.15;
+          } else {
+            const qB = -along / 2 + 0.45 + bd / 2;
+            dsC = lowSign * qB;
+            baseY = a.y + a.h + 0.06 + rise + 0.045 - (qB + (bd / 2) * cosP) * tanP - 0.15;
+          }
+          dummy.rotation.set(0, ry, 0);
+          if (a.axis === 'z') dummy.scale.set(bw, b.h, bd);
+          else dummy.scale.set(bd, b.h, bw);
+          placeAt(0, baseY + b.h / 2, dsC);
+          dummy.updateMatrix();
+          hutBumpInst.setMatrixAt(bumpCount, dummy.matrix);
+          hutBumpInst.setColorAt(bumpCount, hutPalette[b.colorIdx % hutPalette.length]);
+          if (a.axis === 'z') dummy.scale.set(bw + 0.35, 0.07, bd + 0.35);
+          else dummy.scale.set(bd + 0.35, 0.07, bw + 0.35);
+          placeAt(0, baseY + b.h + 0.035, dsC);
+          dummy.updateMatrix();
+          hutBumpRoofInst.setMatrixAt(bumpCount, dummy.matrix);
+          hutBumpRoofInst.setColorAt(bumpCount, hutPalette[b.colorIdx % hutPalette.length]);
+          bumpCount++;
+        }
         hutCount++;
         dummy.rotation.set(0, ry, 0);
       }
@@ -3135,6 +3295,20 @@ function buildCityBlocks(scene, opts = null) {
     // hut pools carry per-instance colour; all three are flagged.
     if (hutCapInst.instanceColor) flagRange(hutCapInst.instanceColor, hutCount);
     if (hutRoofInst.instanceColor) flagRange(hutRoofInst.instanceColor, hutCount);
+    // Issue #208: the garnish pools follow the same #156 discipline —
+    // counts set, matrices flagged, colours flagged.
+    hutGableInst.count = gableCount;
+    flagRange(hutGableInst.instanceMatrix, gableCount);
+    if (hutGableInst.instanceColor) flagRange(hutGableInst.instanceColor, gableCount);
+    hutPatchInst.count = patchCount;
+    flagRange(hutPatchInst.instanceMatrix, patchCount);
+    if (hutPatchInst.instanceColor) flagRange(hutPatchInst.instanceColor, patchCount);
+    hutBumpInst.count = bumpCount;
+    flagRange(hutBumpInst.instanceMatrix, bumpCount);
+    if (hutBumpInst.instanceColor) flagRange(hutBumpInst.instanceColor, bumpCount);
+    hutBumpRoofInst.count = bumpCount;
+    flagRange(hutBumpRoofInst.instanceMatrix, bumpCount);
+    if (hutBumpRoofInst.instanceColor) flagRange(hutBumpRoofInst.instanceColor, bumpCount);
 
     vSignInst.count = vSignCount;
     flagRange(vSignInst.instanceMatrix, vSignCount);

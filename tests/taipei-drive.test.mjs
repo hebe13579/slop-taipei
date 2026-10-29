@@ -138,7 +138,7 @@ test('real tile: the model covers the digest and never samples the MRT', () => {
   const m = buildDriveModel(TAIPEI_GEO.elevatedRoads);
   assert.equal(m.stats.segments, 2124, 'every digest segment registered (count re-pin: issue #207, measured on main a467e6e7; composed at the #229 gate with #186 + #211: 2,124 — the whole +16 sits in the #186 strip bbox on 8 new elevated lines, #211 re-profiled heights only)');
   assert.equal(m.stats.elevatedSegments, 2071);
-  assert.equal(m.parapetColliders.length, 4142, 'two parapet strips per elevated segment');
+  assert.equal(m.parapetColliders.length, 4023, 'two parapet strips per elevated segment, less the issue #239 mouth trims: suppressed stretches emit no collider and split strips emit one collider per kept interval (4,142 before the trims; segments/elevatedSegments unchanged)');
   // Type site: the 承德橋 digest line (wayId 24006864) — crest
   // between its h 8.6 / 9 points reads ~8.9 from the deck hint,
   // and the ground from the ground hint.

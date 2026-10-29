@@ -167,26 +167,70 @@ function firingEnds(lines) {
 // grade crossing point is inserted into the effective chain so the
 // trench (below grade) and the ramp (above) split exactly at y=0.
 // Lines without a firing end are absent from `eff` (identity).
+// Issue #209: the walk follows the run across a grade join — when
+// the digest splits one descent over two lines (the Dazhi Wenhu
+// resurface: short ramp ways topping out at h 5.0/4.4 where they
+// join the elevated curve ways), a chain that exhausts its line
+// below cruise continues onto the joined line whose profile keeps
+// climbing, so the run tops out at the cruise height like every
+// single-line dive. Without the hop the stub below the joint was
+// re-profiled alone: a 12.3% plunge behind a grade kink, a 43 m
+// trench, where the #196 dives run 8.8-8.9% over ~160 m with
+// ~59 m below grade.
 export function computeDives(lines) {
   const eff = new Map();
   const dives = [];
+  const ptsCache = new Map(lines.map((l) => [l, ptsOf(l)]));
   for (const fe of firingEnds(lines)) {
     const { line, endIdx } = fe;
-    const pts = ptsOf(line);
-    const n = pts.length;
-    const step = endIdx === 0 ? 1 : -1;
-    // Walk the run in walk order (end first).
-    const chainIdx = [endIdx];
+    if (eff.has(line)) continue; // already re-profiled as another dive's run (issue #209)
+    // Walk the run in walk order (end first), following it across
+    // grade joins (issue #209): a chain that exhausts its line
+    // below the cruise height hops to the line joined at its
+    // terminal point when that line's profile keeps climbing.
+    const chain = [{ line, idx: endIdx, x: fe.E[0], z: fe.E[1] }];
+    const visited = new Set([line]);
     let hTop = line.h?.[endIdx] ?? 0;
-    for (let i = endIdx + step; i >= 0 && i < n; i += step) {
-      const h = line.h?.[i] ?? 0;
-      if (h >= PORTAL_CRUISE_M) { chainIdx.push(i); hTop = h; break; }
-      if (h > hTop - PORTAL_RUN_DIP_M) { chainIdx.push(i); hTop = Math.max(hTop, h); continue; }
-      break;
+    let cur = line, curIdx = endIdx, curStep = endIdx === 0 ? 1 : -1;
+    let topped = false, stalled = false;
+    while (!topped && !stalled) {
+      const cpts = ptsCache.get(cur);
+      let i = curIdx + curStep;
+      let exhausted = true;
+      while (i >= 0 && i < cpts.length) {
+        const h = cur.h?.[i] ?? 0;
+        if (h >= PORTAL_CRUISE_M) { chain.push({ line: cur, idx: i, x: cpts[i][0], z: cpts[i][1] }); hTop = h; topped = true; exhausted = false; break; }
+        if (h > hTop - PORTAL_RUN_DIP_M) { chain.push({ line: cur, idx: i, x: cpts[i][0], z: cpts[i][1] }); hTop = Math.max(hTop, h); curIdx = i; i += curStep; continue; }
+        exhausted = false; stalled = true; break; // a real dip: the run ends here
+      }
+      if (topped || stalled || !exhausted) break;
+      // cur's points are exhausted below cruise: find the joined
+      // continuation (deterministic: line order, first end whose
+      // neighbour keeps climbing past the dip tolerance).
+      const T = chain[chain.length - 1];
+      let hop = null;
+      for (const l2 of lines) {
+        if (visited.has(l2) || eff.has(l2)) continue;
+        const p2 = ptsCache.get(l2);
+        if (p2.length < 2) continue;
+        for (const e2 of [0, p2.length - 1]) {
+          const q = p2[e2];
+          if (Math.hypot(q[0] - T.x, q[1] - T.z) > PORTAL_JOIN_TOL_M) continue;
+          const hn = l2.h?.[e2 === 0 ? 1 : p2.length - 2] ?? 0;
+          if (!(hn >= PORTAL_CRUISE_M || hn > hTop - PORTAL_RUN_DIP_M)) continue;
+          hop = { line: l2, endIdx: e2 };
+          break;
+        }
+        if (hop) break;
+      }
+      if (!hop) break;
+      visited.add(hop.line);
+      cur = hop.line; curIdx = hop.endIdx; curStep = hop.endIdx === 0 ? 1 : -1;
+      const hp = ptsCache.get(cur)[curIdx];
+      chain.push({ line: cur, idx: curIdx, x: hp[0], z: hp[1] });
     }
-    if (chainIdx.length < 2) continue;
+    if (chain.length < 2) continue;
     if (dives.some((d) => d.line === line)) continue; // one dive per line in practice; the first end wins
-    const chain = chainIdx.map((idx) => ({ x: pts[idx][0], z: pts[idx][1], idx }));
     let s = 0;
     chain.forEach((c, i) => {
       if (i) s += Math.hypot(c.x - chain[i - 1].x, c.z - chain[i - 1].z);
@@ -197,12 +241,13 @@ export function computeDives(lines) {
     chain.forEach((c) => { c.h = effH(c.s); });
     const crossS = runLen * PORTAL_DIVE_DEPTH_M / (hTop + PORTAL_DIVE_DEPTH_M);
     // The grade crossing point, interpolated along the chain.
-    let crossPt = null;
+    let crossPt = null, crossSeg = -1;
     for (let i = 0; i + 1 < chain.length; i++) {
       const a = chain[i], b = chain[i + 1];
       if (a.s <= crossS && crossS <= b.s) {
         const f = (crossS - a.s) / ((b.s - a.s) || 1);
         crossPt = [a.x + (b.x - a.x) * f, a.z + (b.z - a.z) * f];
+        crossSeg = i;
         break;
       }
     }
@@ -212,38 +257,46 @@ export function computeDives(lines) {
       tHat: (() => { const dx = fe.E[0] - fe.P[0], dz = fe.E[1] - fe.P[1]; const L = Math.hypot(dx, dz) || 1; return [dx / L, dz / L]; })(),
     };
     dives.push(dive);
-    // Splice the effective chain into the line's point/height lists
-    // (in line order), inserting the crossing between the stations
-    // that straddle it.
-    const walkPts = chain.map((c) => [c.x, c.z]);
-    const walkH = chain.map((c) => c.h);
-    const crossWalkIdx = chain.findIndex((c) => c.s > crossS);
-    walkPts.splice(crossWalkIdx, 0, crossPt);
-    walkH.splice(crossWalkIdx, 0, 0);
-    const trenchSegs = new Set();
-    const runSegs = new Set();
-    let rec = eff.get(line);
-    if (!rec) {
-      rec = { pts: pts.map((p) => [p[0], p[1]]), h: pts.map((_, i) => line.h?.[i] ?? 0), trenchSegs, runSegs };
-      eff.set(line, rec);
+    // Splice the effective chain into every touched line's
+    // point/height lists (in line order), inserting the crossing
+    // between the stations that straddle it. In the walk sequence
+    // W (the chain with the crossing inserted after crossSeg),
+    // segment j joins W[j] and W[j+1]; the segments before the
+    // crossing entry are the trench's. A line's chain entries are
+    // consecutive in W and monotonic in index, so each group
+    // splices as one contiguous range; the hop segment between
+    // two lines' coincident ends exists in neither record (each
+    // line's record ends at its own end point).
+    const W = [...chain];
+    W.splice(crossSeg + 1, 0, { line: chain[crossSeg].line, idx: null, x: crossPt[0], z: crossPt[1], h: 0 });
+    const crossPos = crossSeg + 1;
+    let g0 = 0;
+    while (g0 < W.length) {
+      let g1 = g0;
+      while (g1 + 1 < W.length && W[g1 + 1].line === W[g0].line) g1++;
+      const grp = W.slice(g0, g1 + 1);
+      const gLine = grp[0].line;
+      const idxs = grp.filter((e) => e.idx !== null).map((e) => e.idx);
+      const lo = Math.min(...idxs), hi = Math.max(...idxs);
+      const ascending = idxs.every((v, i) => i === 0 || v > idxs[i - 1]);
+      const lineOrder = ascending ? grp : [...grp].reverse();
+      let rec = eff.get(gLine);
+      if (!rec) {
+        const lp = ptsCache.get(gLine);
+        rec = { pts: lp.map((p) => [p[0], p[1]]), h: lp.map((_, i) => gLine.h?.[i] ?? 0), trenchSegs: new Set(), runSegs: new Set() };
+        eff.set(gLine, rec);
+      }
+      rec.pts.splice(lo, hi - lo + 1, ...lineOrder.map((e) => [e.x, e.z]));
+      rec.h.splice(lo, hi - lo + 1, ...lineOrder.map((e) => e.h));
+      for (let j = 0; j + 1 < grp.length; j++) {
+        const segIdx = ascending ? lo + j : lo + (grp.length - 2 - j);
+        rec.runSegs.add(segIdx);
+        if (g0 + j < crossPos) rec.trenchSegs.add(segIdx);
+      }
+      g0 = g1 + 1;
     }
-    const W = walkPts.length;
-    if (endIdx === 0) {
-      rec.pts.splice(0, chain.length, ...walkPts);
-      rec.h.splice(0, chain.length, ...walkH);
-      for (let k = 0; k < crossWalkIdx; k++) trenchSegs.add(k);
-      for (let k = 0; k < W - 1; k++) runSegs.add(k);
-    } else {
-      const start = rec.pts.length - chain.length;
-      const revPts = [...walkPts].reverse(), revH = [...walkH].reverse();
-      rec.pts.splice(start, chain.length, ...revPts);
-      rec.h.splice(start, chain.length, ...revH);
-      const crossEffIdx = rec.pts.length - 1 - crossWalkIdx;
-      for (let k = crossEffIdx; k < rec.pts.length - 1; k++) trenchSegs.add(k);
-      for (let k = rec.pts.length - W; k < rec.pts.length - 1; k++) runSegs.add(k);
-    }
-    dive.trenchSegs = trenchSegs;
-    dive.effRec = rec;
+    dive.trenchSegs = eff.get(line).trenchSegs;
+    dive.effRec = eff.get(line);
   }
   // Cluster dives whose ends sit close together: they share one
   // cutting (the Red twin ballast trackways exactly like the Wenhu
@@ -342,21 +395,324 @@ export function diveAdjustedPiers(elevated) {
   const { clusters } = computeDives(elevated?.lines || []);
   if (!clusters.length || !piers.length) return piers;
   const depth = elevated?.deckDepth ?? 1.8;
+  // Issue #209: a corridor follows a dive chain itself, not the
+  // straight face axis — on a curving dive (the Dazhi resurface
+  // bends as it climbs) a pier can sit metres off the face axis
+  // while standing squarely under the re-profiled deck, and the
+  // axis band left it poking through the lowered guideway. Each
+  // cluster contributes its cutting corridor (the representative
+  // chain, formation band) plus one corridor per member chain at
+  // that trackway's own band: members re-profile on their own
+  // runs, so a pier under the non-representative trackway
+  // answers to that trackway's profile, not the representative's.
+  const chainProfile = (ch, arc) => {
+    if (arc <= 0) return ch[0].h;
+    for (let i = 0; i + 1 < ch.length; i++) {
+      if (arc <= ch[i + 1].s) { const f = (arc - ch[i].s) / ((ch[i + 1].s - ch[i].s) || 1); return ch[i].h + (ch[i + 1].h - ch[i].h) * f; }
+    }
+    return ch[ch.length - 1].h;
+  };
   let changed = false;
   const out = piers.map((p) => {
     let h = p.h;
     for (const c of clusters) {
-      const rx = p.x - c.M[0], rz = p.z - c.M[1];
-      const s = -(rx * c.tHat[0] + rz * c.tHat[1]);
-      const lat = rx * c.nHat[0] + rz * c.nHat[1];
-      if (s < -2 || s > c.rep.runLen + 2) continue;
-      if (Math.abs(lat - c.centreOff) > c.formHalf + 2.5) continue;
-      h = Math.min(h, Math.max(c.profileAt(Math.max(0, s)) - depth, 0.01));
+      const corridors = [
+        { chain: c.rep.chain, runLen: c.rep.runLen, band: c.formHalf + 2.5 },
+        ...c.members.map((d) => ({ chain: d.chain, runLen: d.runLen, band: (d.line.width || 6) / 2 + 2.5 })),
+      ];
+      for (const cor of corridors) {
+        const ch = cor.chain;
+        let sNear = Infinity, dNear = Infinity;
+        for (let i = 0; i + 1 < ch.length; i++) {
+          const a = ch[i], b = ch[i + 1];
+          const vx = b.x - a.x, vz = b.z - a.z;
+          const L2 = vx * vx + vz * vz;
+          const f = L2 ? Math.min(1, Math.max(0, ((p.x - a.x) * vx + (p.z - a.z) * vz) / L2)) : 0;
+          const dx = p.x - (a.x + vx * f), dz = p.z - (a.z + vz * f);
+          const d = Math.hypot(dx, dz);
+          if (d < dNear) { dNear = d; sNear = a.s + f * Math.sqrt(L2); }
+        }
+        if (sNear > cor.runLen + 2 || dNear > cor.band) continue;
+        h = Math.min(h, Math.max(chainProfile(ch, Math.max(0, sNear)) - depth, 0.01));
+      }
     }
     if (h !== p.h) { changed = true; return { ...p, h }; }
     return p;
   });
   return changed ? out : piers;
+}
+
+// ---- issue #239: parapet trims at merge/branch mouths --------------
+// Parapets are emitted per line along its whole length, with no join
+// awareness — so at every merge/branch mouth the branch's inner
+// parapet runs across the main deck's driving surface (and across
+// the branch's own mouth) until the two centrelines separate by
+// more than the deck half-width, and every line end that lands on
+// another deck carries a full-width end-cap wall across the mouth.
+// parapetTrims() computes, once per digest, the kept fraction
+// intervals of every parapet strip plus which terminal end caps
+// survive, under one rule: a strip (or cap) is suppressed over the
+// stretch where it lies inside ANOTHER line's driving corridor at
+// the same level. The fence starts where the branch corridor
+// actually separates from the main line. The visual strips
+// (buildDeckGeometry, roads mode only) and the drive-model
+// colliders (js/taipei-drive.js) consume the same trims, so what
+// you see is what blocks the car — never a visible fence with no
+// collider, or a collider with no visible fence.
+//
+// Pair eligibility keeps the rule off the cases that must keep
+// their fences: a pair counts only when its centrelines approach
+// within JOIN_APPROACH_M (a shared junction node or a plan
+// crossing), pure continuations are excluded (one shared node
+// where the two lines leave in nearly opposite directions — the
+// same road passing through under a new way id), and stacked
+// crossings are excluded by the same-level test (|Δh| above
+// PARAPET_JOIN_DH_M keeps its fences).
+export const PARAPET_JOIN_DH_M = 2.0;      // same-level band for a mouth, m
+export const PARAPET_TRIM_STEP_M = 1.0;    // strip sampling step, m
+export const PARAPET_TRIM_MIN_KEEP_M = 1.0; // kept slivers shorter than this are suppressed
+export const PARAPET_JOIN_APPROACH_M = 2.0; // centreline approach that makes a mouth, m
+export const PARAPET_CONTINUATION_DEG = 140; // outward chords past this = through road, deg
+export const PARAPET_CHORD_M = 20;         // chord length for the continuation test, m
+
+const _trimCache = new WeakMap();
+
+function _segSegDist(ax, az, bx, bz, cx, cz, dx, dz) {
+  // Exact 2D segment-segment distance (0 when the segments cross).
+  const d1x = bx - ax, d1z = bz - az, d2x = dx - cx, d2z = dz - cz;
+  const den = d1x * d2z - d1z * d2x;
+  if (den !== 0) {
+    const t = ((cx - ax) * d2z - (cz - az) * d2x) / den;
+    const u = ((cx - ax) * d1z - (cz - az) * d1x) / den;
+    if (t >= 0 && t <= 1 && u >= 0 && u <= 1) return 0;
+  }
+  const ptSeg = (px, pz, x1, z1, x2, z2) => {
+    const ex = x2 - x1, ez = z2 - z1, L2 = ex * ex + ez * ez || 1;
+    const t = Math.max(0, Math.min(1, ((px - x1) * ex + (pz - z1) * ez) / L2));
+    return Math.hypot(px - (x1 + ex * t), pz - (z1 + ez * t));
+  };
+  return Math.min(
+    ptSeg(ax, az, cx, cz, dx, dz), ptSeg(bx, bz, cx, cz, dx, dz),
+    ptSeg(cx, cz, ax, az, bx, bz), ptSeg(dx, dz, ax, az, bx, bz));
+}
+
+function _chordFrom(L, endIdx, chordLen) {
+  const n = L.pts.length / 2;
+  let x, z, step;
+  if (endIdx === 0) { x = L.pts[0]; z = L.pts[1]; step = 1; }
+  else { x = L.pts[n * 2 - 2]; z = L.pts[n * 2 - 1]; step = -1; }
+  let acc = 0, cx = x, cz = z;
+  for (let k = 0; k + 1 < n; k++) {
+    const j = step === 1 ? k : n - 2 - k;
+    const ax = L.pts[2 * j], az = L.pts[2 * j + 1], bx = L.pts[2 * j + 2], bz = L.pts[2 * j + 3];
+    const dl = Math.hypot(bx - ax, bz - az);
+    if (acc + dl >= chordLen) {
+      const t = dl ? (chordLen - acc) / dl : 0;
+      cx = ax + (bx - ax) * t; cz = az + (bz - az) * t;
+      break;
+    }
+    acc += dl; cx = bx; cz = bz;
+  }
+  const d = Math.hypot(cx - x, cz - z) || 1;
+  return [(cx - x) / d, (cz - z) / d];
+}
+
+// Kept parapet intervals + surviving end caps for one digest.
+// Returns { lines: [{ segments: [{ left, right }], capStart, capEnd }],
+//           stats: { blockedM, totalM, suppressedCaps, affectedStrips } }
+// where left/right are kept [t0, t1] fraction lists along the
+// segment (left = the +normal side, the renderer's L parapet and
+// the drive model's s = +1 strip) and capStart/capEnd say whether
+// the line's terminal end-cap quad is drawn.
+export function parapetTrims(elevated) {
+  if (!elevated || !Array.isArray(elevated.lines)) {
+    return { lines: [], stats: { blockedM: 0, totalM: 0, suppressedCaps: 0, affectedStrips: 0 } };
+  }
+  const hit = _trimCache.get(elevated);
+  if (hit) return hit;
+  const lines = elevated.lines;
+  const out = { lines: [], stats: { blockedM: 0, totalM: 0, suppressedCaps: 0, affectedStrips: 0 } };
+  _trimCache.set(elevated, out);
+
+  // Segment list + spatial hash (the drive model's 48 m cell idiom).
+  const CELL = 48;
+  const ckey = (ix, iz) => (ix + 4096) * 8192 + (iz + 4096);
+  const segs = [];
+  const cells = new Map();
+  for (let li = 0; li < lines.length; li++) {
+    const L = lines[li], n = L.pts.length / 2, half = (L.width || 6) / 2;
+    const lineSegs = [];
+    for (let i = 0; i + 1 < n; i++) {
+      const ax = L.pts[2 * i], az = L.pts[2 * i + 1], bx = L.pts[2 * i + 2], bz = L.pts[2 * i + 3];
+      const dx = bx - ax, dz = bz - az, len = Math.hypot(dx, dz);
+      const s = {
+        li, i, ax, az, bx, bz, len, half,
+        ux: len ? dx / len : 0, uz: len ? dz / len : 0,
+        hA: L.h?.[i] ?? 0, hB: L.h?.[i + 1] ?? 0,
+      };
+      segs.push(s);
+      lineSegs.push(s);
+      if (len > 0) {
+        const minX = Math.min(ax, bx) - half, maxX = Math.max(ax, bx) + half;
+        const minZ = Math.min(az, bz) - half, maxZ = Math.max(az, bz) + half;
+        for (let ix = Math.floor(minX / CELL); ix <= Math.floor(maxX / CELL); ix++) {
+          for (let iz = Math.floor(minZ / CELL); iz <= Math.floor(maxZ / CELL); iz++) {
+            const k = ckey(ix, iz);
+            if (!cells.has(k)) cells.set(k, []);
+            cells.get(k).push(s);
+          }
+        }
+      }
+    }
+    out.lines.push({ segments: lineSegs.map(() => ({ left: [[0, 1]], right: [[0, 1]] })), capStart: true, capEnd: true });
+  }
+
+  // Pair eligibility: centrelines approach within JOIN_APPROACH_M,
+  // excluding pure continuations.
+  const eligible = new Set();
+  {
+    const pairMin = new Map(); // "li|oi" -> min centreline distance
+    const seenSegPairs = new Set();
+    for (const list of cells.values()) {
+      for (let a = 0; a < list.length; a++) {
+        for (let b = a + 1; b < list.length; b++) {
+          const s = list[a], o = list[b];
+          if (s.li === o.li) continue;
+          const pk = s.li + ':' + s.i + '|' + o.li + ':' + o.i;
+          if (seenSegPairs.has(pk)) continue;
+          seenSegPairs.add(pk);
+          const d = _segSegDist(s.ax, s.az, s.bx, s.bz, o.ax, o.az, o.bx, o.bz);
+          const key = s.li < o.li ? s.li + '|' + o.li : o.li + '|' + s.li;
+          if (d < (pairMin.get(key) ?? Infinity)) pairMin.set(key, d);
+        }
+      }
+    }
+    const endsOf = (L) => [[L.pts[0], L.pts[1], 0], [L.pts[L.pts.length - 2], L.pts[L.pts.length - 1], 1]];
+    for (const [key, dmin] of pairMin) {
+      const [li, oi] = key.split('|').map(Number);
+      const A = lines[li], B = lines[oi];
+      const nodes = [];
+      for (const [ax, az, ai] of endsOf(A)) {
+        for (const [bx, bz, bi] of endsOf(B)) {
+          if (Math.hypot(ax - bx, az - bz) <= PARAPET_JOIN_APPROACH_M) nodes.push([ai, bi, ax, az]);
+        }
+      }
+      // NOTE (issue #239 scope): twin carriageways of one bridge
+      // whose digest corridors overlap without ever approaching
+      // within 2 m (福林橋: 8.6 m apart, 10.8 m wide each) are
+      // deliberately NOT eligible here — their inner fences are
+      // the directions' median, and whether the digest widths
+      // overstate the decks is a separate widths question, not a
+      // merge mouth. Only pairs that meet at a mouth are trimmed.
+      if (dmin > PARAPET_JOIN_APPROACH_M) continue;
+      let continuation = false;
+      if (nodes.length === 1) {
+        const [ai, bi] = nodes[0];
+        const ca = _chordFrom(A, ai, PARAPET_CHORD_M), cb = _chordFrom(B, bi, PARAPET_CHORD_M);
+        const cos = Math.max(-1, Math.min(1, ca[0] * cb[0] + ca[1] * cb[1]));
+        const angle = Math.acos(cos) * 180 / Math.PI;
+        if (angle > PARAPET_CONTINUATION_DEG) {
+          // A through road can still braid elsewhere: the pair is a
+          // continuation only if the lines meet nowhere else. The
+          // incident end segments are the junction itself; any
+          // other segment pair within approach distance elsewhere
+          // makes it a junction pair.
+          const [nx, nz] = [nodes[0][2], nodes[0][3]];
+          const incident = (s) => {
+            const L = lines[s.li];
+            const n = L.pts.length / 2;
+            return (s.i === 0 && Math.hypot(L.pts[0] - nx, L.pts[1] - nz) <= PARAPET_JOIN_APPROACH_M) ||
+              (s.i === n - 2 && Math.hypot(L.pts[n * 2 - 2] - nx, L.pts[n * 2 - 1] - nz) <= PARAPET_JOIN_APPROACH_M);
+          };
+          let elsewhere = false;
+          for (const s of segs) {
+            if (s.li !== li && s.li !== oi) continue;
+            if (incident(s)) continue;
+            // Every cell the segment's corridor bbox touches (the
+            // midpoint cell alone misses meetings away from it).
+            const minX = Math.min(s.ax, s.bx) - s.half, maxX = Math.max(s.ax, s.bx) + s.half;
+            const minZ = Math.min(s.az, s.bz) - s.half, maxZ = Math.max(s.az, s.bz) + s.half;
+            for (let ix = Math.floor(minX / CELL); ix <= Math.floor(maxX / CELL) && !elsewhere; ix++) {
+              for (let iz = Math.floor(minZ / CELL); iz <= Math.floor(maxZ / CELL) && !elsewhere; iz++) {
+                for (const o of cells.get(ckey(ix, iz)) || []) {
+                  if ((o.li === li || o.li === oi) && o.li !== s.li && !incident(o)) {
+                    if (_segSegDist(s.ax, s.az, s.bx, s.bz, o.ax, o.az, o.bx, o.bz) <= PARAPET_JOIN_APPROACH_M) { elsewhere = true; break; }
+                  }
+                }
+              }
+            }
+            if (elsewhere) break;
+          }
+          continuation = !elsewhere;
+        }
+      }
+      if (!continuation) eligible.add(key);
+    }
+  }
+
+  const insideOther = (x, z, h, excludeLi) => {
+    const k = ckey(Math.floor(x / CELL), Math.floor(z / CELL));
+    for (const s of cells.get(k) || []) {
+      if (s.li === excludeLi) continue;
+      const key = excludeLi < s.li ? excludeLi + '|' + s.li : s.li + '|' + excludeLi;
+      if (!eligible.has(key)) continue;
+      const px = x - s.ax, pz = z - s.az;
+      const t = s.len ? Math.max(0, Math.min(1, (px * s.ux + pz * s.uz) / s.len)) : 0;
+      const cx = s.ax + s.ux * s.len * t, cz = s.az + s.uz * s.len * t;
+      if (Math.hypot(x - cx, z - cz) > s.half + 0.1) continue;
+      const hM = s.hA + (s.hB - s.hA) * t;
+      if (Math.abs(h - hM) <= PARAPET_JOIN_DH_M) return true;
+    }
+    return false;
+  };
+
+  // Per-strip kept intervals from 1 m samples along the strip centre.
+  for (const s of segs) {
+    if (!(s.len > 0)) continue;
+    const off = s.half - PARAPET_T / 2, nx = -s.uz, nz = s.ux;
+    for (const side of [1, -1]) {
+      const steps = Math.max(1, Math.ceil(s.len / PARAPET_TRIM_STEP_M));
+      const inside = [];
+      for (let k = 0; k <= steps; k++) {
+        const t = k / steps;
+        const x = s.ax + (s.bx - s.ax) * t + side * nx * off;
+        const z = s.az + (s.bz - s.az) * t + side * nz * off;
+        const h = s.hA + (s.hB - s.hA) * t;
+        inside.push(insideOther(x, z, h, s.li));
+        out.stats.totalM += s.len / steps;
+      }
+      // Suppressed runs -> kept complement; drop kept slivers.
+      const kept = [];
+      let runStart = null;
+      for (let k = 0; k <= steps; k++) {
+        if (!inside[k] && runStart == null) runStart = k;
+        if ((inside[k] || k === steps) && runStart != null) {
+          kept.push([runStart / steps, k / steps]);
+          runStart = null;
+        }
+      }
+      const filtered = kept.filter(([t0, t1]) => (t1 - t0) * s.len >= PARAPET_TRIM_MIN_KEEP_M);
+      let anyInside = false;
+      for (let k = 0; k <= steps; k++) {
+        if (inside[k]) { anyInside = true; out.stats.blockedM += s.len / steps; }
+      }
+      if (anyInside) out.stats.affectedStrips++;
+      out.lines[s.li].segments[s.i][side === 1 ? 'left' : 'right'] = filtered;
+    }
+  }
+
+  // Terminal end caps: suppressed when the terminal cross-section
+  // centre lies inside another eligible line's corridor at the
+  // same level (the cap is a full-width wall across the mouth).
+  for (let li = 0; li < lines.length; li++) {
+    const L = lines[li], n = L.pts.length / 2;
+    if (n < 2) continue;
+    // Caps below LOW_BED_MAX are never drawn anyway; only count
+    // suppressions that change the render.
+    if ((L.h?.[0] ?? 0) >= LOW_BED_MAX && insideOther(L.pts[0], L.pts[1], L.h?.[0] ?? 0, li)) { out.lines[li].capStart = false; out.stats.suppressedCaps++; }
+    if ((L.h?.[n - 1] ?? 0) >= LOW_BED_MAX && insideOther(L.pts[n * 2 - 2], L.pts[n * 2 - 1], L.h?.[n - 1] ?? 0, li)) { out.lines[li].capEnd = false; out.stats.suppressedCaps++; }
+  }
+  return out;
 }
 
 // buildDeckGeometry(elevated, opts) -> {
@@ -508,7 +864,12 @@ export function buildDeckGeometry(elevated, opts = {}) {
     }
   };
 
-  for (const line of lines) {
+  // Issue #239: parapet trims at merge/branch mouths, roads mode
+  // only — MRT guideway edges keep their full strips.
+  const trims = tracks ? null : parapetTrims(elevated);
+
+  for (let li = 0; li < lines.length; li++) {
+    const line = lines[li];
     const effRec = diveData?.eff.get(line);
     const pts = effRec ? effRec.pts : ptsOf(line);
     if (pts.length < 2) continue;
@@ -571,12 +932,48 @@ export function buildDeckGeometry(elevated, opts = {}) {
       quad(concrete, A.TL, A.BL, B.BL, B.TL);      // left side
       quad(concrete, A.TR, B.TR, B.BR, A.BR);      // right side
       // Parapets: outer, inner and top strips on both edges.
-      quad(concrete, A.oLt, A.oL, B.oL, B.oLt);    // left outer
-      quad(concrete, A.iLt, B.iLt, B.iL, A.iL);    // left inner
-      quad(concrete, A.oLt, B.oLt, B.iLt, A.iLt);  // left top
-      quad(concrete, A.oRt, B.oRt, B.oR, A.oR);    // right outer
-      quad(concrete, A.iRt, A.iR, B.iR, B.iRt);    // right inner
-      quad(concrete, A.iRt, B.iRt, B.oRt, A.oRt);  // right top
+      // Issue #239: over the kept intervals only — a strip inside
+      // another deck's corridor at the same level is the mouth's
+      // paved gore, not a fence. Untrimmed strips take the original
+      // path byte for byte; trimmed strips interpolate the
+      // cross-section corners over each kept interval.
+      const emitParapets = (P, Q) => {
+        quad(concrete, P.oLt, P.oL, Q.oL, Q.oLt);    // left outer
+        quad(concrete, P.iLt, Q.iLt, Q.iL, P.iL);    // left inner
+        quad(concrete, P.oLt, Q.oLt, Q.iLt, P.iLt);  // left top
+        quad(concrete, P.oRt, Q.oRt, Q.oR, P.oR);    // right outer
+        quad(concrete, P.iRt, P.iR, Q.iR, Q.iRt);    // right inner
+        quad(concrete, P.iRt, Q.iRt, Q.oRt, P.oRt);  // right top
+      };
+      const segTrim = trims?.lines[li]?.segments[i];
+      const full = (list) => list.length === 1 && list[0][0] === 0 && list[0][1] === 1;
+      if (!segTrim || (full(segTrim.left) && full(segTrim.right))) {
+        emitParapets(A, B);
+      } else {
+        const CORNER_KEYS = ['TL', 'TR', 'BL', 'BR', 'oL', 'oLt', 'iL', 'iLt', 'oR', 'oRt', 'iR', 'iRt', 'aL', 'aR'];
+        const lerpC = (t) => {
+          const o = { h: A.h + (B.h - A.h) * t };
+          for (const k of CORNER_KEYS) o[k] = [A[k][0] + (B[k][0] - A[k][0]) * t, A[k][1] + (B[k][1] - A[k][1]) * t, A[k][2] + (B[k][2] - A[k][2]) * t];
+          return o;
+        };
+        const emitSide = (list, leftSide) => {
+          for (const [t0, t1] of list) {
+            if (!(t1 > t0)) continue;
+            const P = lerpC(t0), Q = lerpC(t1);
+            if (leftSide) {
+              quad(concrete, P.oLt, P.oL, Q.oL, Q.oLt);
+              quad(concrete, P.iLt, Q.iLt, Q.iL, P.iL);
+              quad(concrete, P.oLt, Q.oLt, Q.iLt, P.iLt);
+            } else {
+              quad(concrete, P.oRt, Q.oRt, Q.oR, P.oR);
+              quad(concrete, P.iRt, P.iR, Q.iR, Q.iRt);
+              quad(concrete, P.iRt, Q.iRt, Q.oRt, P.oRt);
+            }
+          }
+        };
+        emitSide(segTrim.left, true);
+        emitSide(segTrim.right, false);
+      }
       // Top ribbon inside the parapets: the asphalt ribbon, or in
       // track mode the ballast strips + rails on the slab top.
       if (!tracks) quad(asphalt, A.aL, B.aL, B.aR, A.aR);
@@ -589,8 +986,11 @@ export function buildDeckGeometry(elevated, opts = {}) {
       if (flip) quad(concrete, c.TL, c.BL, c.BR, c.TR);
       else quad(concrete, c.TL, c.TR, c.BR, c.BL);
     };
-    cap(cs[0], false);
-    cap(cs[cs.length - 1], true);
+    // Issue #239: a terminal cap inside another deck's corridor at
+    // the same level is a wall across the mouth — suppressed.
+    const lineTrim = trims?.lines[li];
+    if (!lineTrim || lineTrim.capStart) cap(cs[0], false);
+    if (!lineTrim || lineTrim.capEnd) cap(cs[cs.length - 1], true);
     // Issue #196: this line's portal clusters emit their trenches
     // (face, retaining walls, floor, trench track strips) once,
     // from the cluster's first member's turn.
