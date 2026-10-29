@@ -1305,8 +1305,16 @@ export async function buildTaipeiGround(scene, tile, deps = {}) {
   // Parks stay lawn-green; polygons named 廣場 are paved civic squares
   // in reality （市民廣場, 松壽廣場, 世貿廣場…) and render in the plaza
   // paving tone on their own layer (issue #29).
-  addLayer(drapeGeometry(flatPolygonGeometry(clipRingsToSlots(greenFamily.parks, trenchSlots), 0.04)), mat(SURFACE_TONES.park, 0.9), 'TaipeiParks');
-  if (greenFamily.plaza.length) addLayer(drapeGeometry(flatPolygonGeometry(clipRingsToSlots(greenFamily.plaza, trenchSlots), 0.041)), mat(SURFACE_TONES.plaza, 0.95), 'TaipeiPlazas');
+  // Issue #132: when the drape is on, park/plaza rings are
+  // densified to the 28 m patch resolution before triangulation,
+  // so the lawn facets follow the DEM instead of chording across
+  // whole hillsides (the after-census: 6 m worst edge sag on long
+  // rings without it). Render-time only — the planner and the
+  // green-family consumption keep the authored rings. When the
+  // drape is off the rings pass through untouched.
+  const drapeRings = (rings) => drapeOn ? rings.map((r) => densifyPts(r, DRAPE_DENSIFY_M * 2)) : rings;
+  addLayer(drapeGeometry(flatPolygonGeometry(drapeRings(clipRingsToSlots(greenFamily.parks, trenchSlots)), 0.04)), mat(SURFACE_TONES.park, 0.9), 'TaipeiParks');
+  if (greenFamily.plaza.length) addLayer(drapeGeometry(flatPolygonGeometry(drapeRings(clipRingsToSlots(greenFamily.plaza, trenchSlots)), 0.041)), mat(SURFACE_TONES.plaza, 0.95), 'TaipeiPlazas');
   // CKS Memorial grounds (issue #98 follow-up): Liberty Square, its
   // forecourt, the Boulevard of Homage strip and the terrace apron
   // are paved stone inside the lawn-green memorial park — flat plaza
