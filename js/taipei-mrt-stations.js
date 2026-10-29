@@ -435,16 +435,21 @@ export function buildMrtDepotGeometry(depot, opts = {}) {
     const corner = (p, n, off, y) => [p[0] + n[0] * off, y, p[1] + n[1] * off];
     for (let i = 0; i + 1 < pts.length; i++) {
       const pA = pts[i], pB = pts[i + 1], nA = normals[i], nB = normals[i + 1];
-      const aL = corner(pA, nA, YARD_HALF, YARD_TOP), aR = corner(pA, nA, -YARD_HALF, YARD_TOP);
-      const bL = corner(pB, nB, YARD_HALF, YARD_TOP), bR = corner(pB, nB, -YARD_HALF, YARD_TOP);
-      const aLb = corner(pA, nA, YARD_HALF, 0), aRb = corner(pA, nA, -YARD_HALF, 0);
-      const bLb = corner(pB, nB, YARD_HALF, 0), bRb = corner(pB, nB, -YARD_HALF, 0);
+      // Issue #132: each yard segment rides the draped ground at
+      // its midpoint (the yard spans the depot's slope); without
+      // groundAt the strips stay at grade exactly as before.
+      const lift = typeof opts.groundAt === 'function'
+        ? opts.groundAt((pA[0] + pB[0]) / 2, (pA[1] + pB[1]) / 2) : 0;
+      const aL = corner(pA, nA, YARD_HALF, YARD_TOP + lift), aR = corner(pA, nA, -YARD_HALF, YARD_TOP + lift);
+      const bL = corner(pB, nB, YARD_HALF, YARD_TOP + lift), bR = corner(pB, nB, -YARD_HALF, YARD_TOP + lift);
+      const aLb = corner(pA, nA, YARD_HALF, lift), aRb = corner(pA, nA, -YARD_HALF, lift);
+      const bLb = corner(pB, nB, YARD_HALF, lift), bRb = corner(pB, nB, -YARD_HALF, lift);
       quad(aL, bL, bR, aR, C.ballast);
       quad(aL, aLb, bLb, bL, C.ballast);
       quad(aR, bR, bRb, aRb, C.ballast);
       for (const s of [-0.72, 0.72]) {
-        const raL = corner(pA, nA, s + 0.07, YARD_RAIL_Y), raR = corner(pA, nA, s - 0.07, YARD_RAIL_Y);
-        const rbL = corner(pB, nB, s + 0.07, YARD_RAIL_Y), rbR = corner(pB, nB, s - 0.07, YARD_RAIL_Y);
+        const raL = corner(pA, nA, s + 0.07, YARD_RAIL_Y + lift), raR = corner(pA, nA, s - 0.07, YARD_RAIL_Y + lift);
+        const rbL = corner(pB, nB, s + 0.07, YARD_RAIL_Y + lift), rbR = corner(pB, nB, s - 0.07, YARD_RAIL_Y + lift);
         quad(raL, rbL, rbR, raR, C.rail);
       }
     }
