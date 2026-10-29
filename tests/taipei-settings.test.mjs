@@ -37,21 +37,21 @@ function fingerprint(plan) {
 }
 
 test('settings resolution: defaults are the pre-#218 behaviour', () => {
-  assert.deepEqual(resolveSettings(), { specials: true, density: 'fine', graphics: 'medium', traffic: false });
+  assert.deepEqual(resolveSettings(), { specials: true, density: 'fine', graphics: 'medium', farDetail: 'fade', traffic: false });
   assert.deepEqual(resolveSettings({ search: '', stored: null }), DEFAULT_SETTINGS);
 });
 
 test('settings resolution: storage beats defaults, URL beats storage, per field', () => {
   const stored = JSON.stringify({ specials: false, density: 'dense', graphics: 'low' });
-  assert.deepEqual(resolveSettings({ stored }), { specials: false, density: 'dense', graphics: 'low', traffic: false });
+  assert.deepEqual(resolveSettings({ stored }), { specials: false, density: 'dense', graphics: 'low', farDetail: 'fade', traffic: false });
   // URL overrides only the fields it names.
   assert.deepEqual(
     resolveSettings({ stored, search: '?density=coarse' }),
-    { specials: false, density: 'coarse', graphics: 'low', traffic: false },
+    { specials: false, density: 'coarse', graphics: 'low', farDetail: 'fade', traffic: false },
   );
   assert.deepEqual(
     resolveSettings({ stored, search: '?specials=on&graphics=high' }),
-    { specials: true, density: 'dense', graphics: 'high', traffic: false },
+    { specials: true, density: 'dense', graphics: 'high', farDetail: 'fade', traffic: false },
   );
   // Stored value may arrive as an object too.
   assert.equal(resolveSettings({ stored: { density: 'coarse' } }).density, 'coarse');
@@ -60,11 +60,11 @@ test('settings resolution: storage beats defaults, URL beats storage, per field'
 test('settings resolution: invalid values fall back per field, never throw', () => {
   assert.deepEqual(
     resolveSettings({ stored: '{not json', search: '?density=huge&graphics=ultra&specials=maybe' }),
-    { specials: true, density: 'fine', graphics: 'medium', traffic: false },
+    { specials: true, density: 'fine', graphics: 'medium', farDetail: 'fade', traffic: false },
   );
   assert.deepEqual(
     resolveSettings({ stored: JSON.stringify({ density: 'huge', graphics: 7, specials: 'off' }) }),
-    { specials: false, density: 'fine', graphics: 'medium', traffic: false },
+    { specials: false, density: 'fine', graphics: 'medium', farDetail: 'fade', traffic: false },
   );
   // Boolean spellings the URL layer accepts.
   for (const [raw, want] of [['off', false], ['0', false], ['no', false], ['on', true], ['1', true], ['yes', true]]) {
@@ -78,7 +78,7 @@ test('settings persistence: round-trip through storage, failures stay silent', (
     getItem: (k) => (mem.has(k) ? mem.get(k) : null),
     setItem: (k, v) => mem.set(k, String(v)),
   };
-  const s = { specials: false, density: 'dense', graphics: 'high', traffic: false };
+  const s = { specials: false, density: 'dense', graphics: 'high', farDetail: 'full', traffic: false };
   assert.equal(persistSettings(storage, s), true);
   assert.deepEqual(resolveSettings({ stored: readStoredSettings(storage) }), s);
   assert.equal(mem.has(SETTINGS_STORAGE_KEY), true);
@@ -149,6 +149,30 @@ test('settings UI: gear button and panel rows in index.html', () => {
   // Traffic stays a reserved, disabled row until issue #210 lands.
   const trafficRow = indexSource.match(/<button class="pop-item tp-btn" type="button" disabled[^>]*>\s*<span class="pop-name">Traffic<\/span>/);
   assert.ok(trafficRow, 'traffic row is present and disabled');
+});
+
+test('far detail resolution: default fade, storage beats default, URL beats storage', () => {
+  // Issue #240: far buildings fade detail with distance unless the
+  // user asks for full detail. Same per-field resolution as the
+  // other rows: URL param > localStorage > default.
+  assert.equal(resolveSettings().farDetail, 'fade');
+  assert.equal(resolveSettings({ stored: JSON.stringify({ farDetail: 'full' }) }).farDetail, 'full');
+  assert.equal(
+    resolveSettings({ stored: JSON.stringify({ farDetail: 'full' }), search: '?farDetail=fade' }).farDetail,
+    'fade',
+  );
+  assert.equal(resolveSettings({ search: '?farDetail=full' }).farDetail, 'full');
+  // Invalid values fall back to the default, never throw.
+  assert.equal(resolveSettings({ search: '?farDetail=everything' }).farDetail, 'fade');
+  assert.equal(resolveSettings({ stored: JSON.stringify({ farDetail: 7 }) }).farDetail, 'fade');
+});
+
+test('settings UI: distant-buildings row in index.html, wired in main.js', () => {
+  for (const p of ['fade', 'full']) assert.match(indexSource, new RegExp(`data-setting-fardetail="${p}"`));
+  assert.match(indexSource, /Distant buildings/);
+  assert.match(mainSource, /setFarFadeEnabled\(settings\.farDetail !== 'full'\)/);
+  assert.match(mainSource, /onFarDetail: \(preset\) => setFarFadeEnabled\(preset !== 'full'\)/);
+  assert.match(mainSource, /from '\.\/tsl-materials\.js'/);
 });
 
 test('settings wiring: main.js resolves + passes settings, boot exposes the runtime API', () => {

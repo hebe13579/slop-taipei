@@ -12,6 +12,11 @@
 //               (renderer.setPixelRatio, sunLight.castShadow).
 //               'medium' IS today's behaviour (pixel ratio 1.0,
 //               shadows on), so an untouched boot is unchanged.
+//   farDetail — 'fade' | 'full' (Taipei; issue #240): whether
+//               far lot facades fade their procedural detail to a
+//               flat colour with distance. 'fade' is the default;
+//               specials are exempt either way. Applied live via
+//               a shared shader uniform — no rebuild.
 //   traffic   — RESERVED: the panel renders the row disabled
 //               ("coming soon") until issue #210's experiment
 //               lands its switch here.
@@ -27,11 +32,13 @@ export const SETTINGS_STORAGE_KEY = 'slop-settings';
 
 export const DENSITY_PRESETS = ['coarse', 'fine', 'dense'];
 export const GRAPHICS_PRESETS = ['low', 'medium', 'high'];
+export const FAR_DETAIL_PRESETS = ['fade', 'full'];
 
 export const DEFAULT_SETTINGS = Object.freeze({
   specials: true,
   density: 'fine',
   graphics: 'medium',
+  farDetail: 'fade',
   traffic: false,
 });
 
@@ -46,6 +53,7 @@ const parseBool = (v) => {
 
 const validDensity = (v) => (DENSITY_PRESETS.includes(v) ? v : null);
 const validGraphics = (v) => (GRAPHICS_PRESETS.includes(v) ? v : null);
+const validFarDetail = (v) => (FAR_DETAIL_PRESETS.includes(v) ? v : null);
 
 // Resolve the effective settings. `stored` may be the raw
 // localStorage string, an already-parsed object, or null.
@@ -64,6 +72,8 @@ export function resolveSettings({ search = '', stored = null } = {}) {
     if (d) out.density = d;
     const g = validGraphics(s.graphics);
     if (g) out.graphics = g;
+    const f = validFarDetail(s.farDetail);
+    if (f) out.farDetail = f;
   }
   const q = new URLSearchParams(typeof search === 'string' ? search : '');
   if (q.has('specials')) {
@@ -74,6 +84,8 @@ export function resolveSettings({ search = '', stored = null } = {}) {
   if (d) out.density = d;
   const g = validGraphics(q.get('graphics'));
   if (g) out.graphics = g;
+  const f = validFarDetail(q.get('farDetail'));
+  if (f) out.farDetail = f;
   return out;
 }
 
@@ -92,6 +104,7 @@ export function persistSettings(storage, settings) {
       specials: settings.specials,
       density: settings.density,
       graphics: settings.graphics,
+      farDetail: settings.farDetail,
     }));
     return true;
   } catch {
@@ -131,11 +144,12 @@ export function applyGraphicsSettings(renderer, sunLight, preset, devicePixelRat
 // Wire the settings popover (index.html #settings-popover).
 //   settings       — the resolved settings object (mutated in place)
 //   taipeiSettings — js/taipei-boot.js' runtime API, or null outside
-//                    Taipei mode (density/specials rows disable)
+//                    Taipei mode (density/specials/far-detail rows disable)
 //   onGraphics     — called with the preset when graphics change
+//   onFarDetail    — called with the preset when far detail changes
 //   persist        — called after any change (storage write)
 //   doc            — document (injectable for tests)
-export function initSettingsPanel({ settings, taipeiSettings = null, onGraphics = null, persist = null, doc = null } = {}) {
+export function initSettingsPanel({ settings, taipeiSettings = null, onGraphics = null, onFarDetail = null, persist = null, doc = null } = {}) {
   const d = doc || (typeof document !== 'undefined' ? document : null);
   if (!d) return null;
   const pop = d.getElementById('settings-popover');
@@ -146,10 +160,12 @@ export function initSettingsPanel({ settings, taipeiSettings = null, onGraphics 
   const densityStatus = d.getElementById('set-density-status');
   const densityBtns = [...pop.querySelectorAll('[data-setting-density]')];
   const graphicsBtns = [...pop.querySelectorAll('[data-setting-graphics]')];
+  const farDetailBtns = [...pop.querySelectorAll('[data-setting-fardetail]')];
 
   const reflect = () => {
     for (const b of densityBtns) b.classList.toggle('active', b.dataset.settingDensity === settings.density);
     for (const b of graphicsBtns) b.classList.toggle('active', b.dataset.settingGraphics === settings.graphics);
+    for (const b of farDetailBtns) b.classList.toggle('active', b.dataset.settingFardetail === settings.farDetail);
     if (specialsBtn) {
       specialsBtn.setAttribute('aria-pressed', settings.specials ? 'true' : 'false');
       if (specialsState) specialsState.textContent = settings.specials ? 'On' : 'Off';
@@ -157,7 +173,7 @@ export function initSettingsPanel({ settings, taipeiSettings = null, onGraphics 
   };
 
   if (!taipeiSettings) {
-    for (const b of [...densityBtns, specialsBtn].filter(Boolean)) {
+    for (const b of [...densityBtns, ...farDetailBtns, specialsBtn].filter(Boolean)) {
       b.disabled = true;
       b.title = 'Taipei mode only';
     }
@@ -209,6 +225,17 @@ export function initSettingsPanel({ settings, taipeiSettings = null, onGraphics 
       if (preset === settings.graphics) return;
       settings.graphics = preset;
       if (onGraphics) onGraphics(preset);
+      if (persist) persist();
+      reflect();
+    });
+  }
+
+  for (const b of farDetailBtns) {
+    b.addEventListener('click', () => {
+      const preset = b.dataset.settingFardetail;
+      if (!taipeiSettings || preset === settings.farDetail) return;
+      settings.farDetail = preset;
+      if (onFarDetail) onFarDetail(preset);
       if (persist) persist();
       reflect();
     });
