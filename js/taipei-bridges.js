@@ -175,15 +175,19 @@ function corridorFrame(lines, anchorSim) {
 }
 // Drawn deck-top height near a sim point (the h profile of the
 // nearest centreline segment, +0.35 for the deck surface build-up).
-function deckTopNear(lines, pt) {
+// Issue #132: groundAt lifts the sampled deck top by the draped
+// ground at the snapped centreline point — stays land on the
+// drawn (lifted) decks.
+function deckTopNear(lines, pt, groundAt = null) {
   const s = snapToLines(lines, pt);
-  return (s ? s.h : 0) + 0.35;
+  const g = groundAt ? groundAt(s ? s.p[0] : pt[0], s ? s.p[1] : pt[1]) : 0;
+  return (s ? s.h : 0) + g + 0.35;
 }
 // Highest deck top within r metres — for the MacArthur springings,
 // where the nearest segment can be a ramp diving off the crossing
 // while the bridge's own decks pass at full height.
-function deckTopHighNear(lines, pt, r = 25) {
-  let best = 0;
+function deckTopHighNear(lines, pt, r = 25, groundAt = null) {
+  let best = 0, bestPt = pt;
   for (const L of lines) {
     const P = linePoints(L);
     for (let i = 0; i < P.length - 1; i++) {
@@ -192,18 +196,26 @@ function deckTopHighNear(lines, pt, r = 25) {
       let t = len2 ? ((pt[0] - ax) * dx + (pt[1] - az2) * dz) / len2 : 0;
       t = Math.max(0, Math.min(1, t));
       const d = Math.hypot(pt[0] - (ax + dx * t), pt[1] - (az2 + dz * t));
-      if (d <= r) best = Math.max(best, ah + (bh - ah) * t);
+      const h = ah + (bh - ah) * t;
+      if (d <= r && h > best) { best = h; bestPt = [ax + dx * t, az2 + dz * t]; }
     }
   }
-  return best + 0.35;
+  return best + (groundAt ? groundAt(bestPt[0], bestPt[1]) : 0) + 0.35;
 }
 
 // buildBridgeGeometry(geo) -> { positions, normals, colors,
 //   triCount, bridges: [{ id, triCount, maxY, centre, stays }] }
 // `stays` lists the deck-anchor point of every stay/hanger (test
 // evidence that cables land on drawn decks).
-export function buildBridgeGeometry(geo) {
+export function buildBridgeGeometry(geo, opts = {}) {
   const pos = [], nor = [], col = [];
+  // Issue #132: opts.groundAt lifts each signature bridge rigidly
+  // by the draped ground at its centre (all five measure g = 0
+  // today, so this is a no-op on current data — the threading
+  // keeps the bridges glued to their lifted decks if the DEM or
+  // the regions ever change). Stay anchors sample the lifted
+  // deck tops via deckTopNear/deckTopHighNear above.
+  const groundAt = typeof opts.groundAt === 'function' ? opts.groundAt : () => 0;
   const rgb = (hex) => [((hex >> 16) & 255) / 255, ((hex >> 8) & 255) / 255, (hex & 255) / 255];
   const quad = (a, b, c, d, hex) => {
     const ux = b[0] - a[0], uy = b[1] - a[1], uz = b[2] - a[2];
@@ -236,11 +248,12 @@ export function buildBridgeGeometry(geo) {
     for (const [a, b, c, dd] of F) quad(cn[a], cn[b], cn[c], cn[dd], hex);
   };
   // Frame-space box: centre at frame point + axis*along + perp*ac,
-  // sizes (along, across), y0..y1.
+  // sizes (along, across), y0..y1. Issue #132: y values ride the
+  // per-bridge lift (bridgeLift, set per def below).
   const fbox = (F, along, ac, sizeAlong, sizeAcross, y0, y1, hex) => {
     const cx = F.c[0] + F.axis[0] * along + F.perp[0] * ac;
     const cz = F.c[1] + F.axis[1] * along + F.perp[1] * ac;
-    const P = (a, y, b) => [cx + F.axis[0] * a + F.perp[0] * b, y, cz + F.axis[1] * a + F.perp[1] * b];
+    const P = (a, y, b) => [cx + F.axis[0] * a + F.perp[0] * b, y + bridgeLift, cz + F.axis[1] * a + F.perp[1] * b];
     const ha = sizeAlong / 2, hx = sizeAcross / 2;
     const c000 = P(-ha, y0, -hx), c100 = P(-ha, y0, hx), c110 = P(ha, y0, hx), c010 = P(ha, y0, -hx);
     const c001 = P(-ha, y1, -hx), c101 = P(-ha, y1, hx), c111 = P(ha, y1, hx), c011 = P(ha, y1, -hx);
@@ -252,9 +265,20 @@ export function buildBridgeGeometry(geo) {
     quad(c100, c101, c111, c110, hex);
   };
   const fpoint = (F, along, y, ac) => [
+    F.c[0] + F.axis[0] * along + F.perp[0] * ac, y + bridgeLift,
+    F.c[1] + F.axis[1] * along + F.perp[1] * ac,
+  ];
+  // Lift-free twin of fpoint for deck-derived heights (the tied
+  // arch's rib/hangers): those y values already carry the lifted
+  // deck tops, so the bridge lift must not apply a second time.
+  const fpointRaw = (F, along, y, ac) => [
     F.c[0] + F.axis[0] * along + F.perp[0] * ac, y,
     F.c[1] + F.axis[1] * along + F.perp[1] * ac,
   ];
+  // Issue #132: the current def's rigid lift, set from the draped
+  // ground at its centre before its emission (0 for all five
+  // bridges on current data).
+  let bridgeLift = 0;
 
   const lines = geo?.elevatedRoads?.lines || [];
   const O = geo?.frame?.originLatLon || [25.033, 121.565];
@@ -270,6 +294,9 @@ export function buildBridgeGeometry(geo) {
       // Corridor frames at both towers; the midspan direction of
       // tower i points at tower 1-i.
       const frames = def.towers.map((t) => corridorFrame(lines, bridgeLatLonToTile(t[0], t[1], O)));
+      // Issue #132: the twin towers share one lift at their midpoint.
+      centre = [(frames[0].c[0] + frames[1].c[0]) / 2, (frames[0].c[1] + frames[1].c[1]) / 2];
+      bridgeLift = groundAt(centre[0], centre[1]);
       frames.forEach((F, i) => {
         const other = frames[1 - i];
         const midSign = Math.sign((other.c[0] - F.c[0]) * F.axis[0] + (other.c[1] - F.c[1]) * F.axis[1]) || 1;
@@ -297,7 +324,7 @@ export function buildBridgeGeometry(geo) {
               const ty = 47 + (k / (dir.dists.length - 1)) * 22;
               const top = fpoint(F, 0, ty, legAt(pl));
               const ap = fpoint(F, dir.sign * d, 0, pl);
-              const ay = deckTopNear(lines, [ap[0], ap[2]]);
+              const ay = deckTopNear(lines, [ap[0], ap[2]], groundAt);
               beam(top, [ap[0], ay + 0.15, ap[2]], 0.32, 0.32, C.stayPale);
               stays.push([ap[0], ay + 0.15, ap[2]]);
             });
@@ -311,6 +338,7 @@ export function buildBridgeGeometry(geo) {
       // and the 180 m main span reaches EAST from the pylon.
       if (F.axis[0] < 0) { F = { ...F, axis: [-F.axis[0], -F.axis[1]], perp: [-F.perp[0], -F.perp[1]], mn: -F.mx, mx: -F.mn }; }
       centre = F.c;
+      bridgeLift = groundAt(centre[0], centre[1]);
       const half = Math.max(Math.abs(F.mn), Math.abs(F.mx));
       const lean = Math.tan((def.leanDeg * Math.PI) / 180);
       // Leg centreline: converges across, leans along; the cap
@@ -342,7 +370,7 @@ export function buildBridgeGeometry(geo) {
           for (const side of [1, -1]) {
             const top = legPt(side, ty);
             const ap = fpoint(F, sign * d, 0, side * (half - 0.5));
-            const ay = deckTopNear(lines, [ap[0], ap[2]]);
+            const ay = deckTopNear(lines, [ap[0], ap[2]], groundAt);
             beam(top, [ap[0], ay + 0.15, ap[2]], 0.3, 0.3, C.stayPale);
             stays.push([ap[0], ay + 0.15, ap[2]]);
           }
@@ -353,36 +381,41 @@ export function buildBridgeGeometry(geo) {
     } else if (def.kind === 'tiedArch') {
       const F = corridorFrame(lines, bridgeLatLonToTile(def.anchor[0], def.anchor[1], O));
       centre = F.c;
+      bridgeLift = groundAt(centre[0], centre[1]);
       const mid = (F.mn + F.mx) / 2;
       const hs = def.span / 2;
       // The rib springs from the DRAWN deck top at each end (the
       // two springings sit at slightly different drawn heights);
       // the rise is set so the crown hits the true crown height.
       const spA = fpoint(F, -hs, 0, mid), spB = fpoint(F, hs, 0, mid);
-      const dtA = deckTopHighNear(lines, [spA[0], spA[2]]);
-      const dtB = deckTopHighNear(lines, [spB[0], spB[2]]);
+      const dtA = deckTopHighNear(lines, [spA[0], spA[2]], 25, groundAt);
+      const dtB = deckTopHighNear(lines, [spB[0], spB[2]], 25, groundAt);
       const baseY = (s) => (dtA + (dtB - dtA) * ((s + hs) / def.span)) - 0.6;
-      const rise = def.crownY - baseY(0);
+      // Issue #132: the crown rides the bridge lift with the rest
+      // of the arch (bridgeLift is 0 at the river centre on
+      // current data, so the pinned crown height is unchanged).
+      const rise = def.crownY + bridgeLift - baseY(0);
       const ribY = (s) => baseY(s) + rise * (1 - (s / hs) * (s / hs));
-      let prev = fpoint(F, -hs, ribY(-hs), mid);
+      let prev = fpointRaw(F, -hs, ribY(-hs), mid);
       const N = 16;
       for (let i = 1; i <= N; i++) {
         const s = -hs + (i * def.span) / N;
-        const p = fpoint(F, s, ribY(s), mid);
+        const p = fpointRaw(F, s, ribY(s), mid);
         beam(prev, p, 1.7, 2.3, C.macGreen);
         prev = p;
       }
       note(null, def.crownY);
       for (let s = -78; s <= 78; s += 12) {
-        const top = fpoint(F, s, ribY(s) - 0.9, mid);
-        const hp = fpoint(F, s, 0, mid);
-        const bot = fpoint(F, s, deckTopHighNear(lines, [hp[0], hp[2]]) + 0.1, mid);
+        const top = fpointRaw(F, s, ribY(s) - 0.9, mid);
+        const hp = fpointRaw(F, s, 0, mid);
+        const bot = fpointRaw(F, s, deckTopHighNear(lines, [hp[0], hp[2]], 25, groundAt) + 0.1, mid);
         beam(top, bot, 0.3, 0.3, C.macGreen);
         stays.push(bot);
       }
     } else if (def.kind === 'sArch') {
       const path = def.path.map(([la, lo]) => bridgeLatLonToTile(la, lo, O));
       centre = path[Math.floor(path.length / 2)];
+      bridgeLift = groundAt(centre[0], centre[1]);
       const chain = [0];
       for (let i = 1; i < path.length; i++) chain.push(chain[i - 1] + Math.hypot(path[i][0] - path[i - 1][0], path[i][1] - path[i - 1][1]));
       const total = chain[chain.length - 1];
@@ -393,15 +426,16 @@ export function buildBridgeGeometry(geo) {
         const az = Math.atan2(path[i][0] - path[i - 1][0], path[i][1] - path[i - 1][1]);
         return { p, az };
       };
-      // Deck ribbon + parapets.
-      const deckMidY = def.deckTop - 0.45;
+      // Deck ribbon + parapets. Issue #132: the rainbow deck is
+      // the bridge's own structure — it rides bridgeLift.
+      const deckMidY = def.deckTop - 0.45 + bridgeLift;
       for (let i = 0; i < path.length - 1; i++) {
         beam([path[i][0], deckMidY, path[i][1]], [path[i + 1][0], deckMidY, path[i + 1][1]], def.deckW, 0.9, C.rainbowDeck);
         for (const sd of [1, -1]) {
           const off = (pt, az) => [pt[0] + Math.cos(az) * sd * (def.deckW / 2 - 0.12), pt[1] - Math.sin(az) * sd * (def.deckW / 2 - 0.12)];
           const az0 = Math.atan2(path[i + 1][0] - path[i][0], path[i + 1][1] - path[i][1]);
           const a = off(path[i], az0), b = off(path[i + 1], az0);
-          beam([a[0], def.deckTop + 0.5, a[1]], [b[0], def.deckTop + 0.5, b[1]], 0.16, 1.0, C.rainbowDark);
+          beam([a[0], def.deckTop + 0.5 + bridgeLift, a[1]], [b[0], def.deckTop + 0.5 + bridgeLift, b[1]], 0.16, 1.0, C.rainbowDark);
         }
       }
       note(null, def.deckTop);
@@ -412,7 +446,7 @@ export function buildBridgeGeometry(geo) {
         const { p } = at(d);
         const u = (d - s0) / (s1 - s0);
         const bow = -4.2 * Math.sin(Math.PI * u);
-        const y = 3.4 + (def.deckTop + def.rise - 3.4) * (1 - Math.pow(2 * u - 1, 2));
+        const y = 3.4 + (def.deckTop + def.rise - 3.4) * (1 - Math.pow(2 * u - 1, 2)) + bridgeLift;
         return [p[0] + bow, y, p[1]];
       };
       let prev = ribPt(s0);
@@ -425,10 +459,10 @@ export function buildBridgeGeometry(geo) {
       note(null, def.deckTop + def.rise);
       for (let d = s0 + 11; d < s1 - 4; d += 11) {
         const rp = ribPt(d);
-        if (rp[1] < def.deckTop + 1.2) continue;
+        if (rp[1] < def.deckTop + 1.2 + bridgeLift) continue;
         const { p } = at(d);
-        beam([rp[0], rp[1] - 0.6, rp[2]], [p[0], def.deckTop + 0.05, p[1]], 0.16, 0.16, C.rainbowDark);
-        stays.push([p[0], def.deckTop + 0.05, p[1]]);
+        beam([rp[0], rp[1] - 0.6, rp[2]], [p[0], def.deckTop + 0.05 + bridgeLift, p[1]], 0.16, 0.16, C.rainbowDark);
+        stays.push([p[0], def.deckTop + 0.05 + bridgeLift, p[1]]);
       }
       // Abutment blocks at the springings + side-span piers.
       for (const d of [s0, s1]) {
@@ -446,6 +480,7 @@ export function buildBridgeGeometry(geo) {
       // +axis toward the main span = north across the river.
       if (F.axis[1] > 0) { F = { ...F, axis: [-F.axis[0], -F.axis[1]], perp: [-F.perp[0], -F.perp[1]], mn: -F.mx, mx: -F.mn }; }
       centre = F.c;
+      bridgeLift = groundAt(centre[0], centre[1]);
       const mid = (F.mn + F.mx) / 2;
       const H = def.height;
       const colPt = (y) => fpoint(F, def.topOffset * Math.pow(y / H, 1.8), y, mid);
@@ -466,7 +501,7 @@ export function buildBridgeGeometry(geo) {
           const ty = yLo + (k / (dists.length - 1)) * (yHi - yLo);
           const top = colPt(ty);
           const ap = fpoint(F, sign * d, 0, mid);
-          const ay = deckTopNear(lines, [ap[0], ap[2]]);
+          const ay = deckTopNear(lines, [ap[0], ap[2]], groundAt);
           beam(top, [ap[0], ay + 0.15, ap[2]], 0.3, 0.3, C.dazhiStay);
           stays.push([ap[0], ay + 0.15, ap[2]]);
         });
@@ -475,7 +510,7 @@ export function buildBridgeGeometry(geo) {
       fan1([20, 40, 60, 78], 60, 67, -1);
     }
 
-    bridges.push({ id: def.id, triCount: pos.length / 9 - tri0, maxY, centre, stays });
+    bridges.push({ id: def.id, triCount: pos.length / 9 - tri0, maxY: maxY + bridgeLift, centre, stays });
   }
 
   return {

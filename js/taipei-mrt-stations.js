@@ -89,7 +89,7 @@ export const MRT_STATION_DEFAULT_WIDTH = {
   wenhu: 20, 'wenhu-open': 20, entrance: 7,
 };
 
-export function buildMrtStationGeometry(stations) {
+export function buildMrtStationGeometry(stations, opts = {}) {
   const pos = [], nor = [], col = [];
   const quad = (a, b, c, d, hex) => {
     const ux = b[0] - a[0], uy = b[1] - a[1], uz = b[2] - a[2];
@@ -103,8 +103,12 @@ export function buildMrtStationGeometry(stations) {
 
   for (const st of stations || []) {
     const cy = Math.cos(st.yaw), sy = Math.sin(st.yaw);
+    // Issue #132: opts.groundAt lifts the whole station rigidly by
+    // the draped ground at its centre (the same lift the drive
+    // colliders apply). Absent, the flat build is unchanged.
+    const base = typeof opts.groundAt === 'function' ? opts.groundAt(st.x, st.z) : 0;
     // local (x across, y up, z along) -> world
-    const W = (lx, ly, lz) => [st.x + lx * cy + lz * sy, ly, st.z - lx * sy + lz * cy];
+    const W = (lx, ly, lz) => [st.x + lx * cy + lz * sy, ly + base, st.z - lx * sy + lz * cy];
     // Axis-aligned (in the local frame) box: centre along/across,
     // size along/across, y0..y1.
     const box = (along, across, sizeAlong, sizeAcross, y0, y1, hex) => {
@@ -372,7 +376,7 @@ export function buildMrtStationGeometry(stations) {
 // get the running line's track treatment — brown strip + rails —
 // in flat yard proportions (constants mirrored from
 // js/taipei-viaduct.js: BALLAST/RAIL family).
-export function buildMrtDepotGeometry(depot) {
+export function buildMrtDepotGeometry(depot, opts = {}) {
   const pos = [], nor = [], col = [];
   const quad = (a, b, c, d, hex) => {
     const ux = b[0] - a[0], uy = b[1] - a[1], uz = b[2] - a[2];
@@ -404,14 +408,17 @@ export function buildMrtDepotGeometry(depot) {
     quad(c100, c101, c111, c110, hex);
   };
   for (const h of depot.halls || []) {
-    boxAt(h.x, h.z, h.yaw, 0, 0, h.len, h.wid, 0, h.h, C.depotWall);
-    boxAt(h.x, h.z, h.yaw, 0, 0, h.len + 1.2, h.wid + 1.2, h.h, h.h + 0.5, C.depotRoof);
+    // Issue #132: each hall rides the draped ground at its own
+    // centre (halls span the slope at the depot's west edge).
+    const lift = typeof opts.groundAt === 'function' ? opts.groundAt(h.x, h.z) : 0;
+    boxAt(h.x, h.z, h.yaw, 0, 0, h.len, h.wid, lift, h.h + lift, C.depotWall);
+    boxAt(h.x, h.z, h.yaw, 0, 0, h.len + 1.2, h.wid + 1.2, h.h + lift, h.h + 0.5 + lift, C.depotRoof);
     // Skylight bands along the long axis — the shed roof's grid
     // read from the satellite (bands ~18 m apart on the main shed).
     const n = Math.max(3, Math.round(h.wid / 18));
     for (let i = 0; i < n; i++) {
       const off = (i - (n - 1) / 2) * (h.wid / n);
-      boxAt(h.x, h.z, h.yaw, 0, off, h.len - 6, 1.4, h.h + 0.5, h.h + 0.78, C.depotSkylight);
+      boxAt(h.x, h.z, h.yaw, 0, off, h.len - 6, 1.4, h.h + 0.5 + lift, h.h + 0.78 + lift, C.depotSkylight);
     }
   }
   const YARD_HALF = 1.3, YARD_TOP = 0.18, YARD_RAIL_Y = 0.25;
