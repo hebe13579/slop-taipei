@@ -11,6 +11,9 @@ import {
   readStoredSettings,
   persistSettings,
   graphicsConfig,
+  trafficConfig,
+  TRAFFIC_DENSITY_COUNTS,
+  TRAFFIC_RANGE_METERS,
 } from '../js/settings.js';
 
 // Issue #218 — the settings gear: resolution rules, graphics
@@ -37,21 +40,21 @@ function fingerprint(plan) {
 }
 
 test('settings resolution: defaults are the pre-#218 behaviour', () => {
-  assert.deepEqual(resolveSettings(), { specials: true, density: 'fine', graphics: 'medium', farDetail: 'fade', traffic: false });
+  assert.deepEqual(resolveSettings(), { specials: true, density: 'fine', graphics: 'medium', farDetail: 'fade', trafficEnabled: false, trafficDensity: 'normal', trafficRange: 'normal' });
   assert.deepEqual(resolveSettings({ search: '', stored: null }), DEFAULT_SETTINGS);
 });
 
 test('settings resolution: storage beats defaults, URL beats storage, per field', () => {
   const stored = JSON.stringify({ specials: false, density: 'dense', graphics: 'low' });
-  assert.deepEqual(resolveSettings({ stored }), { specials: false, density: 'dense', graphics: 'low', farDetail: 'fade', traffic: false });
+  assert.deepEqual(resolveSettings({ stored }), { specials: false, density: 'dense', graphics: 'low', farDetail: 'fade', trafficEnabled: false, trafficDensity: 'normal', trafficRange: 'normal' });
   // URL overrides only the fields it names.
   assert.deepEqual(
     resolveSettings({ stored, search: '?density=coarse' }),
-    { specials: false, density: 'coarse', graphics: 'low', farDetail: 'fade', traffic: false },
+    { specials: false, density: 'coarse', graphics: 'low', farDetail: 'fade', trafficEnabled: false, trafficDensity: 'normal', trafficRange: 'normal' },
   );
   assert.deepEqual(
     resolveSettings({ stored, search: '?specials=on&graphics=high' }),
-    { specials: true, density: 'dense', graphics: 'high', farDetail: 'fade', traffic: false },
+    { specials: true, density: 'dense', graphics: 'high', farDetail: 'fade', trafficEnabled: false, trafficDensity: 'normal', trafficRange: 'normal' },
   );
   // Stored value may arrive as an object too.
   assert.equal(resolveSettings({ stored: { density: 'coarse' } }).density, 'coarse');
@@ -60,11 +63,11 @@ test('settings resolution: storage beats defaults, URL beats storage, per field'
 test('settings resolution: invalid values fall back per field, never throw', () => {
   assert.deepEqual(
     resolveSettings({ stored: '{not json', search: '?density=huge&graphics=ultra&specials=maybe' }),
-    { specials: true, density: 'fine', graphics: 'medium', farDetail: 'fade', traffic: false },
+    { specials: true, density: 'fine', graphics: 'medium', farDetail: 'fade', trafficEnabled: false, trafficDensity: 'normal', trafficRange: 'normal' },
   );
   assert.deepEqual(
     resolveSettings({ stored: JSON.stringify({ density: 'huge', graphics: 7, specials: 'off' }) }),
-    { specials: false, density: 'fine', graphics: 'medium', farDetail: 'fade', traffic: false },
+    { specials: false, density: 'fine', graphics: 'medium', farDetail: 'fade', trafficEnabled: false, trafficDensity: 'normal', trafficRange: 'normal' },
   );
   // Boolean spellings the URL layer accepts.
   for (const [raw, want] of [['off', false], ['0', false], ['no', false], ['on', true], ['1', true], ['yes', true]]) {
@@ -78,7 +81,7 @@ test('settings persistence: round-trip through storage, failures stay silent', (
     getItem: (k) => (mem.has(k) ? mem.get(k) : null),
     setItem: (k, v) => mem.set(k, String(v)),
   };
-  const s = { specials: false, density: 'dense', graphics: 'high', farDetail: 'full', traffic: false };
+  const s = { specials: false, density: 'dense', graphics: 'high', farDetail: 'full', trafficEnabled: false, trafficDensity: 'normal', trafficRange: 'normal' };
   assert.equal(persistSettings(storage, s), true);
   assert.deepEqual(resolveSettings({ stored: readStoredSettings(storage) }), s);
   assert.equal(mem.has(SETTINGS_STORAGE_KEY), true);
@@ -134,8 +137,8 @@ test('density unknown value plans as fine', () => {
 
 // Source contracts for the UI surface (the browser evidence in the
 // PR is the integration proof): the gear + popover exist in the
-// toolbar idiom, every control row is present, the traffic row is
-// disabled, and main.js / the boot wire the settings through.
+// toolbar idiom, every control row is present, and main.js / the boot
+// wire the settings through.
 const indexSource = readFileSync(new URL('../index.html', import.meta.url), 'utf8');
 const mainSource = readFileSync(new URL('../js/main.js', import.meta.url), 'utf8');
 const bootSource = readFileSync(new URL('../js/taipei-boot.js', import.meta.url), 'utf8');
@@ -146,9 +149,13 @@ test('settings UI: gear button and panel rows in index.html', () => {
   assert.match(indexSource, /id="set-specials"/);
   for (const p of ['coarse', 'fine', 'dense']) assert.match(indexSource, new RegExp(`data-setting-density="${p}"`));
   for (const p of ['low', 'medium', 'high']) assert.match(indexSource, new RegExp(`data-setting-graphics="${p}"`));
-  // Traffic stays a reserved, disabled row until issue #210 lands.
-  const trafficRow = indexSource.match(/<button class="pop-item tp-btn" type="button" disabled[^>]*>\s*<span class="pop-name">Traffic<\/span>/);
-  assert.ok(trafficRow, 'traffic row is present and disabled');
+  // Issue #252: the traffic rows are live controls now (on/off toggle,
+  // density presets, spawn-range presets) — no longer the reserved
+  // disabled row from #218/#210.
+  assert.match(indexSource, /id="set-traffic"/);
+  assert.ok(!indexSource.includes('Coming soon — being measured behind a flag'), 'reserved traffic copy is gone');
+  for (const p of ['light', 'normal', 'heavy']) assert.match(indexSource, new RegExp(`data-setting-trafficdensity="${p}"`));
+  for (const p of ['near', 'normal', 'far']) assert.match(indexSource, new RegExp(`data-setting-trafficrange="${p}"`));
 });
 
 test('far detail resolution: default fade, storage beats default, URL beats storage', () => {
@@ -165,6 +172,49 @@ test('far detail resolution: default fade, storage beats default, URL beats stor
   // Invalid values fall back to the default, never throw.
   assert.equal(resolveSettings({ search: '?farDetail=everything' }).farDetail, 'fade');
   assert.equal(resolveSettings({ stored: JSON.stringify({ farDetail: 7 }) }).farDetail, 'fade');
+});
+
+test('traffic resolution: default off, storage beats default, URL beats storage (issue #252)', () => {
+  assert.equal(resolveSettings().trafficEnabled, false);
+  assert.equal(resolveSettings().trafficDensity, 'normal');
+  assert.equal(resolveSettings().trafficRange, 'normal');
+  const stored = JSON.stringify({ trafficEnabled: true, trafficDensity: 'heavy', trafficRange: 'far' });
+  const fromStored = resolveSettings({ stored });
+  assert.equal(fromStored.trafficEnabled, true);
+  assert.equal(fromStored.trafficDensity, 'heavy');
+  assert.equal(fromStored.trafficRange, 'far');
+  assert.equal(resolveSettings({ stored, search: '?trafficEnabled=off' }).trafficEnabled, false);
+  assert.equal(resolveSettings({ stored, search: '?trafficDensity=light' }).trafficDensity, 'light');
+  assert.equal(resolveSettings({ stored, search: '?trafficRange=near' }).trafficRange, 'near');
+  // Invalid values fall back to the default, never throw.
+  assert.equal(resolveSettings({ search: '?trafficEnabled=maybe' }).trafficEnabled, false);
+  assert.equal(resolveSettings({ search: '?trafficDensity=huge' }).trafficDensity, 'normal');
+  assert.equal(resolveSettings({ search: '?trafficRange=huge' }).trafficRange, 'normal');
+});
+
+test('traffic config: presets map to the measured pool sizes and radii (issue #252)', () => {
+  assert.deepEqual(TRAFFIC_DENSITY_COUNTS, { light: 60, normal: 200, heavy: 400 });
+  assert.deepEqual(TRAFFIC_RANGE_METERS, { near: 200, normal: 380, far: 600 });
+  assert.deepEqual(trafficConfig(resolveSettings()), { enabled: false, carCount: 200, trafficRadius: 380 });
+  assert.deepEqual(
+    trafficConfig(resolveSettings({ search: '?trafficEnabled=on&trafficDensity=heavy&trafficRange=far' })),
+    { enabled: true, carCount: 400, trafficRadius: 600 },
+  );
+  assert.deepEqual(
+    trafficConfig({ trafficEnabled: true, trafficDensity: 'bogus', trafficRange: 'bogus' }),
+    { enabled: true, carCount: 200, trafficRadius: 380 },
+    'unknown presets fall back to normal',
+  );
+});
+
+test('settings wiring: main.js applies traffic from the gear, with the legacy flag winning (issue #252)', () => {
+  assert.match(mainSource, /onTraffic: \(cfg\) => applyTrafficConfig\(cfg\)/);
+  assert.match(mainSource, /taipeiTrafficEnv\(cfg\.carCount, \{ trafficRadius: cfg\.trafficRadius \}\)/);
+  assert.match(mainSource, /trafficCountFromSearch\(window\.location\.search\)/);
+  assert.match(mainSource, /delete window\.__traffic/);
+  // The gear must show the effective initial state, not the stored one:
+  // the legacy flag syncs the in-memory field before the panel reflects.
+  assert.match(mainSource, /settings\.trafficEnabled = initialTraffic\.enabled/);
 });
 
 test('settings UI: distant-buildings row in index.html, wired in main.js', () => {
