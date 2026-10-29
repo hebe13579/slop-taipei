@@ -210,8 +210,9 @@ function deckTopHighNear(lines, pt, r = 25, groundAt = null) {
 export function buildBridgeGeometry(geo, opts = {}) {
   const pos = [], nor = [], col = [];
   // Issue #132: opts.groundAt lifts each signature bridge rigidly
-  // by the draped ground at its centre (all five measure g = 0
-  // today, so this is a no-op on current data — the threading
+  // by the draped ground at its centre (measured max 0.06 m on
+  // current data — 社子大橋's frames graze the Beitou rect's
+  // feather fringe — so this is a no-op to the eye; the threading
   // keeps the bridges glued to their lifted decks if the DEM or
   // the regions ever change). Stay anchors sample the lifted
   // deck tops via deckTopNear/deckTopHighNear above.
