@@ -5158,13 +5158,33 @@ export function planTaipeiBuildings(geodata, opts = {}) {
           m.probeLot.h = FACE_H_PROBES[k];
           if (facadeMatFor(m.probeLot) !== m.mats0[k]) return false;
         }
+        // Normalize the frame angle into (0, PI/2): the rot
+        // field's contract (tests/orientation.test.mjs) is a
+        // frame angle in (0, 90°) with devDeg > 2.9°. A 90°
+        // frame rotation with w/d swapped is the identical
+        // footprint (same centre, same corner set), so fold
+        // rot1 into range and swap the extents to match. A
+        // folded angle within 2.9° of an axis is effectively
+        // unturned, and the state is rejected (the lot keeps
+        // the grid rather than carrying a near-zero rot).
+        let rotN = cd.rot1;
+        const k = Math.floor(rotN / (Math.PI / 2));
+        rotN -= k * (Math.PI / 2);
+        let wN = cd.depAxis === 'w' ? dep : fro;
+        let dN = cd.depAxis === 'w' ? fro : dep;
+        if (k % 2 !== 0) { const t = wN; wN = dN; dN = t; }
+        const devN = Math.min(rotN, Math.PI / 2 - rotN);
+        if (devN <= (2.9 * Math.PI) / 180) return false;
         lot.x = nx;
         lot.z = nz;
-        lot.w = cd.depAxis === 'w' ? dep : fro;
-        lot.d = cd.depAxis === 'w' ? fro : dep;
-        lot.rot = Math.round(cd.rot1 * 10000) / 10000;
-        m.c = Math.cos(cd.rot1);
-        m.s = Math.sin(cd.rot1);
+        lot.w = wN;
+        lot.d = dN;
+        lot.rot = Math.round(rotN * 10000) / 10000;
+        // cos/sin of the ROUNDED angle: pullClear's rotated
+        // checks then see exactly the corners the tests
+        // reconstruct from the emitted plan.
+        m.c = Math.cos(lot.rot);
+        m.s = Math.sin(lot.rot);
         m.fmx = fmx;
         m.fmz = fmz;
         m.appliedDelta = cd.rot1 - m.rot0;
@@ -5193,7 +5213,22 @@ export function planTaipeiBuildings(geodata, opts = {}) {
         if (placed) active.push(m);
         else { stats.lotsFacingHeld++; stats.lotsFacingHeldFacade++; }
       }
-      for (let round = 0; round <= members.length + 3 && active.length; round++) {
+      // Rounds run until a full round passes with no failure:
+      // every failure consumes one (candidate, variant) state,
+      // so the rounds settle in at most totalStates + 1 rounds.
+      // A round cap (the first draft's members.length + 3) can
+      // strand a member advanced in the final round without
+      // re-validation — that stranded state is how turned
+      // corners grazed ribbons and park polygons. If the cap
+      // is ever hit (unreachable while states only advance),
+      // the whole group reverts: safe, and counted as held.
+      const totalStates = members.reduce((n, m) => n + m.cands.length * FACE_VARIANTS.length, 0) + 1;
+      for (let round = 0; active.length; round++) {
+        if (round > totalStates) {
+          for (const m of active) { revert(m); stats.lotsFacingHeld++; stats.lotsFacingHeldClear++; }
+          active.length = 0;
+          break;
+        }
         let anyFailure = false;
         for (const m of active.slice()) {
           const lot = lots[m.i];
@@ -5236,6 +5271,11 @@ export function planTaipeiBuildings(geodata, opts = {}) {
         if (Math.abs(m.appliedDelta) >= 0.9 * Math.abs(m.dPhi)) stats.lotsFacingTurnedFull++;
         else stats.lotsFacingTurnedPartial++;
       }
+      // The rot field's contract (tests/orientation.test.mjs) is
+      // "rot fields == lotsRotated": recount from the emitted
+      // lots — the pass adds rot fields to axis lots it turns.
+      stats.lotsRotated = 0;
+      for (const lot of lots) if (lot.rot) stats.lotsRotated++;
     }
     }
   }
