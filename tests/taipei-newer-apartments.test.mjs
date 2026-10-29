@@ -153,8 +153,8 @@ test('newer apartment entrance: canopy + piers per face, face picked by length',
   assert.equal(taipeiNewerEntrance(tall).canopy.x1, taipeiEntranceCanopy(tall, 'e').canopy.x1, 'taller lot takes the east face');
   const square = { x0: 0, x1: 20, z0: 0, z1: 20 };
   assert.equal(taipeiNewerEntrance(square).canopy.z1, taipeiEntranceCanopy(square, 's').canopy.z1, 'square lot prefers south');
-  // A 2 m face is too short for a canopy.
-  assert.equal(taipeiEntranceCanopy({ x0: 0, x1: 20, z0: 0, z1: 2 }, 's'), null, 'no canopy on a sliver face');
+  // A face shorter than ~3.3 m is too short for a canopy (cw < 2 m).
+  assert.equal(taipeiEntranceCanopy({ x0: 0, x1: 3, z0: 0, z1: 20 }, 's'), null, 'no canopy on a sliver face');
 });
 
 test('newer apartments: every part stays within the cleared lot (no roadbed reach)', () => {
