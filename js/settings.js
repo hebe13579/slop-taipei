@@ -24,9 +24,12 @@
 //               works (see js/taipei-traffic.js) and wins for the boot
 //               it is given on.
 //
-// Resolution order per field: URL param > localStorage > default,
-// so links are shareable (?density=dense&specials=off&graphics=low)
-// and tests can pin a configuration without touching storage.
+// Resolution order per field: URL param > phone force (issue #268:
+// phones always start Coarse + Low, overriding stored settings, so a
+// saved Fine/High can never OOM the phone browser) > localStorage >
+// default, so links are shareable (?density=dense&specials=off&
+// graphics=low) and tests can pin a configuration without touching
+// storage.
 // The pure parts (resolution, preset tables, graphics config) are
 // node-testable; DOM is touched only inside initSettingsPanel /
 // applyGraphicsSettings, never at module level.
@@ -55,6 +58,19 @@ export const DEFAULT_SETTINGS = Object.freeze({
   trafficDensity: 'normal',
   trafficRange: 'normal',
 });
+
+// Issue #268: is this a phone? Pure and unit-tested — main.js passes
+// the browser snapshot, tests pass plain objects. A phone user-agent
+// (iPhone/iPod, Android carrying the Mobile token, small mobile
+// browsers) counts; an Android tablet (Android without the Mobile
+// token) and desktop browsers do not. The fallback catches webviews
+// that report a desktop UA: a coarse pointer + touch + a genuinely
+// small short screen side (under 900 CSS px — phones, and small
+// tablets held portrait, which also benefit from the lighter load).
+export function isMobileDevice({ userAgent = '', maxTouchPoints = 0, pointerCoarse = false, smallestScreen = Infinity } = {}) {
+  if (/iPhone|iPod|Android.*Mobile|Mobile.*Android|BlackBerry|IEMobile|Opera Mini/i.test(userAgent)) return true;
+  return pointerCoarse && maxTouchPoints > 0 && smallestScreen < 900;
+}
 
 const parseBool = (v) => {
   if (typeof v === 'boolean') return v;
@@ -85,7 +101,12 @@ export function trafficConfig(settings) {
 
 // Resolve the effective settings. `stored` may be the raw
 // localStorage string, an already-parsed object, or null.
-export function resolveSettings({ search = '', stored = null } = {}) {
+// `isMobile` (issue #268) FORCES Coarse buildings + Low graphics on
+// phones, overriding whatever storage says: a phone browser OOMs on
+// a saved Fine/High load, so the phone never reads the previous
+// density/graphics at all. A URL param still wins (an explicit,
+// current choice), and the gear can still change it live in-session.
+export function resolveSettings({ search = '', stored = null, isMobile = false } = {}) {
   const out = { ...DEFAULT_SETTINGS };
   let s = null;
   if (typeof stored === 'string') {
@@ -108,6 +129,14 @@ export function resolveSettings({ search = '', stored = null } = {}) {
     if (td) out.trafficDensity = td;
     const tr = validTrafficRange(s.trafficRange);
     if (tr) out.trafficRange = tr;
+  }
+  // Issue #268 (corrected 2026-10-29): phones SET Coarse + Low
+  // instead of reading the previous density/graphics — storage is
+  // applied above, then overridden here, so a saved Fine/High from
+  // a desktop visit can never OOM the phone browser.
+  if (isMobile) {
+    out.density = 'coarse';
+    out.graphics = 'low';
   }
   const q = new URLSearchParams(typeof search === 'string' ? search : '');
   if (q.has('specials')) {
