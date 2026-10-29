@@ -86,14 +86,15 @@ test('A8 carries the red exoskeleton (the user-photo correction)', () => {
   const red = a8.parts.filter((p) => p.flat === 0xb02a1e);
   assert.equal(red.length, 23, 'corner + face columns, band courses, pergola grid');
   assert.ok(red.every((p) => p.type === 'box'), 'frame members are thin boxes');
-  assert.ok(red.every((p) => Math.min(p.w, p.d) <= 1.2), 'no frame member is a slab');
+  assert.ok(red.every((p) => Math.min(p.w, p.d, p.h) <= 1.2),
+    'every frame member is thin in at least one dimension (columns in plan, bands in height)');
   assert.ok(a8.parts.some((p) => p.type === 'cylinder' && p.r === 8),
     'the rooftop disc from the satellite');
   assert.ok(a8.farParts && a8.farParts.length === 2,
     'far A8 is the bare slab — the frame is sub-pixel past 700 m');
 });
 
-test('far versions: simplified massing, same height, never culled', () => {
+test('far versions: simplified massing, storey silhouette kept, never culled', () => {
   assert.ok(SCHOOL_LOD_FAR_M > SCHOOL_LOD_NEAR_M, 'the #244 hysteresis band');
   for (const s of plan.landmarkTowers) {
     if (!s.farParts) continue;
@@ -103,11 +104,26 @@ test('far versions: simplified massing, same height, never culled', () => {
     const nearKeys = new Set(s.parts.map(partKey));
     assert.ok(s.farParts.every((p) => nearKeys.has(partKey(p))),
       `${s.id}: every far part matches a near part (simplification, not invention)`);
+    // Storey mass: a real floor-bearing part (tall + wide in plan).
+    // Roof dressing (thin bands, pergola strips, the rooftop disc,
+    // the glass skylight dome, 2 m roof boxes) may drop; storey
+    // mass must survive, so the far silhouette is never shorter
+    // than the tallest storey, and never taller than the near one.
+    const isStoreyMass = (p) => {
+      if (p.type === 'box') return p.h >= 5 && Math.min(p.w, p.d) >= 5;
+      if (p.type === 'cylinder') return p.h >= 5 && 2 * p.r >= 5;
+      if (p.type === 'frustum') return p.h >= 5 && Math.min(p.wB, p.dB) >= 5;
+      return false;
+    };
+    const storey = s.parts.filter(isStoreyMass);
+    assert.ok(storey.length > 0, `${s.id} has storey-mass parts`);
+    assert.ok(storey.every((p) => s.farParts.some((f) => partKey(f) === partKey(p))),
+      `${s.id}: every storey-mass part survives into the far version`);
     const nearTop = Math.max(...s.parts.map(partTop));
     const farTop = Math.max(...s.farParts.map(partTop));
-    assert.equal(farTop, nearTop, `${s.id}: far massing reaches the same height`);
-    assert.ok(s.farParts.every((p) => p.type !== 'box' || Math.min(p.w, p.d) >= 1.5 || p.h >= 5),
-      `${s.id}: no thin frame member survives into the far version`);
+    const storeyTop = Math.max(...storey.map(partTop));
+    assert.ok(farTop >= storeyTop, `${s.id}: far massing reaches the storey-mass height`);
+    assert.ok(farTop <= nearTop, `${s.id}: far massing never exceeds the near silhouette`);
   }
   const withFar = plan.landmarkTowers.filter((s) => s.farParts).map((s) => s.id).sort();
   assert.deepEqual(withFar, [
