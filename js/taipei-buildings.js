@@ -3879,6 +3879,17 @@ export function planTaipeiBuildings(geodata, opts = {}) {
   // neighbouring city blocks that are not campus land.
   const schoolPlan = planSchoolCampuses(geodata, landmarkSites, carriageways, originLatLon);
   for (const s of schoolPlan.structures) siteStructures.push(s);
+  // Issue #132: drape lifts — when the boot injects opts.groundAt,
+  // every registry/site structure records its lift (the draped
+  // ground at its centre); the renderer (createTaipeiLandmarkTowers)
+  // and the colliders (structureColliders) apply it. Without
+  // groundAt the plan carries no lift field at all.
+  if (typeof opts.groundAt === 'function') {
+    for (const s of [...landmarkTowers, ...siteStructures]) {
+      const lift = opts.groundAt(s.x, s.z);
+      if (lift > 0) s.lift = lift;
+    }
+  }
   // MRT elevated stations (issue #118): the structures straddle the
   // guideway corridor, so their footprint bounding boxes join the
   // exclusion sites — no generic lot is planned through a station.
@@ -5420,7 +5431,10 @@ export function taipeiVerticalSigns(lot) {
 // stream centre, and no colliders (Taipei buildings stay visual-only,
 // as in the first buildings increment — the controllers pass the flat
 // tile at y=0). Pure data, like the planner.
-export function taipeiCityBlocksOptions(geodata, plan = planTaipeiBuildings(geodata)) {
+export function taipeiCityBlocksOptions(geodata, plan = planTaipeiBuildings(geodata), opts = {}) {
+  // Issue #132: opts.groundAt (the drape height field, injected by
+  // the boot) seats lots on slopes — see the plinth rule below.
+  const groundAt = typeof opts.groundAt === 'function' ? opts.groundAt : null;
   return {
     lots: plan.lots.map((lot) => {
       const r = {
@@ -5431,6 +5445,31 @@ export function taipeiCityBlocksOptions(geodata, plan = planTaipeiBuildings(geod
         h: lot.h,
         mat: facadeMatFor(lot),
       };
+      // Issue #132: the plinth rule. A lot on draped ground seats
+      // its base at the LOWEST ground under its footprint (four
+      // corners + centre, in the lot's turned frame) and grows
+      // taller by the centre-to-base drop, so the roofline stays
+      // at the centre height, no corner floats, and the uphill
+      // side buries the extra storeys like a hillside podium.
+      // Flat lots keep no y field and their authored h, exactly
+      // as before.
+      if (groundAt) {
+        const hw = lot.w / 2, hd = lot.d / 2;
+        const c = Math.cos(lot.rot || 0), s = Math.sin(lot.rot || 0);
+        let minG = Infinity, maxG = -Infinity;
+        for (const [lx, lz] of [[-hw, -hd], [hw, -hd], [hw, hd], [-hw, hd]]) {
+          const g = groundAt(lot.x + lx * c + lz * s, lot.z - lx * s + lz * c);
+          if (g < minG) minG = g;
+          if (g > maxG) maxG = g;
+        }
+        const centreG = groundAt(lot.x, lot.z);
+        if (centreG < minG) minG = centreG;
+        if (centreG > maxG) maxG = centreG;
+        if (maxG > 0) {
+          r.y = minG;
+          r.h = lot.h + (centreG - minG);
+        }
+      }
       // Issue #62: a turned lot carries its frontage angle — the
       // rect stays the lot's LOCAL frame and buildCityBlocks massed
       // it in that frame, turned into place about the lot centre
@@ -5911,6 +5950,11 @@ export function createTaipeiLandmarkTowers(THREE, plan, factories) {
     };
     const sub = new THREE.Group();
     sub.name = s.id;
+    // Issue #132: a structure the plan lifted (s.lift, the draped
+    // ground at its centre) rides its lift as a whole group — the
+    // plinth, shaft, roof and (for schools) the instanced trees
+    // all move together. Unlifted structures sit at grade 0.
+    if (s.lift) sub.position.y = s.lift;
     // Issue #244: bucket mergeable parts per material object, and
     // divert school trees into per-campus instanced meshes. Meshes
     // are still built exactly as before (same constructors, same
