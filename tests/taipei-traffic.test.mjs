@@ -162,9 +162,17 @@ test('network: generic builder keeps a strongly connected drivable core', () => 
   // Re-pinned for issue #252 (same cross-run proof as the census test):
   // the deck/ramp drop costs 6% of the core — 20,984 / 15,229 / 6,890 —
   // because the bridge/tunnel crossings stay in the graph.
+  // Re-pinned for issue #254: taipeiTrafficEnv now serves the DECK
+  // graph (ramps + decks rejoin through the level-join rule), so the
+  // core grows to 21,387 / 16,305 / 7,478 — 1,076 more directed
+  // edges, 588 more nodes, all of them deck/ramp fabric attached to
+  // the same core through ramps. Cross-run proof: the ground-only
+  // builder on THIS geodata reproduces 20,984 / 15,229 / 6,890
+  // exactly (asserted in tests/taipei-deck-traffic.test.mjs), so the
+  // whole delta is the deck graph and nothing else.
   const env = taipeiTrafficEnv(200);
   const net = buildRoadNetwork([], [], env.networkEnv);
-  assert.equal(net.nodes.length, 6890);
-  assert.equal(net.edges.length, 15229);
-  assert.equal(net.paintEdges.length, 20984);
+  assert.equal(net.nodes.length, 7478);
+  assert.equal(net.edges.length, 16305);
+  assert.equal(net.paintEdges.length, 21387);
 });

@@ -59,13 +59,14 @@ const DRIVABLE = new Set([
 // already carries the exact heights the renderer draws — per-point h
 // from the build-time Dijkstra over shared OSM node keys, so a ramp's
 // top vertex and the deck vertex it joins carry the SAME height.
-// The sampler below answers a different question from
-// buildDriveModel's sample(): the height of the deck surface
-// belonging to ONE level at a point, so a stacked crossing resolves
-// by layer instead of by closeness to a driving hint. Same segment
-// math (linear h interpolation inside the corridor), same digest —
-// a cross-check test pins the two against each other. No geodata
-// change: this runs at traffic-env build time, memoized per digest.
+// Cars sample the digest, not a new height table, and the match is
+// per EDGE, not per sample: parallel carriageways of one bridge
+// share a layer and overlap in plan, so per-sample nearest-centreline
+// flips between their profiles mid-span (their climbs phase
+// differently). Matching the whole edge to one digest line — the
+// line whose polyline the edge's chord best follows — keeps each
+// car on its own carriageway. No geodata change: this runs at
+// traffic-env build time, memoized per digest.
 // ------------------------------------------------------------------
 const DECK_SAMPLE_STEP = 8; // m, max spacing of height samples along a deck edge
 const HEIGHT_STEP_TOL = 1.0; // m, a larger step at a chained joint splits the run instead of climbing a cliff
@@ -78,9 +79,13 @@ function deckSampler(elevated) {
   const CELL = 64;
   const cells = new Map();
   const key = (ix, iz) => (ix + 4096) * 8192 + (iz + 4096);
+  const segsByLine = new Map(); // digest line -> its segments
+  const segOwner = new Map(); // segment -> its digest line
   for (const line of elevated.lines) {
     const n = (line.pts?.length || 0) / 2;
     const half = (line.width || 6) / 2;
+    const segs = [];
+    segsByLine.set(line, segs);
     for (let i = 0; i + 1 < n; i++) {
       const ax = line.pts[2 * i], az = line.pts[2 * i + 1];
       const bx = line.pts[2 * i + 2], bz = line.pts[2 * i + 3];
@@ -91,6 +96,8 @@ function deckSampler(elevated) {
         ax, az, ux: dx / len, uz: dz / len, len, half,
         hA: line.h?.[i] ?? 0, hB: line.h?.[i + 1] ?? 0, layer: line.layer ?? 1,
       };
+      segs.push(seg);
+      segOwner.set(seg, line);
       const minX = Math.min(ax, bx) - half, maxX = Math.max(ax, bx) + half;
       const minZ = Math.min(az, bz) - half, maxZ = Math.max(az, bz) + half;
       for (let ix = Math.floor(minX / CELL); ix <= Math.floor(maxX / CELL); ix++) {
@@ -103,60 +110,94 @@ function deckSampler(elevated) {
       }
     }
   }
-  // Height of the `level` deck surface at (x, z), or 0 when no deck
-  // of that level covers the point. Candidates must contain the
-  // point in their corridor (plus a small margin: the query chord
-  // is the RDP-simplified way, up to ~1 m off the digest polyline);
-  // the caller's own layer wins over any other, then the nearest
-  // centreline. The returned height is the asphalt surface the
-  // renderer draws: digest h + ASPHALT_LIFT.
-  const sample = (x, z, level) => {
-    const list = cells.get(key(Math.floor(x / CELL), Math.floor(z / CELL)));
-    if (!list) return 0;
-    let bestH = 0, bestLat = Infinity, haveBest = false, bestLayer = false;
-    for (const seg of list) {
-      const px = x - seg.ax, pz = z - seg.az;
-      const t = Math.max(0, Math.min(1, (px * seg.ux + pz * seg.uz) / seg.len));
-      const lat = Math.abs(px * -seg.uz + pz * seg.ux);
-      if (lat > seg.half + 1.5) continue;
-      const layerMatch = seg.layer === level;
-      if (haveBest && bestLayer && !layerMatch) continue;
-      if (haveBest && layerMatch === bestLayer && lat >= bestLat) continue;
-      bestH = seg.hA + (seg.hB - seg.hA) * t;
-      bestLat = lat;
-      bestLayer = layerMatch;
-      haveBest = true;
-    }
-    return haveBest ? bestH + ASPHALT_LIFT : 0;
+  const segDist = (seg, x, z) => {
+    const px = x - seg.ax, pz = z - seg.az;
+    const t = Math.max(0, Math.min(1, (px * seg.ux + pz * seg.uz) / seg.len));
+    return { d: Math.hypot(px - seg.ux * seg.len * t, pz - seg.uz * seg.len * t), t };
   };
-  const out = { sample };
+  // The digest line the edge (ax, az) -> (bx, bz) follows: among
+  // the lines of the edge's layer reaching the edge's samples, the
+  // one with the smallest mean distance from the chord (missing
+  // coverage counts 25 m). The true line scores ~1 m (the chord is
+  // the RDP-simplified way); a parallel carriageway scores its
+  // separation (~10 m). Null when nothing fits: the edge is
+  // unplaced and the caller drops it rather than driving it flat.
+  const match = (ax, az, bx, bz, level) => {
+    const len = Math.hypot(bx - ax, bz - az);
+    const n = Math.max(1, Math.ceil(len / DECK_SAMPLE_STEP));
+    const scores = new Map(); // line -> { total, count }
+    for (let i = 0; i <= n; i++) {
+      const t = i / n;
+      const x = ax + (bx - ax) * t, z = az + (bz - az) * t;
+      const list = cells.get(key(Math.floor(x / CELL), Math.floor(z / CELL)));
+      if (!list) continue;
+      const seen = new Map(); // line -> best distance at this point
+      for (const seg of list) {
+        if (seg.layer !== level) continue;
+        const owner = segOwner.get(seg);
+        const { d } = segDist(seg, x, z);
+        if (d > seg.half + 1.5) continue;
+        if (!seen.has(owner) || d < seen.get(owner)) seen.set(owner, d);
+      }
+      for (const [owner, d] of seen) {
+        let s = scores.get(owner);
+        if (!s) scores.set(owner, (s = { total: 0, count: 0 }));
+        s.total += d;
+        s.count++;
+      }
+    }
+    let best = null, bestScore = Infinity;
+    for (const [line, s] of scores) {
+      // Points with no covering segment count 25 m against the line.
+      const score = (s.total + (n + 1 - s.count) * 25) / (n + 1);
+      if (score < bestScore) { bestScore = score; best = line; }
+    }
+    return bestScore <= 4 ? best : null;
+  };
+  // Height of `line` at (x, z): the projection onto its nearest
+  // segment, interpolated h, plus ASPHALT_LIFT (the asphalt surface
+  // the renderer draws).
+  const heightOn = (line, x, z) => {
+    let bestD = Infinity, bestH = 0;
+    for (const seg of segsByLine.get(line) || []) {
+      const { d, t } = segDist(seg, x, z);
+      if (d >= bestD) continue;
+      bestD = d;
+      bestH = seg.hA + (seg.hB - seg.hA) * t;
+    }
+    return bestH + ASPHALT_LIFT;
+  };
+  const out = { match, heightOn };
   deckSamplerCache.set(elevated, out);
   return out;
 }
 
 // Height samples along one roadGraph edge, a -> b order, at most
-// DECK_SAMPLE_STEP apart plus both endpoints. Returns null when the
-// edge is flat (level <= 0, or no digest covers it): flat edges need
-// no profile and their links stay 7-tuples, exactly as before.
-// Returns INVALID_PROFILE when the samples are not one continuous
-// climb/cruise/fall — an interior near-zero sample, or a jump over
-// 3 m between adjacent 8 m samples (the steepest real ramp is
-// 9.5%, under 0.8 m per sample), means the query chord left its own
-// digest line (a parallel lane, a stacked crossing) and the profile
-// would teleport a car. The caller drops such edges rather than
-// driving a broken profile.
+// DECK_SAMPLE_STEP apart plus both endpoints, read off the ONE
+// digest line the edge matches (see deckSampler.match). Returns
+// null when the edge is flat (level <= 0, or its line is at
+// ground height everywhere): flat edges need no profile and their
+// links stay 7-tuples, exactly as before. Returns INVALID_PROFILE
+// when the samples are not one continuous climb/cruise/fall — an
+// interior near-zero sample, or a jump over 3 m between adjacent
+// 8 m samples (the steepest real ramp is 9.5%, under 0.8 m per
+// sample), means the match is broken and the profile would
+// teleport a car. The caller drops such edges rather than driving
+// a broken profile.
 const INVALID_PROFILE = { invalid: true };
 
 function deckEdgeProfile(sampler, edge, ax, az, bx, bz) {
   const level = edge.level || 0;
   if (!sampler || level < 1) return null;
+  const line = sampler.match(ax, az, bx, bz, level);
+  if (!line) return null;
   const len = Math.hypot(bx - ax, bz - az);
   const n = Math.max(1, Math.ceil(len / DECK_SAMPLE_STEP));
   const values = [];
   let maxH = 0;
   for (let i = 0; i <= n; i++) {
     const t = i / n;
-    const h = sampler.sample(ax + (bx - ax) * t, az + (bz - az) * t, level);
+    const h = sampler.heightOn(line, ax + (bx - ax) * t, az + (bz - az) * t);
     values.push(h);
     if (h > maxH) maxH = h;
   }
