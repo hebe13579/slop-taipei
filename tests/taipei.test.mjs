@@ -606,6 +606,15 @@ test('landmark structures: true positions and heights, sites kept clear', (t) =>
     // wheel node 5121602758 on the mall's south front.
     'national-palace-museum': { h: 27.5, x: -1656.1, z: -7664.4 },
     'miramar-entertainment-park': { h: 100, x: -734.7, z: -5527.6 },
+    // Batch 11 (issue #255): the Xinyi five. Hall 1, ATT and
+    // Bellavita heights are ESTIMATED from floor counts (no
+    // published overall height found) and flagged as such in
+    // the registry; the Hyatt's 104 m is published (EN
+    // Wikipedia). Positions are the OSM outline centres.
+    'twtc-exhibition-hall-1': { h: 38, x: -262.0, z: -112.0 },
+    'grand-hyatt-taipei': { h: 104, x: -238.4, z: -255.9 },
+    'att-4-fun': { h: 46, x: 105.1, z: -257.9 },
+    'bellavita': { h: 42, x: 275.0, z: -740.0 },
   };
   assert.equal(plan.landmarkTowers.length, Object.keys(expected).length, 'all verified structures present');
   const partTop = (p) => (p.y0 || 0) + p.h + (p.type === 'ridge' ? p.ridgeH : 0);
@@ -758,7 +767,9 @@ test('landmark batch 3: two-slab Cathay rebuild, W, Songshan, Eslite, Arena', ()
       && s.id !== 'shin-kong-mitsukoshi-a9' && s.id !== 'shin-kong-mitsukoshi-a11'
       && s.id !== 'dayeh-takashimaya' && s.id !== 'tianmu-stadium'
       && s.id !== 'shipai-junior-high' && s.id !== 'qingjiang-elementary'
-      && s.id !== 'jianguo-high-school' && s.id !== 'national-palace-museum') {
+      && s.id !== 'jianguo-high-school' && s.id !== 'national-palace-museum'
+      && s.id !== 'twtc-exhibition-hall-1' && s.id !== 'att-4-fun'
+      && s.id !== 'bellavita') {
       assert.equal(s.estimated, false, `${s.id} height is published, not estimated`);
     }
   }
@@ -1221,7 +1232,7 @@ test('taiwan types: family zoning, distribution and rooftop clamp', (t) => {
   // the glass band and re-roll to the masonry/Taiwan families.
   // facadeMatFor is unedited; the census moves because the
   // heights do: glass 8,203 − 362 = 7,841.
-  assert.equal(glass, 7213, 'glass family counts after #136 + #139 + #135 + #142, composed with #134 + #137, #144, #165, #124, #166, #186, #226, #213, #219 and #221 (campus clearing removes 628 glass lots)');
+  assert.equal(glass, 7206, 'glass family counts after #136 + #139 + #135 + #142, composed with #134 + #137, #144, #165, #124, #166, #186, #226, #213, #219 and #221 (campus clearing removes 628 glass lots) and #255 (the 4 registry sites exclude 32 lots, 7 of them glass, no kept-lot re-rolls — lot-by-lot diff on this tree)');
   // (The #186 PR2 branch carried its own stale-base version of
   // this composition — glass 4,120 -> 4,419 on the pre-#124
   // plan — which the merge union initially kept as a duplicate
@@ -1379,7 +1390,7 @@ test('arcade parts: recessed core and full-perimeter colonnade', (t) => {
   const f7 = opts.lots.filter((l) => l.mat === 7);
   const withArcade = f7.filter((l) => l.arcade);
   const eligible = f7.filter((l) => (l.x1 - l.x0) >= 11 && (l.z1 - l.z0) >= 11);
-  assert.equal(f7.length, 6687, 'F7 census after #124, composed with #166, #186, #226, #213, #219 and #221 (campus clearing removes 519 F7 lots)');
+  assert.equal(f7.length, 6685, 'F7 census after #124, composed with #166, #186, #226, #213, #219 and #221 (campus clearing removes 519 F7 lots) and #255 (the 4 registry sites exclude 32 lots, 1 of them F7, and 1 kept lot leaves F7 — lot-by-lot diff on this tree)');
   assert.equal(withArcade.length, eligible.length, `every size-eligible F7 lot carries the arcade (${withArcade.length}/${eligible.length})`);
   const totalCols = withArcade.reduce((s, l) => s + l.arcade.columns.length, 0);
   assert.ok(totalCols / withArcade.length < 30, `columns per arcade lot sane (${(totalCols / withArcade.length).toFixed(1)})`);

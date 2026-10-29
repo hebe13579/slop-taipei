@@ -855,7 +855,9 @@ const LANDMARK_STRUCTURES = [
     // stay inside the existing slab's plan except the two band
     // courses, trimmed flush on the WEST face (the #42 audit
     // caught a 0.25 m² clip on the service drive there) and
-    // proud 0.7 m on the east. The frame drops out of the far version
+    // proud 0.7 m on the east. The roofline tops at 38.5 m
+    // exactly: the cap thins to a 0.3 m lip at 37.3 m and the
+    // red pergola rises 1.2 m above it. The frame drops out of the far version
     // (sub-pixel past 700 m) — the slab stays visible.
     id: 'shin-kong-mitsukoshi-a8', name: 'Shin Kong Mitsukoshi Xinyi Place A8', nameZh: '新光三越信義新天地A8館',
     lat: 25.038272, lon: 121.5668, realHeight: 38.5, estimated: true, color: 0xb5ab97,
@@ -863,39 +865,39 @@ const LANDMARK_STRUCTURES = [
     facade: { kind: 'curtain', glassTint: 0x39434a, frameTint: 0xd8d5cc, windowWidth: 3.4, floorHeight: 5.5, litProbability: 0.45, warmth: 0.6, reflectivity: 0.5, seed: 165.32 },
     parts: [
       { type: 'box', w: 49, d: 147, h: 37 },
-      { type: 'box', w: 49, d: 149, h: 1.5, y0: 37 },
+      { type: 'box', w: 49, d: 149, h: 0.3, y0: 37 },
       // Red exoskeleton: corner columns + long-face columns.
-      { type: 'box', w: 1.2, d: 1.2, h: 37, dx: -23.5, dz: -72, flat: 0xb02a1e },
-      { type: 'box', w: 1.2, d: 1.2, h: 37, dx: 23.5, dz: -72, flat: 0xb02a1e },
-      { type: 'box', w: 1.2, d: 1.2, h: 37, dx: -23.5, dz: 72, flat: 0xb02a1e },
-      { type: 'box', w: 1.2, d: 1.2, h: 37, dx: 23.5, dz: 72, flat: 0xb02a1e },
-      { type: 'box', w: 1, d: 1, h: 37, dx: -24.5, dz: -48, flat: 0xb02a1e },
-      { type: 'box', w: 1, d: 1, h: 37, dx: 24.5, dz: -48, flat: 0xb02a1e },
-      { type: 'box', w: 1, d: 1, h: 37, dx: -24.5, dz: -24, flat: 0xb02a1e },
-      { type: 'box', w: 1, d: 1, h: 37, dx: 24.5, dz: -24, flat: 0xb02a1e },
-      { type: 'box', w: 1, d: 1, h: 37, dx: -24.5, dz: 0, flat: 0xb02a1e },
-      { type: 'box', w: 1, d: 1, h: 37, dx: 24.5, dz: 0, flat: 0xb02a1e },
-      { type: 'box', w: 1, d: 1, h: 37, dx: -24.5, dz: 24, flat: 0xb02a1e },
-      { type: 'box', w: 1, d: 1, h: 37, dx: 24.5, dz: 24, flat: 0xb02a1e },
-      { type: 'box', w: 1, d: 1, h: 37, dx: -24.5, dz: 48, flat: 0xb02a1e },
-      { type: 'box', w: 1, d: 1, h: 37, dx: 24.5, dz: 48, flat: 0xb02a1e },
+      { type: 'box', w: 1.2, d: 1.2, h: 37.3, dx: -23.5, dz: -72, flat: 0xb02a1e },
+      { type: 'box', w: 1.2, d: 1.2, h: 37.3, dx: 23.5, dz: -72, flat: 0xb02a1e },
+      { type: 'box', w: 1.2, d: 1.2, h: 37.3, dx: -23.5, dz: 72, flat: 0xb02a1e },
+      { type: 'box', w: 1.2, d: 1.2, h: 37.3, dx: 23.5, dz: 72, flat: 0xb02a1e },
+      { type: 'box', w: 1, d: 1, h: 37.3, dx: -24.5, dz: -48, flat: 0xb02a1e },
+      { type: 'box', w: 1, d: 1, h: 37.3, dx: 24.5, dz: -48, flat: 0xb02a1e },
+      { type: 'box', w: 1, d: 1, h: 37.3, dx: -24.5, dz: -24, flat: 0xb02a1e },
+      { type: 'box', w: 1, d: 1, h: 37.3, dx: 24.5, dz: -24, flat: 0xb02a1e },
+      { type: 'box', w: 1, d: 1, h: 37.3, dx: -24.5, dz: 0, flat: 0xb02a1e },
+      { type: 'box', w: 1, d: 1, h: 37.3, dx: 24.5, dz: 0, flat: 0xb02a1e },
+      { type: 'box', w: 1, d: 1, h: 37.3, dx: -24.5, dz: 24, flat: 0xb02a1e },
+      { type: 'box', w: 1, d: 1, h: 37.3, dx: 24.5, dz: 24, flat: 0xb02a1e },
+      { type: 'box', w: 1, d: 1, h: 37.3, dx: -24.5, dz: 48, flat: 0xb02a1e },
+      { type: 'box', w: 1, d: 1, h: 37.3, dx: 24.5, dz: 48, flat: 0xb02a1e },
       // Horizontal band courses, proud of the facade.
       { type: 'box', w: 49.6, d: 148.5, h: 0.8, y0: 12, dx: 0.4, flat: 0xb02a1e },
       { type: 'box', w: 49.6, d: 148.5, h: 0.8, y0: 24, dx: 0.4, flat: 0xb02a1e },
       // Roof pergola grid.
-      { type: 'box', w: 1, d: 149, h: 1.2, y0: 38.5, dx: -23.5, flat: 0xb02a1e },
-      { type: 'box', w: 1, d: 149, h: 1.2, y0: 38.5, dx: 23.5, flat: 0xb02a1e },
-      { type: 'box', w: 49, d: 1, h: 1.2, y0: 38.5, dz: -72, flat: 0xb02a1e },
-      { type: 'box', w: 49, d: 1, h: 1.2, y0: 38.5, dz: -36, flat: 0xb02a1e },
-      { type: 'box', w: 49, d: 1, h: 1.2, y0: 38.5, dz: 0, flat: 0xb02a1e },
-      { type: 'box', w: 49, d: 1, h: 1.2, y0: 38.5, dz: 36, flat: 0xb02a1e },
-      { type: 'box', w: 49, d: 1, h: 1.2, y0: 38.5, dz: 72, flat: 0xb02a1e },
+      { type: 'box', w: 1, d: 149, h: 1.2, y0: 37.3, dx: -23.5, flat: 0xb02a1e },
+      { type: 'box', w: 1, d: 149, h: 1.2, y0: 37.3, dx: 23.5, flat: 0xb02a1e },
+      { type: 'box', w: 49, d: 1, h: 1.2, y0: 37.3, dz: -72, flat: 0xb02a1e },
+      { type: 'box', w: 49, d: 1, h: 1.2, y0: 37.3, dz: -36, flat: 0xb02a1e },
+      { type: 'box', w: 49, d: 1, h: 1.2, y0: 37.3, dz: 0, flat: 0xb02a1e },
+      { type: 'box', w: 49, d: 1, h: 1.2, y0: 37.3, dz: 36, flat: 0xb02a1e },
+      { type: 'box', w: 49, d: 1, h: 1.2, y0: 37.3, dz: 72, flat: 0xb02a1e },
       // Rooftop disc (the blue/white circular feature on satellite).
-      { type: 'cylinder', r: 8, h: 1, y0: 38.5, dz: 40, flat: 0xa8c8d8 },
+      { type: 'cylinder', r: 8, h: 1, y0: 37.3, dz: 40, flat: 0xa8c8d8 },
     ],
     farParts: [
       { type: 'box', w: 49, d: 147, h: 37 },
-      { type: 'box', w: 49, d: 149, h: 1.5, y0: 37 },
+      { type: 'box', w: 49, d: 149, h: 0.3, y0: 37 },
     ],
   },
   {
@@ -1008,25 +1010,27 @@ const LANDMARK_STRUCTURES = [
     sign: { text: 'GRAND HYATT', w: 30, h: 3, y: 5, dx: -6, dz: 42.6, bg: '#3a2e20', fg: '#e8dcc0' },
     // Massing shaped around the complex's 5 m service loop (the
     // #42 audit: the full-rect podium crossed the loop's south
-    // and east legs). The tower slab is three segments split by
+    // and east legs). The slab segments top at 100 m and the
+    // octagonal roof feature rises 4 m to the published 104 m.
+    // The tower slab is three segments split by
     // the loop's E-W leg, the lobby podium sits south of the
     // slab, and a low entrance block fronts the forecourt —
     // the U/courtyard read survives, the drives stay clear.
     parts: [
       { type: 'box', w: 112, d: 32, h: 18, dx: -3, dz: 12 },
       { type: 'box', w: 108, d: 14, h: 8, dx: -6, dz: 35 },
-      { type: 'box', w: 30, d: 28, h: 86, y0: 18, dx: -44.6, dz: -17.1 },
-      { type: 'box', w: 53, d: 22, h: 86, y0: 18, dx: -1.1, dz: -14.1 },
-      { type: 'box', w: 27, d: 28, h: 86, y0: 18, dx: 40.9, dz: -17.1 },
+      { type: 'box', w: 30, d: 28, h: 82, y0: 18, dx: -44.6, dz: -17.1 },
+      { type: 'box', w: 53, d: 22, h: 82, y0: 18, dx: -1.1, dz: -14.1 },
+      { type: 'box', w: 27, d: 28, h: 82, y0: 18, dx: 40.9, dz: -17.1 },
       { type: 'cylinder', r: 10, h: 0.6, y0: 18, dx: 0, dz: 12, flat: 0x7fa8b8 },
-      { type: 'cylinder', r: 13, h: 4, y0: 104, dx: -1, dz: -10, flat: 0xc98a6b },
+      { type: 'cylinder', r: 13, h: 4, y0: 100, dx: -1, dz: -10, flat: 0xc98a6b },
     ],
     farParts: [
       { type: 'box', w: 112, d: 32, h: 18, dx: -3, dz: 12 },
       { type: 'box', w: 108, d: 14, h: 8, dx: -6, dz: 35 },
-      { type: 'box', w: 30, d: 28, h: 86, y0: 18, dx: -44.6, dz: -17.1 },
-      { type: 'box', w: 53, d: 22, h: 86, y0: 18, dx: -1.1, dz: -14.1 },
-      { type: 'box', w: 27, d: 28, h: 86, y0: 18, dx: 40.9, dz: -17.1 },
+      { type: 'box', w: 30, d: 28, h: 82, y0: 18, dx: -44.6, dz: -17.1 },
+      { type: 'box', w: 53, d: 22, h: 82, y0: 18, dx: -1.1, dz: -14.1 },
+      { type: 'box', w: 27, d: 28, h: 82, y0: 18, dx: 40.9, dz: -17.1 },
     ],
   },
   {
@@ -1080,7 +1084,7 @@ const LANDMARK_STRUCTURES = [
       { type: 'box', w: 14, d: 14, h: 42, dx: 40, dz: -24 },
       { type: 'box', w: 14, d: 14, h: 42, dx: -40, dz: 24 },
       { type: 'box', w: 14, d: 14, h: 42, dx: 40, dz: 24 },
-      { type: 'dome', rx: 26, rz: 17, h: 6, y0: 38, flat: { color: 0xbfd4cc, roughness: 0.25, metalness: 0.4 } },
+      { type: 'dome', rx: 26, rz: 17, h: 6, y0: 36, flat: { color: 0xbfd4cc, roughness: 0.25, metalness: 0.4 } },
     ],
     farParts: [
       { type: 'box', w: 96, d: 64, h: 36 },

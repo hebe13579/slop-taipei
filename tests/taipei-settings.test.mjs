@@ -104,32 +104,37 @@ test('density fine (default): the shipped plan, byte-identical', () => {
   // after #221 campus clearing): the PR base predated #186/#221, so its
   // fingerprints described an older city. The identity that matters —
   // explicit fine == implicit default — is asserted above and holds.
-  assert.equal(implicit.lots, 68570);
-  assert.equal(implicit.hash, '5ce99501');
+  // Re-pinned for issue #255: the 4 new registry sites (TWTC Hall 1,
+  // Grand Hyatt, ATT 4 FUN, Bellavita) exclude exactly 32 lots —
+  // 17 + 4 + 7 + 4, counted lot-by-lot inside the site rects on the
+  // pre-#255 plan — at every density; the fine-classifier stats are
+  // untouched (the excluded lots are all coarse-class).
+  assert.equal(implicit.lots, 68538);
+  assert.equal(implicit.hash, '73f5396');
   assert.equal(implicit.stats.blocksFine, 2897);
   assert.equal(implicit.stats.lotsFine, 44923);
 });
 
 test('density coarse: the pre-#124 rule (fine classifier never fires)', () => {
   const fp = fingerprint(planTaipeiBuildings(TAIPEI_GEO, { density: 'coarse' }));
-  assert.equal(fp.lots, 36191); // re-pinned at the merge gate: composed tile (see the fine test)
-  assert.equal(fp.hash, '9a2285d3');
+  assert.equal(fp.lots, 36159); // re-pinned for #255: the 4 new registry sites exclude 32 lots at every density (see the fine test)
+  assert.equal(fp.hash, '1ca59810');
   assert.equal(fp.stats.blocksFine, 0);
   assert.equal(fp.stats.lotsFine, 0);
 });
 
 test('density dense: the #124 study draft at ~100k lots', () => {
   const fp = fingerprint(planTaipeiBuildings(TAIPEI_GEO, { density: 'dense' }));
-  assert.equal(fp.lots, 93228); // re-pinned at the merge gate: composed tile (see the fine test)
-  assert.equal(fp.hash, 'b2dcb854');
+  assert.equal(fp.lots, 93196); // re-pinned for #255: the 4 new registry sites exclude 32 lots at every density (see the fine test)
+  assert.equal(fp.hash, 'f6135803');
   assert.equal(fp.stats.blocksFine, 2897, 'dense keeps the fine classifier — only the pitch tightens');
   assert.equal(fp.stats.lotsFine, 69581);
 });
 
 test('density unknown value plans as fine', () => {
   const fp = fingerprint(planTaipeiBuildings(TAIPEI_GEO, { density: 'huge' }));
-  assert.equal(fp.lots, 68570); // re-pinned at the merge gate: composed tile (see the fine test)
-  assert.equal(fp.hash, '5ce99501');
+  assert.equal(fp.lots, 68538); // re-pinned for #255: the 4 new registry sites exclude 32 lots at every density (see the fine test)
+  assert.equal(fp.hash, '73f5396');
 });
 
 // Source contracts for the UI surface (the browser evidence in the
