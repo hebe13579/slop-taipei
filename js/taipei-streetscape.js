@@ -95,6 +95,42 @@ export function pointInRing(x, z, ring) {
   return inside;
 }
 
+// Exclusion-polygon index: caller-supplied rings (junction caps,
+// roundabout discs, trench slots, and — issue #246 — kit pads) are
+// filed under every 64 m cell their bbox touches, so a query only
+// tests the rings near the point. Behaviour-identical to the
+// linear scan it replaces: a ring whose bbox contains the point is
+// always filed in the point's cell, the same bbox + pointInRing
+// tests run, and the result is a boolean OR (order-free).
+const EXCLUSION_CELL = 64;
+export function buildExclusionIndex(rings, cellSize = EXCLUSION_CELL) {
+  const grid = new Map();
+  const key = (cx, cz) => `${cx},${cz}`;
+  for (const ring of rings || []) {
+    let minX = Infinity, maxX = -Infinity, minZ = Infinity, maxZ = -Infinity;
+    for (let i = 0; i < ring.length; i += 2) {
+      minX = Math.min(minX, ring[i]); maxX = Math.max(maxX, ring[i]);
+      minZ = Math.min(minZ, ring[i + 1]); maxZ = Math.max(maxZ, ring[i + 1]);
+    }
+    const p = { ring, minX, maxX, minZ, maxZ };
+    for (let cx = Math.floor(minX / cellSize); cx <= Math.floor(maxX / cellSize); cx++) {
+      for (let cz = Math.floor(minZ / cellSize); cz <= Math.floor(maxZ / cellSize); cz++) {
+        const k = key(cx, cz);
+        if (!grid.has(k)) grid.set(k, []);
+        grid.get(k).push(p);
+      }
+    }
+  }
+  return (x, z) => {
+    const cell = grid.get(key(Math.floor(x / cellSize), Math.floor(z / cellSize)));
+    if (!cell) return false;
+    for (const p of cell) {
+      if (x >= p.minX && x <= p.maxX && z >= p.minZ && z <= p.maxZ && pointInRing(x, z, p.ring)) return true;
+    }
+    return false;
+  };
+}
+
 // ---------------------------------------------------------------------
 // Issue #27 — sidewalk bands
 
@@ -385,16 +421,7 @@ export function planStreetTrees(geodata, plan, opts = {}) {
   // carriageway checks test centreline distance, and a cap corner
   // can sit 20+ m from every centreline — measured 147 planned
   // trees inside cap polygons tile-wide before this exclusion.
-  const exclPolys = (opts.exclusions || []).map((ring) => {
-    let minX = Infinity, maxX = -Infinity, minZ = Infinity, maxZ = -Infinity;
-    for (let i = 0; i < ring.length; i += 2) {
-      minX = Math.min(minX, ring[i]); maxX = Math.max(maxX, ring[i]);
-      minZ = Math.min(minZ, ring[i + 1]); maxZ = Math.max(maxZ, ring[i + 1]);
-    }
-    return { ring, minX, maxX, minZ, maxZ };
-  });
-  const inExclusion = (x, z) => exclPolys.some((p) =>
-    x >= p.minX && x <= p.maxX && z >= p.minZ && z <= p.maxZ && pointInRing(x, z, p.ring));
+  const inExclusion = buildExclusionIndex(opts.exclusions);
 
   const rejected = { junction: 0, carriageway: 0, lot: 0, site: 0, cap: 0 };
 
@@ -579,16 +606,7 @@ export function planParkTrees(geodata, plan, opts = {}) {
   // roundabout discs/aprons from the boot), same treatment as
   // water: a park tree must never stand on junction asphalt either
   // (riverside-park ramp-merge caps carried 6 each).
-  const exclPolys = (opts.exclusions || []).map((ring) => {
-    let minX = Infinity, maxX = -Infinity, minZ = Infinity, maxZ = -Infinity;
-    for (let i = 0; i < ring.length; i += 2) {
-      minX = Math.min(minX, ring[i]); maxX = Math.max(maxX, ring[i]);
-      minZ = Math.min(minZ, ring[i + 1]); maxZ = Math.max(maxZ, ring[i + 1]);
-    }
-    return { ring, minX, maxX, minZ, maxZ };
-  });
-  const inExclusion = (x, z) => exclPolys.some((p) =>
-    x >= p.minX && x <= p.maxX && z >= p.minZ && z <= p.maxZ && pointInRing(x, z, p.ring));
+  const inExclusion = buildExclusionIndex(opts.exclusions);
 
   // Building lots + the 101 site + landmark structure sites (SYS
   // Memorial Hall stands inside 中山公園, the Dome borders a park
