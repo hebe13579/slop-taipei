@@ -354,6 +354,14 @@ test('issue #173: with the MRT ground-contact exclusions, no tree stands on the 
   // exclusions. Measured before: exactly 2 planned trees inside
   // those polygons, both on the 民權西路 dive — one 2 m from the
   // portal end.
+  // Re-pinned for issue #245: the grove clustering redistributes
+  // park-tree candidates, so only 1 planned tree (a park tree, on
+  // the 民權西路 dive) lands inside the polygons before the
+  // exclusion instead of 2. Cross-run proven: the pre-#245 planner
+  // on this same tree yields 2, the #245 planner yields 1, and both
+  // yield 0 after the exclusion with both caps intact — the
+  // exclusion is still load-bearing, and the invariant that matters
+  // (no tree on an MRT ground bed) is unchanged.
   const { groundContactPolys } = await import('../js/taipei-viaduct.js');
   const geo = TAIPEI_GEO;
   const plan = planTaipeiBuildings(geo);
@@ -370,7 +378,7 @@ test('issue #173: with the MRT ground-contact exclusions, no tree stands on the 
   const inside = (trees) => trees.filter((t) => pointInAnyPoly(mrtGrid, mrtPolys, [t.x, t.z]));
   const before = [...inside(planStreetTrees(geo, plan, { exclusions: baseExclusions }).trees),
     ...inside(planParkTrees(geo, plan, { exclusions: baseExclusions }).trees)];
-  assert.equal(before.length, 2, `trees on MRT ground beds before the exclusion: ${before.map((t) => `${t.x},${t.z}`)}`);
+  assert.equal(before.length, 1, `trees on MRT ground beds before the exclusion: ${before.map((t) => `${t.x},${t.z}`)}`);
   const exclusions = [...baseExclusions, ...mrtPolys.map((p) => p.flatMap((pt) => pt))];
   const street = planStreetTrees(geo, plan, { exclusions });
   const park = planParkTrees(geo, plan, { exclusions });

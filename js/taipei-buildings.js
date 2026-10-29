@@ -5588,7 +5588,19 @@ export function clampTaipeiRooftopGear(gear, lot) {
   // Issue #100: a full-roof 鐵皮屋 is built over the roof plane — the
   // roof's clamped HVAC units are displaced, not dodged: they stood
   // where the addition now stands.
-  return { waterTowers: adds.tanks, hvacUnits: adds.huts.length ? [] : units, rooftopAdds: adds.huts };
+  // Issue #241: AC is sparse — keep the roof's units only on a seeded
+  // per-lot roll (~1 in 3 roofs). The roll runs AFTER the additions
+  // above on purpose: taipeiRooftopAdditions places tanks around the
+  // FULL unit list, so rolling here leaves every tank/hut placement
+  // exactly where it was, and surviving units keep their exact
+  // clamped position/size (no reshuffle). Fresh salt (0xac01), so
+  // the draw is independent of the hut/tank draws (seed 0x7a11).
+  let hvacUnits = adds.huts.length ? [] : units;
+  if (hvacUnits.length) {
+    const acSeed = lotPolicySeed(lot, 0xac01);
+    if (hash01(acSeed ^ 0xac11) >= TAIPEI_AC_RATE) hvacUnits = [];
+  }
+  return { waterTowers: adds.tanks, hvacUnits, rooftopAdds: adds.huts };
 }
 
 // --- Issue #56 rooftop furniture: stainless tanks & 鐵皮屋 additions ---
@@ -5611,6 +5623,14 @@ export function clampTaipeiRooftopGear(gear, lot) {
 // (roof form, patched sheet panels, a roof bump) — see the hut block.
 export const TAIPEI_TANK_RATE = 0.14;
 export const TAIPEI_HUT_RATE = 0.12;
+// Issue #241: rooftop AC units are sparse on purpose, like the tanks
+// and huts — the commit step gives every fitting roof exactly one
+// HVAC box, which read as a grey box on essentially every roof. The
+// clamp keeps a roof's units only on a seeded per-lot roll, so about
+// one roof in three shows AC. The roll is drawn AFTER the rooftop
+// additions (see clampTaipeiRooftopGear) so tank/hut placement —
+// which reads the full unit list — never reshuffles.
+export const TAIPEI_AC_RATE = 1 / 3;
 // Issue #208: the palette grows from four to six — the original
 // weathered red / green / grey-blue / rust plus a galvanized
 // grey-green and a weathered off-white, the two other staples of

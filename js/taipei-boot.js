@@ -452,7 +452,7 @@ function mergeColouredParts(build) {
   return geo;
 }
 
-function instancedFromGeometry(geo, list, name, baseY = 0) {
+function instancedFromGeometry(geo, list, name, baseY = 0, opts = {}) {
   if (!list.length) return null;
   const mesh = new THREE.InstancedMesh(
     geo,
@@ -460,6 +460,9 @@ function instancedFromGeometry(geo, list, name, baseY = 0) {
     list.length,
   );
   mesh.name = name;
+  // Issue #245: opts.cullDistance caps the chunk-culling distance
+  // scene-culling.js computes for this mesh (park trees only).
+  if (opts.cullDistance != null) mesh.userData.cullDistance = opts.cullDistance;
   const dummy = new THREE.Object3D();
   list.forEach((t, i) => {
     dummy.position.set(t.x, baseY, t.z);
@@ -529,6 +532,35 @@ function coniferTreeGeometry() {
     addPart(new THREE.ConeGeometry(1.02, 2.0, 7), 0x386b3c, { p: [0, 4.5, 0] });
   });
 }
+
+// Issue #245: blossom canopies — the flowering-tree variant. Same
+// round-canopy silhouette as parkRoundTreeGeometry, flattened a
+// little wider, in one of the three Taipei blossom tones (cherry
+// pink, white, golden-shower gold). One geometry per tone, so each
+// tone stays one InstancedMesh like the other variants.
+const BLOSSOM_TONES = {
+  pink: [0xdf8fb4, 0xeeb4cb, 0xd67ba0],
+  white: [0xf3ede4, 0xffffff, 0xe8ddcf],
+  gold: [0xe3b83c, 0xf0cd6a, 0xd19f2e],
+};
+function blossomTreeGeometry(tone) {
+  const [c0, c1, c2] = BLOSSOM_TONES[tone] || BLOSSOM_TONES.pink;
+  return mergeColouredParts((addPart) => {
+    addPart(new THREE.CylinderGeometry(0.16, 0.23, 2.8, 5), 0x634628, { p: [0, 1.4, 0] });
+    addPart(new THREE.IcosahedronGeometry(1.8, 0), c0, { p: [0, 4.1, 0], s: [1.25, 0.68, 1.25] });
+    addPart(new THREE.IcosahedronGeometry(1.2, 0), c1, { p: [0.65, 5.0, 0.25], s: [1.2, 0.65, 1.2] });
+    addPart(new THREE.IcosahedronGeometry(0.85, 0), c2, { p: [-0.75, 4.7, -0.3], s: [1.2, 0.65, 1.2] });
+  });
+}
+
+// Issue #245: park-tree far LOD. Park trees are small props whose
+// computed chunk-cull distance exceeds CULL_MAX (kept at any
+// distance), so a park reads as green fuzz from 3 km away. Past
+// this distance a tree is a few pixels; the chunk-culling path
+// hides whole chunks, which vanishes grove by grove instead of
+// popping the whole park at once. Street trees and the amenity
+// kit keep their existing culling (no override set).
+export const PARK_TREE_LOD_M = 1200;
 
 // ---------------------------------------------------------------------
 // Park amenity kit (issue #222): the furniture plan from
@@ -1477,14 +1509,23 @@ export async function buildTaipeiGround(scene, tile, deps = {}) {
     const streetMesh = buildStreetTreeMesh(street.trees);
     if (streetMesh) meshes.push(streetMesh);
     // Issue #222: park trees render per canopy variant (the street
-    // mesh above keeps the original single look).
-    const parkByVariant = { banyan: [], palm: [], conifer: [], round: [] };
-    for (const t of park.trees) (parkByVariant[t.variant] || parkByVariant.round).push(t);
+    // mesh above keeps the original single look). Issue #245 adds
+    // the blossom variant (one mesh per tone) and the far LOD: every
+    // park-tree mesh carries the cull-distance cap, so the
+    // chunk-culling path hides groves past PARK_TREE_LOD_M.
+    const parkByVariant = { banyan: [], palm: [], conifer: [], round: [], blossomPink: [], blossomWhite: [], blossomGold: [] };
+    for (const t of park.trees) {
+      if (t.variant === 'blossom') (parkByVariant[`blossom${t.tone === 'white' ? 'White' : t.tone === 'gold' ? 'Gold' : 'Pink'}`] || parkByVariant.blossomPink).push(t);
+      else (parkByVariant[t.variant] || parkByVariant.round).push(t);
+    }
     for (const mesh of [
-      instancedFromGeometry(banyanTreeGeometry(), parkByVariant.banyan, 'TaipeiParkBanyanTrees', 0),
-      instancedFromGeometry(palmTreeGeometry(), parkByVariant.palm, 'TaipeiParkPalmTrees', 0),
-      instancedFromGeometry(coniferTreeGeometry(), parkByVariant.conifer, 'TaipeiParkConiferTrees', 0),
-      instancedFromGeometry(parkRoundTreeGeometry(), parkByVariant.round, 'TaipeiParkRoundTrees', 0),
+      instancedFromGeometry(banyanTreeGeometry(), parkByVariant.banyan, 'TaipeiParkBanyanTrees', 0, { cullDistance: PARK_TREE_LOD_M }),
+      instancedFromGeometry(palmTreeGeometry(), parkByVariant.palm, 'TaipeiParkPalmTrees', 0, { cullDistance: PARK_TREE_LOD_M }),
+      instancedFromGeometry(coniferTreeGeometry(), parkByVariant.conifer, 'TaipeiParkConiferTrees', 0, { cullDistance: PARK_TREE_LOD_M }),
+      instancedFromGeometry(parkRoundTreeGeometry(), parkByVariant.round, 'TaipeiParkRoundTrees', 0, { cullDistance: PARK_TREE_LOD_M }),
+      instancedFromGeometry(blossomTreeGeometry('pink'), parkByVariant.blossomPink, 'TaipeiParkBlossomPinkTrees', 0, { cullDistance: PARK_TREE_LOD_M }),
+      instancedFromGeometry(blossomTreeGeometry('white'), parkByVariant.blossomWhite, 'TaipeiParkBlossomWhiteTrees', 0, { cullDistance: PARK_TREE_LOD_M }),
+      instancedFromGeometry(blossomTreeGeometry('gold'), parkByVariant.blossomGold, 'TaipeiParkBlossomGoldTrees', 0, { cullDistance: PARK_TREE_LOD_M }),
     ]) if (mesh) meshes.push(mesh);
     // Issue #222: park amenity dressing — same exclusions as the
     // trees, planned after the building plan so furniture keeps
@@ -1540,6 +1581,17 @@ export async function buildTaipeiGround(scene, tile, deps = {}) {
       if (preset !== 'coarse' && preset !== 'fine' && preset !== 'dense') return null;
       if (preset === bootSettings.density) return { density: preset, lots: plan.lots.length, ms: 0 };
       const t0 = performance.now();
+      // Issue #245: chunk-aware teardown. setupSceneCulling replaces
+      // a chunked mesh in the group with its chunks (same name,
+      // shared geometry); removing only the recorded mesh would leak
+      // the chunks and leave stale trees standing after a switch.
+      // Remove every group child carrying a torn-down mesh's name —
+      // the trees stage is the only producer of those names — then
+      // dispose the recorded meshes themselves.
+      const tornDown = new Set(trees.meshes.map((m) => m.name));
+      for (const child of [...group.children]) {
+        if (tornDown.has(child.name)) { group.remove(child); disposeBuilt(child); }
+      }
       for (const mesh of trees.meshes) { group.remove(mesh); disposeBuilt(mesh); }
       if (cityBlocks) { scene.remove(cityBlocks.group); disposeBuilt(cityBlocks.group); }
       bootSettings.density = preset;
