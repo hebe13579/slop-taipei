@@ -1,6 +1,6 @@
 import * as THREE from 'three/webgpu';
 
-import { planTaipeiBuildings, taipeiCityBlocksOptions, createTaipei101, createTaipeiLandmarkTowers, updateSchoolLodGroup } from './taipei-buildings.js';
+import { planTaipeiBuildings, taipeiCityBlocksOptions, createTaipei101, createTaipeiLandmarkTowers, updateSchoolLodGroup, updateSpecialLodGroup, updateDespawnGroup } from './taipei-buildings.js';
 import { buildSidewalkBands, planStreetTrees, planParkTrees } from './taipei-streetscape.js';
 import { planParkAmenities } from './taipei-park-amenities.js';
 import { AvatarFigure } from './avatar-figure.js';
@@ -14,7 +14,7 @@ import { buildDriveModel, taipeiExtraColliders } from './taipei-drive.js';
 import { ribbonsQuads, jointFramesFor } from './taipei-ribbons.js';
 import { buildMrtStationGeometry, buildMrtDepotGeometry } from './taipei-mrt-stations.js';
 import { buildBridgeGeometry } from './taipei-bridges.js';
-import { buildSkybridgeGeometry } from './taipei-skybridges.js';
+import { skybridgeChainSlices } from './taipei-skybridges.js';
 import { buildTerrainSkinGeometry } from './taipei-terrain.js';
 import { buildGreenTintLayers, buildLoopTintLayers, consumeGreenFamilyOverlaps, GREEN_TINT_Y } from './taipei-green.js';
 import { unionExclusionRects, clipRectToBoxes } from './taipei-union.js';
@@ -276,24 +276,38 @@ function buildBridgeMesh(geo) {
   return mesh;
 }
 
-// Xinyi skybridges (issue #212): one merged vertex-coloured
-// mesh for the pedestrian 空橋 network — drawn decks at the
-// real second-floor level from the OSM bridge ways in
-// geodata.skybridges; scenery, like the signature bridges.
-function buildSkybridgeMesh(geo) {
-  const g = buildSkybridgeGeometry(geo);
+// Xinyi skybridges (issue #212): vertex-coloured meshes for the
+// pedestrian 空橋 network — drawn decks at the real second-floor
+// level from the OSM bridge ways in geodata.skybridges; scenery,
+// like the signature bridges. Issue #255: ONE MESH PER CHAIN
+// (the geometry is the same merged arrays, sliced per chain —
+// see skybridgeChainSlices), so each chain despawns on its own
+// distance past DESPAWN_FAR_M instead of the whole district
+// vanishing at once. The group's userData.despawn entries drive
+// the per-frame update; tri total == the merged total.
+function buildSkybridgeMeshes(geo) {
+  const g = skybridgeChainSlices(geo);
   if (!g.triCount) return null;
-  const bgeo = new THREE.BufferGeometry();
-  bgeo.setAttribute('position', new THREE.BufferAttribute(g.positions, 3));
-  bgeo.setAttribute('normal', new THREE.BufferAttribute(g.normals, 3));
-  bgeo.setAttribute('color', new THREE.BufferAttribute(g.colors, 3));
-  const mesh = new THREE.Mesh(bgeo, new THREE.MeshStandardNodeMaterial({ vertexColors: true, roughness: 0.9, metalness: 0.0 }));
-  mesh.name = 'TaipeiSkybridges';
-  mesh.castShadow = true;
-  mesh.receiveShadow = true;
-  mesh.userData.chains = g.chains.length;
-  mesh.userData.supports = g.supports.length;
-  return mesh;
+  const group = new THREE.Group();
+  group.name = 'TaipeiSkybridges';
+  const material = new THREE.MeshStandardNodeMaterial({ vertexColors: true, roughness: 0.9, metalness: 0.0 });
+  const entries = [];
+  g.slices.forEach((slice, i) => {
+    const bgeo = new THREE.BufferGeometry();
+    bgeo.setAttribute('position', new THREE.BufferAttribute(slice.positions, 3));
+    bgeo.setAttribute('normal', new THREE.BufferAttribute(slice.normals, 3));
+    bgeo.setAttribute('color', new THREE.BufferAttribute(slice.colors, 3));
+    const mesh = new THREE.Mesh(bgeo, material);
+    mesh.name = `TaipeiSkybridges-${i}`;
+    mesh.castShadow = true;
+    mesh.receiveShadow = true;
+    group.add(mesh);
+    entries.push({ mesh, x: slice.cx, z: slice.cz, shown: true });
+  });
+  group.userData.chains = g.slices.length;
+  group.userData.supports = g.supports.length;
+  group.userData.despawn = entries;
+  return group;
 }
 
 // Beitou depot (issue #139): the maintenance halls + yard fan as
@@ -1310,6 +1324,10 @@ export async function buildTaipeiGround(scene, tile, deps = {}) {
   // stations join the station mesh, and the underground Songshan
   // Airport station is present only as two entrance headhouses.
   let mrtDetail = '';
+  // Issue #255: the per-chain skybridge group (built inside the
+  // decks block below) — the per-frame facade update despawns
+  // far chains past DESPAWN_FAR_M.
+  let skybridgeGroup = null;
   if (geo.mrtDecks?.lines?.length) {
     const mrtGeo = buildDeckGeometry(geo.mrtDecks, { tracks: true });
     const mrtConcrete = addLayer(deckPartGeometry(mrtGeo.concrete), mat(0x98958a, 0.95), 'TaipeiMrtDecks');
@@ -1349,8 +1367,8 @@ export async function buildTaipeiGround(scene, tile, deps = {}) {
     if (depotMesh) group.add(depotMesh);
     const bridgeMesh = buildBridgeMesh(geo);
     if (bridgeMesh) group.add(bridgeMesh);
-    const skybridgeMesh = buildSkybridgeMesh(geo);
-    if (skybridgeMesh) group.add(skybridgeMesh);
+    skybridgeGroup = buildSkybridgeMeshes(geo);
+    if (skybridgeGroup) group.add(skybridgeGroup);
     mrtDetail = `, MRT ${geo.mrtDecks.lines.length} lines + ${(geo.mrtStations || []).length} stations`;
     console.info(`[taipei-mrt] ${mrtGeo.lineCount} deck lines (${geo.mrtDecks.stats?.lineKm ?? '?'} km), ${mrtGeo.pierCount} piers, ${(geo.mrtStations || []).length} stations${geo.mrtDepot ? ', Beitou depot' : ''}`);
   }
@@ -1521,7 +1539,7 @@ export async function buildTaipeiGround(scene, tile, deps = {}) {
     get group() { return cityBlocks?.group ?? null; },
     colliders: [],
     allBlocks: allBlocksLive,
-    update: (x, z, force) => { if (cityBlocks) cityBlocks.update(x, z, force); if (schoolLodGroup) updateSchoolLodGroup(schoolLodGroup, x, z); },
+    update: (x, z, force) => { if (cityBlocks) cityBlocks.update(x, z, force); if (schoolLodGroup) updateSchoolLodGroup(schoolLodGroup, x, z); for (const g of specialGroups) { updateSpecialLodGroup(g, x, z); updateDespawnGroup(g, x, z); } if (skybridgeGroup) updateDespawnGroup(skybridgeGroup, x, z); },
     updateLights: (camera) => { if (cityBlocks?.updateLights) cityBlocks.updateLights(camera); },
   };
   const disposeBuilt = (obj) => {
