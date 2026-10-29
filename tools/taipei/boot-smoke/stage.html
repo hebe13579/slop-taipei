@@ -69,7 +69,10 @@ try {
   // the build has actually finished — the pre-#63 synchronous version
   // of this page set __done after a fire-and-forget call, which the
   // staged builder would have raced past.
-  const ground = await boot.buildTaipeiGround(scene, tile, { buildCityBlocks });
+  // Issue #132: ?drape=0 builds the flat ground (the kill-switch
+  // A/B); without the param the boot's own default applies (on).
+  const drapeParam = new URLSearchParams(location.search).get('drape');
+  const ground = await boot.buildTaipeiGround(scene, tile, { buildCityBlocks, ...(drapeParam !== null ? { settings: { drape: drapeParam !== '0' } } : {}) });
   const ms = Math.round(performance.now() - t0);
   window.__buildMs = ms;
   window.__groundChildren = ground && ground.group ? ground.group.children.length : 0;
