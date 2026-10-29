@@ -4775,12 +4775,14 @@ export function planTaipeiBuildings(geodata, opts = {}) {
       // before/after in the #185 evidence).
       const MAT_H_PROBES = [6, 13, 18, 26, 33, 38, 50];
       const probeLot = { ...lot };
-      const mats0 = MAT_H_PROBES.map((h) => { probeLot.h = h; return facadeMatFor(probeLot); });
+      // Guard mode (issue #256): judge landings by the pre-#256 family
+      // so the new types move no lot — see facadeMatFor.
+      const mats0 = MAT_H_PROBES.map((h) => { probeLot.h = h; return facadeMatFor(probeLot, { guard: true }); });
       const visualSame = (nx, nz) => {
         probeLot.x = nx; probeLot.z = nz;
         for (let k = 0; k < MAT_H_PROBES.length; k++) {
           probeLot.h = MAT_H_PROBES[k];
-          if (facadeMatFor(probeLot) !== mats0[k]) return false;
+          if (facadeMatFor(probeLot, { guard: true }) !== mats0[k]) return false;
         }
         return true;
       };
@@ -5009,15 +5011,24 @@ export function newerApartmentKind(lot, seed) {
   return 0;
 }
 
-export function facadeMatFor(lot) {
+export function facadeMatFor(lot, opts) {
   const seed = (Math.imul(Math.round(lot.x * 10), 73856093) ^ Math.imul(Math.round(lot.z * 10), 19349663) ^ 0x101) | 0;
   const r = hash01(seed);
   const core = officeCoreFor(lot);
   if (lot.h >= 40) {
     if (core) return xinyiGlassOrLight(lot, seed, [3, 4, 5][Math.floor(r * 3) % 3]);
     if (r < 0.12) { const u = r / 0.12; return [3, 4, 5][Math.floor(u * 3) % 3]; } // glass accent: the curtain-wall 豪宅 minority
-    const newer = newerApartmentKind(lot, seed);
-    if (newer) return newer;
+    // Issue #256: opts.guard is the frontage-pull guard below — it
+    // compares the PRE-#256 family so a pull landing is judged exactly
+    // as before and #256 moves no lot: the new types are a post-pull
+    // assignment in taipeiCityBlocksOptions, keyed on the final
+    // position. Without the guard the pull search would re-roll
+    // 800 landings city-wide (measured) for a hash difference that
+    // is not a band crossing.
+    if (!opts?.guard) {
+      const newer = newerApartmentKind(lot, seed);
+      if (newer) return newer;
+    }
     return tallTaiwanTypeFor(lot, seed);
   }
   if (lot.h >= 22) {
