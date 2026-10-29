@@ -17,6 +17,12 @@
 //               flat colour with distance. 'fade' is the default;
 //               specials are exempt either way. Applied live via
 //               a shared shader uniform — no rebuild.
+//   drape     — (Taipei; issue #132): the Beitou + Yuanshan
+//               terrain drape — roads and buildings follow the
+//               baked SRTM DEM. Default ON; turning it off restores
+//               the flat y=0 build with no geodata rebuild (the
+//               kill-switch). Applied at boot, so a change reloads
+//               the page.
 //   traffic   — RESERVED: the panel renders the row disabled
 //               ("coming soon") until issue #210's experiment
 //               lands its switch here.
@@ -39,6 +45,7 @@ export const DEFAULT_SETTINGS = Object.freeze({
   density: 'fine',
   graphics: 'medium',
   farDetail: 'fade',
+  drape: true,
   traffic: false,
 });
 
@@ -74,6 +81,8 @@ export function resolveSettings({ search = '', stored = null } = {}) {
     if (g) out.graphics = g;
     const f = validFarDetail(s.farDetail);
     if (f) out.farDetail = f;
+    const dr = parseBool(s.drape);
+    if (dr !== null) out.drape = dr;
   }
   const q = new URLSearchParams(typeof search === 'string' ? search : '');
   if (q.has('specials')) {
@@ -86,6 +95,10 @@ export function resolveSettings({ search = '', stored = null } = {}) {
   if (g) out.graphics = g;
   const f = validFarDetail(q.get('farDetail'));
   if (f) out.farDetail = f;
+  if (q.has('drape')) {
+    const dr = parseBool(q.get('drape'));
+    if (dr !== null) out.drape = dr;
+  }
   return out;
 }
 
@@ -105,6 +118,7 @@ export function persistSettings(storage, settings) {
       density: settings.density,
       graphics: settings.graphics,
       farDetail: settings.farDetail,
+      drape: settings.drape,
     }));
     return true;
   } catch {
@@ -147,9 +161,12 @@ export function applyGraphicsSettings(renderer, sunLight, preset, devicePixelRat
 //                    Taipei mode (density/specials/far-detail rows disable)
 //   onGraphics     — called with the preset when graphics change
 //   onFarDetail    — called with the preset when far detail changes
+//   onDrape        — called with the boolean when the drape toggle
+//                    changes (the caller reloads: the drape is a
+//                    boot-time setting)
 //   persist        — called after any change (storage write)
 //   doc            — document (injectable for tests)
-export function initSettingsPanel({ settings, taipeiSettings = null, onGraphics = null, onFarDetail = null, persist = null, doc = null } = {}) {
+export function initSettingsPanel({ settings, taipeiSettings = null, onGraphics = null, onFarDetail = null, onDrape = null, persist = null, doc = null } = {}) {
   const d = doc || (typeof document !== 'undefined' ? document : null);
   if (!d) return null;
   const pop = d.getElementById('settings-popover');
@@ -157,6 +174,8 @@ export function initSettingsPanel({ settings, taipeiSettings = null, onGraphics 
 
   const specialsBtn = d.getElementById('set-specials');
   const specialsState = specialsBtn ? specialsBtn.querySelector('.set-state') : null;
+  const drapeBtn = d.getElementById('set-drape');
+  const drapeState = drapeBtn ? drapeBtn.querySelector('.set-state') : null;
   const densityStatus = d.getElementById('set-density-status');
   const densityBtns = [...pop.querySelectorAll('[data-setting-density]')];
   const graphicsBtns = [...pop.querySelectorAll('[data-setting-graphics]')];
@@ -170,10 +189,14 @@ export function initSettingsPanel({ settings, taipeiSettings = null, onGraphics 
       specialsBtn.setAttribute('aria-pressed', settings.specials ? 'true' : 'false');
       if (specialsState) specialsState.textContent = settings.specials ? 'On' : 'Off';
     }
+    if (drapeBtn) {
+      drapeBtn.setAttribute('aria-pressed', settings.drape ? 'true' : 'false');
+      if (drapeState) drapeState.textContent = settings.drape ? 'On' : 'Off';
+    }
   };
 
   if (!taipeiSettings) {
-    for (const b of [...densityBtns, ...farDetailBtns, specialsBtn].filter(Boolean)) {
+    for (const b of [...densityBtns, ...farDetailBtns, specialsBtn, drapeBtn].filter(Boolean)) {
       b.disabled = true;
       b.title = 'Taipei mode only';
     }
@@ -185,6 +208,18 @@ export function initSettingsPanel({ settings, taipeiSettings = null, onGraphics 
       taipeiSettings.setSpecialsVisible(next);
       settings.specials = next;
       if (persist) persist();
+      reflect();
+    });
+  }
+
+  // Issue #132: the drape kill-switch — a boot-time setting, so the
+  // toggle persists and the caller (main.js) reloads the page.
+  if (drapeBtn && taipeiSettings) {
+    drapeBtn.addEventListener('click', () => {
+      const next = !settings.drape;
+      settings.drape = next;
+      if (persist) persist();
+      if (onDrape) onDrape(next);
       reflect();
     });
   }
