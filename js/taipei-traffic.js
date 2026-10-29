@@ -18,6 +18,16 @@ import { TAIPEI_GEO } from './taipei-geodata.js';
 //   degree-2 vertices while name and one-way-ness hold, so a run is one street between two
 //   junctions with its bends as inner shape points. Non-drivable classes (service aisles,
 //   tracks, busways, construction...) are dropped first.
+// - GROUND + CROSSINGS (issue #252): every roadGraph edge carries its
+//   OSM `level` (tools/taipei/rebuild-roadgraph.mjs). Deck and ramp
+//   links are EXCLUDED — every *_link ramp, and every edge at
+//   |level| >= 2: the vehicle system drives flat at y=0, so routing
+//   onto one made cars drive at ground level through the interchange
+//   below it (the off-road driving reported at 公舘路/承德路七段).
+//   Level ±1 non-link edges (river bridges, tunnels) are KEPT: they
+//   are the only crossings, and dropping them cut the routable core
+//   from 7,495 nodes to 3,591. Deck driving with real heights is
+//   issue #254.
 // - taipeiTrafficEnv() is the environment buildRoadNetwork/createTrafficSystem accept:
 //   no avenues/streets/medians, land = the tile bbox, NO signalized junctions (Taipei's
 //   signal furniture exists as markings, but no node-level signal table exists, so every
@@ -27,12 +37,14 @@ import { TAIPEI_GEO } from './taipei-geodata.js';
 //
 // Vehicles therefore drive with the upstream machinery untouched: IDM car-following, lane
 // choice, turn curves, junction box discipline. Spawning is upstream's local-population
-// model: a fixed pool (carCount) recycles within ~380 m of the camera, retiring far
-// vehicles and respawning near ones; a vehicle that reaches a dead end simply never gets
+// model: a fixed pool (carCount) recycles within the traffic radius of the camera,
+// retiring far vehicles and respawning near ones; a vehicle that reaches a dead end simply never gets
 // there — step 7 keeps only the largest strongly connected set of edges.
 //
-// The flag: ?traffic=1 (pool of 200, the upstream NYC size) or ?traffic=<n> (pool of n,
-// clamped 10..400; buses scale as n/16 up to 12). Absent/0/off = no traffic system at all,
+// The switch: the settings gear (issue #218 rows, #252) — on/off, density preset,
+// spawn-range preset — resolved by js/settings.js (URL > stored > default off).
+// The legacy ?traffic= flag still works: ?traffic=1 (pool of 200, the upstream NYC size)
+// or ?traffic=<n> (pool of n, clamped 10..400). Absent/0/off = no traffic system at all,
 // the pre-#210 stub — boot behaviour is byte-identical with the flag off.
 
 const DRIVABLE = new Set([
@@ -48,8 +60,37 @@ export function buildTaipeiRoadGraph(source = TAIPEI_GEO) {
 
   const edges = [];
   const adj = new Map(); // node index -> edge indices (filtered graph)
+  // Issue #252: drop deck/ramp links, keep bridge/tunnel crossings.
+  // An edge whose OSM level is not 0 is a deck, a ramp, a bridge, or a
+  // tunnel. The vehicle system drives flat at y=0, so routing onto a
+  // deck or ramp link makes cars drive at ground level under/through
+  // the structure — the off-road driving reported at 公舘路/承德路七段
+  // (洲美快速道路 decks + 大業路 ramps in the flat graph). Dropped:
+  // every *_link ramp at any level, and every edge at |level| >= 2
+  // (expressway decks). Kept: level ±1 non-link edges — river bridges
+  // and tunnels, the only crossings. Dropping those too was measured
+  // first and rejected: it cut the routable core from 7,495 nodes to
+  // 3,591, emptying the whole north-west (the Keelung River bridges
+  // are level-1 links). Kept crossings still drive at y=0 — confined
+  // to the span, documented here — and are removed by the height-aware
+  // deck work in issue #254. Dropped edges stay in the geodata (with
+  // their level) for that work.
+  let droppedLevelEdges = 0;
+  let droppedLevelKm = 0;
+  let keptLevelEdges = 0;
+  let keptLevelKm = 0;
   for (const e of rg.edges) {
     if (!DRIVABLE.has(e.highway)) continue;
+    const lv = e.level || 0;
+    if (lv !== 0 && (e.highway.endsWith('_link') || Math.abs(lv) >= 2)) {
+      droppedLevelEdges++;
+      droppedLevelKm += e.length || 0;
+      continue;
+    }
+    if (lv !== 0) {
+      keptLevelEdges++;
+      keptLevelKm += e.length || 0;
+    }
     const ei = edges.length;
     edges.push(e);
     for (const n of [e.a, e.b]) {
@@ -148,15 +189,23 @@ export function buildTaipeiRoadGraph(source = TAIPEI_GEO) {
       rawKm: Math.round(rawKm / 100) / 10,
       keptKm: Math.round(keptKm / 100) / 10,
       loopSplits,
+      droppedLevelEdges,
+      droppedLevelKm: Math.round(droppedLevelKm / 100) / 10,
+      keptLevelEdges,
+      keptLevelKm: Math.round(keptLevelKm / 100) / 10,
     },
   };
 }
 
 let cachedGraph = null;
 
-export function taipeiTrafficEnv(carCount) {
+export function taipeiTrafficEnv(carCount, opts = {}) {
   if (!cachedGraph) cachedGraph = buildTaipeiRoadGraph();
   const bb = TAIPEI_GEO.frame.bbox;
+  // Spawn range: the radius around the camera the vehicle pool recycles
+  // within (issue #252 gear control). js/traffic.js defaults it to its
+  // historical 380 m when absent, so only pass it when the caller chose one.
+  const trafficRadius = opts.trafficRadius != null ? opts.trafficRadius : undefined;
   return {
     networkEnv: {
       roadGraph: cachedGraph.roadGraph,
@@ -171,6 +220,7 @@ export function taipeiTrafficEnv(carCount) {
     pedestrians: false,
     carCount,
     busCount: Math.max(0, Math.min(12, Math.round(carCount / 16))),
+    ...(trafficRadius !== undefined ? { trafficRadius } : {}),
   };
 }
 

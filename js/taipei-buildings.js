@@ -5474,6 +5474,11 @@ export function taipeiCityBlocksOptions(geodata, plan = planTaipeiBuildings(geod
     // plus one per part above its 26 m block top, exactly the
     // set Manhattan collides with.
     colliders: true,
+    // Issue #240: lot facade materials fade their procedural detail
+    // with distance — far buildings stay visible as faint flat
+    // boxes. Specials are exempt because their factories never
+    // receive this flag (their materials cannot take the faded path).
+    farFade: true,
     // Issue #17: Taipei's rooftop-gear policy (no water towers; HVAC units
     // clamped to the roof) — buildCityBlocks' lot mode applies it to the
     // committed gear of every lot when present.
@@ -5697,6 +5702,100 @@ function ridgeGeometry(THREE, part) {
 // triangle soup all take the same grid with no UV work, and because
 // the styles are uniform-driven they cost no extra shader programs
 // and no texture memory.
+// ---- Issue #244: merge + instance the landmark/site-structure path ----
+// The old builder emitted one THREE.Mesh per part: 10,447 meshes /
+// 2.27M tris for the 196 school campuses alone (dome canopies at
+// 28x14 segments dominate), every one a draw call in every pass, with
+// no merging, instancing, streaming or LOD. The restructure below
+// keeps the near visuals byte-identical in geometry and materials and
+// only changes how they reach the GPU:
+//  - box/cylinder/dome parts merge per structure per material object
+//    (transforms baked from the same meshes the old path built, so
+//    the triangles are the same triangles);
+//  - school trees (1 trunk colour, 3 canopy colours, uniform shapes)
+//    become per-campus InstancedMeshes over shared unit geometries
+//    with the exact current segment counts near;
+//  - far away, each campus swaps ONLY its trees for low-poly instanced
+//    canopies (trunks dropped: sub-pixel past the switch distance).
+//    Slabs, track, fences and gates never change, so there is nothing
+//    to pop except a few-pixel canopy silhouette.
+// Frustum/ridge/wheel parts (registry-only shapes) keep individual
+// meshes: their custom soups don't share the mergeable attribute set.
+export const SCHOOL_DOME_WIDTH_SEGMENTS = 28;
+export const SCHOOL_DOME_HEIGHT_SEGMENTS = 14;
+// Far canopies: 12x6 segments (132 tris vs 756). At the 700 m switch
+// a ~5 m canopy spans ~8 px; the facet sagitta is ~0.15 px.
+export const SCHOOL_LOD_FAR_DOME_WIDTH_SEGMENTS = 12;
+export const SCHOOL_LOD_FAR_DOME_HEIGHT_SEGMENTS = 6;
+// Hysteresis band: swap to far beyond 700 m, back to near inside 600 m,
+// so a camera hovering at the switch distance never flickers.
+export const SCHOOL_LOD_FAR_M = 700;
+export const SCHOOL_LOD_NEAR_M = 600;
+
+export function domeTriangleCount(widthSegments, heightSegments) {
+  return widthSegments * (heightSegments - 1) * 2 + widthSegments;
+}
+
+// Concatenate indexed geometries that share the position/normal/uv
+// attribute set into one geometry (single material; groups dropped).
+// Returns null when the set doesn't match, so the caller can fall back
+// to individual meshes instead of corrupting a structure.
+function mergePartGeometries(THREE, geometries) {
+  let vTotal = 0, iTotal = 0;
+  for (const g of geometries) {
+    if (!g.index || !g.attributes.position || !g.attributes.normal || !g.attributes.uv) return null;
+    if (g.attributes.position.itemSize !== 3 || g.attributes.normal.itemSize !== 3 || g.attributes.uv.itemSize !== 2) return null;
+    vTotal += g.attributes.position.count;
+    iTotal += g.index.count;
+  }
+  const position = new Float32Array(vTotal * 3);
+  const normal = new Float32Array(vTotal * 3);
+  const uv = new Float32Array(vTotal * 2);
+  const index = new Uint32Array(iTotal);
+  let vOff = 0, iOff = 0;
+  for (const g of geometries) {
+    position.set(g.attributes.position.array, vOff * 3);
+    normal.set(g.attributes.normal.array, vOff * 3);
+    uv.set(g.attributes.uv.array, vOff * 2);
+    const src = g.index.array;
+    for (let i = 0; i < src.length; i++) index[iOff + i] = src[i] + vOff;
+    vOff += g.attributes.position.count;
+    iOff += src.length;
+  }
+  const merged = new THREE.BufferGeometry();
+  merged.setAttribute('position', new THREE.BufferAttribute(position, 3));
+  merged.setAttribute('normal', new THREE.BufferAttribute(normal, 3));
+  merged.setAttribute('uv', new THREE.BufferAttribute(uv, 2));
+  merged.setIndex(new THREE.BufferAttribute(index, 1));
+  merged.computeBoundingSphere();
+  return merged;
+}
+
+// Per-frame far swap for school campuses. `entries` is the array the
+// builder stashes on the group (see createTaipeiLandmarkTowers); each
+// entry carries its near/far tree groups, its plan position and its
+// current mode. Pure visibility flags — no geometry work per frame.
+export function updateSchoolLod(entries, camX, camZ) {
+  for (const e of entries) {
+    const dx = e.x - camX, dz = e.z - camZ;
+    const d2 = dx * dx + dz * dz;
+    if (e.mode !== 'far' && d2 > SCHOOL_LOD_FAR_M * SCHOOL_LOD_FAR_M) {
+      e.mode = 'far';
+      e.near.visible = false;
+      e.far.visible = true;
+    } else if (e.mode !== 'near' && d2 < SCHOOL_LOD_NEAR_M * SCHOOL_LOD_NEAR_M) {
+      e.mode = 'near';
+      e.near.visible = true;
+      e.far.visible = false;
+    }
+  }
+}
+
+export function updateSchoolLodGroup(group, camX, camZ) {
+  const entries = group && group.userData ? group.userData.schoolLod : null;
+  if (entries && entries.length) updateSchoolLod(entries, camX, camZ);
+}
+
 function landmarkFacadeMaterial(THREE, factories, facade, fallbackColor, doubleSide) {
   if (factories && facade && (facade.kind === 'curtain' || facade.kind === 'prewar')) {
     const opts = { ...facade, boxLocal: false };
@@ -5804,6 +5903,11 @@ export function createTaipeiLandmarkTowers(THREE, plan, factories) {
   if (!plan.landmarkTowers || !plan.landmarkTowers.length) return null;
   const group = new THREE.Group();
   group.name = 'TaipeiLandmarkTowers';
+  // Issue #244: shared unit geometries for instanced school trees.
+  const nearTrunkGeo = new THREE.CylinderGeometry(1, 1, 1, 24);
+  const nearDomeGeo = new THREE.SphereGeometry(1, SCHOOL_DOME_WIDTH_SEGMENTS, SCHOOL_DOME_HEIGHT_SEGMENTS, 0, Math.PI * 2, 0, Math.PI / 2);
+  const farDomeGeo = new THREE.SphereGeometry(1, SCHOOL_LOD_FAR_DOME_WIDTH_SEGMENTS, SCHOOL_LOD_FAR_DOME_HEIGHT_SEGMENTS, 0, Math.PI * 2, 0, Math.PI / 2);
+  const lodEntries = [];
   for (const s of plan.landmarkTowers) {
     const mat = landmarkFacadeMaterial(THREE, factories, s.facade, s.color, false);
     const soupMat = landmarkFacadeMaterial(THREE, factories, s.facade, s.color, true);
@@ -5827,6 +5931,15 @@ export function createTaipeiLandmarkTowers(THREE, plan, factories) {
     };
     const sub = new THREE.Group();
     sub.name = s.id;
+    // Issue #244: bucket mergeable parts per material object, and
+    // divert school trees into per-campus instanced meshes. Meshes
+    // are still built exactly as before (same constructors, same
+    // transforms); only their delivery to the GPU changes.
+    const buckets = new Map();
+    const treeBuckets = s.school ? new Map() : null;
+    const isTreeTrunk = (part) => part.type === 'cylinder' && part.flat === SCHOOL_TRUNK_COLOR;
+    const isTreeCanopy = (part) => part.type === 'dome' && typeof part.flat === 'number' &&
+      SCHOOL_CANOPY_COLORS.includes(part.flat) && !part.flip;
     for (const part of s.parts) {
       const y0 = part.y0 || 0;
       let mesh = null;
@@ -5849,7 +5962,7 @@ export function createTaipeiLandmarkTowers(THREE, plan, factories) {
         mesh.position.set(s.x + (part.dx || 0), y0 + part.h / 2, s.z + (part.dz || 0));
       } else if (part.type === 'dome') {
         // Half-ellipsoid: a unit hemisphere scaled to the part's radii.
-        mesh = new THREE.Mesh(new THREE.SphereGeometry(1, 28, 14, 0, Math.PI * 2, 0, Math.PI / 2), partMaterial(part, false));
+        mesh = new THREE.Mesh(new THREE.SphereGeometry(1, SCHOOL_DOME_WIDTH_SEGMENTS, SCHOOL_DOME_HEIGHT_SEGMENTS, 0, Math.PI * 2, 0, Math.PI / 2), partMaterial(part, false));
         mesh.scale.set(part.rx, part.h, part.rz);
         mesh.position.set(s.x + (part.dx || 0), y0, s.z + (part.dz || 0));
         // flip: the same hemisphere hung below its base plane —
@@ -5897,15 +6010,76 @@ export function createTaipeiLandmarkTowers(THREE, plan, factories) {
         g.position.set(s.x + (part.dx || 0), 0, s.z + (part.dz || 0));
         mesh = g;
       }
-      if (mesh) {
-        mesh.castShadow = true;
-        mesh.receiveShadow = true;
-        sub.add(mesh);
+      if (!mesh) continue;
+      mesh.castShadow = true;
+      mesh.receiveShadow = true;
+      if (treeBuckets && (isTreeTrunk(part) || isTreeCanopy(part))) {
+        // School trees: keep the mesh's matrix, deliver it as an
+        // instance of a shared unit geometry instead of a mesh.
+        // The trunk mesh bakes (r, h) into its geometry, so the
+        // instance matrix re-applies them as a scale on the right.
+        mesh.updateMatrix();
+        const mtx = mesh.matrix.clone();
+        if (isTreeTrunk(part)) mtx.multiply(new THREE.Matrix4().makeScale(part.r, part.h, part.rz || part.r));
+        let b = treeBuckets.get(mesh.material);
+        if (!b) treeBuckets.set(mesh.material, (b = { trunks: [], canopies: [] }));
+        (isTreeTrunk(part) ? b.trunks : b.canopies).push(mtx);
+      } else if (part.type === 'box' || part.type === 'cylinder' || part.type === 'dome') {
+        let list = buckets.get(mesh.material);
+        if (!list) buckets.set(mesh.material, (list = []));
+        list.push(mesh);
+      } else {
+        sub.add(mesh); // frustum / ridge / wheel: individual meshes
       }
+    }
+    for (const [material, meshes] of buckets) {
+      if (meshes.length === 1) { sub.add(meshes[0]); continue; }
+      const geos = meshes.map((m) => { m.updateMatrix(); return m.geometry.clone().applyMatrix4(m.matrix); });
+      const merged = mergePartGeometries(THREE, geos);
+      if (!merged) { for (const m of meshes) sub.add(m); continue; }
+      const mergedMesh = new THREE.Mesh(merged, material);
+      mergedMesh.castShadow = true;
+      mergedMesh.receiveShadow = true;
+      sub.add(mergedMesh);
+    }
+    if (treeBuckets && treeBuckets.size) {
+      const nearTrees = new THREE.Group();
+      nearTrees.name = `${s.id}-trees-near`;
+      const farTrees = new THREE.Group();
+      farTrees.name = `${s.id}-trees-far`;
+      farTrees.visible = false;
+      for (const [material, b] of treeBuckets) {
+        if (b.trunks.length) {
+          const im = new THREE.InstancedMesh(nearTrunkGeo, material, b.trunks.length);
+          b.trunks.forEach((mtx, i) => im.setMatrixAt(i, mtx));
+          im.instanceMatrix.needsUpdate = true;
+          im.castShadow = true;
+          im.receiveShadow = true;
+          nearTrees.add(im);
+        }
+        if (b.canopies.length) {
+          const im = new THREE.InstancedMesh(nearDomeGeo, material, b.canopies.length);
+          b.canopies.forEach((mtx, i) => im.setMatrixAt(i, mtx));
+          im.instanceMatrix.needsUpdate = true;
+          im.castShadow = true;
+          im.receiveShadow = true;
+          nearTrees.add(im);
+          const far = new THREE.InstancedMesh(farDomeGeo, material, b.canopies.length);
+          b.canopies.forEach((mtx, i) => far.setMatrixAt(i, mtx));
+          far.instanceMatrix.needsUpdate = true;
+          far.castShadow = true;
+          far.receiveShadow = true;
+          farTrees.add(far);
+        }
+      }
+      sub.add(nearTrees);
+      sub.add(farTrees);
+      lodEntries.push({ near: nearTrees, far: farTrees, x: s.x, z: s.z, mode: 'near' });
     }
     const signMesh = landmarkSignMesh(THREE, s);
     if (signMesh) sub.add(signMesh);
     group.add(sub);
   }
+  group.userData.schoolLod = lodEntries;
   return group;
 }

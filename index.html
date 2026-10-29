@@ -153,7 +153,7 @@
   </div>
 
   <!-- Settings (issue #218): runtime toggles — special buildings, building
-       density, graphics; traffic is a reserved row until issue #210 lands.
+       density, graphics, far detail, traffic (issue #252).
        Wired by js/settings.js (initSettingsPanel) from js/main.js. -->
   <div id="settings-popover" class="popover settings-popover" popover data-side="below" data-anchor="hud-toolbar" aria-label="Settings">
     <div class="pop-title">Special buildings</div>
@@ -174,6 +174,15 @@
       <span class="pop-name">Dense</span>
       <span class="pop-sub">93,228 buildings · 7–11 m shophouse pitch · slowest to build &amp; render</span>
     </button>
+    <div class="pop-title">Distant buildings</div>
+    <button class="pop-item tp-btn" type="button" data-setting-fardetail="fade">
+      <span class="pop-name">Fade with distance</span>
+      <span class="pop-sub">Far buildings are faint flat boxes — landmarks stay detailed · default</span>
+    </button>
+    <button class="pop-item tp-btn" type="button" data-setting-fardetail="full">
+      <span class="pop-name">Full detail</span>
+      <span class="pop-sub">Window detail at every distance</span>
+    </button>
     <div class="pop-title">Graphics</div>
     <button class="pop-item tp-btn" type="button" data-setting-graphics="low">
       <span class="pop-name">Low</span>
@@ -187,10 +196,34 @@
       <span class="pop-name">High</span>
       <span class="pop-sub">Pixel ratio up to 2.0 (retina) · shadows on</span>
     </button>
-    <div class="pop-title">Traffic</div>
-    <button class="pop-item tp-btn" type="button" disabled aria-disabled="true">
-      <span class="pop-name">Traffic</span>
-      <span class="pop-sub">Coming soon — being measured behind a flag (issue #210)</span>
+    <div class="pop-title">Traffic <span id="set-traffic-status" class="set-status"></span></div>
+    <button id="set-traffic" class="pop-item tp-btn" type="button" aria-pressed="false">
+      <span class="pop-name">Traffic <span class="set-state">Off</span></span>
+      <span class="pop-sub">Cars on Taipei streets · ground level only, never on decks · default off</span>
+    </button>
+    <button class="pop-item tp-btn" type="button" data-setting-trafficdensity="light">
+      <span class="pop-name">Light traffic</span>
+      <span class="pop-sub">60 cars</span>
+    </button>
+    <button class="pop-item tp-btn" type="button" data-setting-trafficdensity="normal">
+      <span class="pop-name">Normal traffic</span>
+      <span class="pop-sub">200 cars · default</span>
+    </button>
+    <button class="pop-item tp-btn" type="button" data-setting-trafficdensity="heavy">
+      <span class="pop-name">Heavy traffic</span>
+      <span class="pop-sub">400 cars</span>
+    </button>
+    <button class="pop-item tp-btn" type="button" data-setting-trafficrange="near">
+      <span class="pop-name">Traffic nearby</span>
+      <span class="pop-sub">Cars within 200 m of you</span>
+    </button>
+    <button class="pop-item tp-btn" type="button" data-setting-trafficrange="normal">
+      <span class="pop-name">Traffic around you</span>
+      <span class="pop-sub">Cars within 380 m · default</span>
+    </button>
+    <button class="pop-item tp-btn" type="button" data-setting-trafficrange="far">
+      <span class="pop-name">Traffic far out</span>
+      <span class="pop-sub">Cars within 600 m</span>
     </button>
   </div>
 

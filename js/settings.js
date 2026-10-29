@@ -12,9 +12,17 @@
 //               (renderer.setPixelRatio, sunLight.castShadow).
 //               'medium' IS today's behaviour (pixel ratio 1.0,
 //               shadows on), so an untouched boot is unchanged.
-//   traffic   — RESERVED: the panel renders the row disabled
-//               ("coming soon") until issue #210's experiment
-//               lands its switch here.
+//   farDetail — 'fade' | 'full' (Taipei; issue #240): whether
+//               far lot facades fade their procedural detail to a
+//               flat colour with distance. 'fade' is the default;
+//               specials are exempt either way. Applied live via
+//               a shared shader uniform — no rebuild.
+//   traffic   — (Taipei; issues #210/#252) the traffic switch: on/off,
+//               density preset, and spawn-range preset. Applied live by
+//               js/main.js (build/destroy/rebuild the traffic system —
+//               no reload). Default OFF. The legacy ?traffic= flag still
+//               works (see js/taipei-traffic.js) and wins for the boot
+//               it is given on.
 //
 // Resolution order per field: URL param > localStorage > default,
 // so links are shareable (?density=dense&specials=off&graphics=low)
@@ -27,12 +35,25 @@ export const SETTINGS_STORAGE_KEY = 'slop-settings';
 
 export const DENSITY_PRESETS = ['coarse', 'fine', 'dense'];
 export const GRAPHICS_PRESETS = ['low', 'medium', 'high'];
+export const FAR_DETAIL_PRESETS = ['fade', 'full'];
+export const TRAFFIC_DENSITY_PRESETS = ['light', 'normal', 'heavy'];
+export const TRAFFIC_RANGE_PRESETS = ['near', 'normal', 'far'];
+// Pool sizes: 'normal' is the upstream NYC pool size the #210 experiment
+// measured with; 'heavy' is the ?traffic= clamp ceiling.
+export const TRAFFIC_DENSITY_COUNTS = Object.freeze({ light: 60, normal: 200, heavy: 400 });
+// Spawn-range radii in metres: 'normal' is the historical 380 m retire
+// radius js/traffic.js always used; 'near' keeps cars close, 'far'
+// spreads them out (with the frame cost that implies).
+export const TRAFFIC_RANGE_METERS = Object.freeze({ near: 200, normal: 380, far: 600 });
 
 export const DEFAULT_SETTINGS = Object.freeze({
   specials: true,
   density: 'fine',
   graphics: 'medium',
-  traffic: false,
+  farDetail: 'fade',
+  trafficEnabled: false,
+  trafficDensity: 'normal',
+  trafficRange: 'normal',
 });
 
 const parseBool = (v) => {
@@ -46,6 +67,21 @@ const parseBool = (v) => {
 
 const validDensity = (v) => (DENSITY_PRESETS.includes(v) ? v : null);
 const validGraphics = (v) => (GRAPHICS_PRESETS.includes(v) ? v : null);
+const validFarDetail = (v) => (FAR_DETAIL_PRESETS.includes(v) ? v : null);
+const validTrafficDensity = (v) => (TRAFFIC_DENSITY_PRESETS.includes(v) ? v : null);
+const validTrafficRange = (v) => (TRAFFIC_RANGE_PRESETS.includes(v) ? v : null);
+
+// The effective traffic configuration for a resolved settings object:
+// pool size + spawn radius, from the presets. main.js uses this for
+// every build/rebuild so the gear, the URL, and storage can never
+// disagree about what "normal" means.
+export function trafficConfig(settings) {
+  return {
+    enabled: !!settings.trafficEnabled,
+    carCount: TRAFFIC_DENSITY_COUNTS[settings.trafficDensity] ?? TRAFFIC_DENSITY_COUNTS.normal,
+    trafficRadius: TRAFFIC_RANGE_METERS[settings.trafficRange] ?? TRAFFIC_RANGE_METERS.normal,
+  };
+}
 
 // Resolve the effective settings. `stored` may be the raw
 // localStorage string, an already-parsed object, or null.
@@ -64,6 +100,14 @@ export function resolveSettings({ search = '', stored = null } = {}) {
     if (d) out.density = d;
     const g = validGraphics(s.graphics);
     if (g) out.graphics = g;
+    const f = validFarDetail(s.farDetail);
+    if (f) out.farDetail = f;
+    const te = parseBool(s.trafficEnabled);
+    if (te !== null) out.trafficEnabled = te;
+    const td = validTrafficDensity(s.trafficDensity);
+    if (td) out.trafficDensity = td;
+    const tr = validTrafficRange(s.trafficRange);
+    if (tr) out.trafficRange = tr;
   }
   const q = new URLSearchParams(typeof search === 'string' ? search : '');
   if (q.has('specials')) {
@@ -74,6 +118,16 @@ export function resolveSettings({ search = '', stored = null } = {}) {
   if (d) out.density = d;
   const g = validGraphics(q.get('graphics'));
   if (g) out.graphics = g;
+  const f = validFarDetail(q.get('farDetail'));
+  if (f) out.farDetail = f;
+  if (q.has('trafficEnabled')) {
+    const te = parseBool(q.get('trafficEnabled'));
+    if (te !== null) out.trafficEnabled = te;
+  }
+  const td = validTrafficDensity(q.get('trafficDensity'));
+  if (td) out.trafficDensity = td;
+  const tr = validTrafficRange(q.get('trafficRange'));
+  if (tr) out.trafficRange = tr;
   return out;
 }
 
@@ -92,6 +146,10 @@ export function persistSettings(storage, settings) {
       specials: settings.specials,
       density: settings.density,
       graphics: settings.graphics,
+      farDetail: settings.farDetail,
+      trafficEnabled: settings.trafficEnabled,
+      trafficDensity: settings.trafficDensity,
+      trafficRange: settings.trafficRange,
     }));
     return true;
   } catch {
@@ -131,11 +189,16 @@ export function applyGraphicsSettings(renderer, sunLight, preset, devicePixelRat
 // Wire the settings popover (index.html #settings-popover).
 //   settings       — the resolved settings object (mutated in place)
 //   taipeiSettings — js/taipei-boot.js' runtime API, or null outside
-//                    Taipei mode (density/specials rows disable)
+//                    Taipei mode (density/specials/far-detail/traffic
+//                    rows disable)
 //   onGraphics     — called with the preset when graphics change
+//   onFarDetail    — called with the preset when far detail changes
+//   onTraffic      — called with trafficConfig(settings) when any
+//                    traffic control changes; main.js owns building,
+//                    destroying, and rebuilding the traffic system
 //   persist        — called after any change (storage write)
 //   doc            — document (injectable for tests)
-export function initSettingsPanel({ settings, taipeiSettings = null, onGraphics = null, persist = null, doc = null } = {}) {
+export function initSettingsPanel({ settings, taipeiSettings = null, onGraphics = null, onFarDetail = null, onTraffic = null, persist = null, doc = null } = {}) {
   const d = doc || (typeof document !== 'undefined' ? document : null);
   if (!d) return null;
   const pop = d.getElementById('settings-popover');
@@ -146,20 +209,97 @@ export function initSettingsPanel({ settings, taipeiSettings = null, onGraphics 
   const densityStatus = d.getElementById('set-density-status');
   const densityBtns = [...pop.querySelectorAll('[data-setting-density]')];
   const graphicsBtns = [...pop.querySelectorAll('[data-setting-graphics]')];
+  const farDetailBtns = [...pop.querySelectorAll('[data-setting-fardetail]')];
+  const trafficBtn = d.getElementById('set-traffic');
+  const trafficState = trafficBtn ? trafficBtn.querySelector('.set-state') : null;
+  const trafficStatus = d.getElementById('set-traffic-status');
+  const trafficDensityBtns = [...pop.querySelectorAll('[data-setting-trafficdensity]')];
+  const trafficRangeBtns = [...pop.querySelectorAll('[data-setting-trafficrange]')];
 
   const reflect = () => {
     for (const b of densityBtns) b.classList.toggle('active', b.dataset.settingDensity === settings.density);
     for (const b of graphicsBtns) b.classList.toggle('active', b.dataset.settingGraphics === settings.graphics);
+    for (const b of farDetailBtns) b.classList.toggle('active', b.dataset.settingFardetail === settings.farDetail);
+    for (const b of trafficDensityBtns) b.classList.toggle('active', b.dataset.settingTrafficdensity === settings.trafficDensity);
+    for (const b of trafficRangeBtns) b.classList.toggle('active', b.dataset.settingTrafficrange === settings.trafficRange);
     if (specialsBtn) {
       specialsBtn.setAttribute('aria-pressed', settings.specials ? 'true' : 'false');
       if (specialsState) specialsState.textContent = settings.specials ? 'On' : 'Off';
     }
+    if (trafficBtn) {
+      trafficBtn.setAttribute('aria-pressed', settings.trafficEnabled ? 'true' : 'false');
+      if (trafficState) trafficState.textContent = settings.trafficEnabled ? 'On' : 'Off';
+    }
   };
 
   if (!taipeiSettings) {
-    for (const b of [...densityBtns, specialsBtn].filter(Boolean)) {
+    for (const b of [...densityBtns, ...farDetailBtns, ...trafficDensityBtns, ...trafficRangeBtns, specialsBtn, trafficBtn].filter(Boolean)) {
       b.disabled = true;
       b.title = 'Taipei mode only';
+    }
+  }
+
+  if (trafficBtn && taipeiSettings) {
+    trafficBtn.addEventListener('click', () => {
+      const next = !settings.trafficEnabled;
+      if (trafficStatus) trafficStatus.textContent = next ? 'building…' : '';
+      const run = () => {
+        try {
+          // Apply first, commit the setting only on success — a failed
+          // build must not leave the switch showing On with no traffic.
+          if (onTraffic) onTraffic({ ...trafficConfig(settings), enabled: next });
+          settings.trafficEnabled = next;
+          if (persist) persist();
+        } catch (err) {
+          console.error('[settings] traffic change failed', err);
+          if (trafficStatus) trafficStatus.textContent = 'change failed — kept previous state';
+        }
+        if (trafficStatus && settings.trafficEnabled) trafficStatus.textContent = '';
+        reflect();
+      };
+      // The build is synchronous CPU work: paint the busy state first,
+      // then build on the next frame (same idiom as the density row).
+      if (typeof requestAnimationFrame === 'function') requestAnimationFrame(() => setTimeout(run, 0));
+      else setTimeout(run, 0);
+    });
+    // Preset changes rebuild the system while traffic is on (synchronous
+    // CPU work): paint the busy state first, then rebuild on the next
+    // frame. While traffic is off the preset just sticks for next time.
+    const applyPreset = (apply) => {
+      if (trafficStatus && settings.trafficEnabled) trafficStatus.textContent = 'rebuilding…';
+      const prevDensity = settings.trafficDensity;
+      const prevRange = settings.trafficRange;
+      const run = () => {
+        try {
+          apply();
+          if (onTraffic) onTraffic(trafficConfig(settings));
+        } catch (err) {
+          console.error('[settings] traffic change failed', err);
+          settings.trafficDensity = prevDensity;
+          settings.trafficRange = prevRange;
+          if (trafficStatus) trafficStatus.textContent = 'change failed — kept previous state';
+        }
+        if (persist) persist();
+        if (trafficStatus && settings.trafficEnabled && trafficStatus.textContent === 'rebuilding…') trafficStatus.textContent = '';
+        reflect();
+      };
+      if (settings.trafficEnabled && typeof requestAnimationFrame === 'function') requestAnimationFrame(() => setTimeout(run, 0));
+      else if (settings.trafficEnabled) setTimeout(run, 0);
+      else run();
+    };
+    for (const b of trafficDensityBtns) {
+      b.addEventListener('click', () => {
+        const preset = b.dataset.settingTrafficdensity;
+        if (preset === settings.trafficDensity) return;
+        applyPreset(() => { settings.trafficDensity = preset; });
+      });
+    }
+    for (const b of trafficRangeBtns) {
+      b.addEventListener('click', () => {
+        const preset = b.dataset.settingTrafficrange;
+        if (preset === settings.trafficRange) return;
+        applyPreset(() => { settings.trafficRange = preset; });
+      });
     }
   }
 
@@ -209,6 +349,17 @@ export function initSettingsPanel({ settings, taipeiSettings = null, onGraphics 
       if (preset === settings.graphics) return;
       settings.graphics = preset;
       if (onGraphics) onGraphics(preset);
+      if (persist) persist();
+      reflect();
+    });
+  }
+
+  for (const b of farDetailBtns) {
+    b.addEventListener('click', () => {
+      const preset = b.dataset.settingFardetail;
+      if (!taipeiSettings || preset === settings.farDetail) return;
+      settings.farDetail = preset;
+      if (onFarDetail) onFarDetail(preset);
       if (persist) persist();
       reflect();
     });

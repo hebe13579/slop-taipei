@@ -1,6 +1,6 @@
 import * as THREE from 'three/webgpu';
 
-import { planTaipeiBuildings, taipeiCityBlocksOptions, createTaipei101, createTaipeiLandmarkTowers } from './taipei-buildings.js';
+import { planTaipeiBuildings, taipeiCityBlocksOptions, createTaipei101, createTaipeiLandmarkTowers, updateSchoolLodGroup } from './taipei-buildings.js';
 import { buildSidewalkBands, planStreetTrees, planParkTrees } from './taipei-streetscape.js';
 import { planParkAmenities } from './taipei-park-amenities.js';
 import { AvatarFigure } from './avatar-figure.js';
@@ -1411,6 +1411,7 @@ export async function buildTaipeiGround(scene, tile, deps = {}) {
   // suite); ./tsl-materials.js is already on the Pages preload list.
   const landmarkFactories = { createCurtainWallMaterial, createPreWarBuildingMaterial };
   const specialGroups = [];
+  let schoolLodGroup = null;
   const addSpecial = (g) => {
     if (!g) return;
     g.visible = bootSettings.specials;
@@ -1427,6 +1428,10 @@ export async function buildTaipeiGround(scene, tile, deps = {}) {
     const siteStructures = createTaipeiLandmarkTowers(THREE, { landmarkTowers: plan.siteStructures }, landmarkFactories);
     if (siteStructures) siteStructures.name = 'TaipeiAirportSiteStructures';
     addSpecial(siteStructures);
+    // Issue #244: the site-structures group carries the school LOD
+    // entries (userData.schoolLod); the per-frame facade update below
+    // swaps far campuses to their low-poly trees.
+    schoolLodGroup = siteStructures;
   }
   console.info(`[taipei-buildings] ${plan.lots.length} buildings via upstream building system + Taipei 101 massing (508 m) + ${plan.landmarkTowers.length} landmark structures planned in ${Math.round(performance.now() - buildingsStart)}ms`);
   await completeStage('buildings', `${plan.lots.length} buildings, ${plan.landmarkTowers.length} landmark structures + Taipei 101`);
@@ -1516,7 +1521,7 @@ export async function buildTaipeiGround(scene, tile, deps = {}) {
     get group() { return cityBlocks?.group ?? null; },
     colliders: [],
     allBlocks: allBlocksLive,
-    update: (x, z, force) => { if (cityBlocks) cityBlocks.update(x, z, force); },
+    update: (x, z, force) => { if (cityBlocks) cityBlocks.update(x, z, force); if (schoolLodGroup) updateSchoolLodGroup(schoolLodGroup, x, z); },
     updateLights: (camera) => { if (cityBlocks?.updateLights) cityBlocks.updateLights(camera); },
   };
   const disposeBuilt = (obj) => {
