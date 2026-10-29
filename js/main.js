@@ -20,6 +20,7 @@ import { NYCMapSystem } from './nyc-map.js';
 import { setupSceneCulling, updateSceneCulling } from './scene-culling.js';
 import { CityAudioSystem } from './audio-system.js';
 import { resolveSettings, readStoredSettings, persistSettings, graphicsConfig, applyGraphicsSettings, initSettingsPanel } from './settings.js';
+import { setFarFadeEnabled } from './tsl-materials.js';
 
 // js/main.js
 // Main entry point for New York City (Midtown Manhattan) in Three.js WebGPURenderer & TSL (three.js dev, see index.html)
@@ -135,6 +136,11 @@ async function initApp() {
   // half was applied at renderer creation; re-applying is a no-op
   // there). 'medium'/'high' keep castShadow exactly as built.
   applyGraphicsSettings(renderer, lightingSystem.sunLight, settings.graphics, window.devicePixelRatio || 1);
+  // Issue #240: the far-detail fade is a shared shader uniform —
+  // applying it here covers every Taipei lot material built after
+  // this point, and the uniform lives past density rebuilds.
+  // (No material outside Taipei references it, so NYC is untouched.)
+  setFarFadeEnabled(settings.farDetail !== 'full');
 
   if (loadingStatus) {
     loadingStatus.textContent = isTaipei
@@ -202,6 +208,7 @@ async function initApp() {
     settings,
     taipeiSettings: isTaipei ? (cityGrid.taipeiSettings || null) : null,
     onGraphics: (preset) => applyGraphicsSettings(renderer, lightingSystem.sunLight, preset, window.devicePixelRatio || 1),
+    onFarDetail: (preset) => setFarFadeEnabled(preset !== 'full'),
     persist: () => persistSettings(window.localStorage, settings),
   });
 

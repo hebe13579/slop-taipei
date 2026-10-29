@@ -86,6 +86,29 @@ const cityUniforms = {
   uCanyonBounce: uniform(0.52)
 };
 
+// Issue #240: far-detail fade for procedural LOT facades. One shared
+// uniform so the Settings gear toggles it live without rebuilding
+// materials: 1 = fade on (default), 0 = full detail at every
+// distance. Only facade materials built with their factory's
+// `farFade` option reference it — landmark / Taipei 101 / terminal
+// materials never do, so specials are exempt by construction and
+// keep full detail at any distance. The fade band starts just past
+// the 560 m detail-streaming radius and ends where a 2.6 m window
+// is sub-pixel; the mix is smoothstep, like the normal nodes'
+// detailFade, so there is no pop as the camera moves through it.
+// Nothing is culled or made transparent: a fully faded building is
+// a flat-coloured box, still drawn, still lit, still casting.
+const farFadeUniform = uniform(1);
+function setFarFadeEnabled(enabled) {
+  farFadeUniform.value = enabled ? 1 : 0;
+}
+const FAR_FADE_NEAR_M = 700;
+const FAR_FADE_FAR_M = 2000;
+function farFadeFactorNode() {
+  const camDist = length(positionWorld.sub(cameraPosition));
+  return smoothstep(FAR_FADE_NEAR_M, FAR_FADE_FAR_M, camDist).mul(farFadeUniform);
+}
+
 // Fast deterministic 2D -> 1D hash in TSL
 const hash2D = Fn(([p]) => {
   return fract(sin(dot(p, vec2(127.1, 311.7))).mul(43758.5453));
@@ -499,10 +522,16 @@ function createCurtainWallMaterial(opts = {}) {
     warmth = 0.62,
     reflectivity = 0.92,
     seed = 1.0,
-    boxLocal = false
+    boxLocal = false,
+    // Issue #240: far-detail fade, opt-in per material. Only the
+    // lot pools (js/buildings.js, via opts.farFade) pass true;
+    // landmark / Taipei 101 / terminal materials never do, so
+    // specials keep full detail at any distance. Part of the cache
+    // key so a faded and an unfaded material never share a slot.
+    farFade = false
   } = opts;
 
-  const cacheKey = `${glassTint}_${frameTint}_${windowWidth}_${floorHeight}_${litProbability}_${warmth}_${reflectivity}_${seed}_${boxLocal}`;
+  const cacheKey = `${glassTint}_${frameTint}_${windowWidth}_${floorHeight}_${litProbability}_${warmth}_${reflectivity}_${seed}_${boxLocal}_${farFade}`;
   if (_curtainWallCache.has(cacheKey)) {
     return _curtainWallCache.get(cacheKey);
   }
@@ -543,6 +572,17 @@ function createCurtainWallMaterial(opts = {}) {
   const shopLit = step(0.24, hash2D(cellId.add(vec2(uSeed, 19.4))));
   const floorIdx = floor(gridV);
   const isMechFloor = float(1.0).sub(step(1.0, mod(floorIdx.add(uSeed), 16.0))).mul(step(4.0, floorIdx));
+
+  // Issue #240: the fade factor (0 nearby, 1 past the far band) and
+  // the flat colour a fully faded building wears — its frame/glass
+  // base with the per-building tone, hazed 25% toward the horizon.
+  // Only built when this material opted in (farFade); otherwise the
+  // shader below is exactly the pre-#240 one.
+  const fadeF = farFade ? farFadeFactorNode() : null;
+  const fadeOff = farFade ? float(1.0).sub(fadeF) : null;
+  const flatCol = farFade
+    ? mix(mix(cFrame, cGlass, 0.35).mul(float(0.9).add(tone.mul(0.2))), cityUniforms.uSkyHorizonColor, 0.25)
+    : null;
 
   mat.colorNode = Fn(() => {
     // No glass in a storey the box cuts short (solid spandrel instead) nor behind the coping
@@ -619,7 +659,10 @@ function createCurtainWallMaterial(opts = {}) {
     // Brushed-aluminium coping capping every wall
     const withCap = mix(withBlank, mix(cFrame, color(0xc9ced3), 0.45), coping);
 
-    return mix(withCap, roofColor, isRoof);
+    // Issue #240: past the fade band the wall is its flat colour —
+    // the box stays drawn, lit and casting, with no window detail.
+    const detailed = mix(withCap, roofColor, isRoof);
+    return farFade ? mix(detailed, flatCol, fadeF) : detailed;
   })();
 
   mat.roughnessNode = Fn(() => {
@@ -663,11 +706,15 @@ function createCurtainWallMaterial(opts = {}) {
     const fresnel = pow(clamp(float(1.0).sub(abs(dot(viewDir, normalWorldGeometry))), 0.0, 1.0), 2.0);
     const transmission = float(1.0).sub(fresnel.mul(0.75));
 
-    return emitCol
+    // Issue #240: the lit-window glow fades with the same factor,
+    // so far buildings go dark-flat at night instead of keeping a
+    // window pattern with no wall behind it.
+    const emit = emitCol
       .mul(transmission)
       .mul(paneMask)
       .mul(cityUniforms.uInteriorGlow)
       .mul(0.72);
+    return farFade ? emit.mul(fadeOff) : emit;
   })();
 
   _curtainWallCache.set(cacheKey, mat);
@@ -698,10 +745,13 @@ function createPreWarBuildingMaterial(opts = {}) {
     crownGlowColor = 0xffe0a3,
     seed = 42.0,
     boxLocal = false,
-    cornerPier = 1.2 // solid masonry at both ends of every wall above the shopfronts (box-local mode)
+    cornerPier = 1.2, // solid masonry at both ends of every wall above the shopfronts (box-local mode)
+    // Issue #240: far-detail fade, opt-in per material — see
+    // createCurtainWallMaterial. Part of the cache key.
+    farFade = false
   } = opts;
 
-  const cacheKey = `${stoneColor}_${trimColor}_${windowWidth}_${floorHeight}_${litProbability}_${warmth}_${crownGlowHeight}_${seed}_${boxLocal}_${cornerPier}`;
+  const cacheKey = `${stoneColor}_${trimColor}_${windowWidth}_${floorHeight}_${litProbability}_${warmth}_${crownGlowHeight}_${seed}_${boxLocal}_${cornerPier}_${farFade}`;
   if (_preWarCache.has(cacheKey)) {
     return _preWarCache.get(cacheKey);
   }
@@ -757,6 +807,16 @@ function createPreWarBuildingMaterial(opts = {}) {
   const beltFloor = step(5.0, mod(floor(gridV), 6.0)).mul(front);
   const acRand = hash2D(cellId.add(vec2(uSeed.mul(1.3).add(7.1), 91.7)));
   const hasAC = step(0.88, acRand).mul(float(1.0).sub(isGroundFloor)).mul(float(1.0).sub(isRoof)).mul(open).mul(float(1.0).sub(beltFloor));
+
+  // Issue #240: fade factor + flat colour (stone base with the
+  // per-building tone, hazed 25% toward the horizon). Only built
+  // when this material opted in; otherwise the shader below is
+  // exactly the pre-#240 one.
+  const fadeF = farFade ? farFadeFactorNode() : null;
+  const fadeOff = farFade ? float(1.0).sub(fadeF) : null;
+  const flatCol = farFade
+    ? mix(cStone.mul(float(0.85).add(tone.mul(0.3))), cityUniforms.uSkyHorizonColor, 0.25)
+    : null;
 
   mat.colorNode = Fn(() => {
     const oneMinusEffX = float(1.0).sub(effHalfX);
@@ -952,7 +1012,8 @@ function createPreWarBuildingMaterial(opts = {}) {
       const doorCol = mix(doorPaint.mul(float(1.0).sub(doorPanels.mul(0.5))), mix(cGlass, cityUniforms.uSkyHorizonColor, 0.18), transom);
       finalCol.assign(mix(mix(withAC, cTrim.mul(0.85), surround), doorCol, inDoorway));
     });
-    return finalCol;
+    // Issue #240: past the fade band the wall is its flat colour.
+    return farFade ? mix(finalCol, flatCol, fadeF) : finalCol;
   })();
 
   mat.roughnessNode = Fn(() => {
@@ -1058,7 +1119,11 @@ function createPreWarBuildingMaterial(opts = {}) {
     const transomGlow = door.mul(filteredPulse(cellUV.x, 0.27, 0.73, fw.x)).mul(filteredPulse(cellUV.y, 0.67, 0.78, fw.y));
     const doorEmit = cWarmWindow.mul(transomGlow).mul(cityUniforms.uInteriorGlow).mul(0.32);
 
-    return winEmit.add(crownFlood).add(doorEmit);
+    // Issue #240: window + door glow fade with the wall; the crown
+    // flood (a height glow, not window detail) is left alone.
+    return farFade
+      ? winEmit.mul(fadeOff).add(crownFlood).add(doorEmit.mul(fadeOff))
+      : winEmit.add(crownFlood).add(doorEmit);
   })();
 
   _preWarCache.set(cacheKey, mat);
@@ -1174,7 +1239,11 @@ function createTileShophouseMaterial(opts = {}) {
     balconyPalette = [0xd8cfba, 0xcabfa8],
     signRate = 1.0, // share of shop bays carrying a coloured sign panel
     recess = 0.38, // ground-floor recess shadow depth (arcade depth)
-    wallRoughness = 0.60
+    wallRoughness = 0.60,
+    // Issue #240: far-detail fade, opt-in per material — see
+    // createCurtainWallMaterial. The cache key is JSON.stringify(opts),
+    // so the flag splits cache slots automatically.
+    farFade = false
   } = opts;
 
   // Issue #105: the real-text band is part of the material, so the
@@ -1194,6 +1263,11 @@ function createTileShophouseMaterial(opts = {}) {
   const uLitProb = uniform(litProbability);
   const uWarmth = uniform(warmth);
   const uBoxSeed = uniform(seed);
+
+  // Issue #240: fade factor (0 nearby, 1 past the far band), shared
+  // by the colour + emissive nodes. Only built when opted in.
+  const fadeF = farFade ? farFadeFactorNode() : null;
+  const fadeOff = farFade ? float(1.0).sub(fadeF) : null;
 
   const mat = new THREE.MeshStandardNodeMaterial({
     vertexColors: false
@@ -1469,7 +1543,11 @@ function createTileShophouseMaterial(opts = {}) {
     const roofCol = cRoof.mul(float(0.92).add(roofNoise.mul(0.14)));
     col = mix(col, roofCol, cell.isRoof);
 
-    return col.mul(canyonSkyAONode());
+    // Issue #240: past the fade band the wall is its flat cladding
+    // colour (tile/plaster, no windows, signs or doors) — the box
+    // stays drawn, lit and casting, hazed toward the horizon.
+    const flatCol = farFade ? mix(mix(tileCol, plaster, back), cityUniforms.uSkyHorizonColor, 0.25) : null;
+    return farFade ? mix(col, flatCol, fadeF).mul(canyonSkyAONode()) : col.mul(canyonSkyAONode());
   })();
 
   mat.roughnessNode = Fn(() => {
@@ -1587,7 +1665,10 @@ function createTileShophouseMaterial(opts = {}) {
       .mul(panelMask).mul(cityUniforms.uInteriorGlow).mul(0.38);
     const signEmit = mix(glyphEmit, plateEmit, uSignText);
 
-    return winEmit.add(shopGlow).add(signEmit);
+    // Issue #240: window, shop and sign glow fade with the wall.
+    return farFade
+      ? winEmit.mul(fadeOff).add(shopGlow.mul(fadeOff)).add(signEmit.mul(fadeOff))
+      : winEmit.add(shopGlow).add(signEmit);
   })();
 
   _tileShophouseCache.set(cacheKey, mat);
@@ -3568,6 +3649,9 @@ export {
   createPreWarBuildingMaterial,
   createTileShophouseMaterial,
   createFacadeBoxes,
+  setFarFadeEnabled,
+  FAR_FADE_NEAR_M,
+  FAR_FADE_FAR_M,
   createChryslerCrownMaterial,
   createCarPaintMaterial,
   createTreeMaterial,
