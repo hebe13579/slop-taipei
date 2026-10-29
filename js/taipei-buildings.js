@@ -968,7 +968,7 @@ const LANDMARK_STRUCTURES = [
     id: 'twtc-exhibition-hall-1', name: 'TWTC Exhibition Hall 1', nameZh: '台北世貿一館',
     lat: 25.034011, lon: 121.562404, realHeight: 38, estimated: true, color: 0x5a7a68,
     site: { w: 212, d: 200, dx: -18, dz: -3 },
-    facade: { kind: 'curtain', glassTint: 0x5a8a76, frameTint: 0x8a7f6a, windowWidth: 6.0, floorHeight: 5.5, litProbability: 0.3, warmth: 0.5, reflectivity: 0.5, seed: 255.11 },
+    facade: { kind: 'curtain', glassTint: 0x3e6b57, frameTint: 0x7d8a7a, windowWidth: 6.0, floorHeight: 5.5, litProbability: 0.3, warmth: 0.5, reflectivity: 0.65, seed: 255.11 },
     sign: { glyphs: 6, w: 34, h: 3.4, y: 7, dx: 0, dz: 86.5, bg: '#3a3f45', fg: '#ddd6c2' },
     parts: [
       { type: 'box', w: 158, d: 88, h: 12, dx: -7, dz: 42 },
@@ -976,7 +976,7 @@ const LANDMARK_STRUCTURES = [
       { type: 'box', w: 36, d: 44, h: 12, dx: -66, dz: -78 },
       { type: 'box', w: 150, d: 158, h: 10, y0: 12, dx: -2, dz: -2 },
       { type: 'box', w: 128, d: 136, h: 8, y0: 22, dx: -2, dz: -2 },
-      { type: 'frustum', wB: 76, dB: 76, wT: 10, dT: 10, h: 8, y0: 30, flat: { color: 0x27584a, roughness: 0.35, metalness: 0.3 } },
+      { type: 'frustum', wB: 76, dB: 76, wT: 10, dT: 10, h: 8, y0: 30, flat: { color: 0x1c4536, roughness: 0.35, metalness: 0.3 } },
     ],
     farParts: [
       { type: 'box', w: 158, d: 88, h: 12, dx: -7, dz: 42 },
@@ -984,7 +984,7 @@ const LANDMARK_STRUCTURES = [
       { type: 'box', w: 36, d: 44, h: 12, dx: -66, dz: -78 },
       { type: 'box', w: 150, d: 158, h: 10, y0: 12, dx: -2, dz: -2 },
       { type: 'box', w: 128, d: 136, h: 8, y0: 22, dx: -2, dz: -2 },
-      { type: 'frustum', wB: 76, dB: 76, wT: 10, dT: 10, h: 8, y0: 30, flat: { color: 0x27584a, roughness: 0.35, metalness: 0.3 } },
+      { type: 'frustum', wB: 76, dB: 76, wT: 10, dT: 10, h: 8, y0: 30, flat: { color: 0x1c4536, roughness: 0.35, metalness: 0.3 } },
     ],
   },
   {
