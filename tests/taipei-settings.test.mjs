@@ -12,6 +12,7 @@ import {
   persistSettings,
   graphicsConfig,
   trafficConfig,
+  initSettingsPanel,
   TRAFFIC_DENSITY_COUNTS,
   TRAFFIC_RANGE_METERS,
 } from '../js/settings.js';
@@ -40,21 +41,21 @@ function fingerprint(plan) {
 }
 
 test('settings resolution: defaults are the pre-#218 behaviour', () => {
-  assert.deepEqual(resolveSettings(), { specials: true, density: 'fine', graphics: 'medium', farDetail: 'fade', trafficEnabled: false, trafficDensity: 'normal', trafficRange: 'normal' });
+  assert.deepEqual(resolveSettings(), { specials: true, density: 'fine', graphics: 'medium', farDetail: 'fade', trafficDensity: 'off', trafficRange: 'normal' });
   assert.deepEqual(resolveSettings({ search: '', stored: null }), DEFAULT_SETTINGS);
 });
 
 test('settings resolution: storage beats defaults, URL beats storage, per field', () => {
   const stored = JSON.stringify({ specials: false, density: 'dense', graphics: 'low' });
-  assert.deepEqual(resolveSettings({ stored }), { specials: false, density: 'dense', graphics: 'low', farDetail: 'fade', trafficEnabled: false, trafficDensity: 'normal', trafficRange: 'normal' });
+  assert.deepEqual(resolveSettings({ stored }), { specials: false, density: 'dense', graphics: 'low', farDetail: 'fade', trafficDensity: 'off', trafficRange: 'normal' });
   // URL overrides only the fields it names.
   assert.deepEqual(
     resolveSettings({ stored, search: '?density=coarse' }),
-    { specials: false, density: 'coarse', graphics: 'low', farDetail: 'fade', trafficEnabled: false, trafficDensity: 'normal', trafficRange: 'normal' },
+    { specials: false, density: 'coarse', graphics: 'low', farDetail: 'fade', trafficDensity: 'off', trafficRange: 'normal' },
   );
   assert.deepEqual(
     resolveSettings({ stored, search: '?specials=on&graphics=high' }),
-    { specials: true, density: 'dense', graphics: 'high', farDetail: 'fade', trafficEnabled: false, trafficDensity: 'normal', trafficRange: 'normal' },
+    { specials: true, density: 'dense', graphics: 'high', farDetail: 'fade', trafficDensity: 'off', trafficRange: 'normal' },
   );
   // Stored value may arrive as an object too.
   assert.equal(resolveSettings({ stored: { density: 'coarse' } }).density, 'coarse');
@@ -63,11 +64,11 @@ test('settings resolution: storage beats defaults, URL beats storage, per field'
 test('settings resolution: invalid values fall back per field, never throw', () => {
   assert.deepEqual(
     resolveSettings({ stored: '{not json', search: '?density=huge&graphics=ultra&specials=maybe' }),
-    { specials: true, density: 'fine', graphics: 'medium', farDetail: 'fade', trafficEnabled: false, trafficDensity: 'normal', trafficRange: 'normal' },
+    { specials: true, density: 'fine', graphics: 'medium', farDetail: 'fade', trafficDensity: 'off', trafficRange: 'normal' },
   );
   assert.deepEqual(
     resolveSettings({ stored: JSON.stringify({ density: 'huge', graphics: 7, specials: 'off' }) }),
-    { specials: false, density: 'fine', graphics: 'medium', farDetail: 'fade', trafficEnabled: false, trafficDensity: 'normal', trafficRange: 'normal' },
+    { specials: false, density: 'fine', graphics: 'medium', farDetail: 'fade', trafficDensity: 'off', trafficRange: 'normal' },
   );
   // Boolean spellings the URL layer accepts.
   for (const [raw, want] of [['off', false], ['0', false], ['no', false], ['on', true], ['1', true], ['yes', true]]) {
@@ -81,7 +82,7 @@ test('settings persistence: round-trip through storage, failures stay silent', (
     getItem: (k) => (mem.has(k) ? mem.get(k) : null),
     setItem: (k, v) => mem.set(k, String(v)),
   };
-  const s = { specials: false, density: 'dense', graphics: 'high', farDetail: 'full', trafficEnabled: false, trafficDensity: 'normal', trafficRange: 'normal' };
+  const s = { specials: false, density: 'dense', graphics: 'high', farDetail: 'full', trafficDensity: 'off', trafficRange: 'normal' };
   assert.equal(persistSettings(storage, s), true);
   assert.deepEqual(resolveSettings({ stored: readStoredSettings(storage) }), s);
   assert.equal(mem.has(SETTINGS_STORAGE_KEY), true);
@@ -149,12 +150,11 @@ test('settings UI: gear button and panel rows in index.html', () => {
   assert.match(indexSource, /id="set-specials"/);
   for (const p of ['coarse', 'fine', 'dense']) assert.match(indexSource, new RegExp(`data-setting-density="${p}"`));
   for (const p of ['low', 'medium', 'high']) assert.match(indexSource, new RegExp(`data-setting-graphics="${p}"`));
-  // Issue #252: the traffic rows are live controls now (on/off toggle,
-  // density presets, spawn-range presets) — no longer the reserved
-  // disabled row from #218/#210.
-  assert.match(indexSource, /id="set-traffic"/);
+  // Issue #266: Off is a density option — no separate switch. The
+  // old on/off button is gone; Off is the first density preset.
+  assert.ok(!indexSource.includes('id="set-traffic"'), 'the old traffic switch is gone');
   assert.ok(!indexSource.includes('Coming soon — being measured behind a flag'), 'reserved traffic copy is gone');
-  for (const p of ['light', 'normal', 'heavy']) assert.match(indexSource, new RegExp(`data-setting-trafficdensity="${p}"`));
+  for (const p of ['off', 'light', 'normal', 'heavy']) assert.match(indexSource, new RegExp(`data-setting-trafficdensity="${p}"`));
   for (const p of ['near', 'normal', 'far']) assert.match(indexSource, new RegExp(`data-setting-trafficrange="${p}"`));
 });
 
@@ -174,36 +174,43 @@ test('far detail resolution: default fade, storage beats default, URL beats stor
   assert.equal(resolveSettings({ stored: JSON.stringify({ farDetail: 7 }) }).farDetail, 'fade');
 });
 
-test('traffic resolution: default off, storage beats default, URL beats storage (issue #252)', () => {
-  assert.equal(resolveSettings().trafficEnabled, false);
-  assert.equal(resolveSettings().trafficDensity, 'normal');
+test('traffic resolution: default off, storage beats default, URL beats storage (issues #252/#266)', () => {
+  assert.equal(resolveSettings().trafficDensity, 'off');
   assert.equal(resolveSettings().trafficRange, 'normal');
-  const stored = JSON.stringify({ trafficEnabled: true, trafficDensity: 'heavy', trafficRange: 'far' });
+  const stored = JSON.stringify({ trafficDensity: 'heavy', trafficRange: 'far' });
   const fromStored = resolveSettings({ stored });
-  assert.equal(fromStored.trafficEnabled, true);
   assert.equal(fromStored.trafficDensity, 'heavy');
   assert.equal(fromStored.trafficRange, 'far');
-  assert.equal(resolveSettings({ stored, search: '?trafficEnabled=off' }).trafficEnabled, false);
+  // Legacy stored settings (pre-#266) carried trafficEnabled: a stored
+  // density wins over it; otherwise it maps onto the density.
+  assert.equal(resolveSettings({ stored: JSON.stringify({ trafficEnabled: true, trafficDensity: 'heavy' }) }).trafficDensity, 'heavy');
+  assert.equal(resolveSettings({ stored: JSON.stringify({ trafficEnabled: true }) }).trafficDensity, 'normal');
+  assert.equal(resolveSettings({ stored: JSON.stringify({ trafficEnabled: false }) }).trafficDensity, 'off');
+  assert.equal(resolveSettings({ stored, search: '?trafficEnabled=off' }).trafficDensity, 'off');
   assert.equal(resolveSettings({ stored, search: '?trafficDensity=light' }).trafficDensity, 'light');
   assert.equal(resolveSettings({ stored, search: '?trafficRange=near' }).trafficRange, 'near');
+  // The legacy URL param maps onto the density only when no density
+  // param is given; a density param wins over it.
+  assert.equal(resolveSettings({ search: '?trafficEnabled=on' }).trafficDensity, 'normal');
+  assert.equal(resolveSettings({ search: '?trafficEnabled=on&trafficDensity=heavy' }).trafficDensity, 'heavy');
   // Invalid values fall back to the default, never throw.
-  assert.equal(resolveSettings({ search: '?trafficEnabled=maybe' }).trafficEnabled, false);
-  assert.equal(resolveSettings({ search: '?trafficDensity=huge' }).trafficDensity, 'normal');
+  assert.equal(resolveSettings({ search: '?trafficEnabled=maybe' }).trafficDensity, 'off');
+  assert.equal(resolveSettings({ search: '?trafficDensity=huge' }).trafficDensity, 'off');
   assert.equal(resolveSettings({ search: '?trafficRange=huge' }).trafficRange, 'normal');
 });
 
-test('traffic config: presets map to the measured pool sizes and radii (issue #252)', () => {
-  assert.deepEqual(TRAFFIC_DENSITY_COUNTS, { light: 60, normal: 200, heavy: 400 });
+test('traffic config: presets map to the measured pool sizes and radii (issues #252/#266)', () => {
+  assert.deepEqual(TRAFFIC_DENSITY_COUNTS, { off: 0, light: 60, normal: 200, heavy: 400 });
   assert.deepEqual(TRAFFIC_RANGE_METERS, { near: 200, normal: 380, far: 600 });
-  assert.deepEqual(trafficConfig(resolveSettings()), { enabled: false, carCount: 200, trafficRadius: 380 });
+  assert.deepEqual(trafficConfig(resolveSettings()), { enabled: false, carCount: 0, trafficRadius: 380 });
   assert.deepEqual(
-    trafficConfig(resolveSettings({ search: '?trafficEnabled=on&trafficDensity=heavy&trafficRange=far' })),
+    trafficConfig(resolveSettings({ search: '?trafficDensity=heavy&trafficRange=far' })),
     { enabled: true, carCount: 400, trafficRadius: 600 },
   );
   assert.deepEqual(
-    trafficConfig({ trafficEnabled: true, trafficDensity: 'bogus', trafficRange: 'bogus' }),
-    { enabled: true, carCount: 200, trafficRadius: 380 },
-    'unknown presets fall back to normal',
+    trafficConfig({ trafficDensity: 'bogus', trafficRange: 'bogus' }),
+    { enabled: false, carCount: 0, trafficRadius: 380 },
+    'unknown density falls back to off (no traffic), unknown range to normal',
   );
 });
 
@@ -213,8 +220,9 @@ test('settings wiring: main.js applies traffic from the gear, with the legacy fl
   assert.match(mainSource, /trafficCountFromSearch\(window\.location\.search\)/);
   assert.match(mainSource, /delete window\.__traffic/);
   // The gear must show the effective initial state, not the stored one:
-  // the legacy flag syncs the in-memory field before the panel reflects.
-  assert.match(mainSource, /settings\.trafficEnabled = initialTraffic\.enabled/);
+  // the legacy flag maps onto the nearest density preset and syncs the
+  // in-memory field before the panel reflects.
+  assert.match(mainSource, /settings\.trafficDensity = legacyCount > 0 \? nearest : 'off'/);
 });
 
 test('settings UI: distant-buildings row in index.html, wired in main.js', () => {
@@ -233,4 +241,113 @@ test('settings wiring: main.js resolves + passes settings, boot exposes the runt
   assert.match(bootSource, /setDensity\(preset\)/);
   assert.match(bootSource, /setSpecialsVisible\(visible\)/);
   assert.match(bootSource, /taipeiSettings,/);
+});
+
+// Issue #266 — the panel applies traffic without the old switch race.
+// The switch read the state at click time but applied it a frame later,
+// so two rapid taps queued two builds with the same direction and the
+// second tap was swallowed. The preset buttons update the setting at
+// once and coalesce applies: one pending run reads the CURRENT
+// settings, so rapid taps end at the last tap with one build. These
+// tests drive the real initSettingsPanel with a minimal DOM stub
+// (doc is injectable) and a controllable rAF queue — no browser.
+function stubPanel() {
+  const makeEl = (id, dataset = {}) => {
+    const listeners = {};
+    const el = {
+      id, dataset, children: [], textContent: '', disabled: false, title: '',
+      classList: { _s: new Set(), toggle(c, on) { if (on) this._s.add(c); else this._s.delete(c); }, contains(c) { return this._s.has(c); } },
+      attributes: {},
+      setAttribute(k, v) { this.attributes[k] = v; },
+      getAttribute(k) { return this.attributes[k] ?? null; },
+      querySelector() { return null; },
+      addEventListener(ev, fn) { (listeners[ev] ||= []).push(fn); },
+      click() { for (const fn of listeners.click || []) fn(); },
+    };
+    return el;
+  };
+  const statusEl = makeEl('set-traffic-status');
+  const densityBtns = ['off', 'light', 'normal', 'heavy'].map((p) => makeEl('d-' + p, { settingTrafficdensity: p }));
+  const rangeBtns = ['near', 'normal', 'far'].map((p) => makeEl('r-' + p, { settingTrafficrange: p }));
+  const pop = makeEl('settings-popover');
+  pop.querySelectorAll = (sel) => (sel.includes('trafficdensity') ? densityBtns : sel.includes('trafficrange') ? rangeBtns : []);
+  const doc = {
+    getElementById: (id) => ({ 'settings-popover': pop, 'set-traffic-status': statusEl }[id] || null),
+  };
+  const byPreset = (btns, key, value) => btns.find((b) => b.dataset[key] === value);
+  return { doc, statusEl, densityBtns, rangeBtns, byPreset };
+}
+
+async function flushFrames(rafQueue) {
+  while (rafQueue.length) {
+    const q = rafQueue.splice(0);
+    for (const cb of q) cb();
+    await new Promise((r) => setTimeout(r, 0));
+  }
+  await new Promise((r) => setTimeout(r, 0));
+}
+
+test('traffic panel: rapid taps coalesce into one apply ending at the last tap (issue #266)', async () => {
+  const prevRaf = globalThis.requestAnimationFrame;
+  const rafQueue = [];
+  globalThis.requestAnimationFrame = (cb) => { rafQueue.push(cb); return rafQueue.length; };
+  try {
+    const { doc, densityBtns, byPreset } = stubPanel();
+    const settings = resolveSettings();
+    const calls = [];
+    initSettingsPanel({ settings, taipeiSettings: {}, doc, onTraffic: (cfg) => { calls.push({ ...cfg }); }, persist: () => {} });
+    // Light, then Off, before any frame fires: the old switch applied
+    // enabled=true twice here. The coalesced apply reads the current
+    // settings — Off — exactly once.
+    byPreset(densityBtns, 'settingTrafficdensity', 'light').click();
+    byPreset(densityBtns, 'settingTrafficdensity', 'off').click();
+    assert.equal(calls.length, 0, 'nothing applies before the frame');
+    await flushFrames(rafQueue);
+    assert.equal(calls.length, 1, 'one coalesced apply');
+    assert.deepEqual(calls[0], { enabled: false, carCount: 0, trafficRadius: 380 });
+    assert.equal(settings.trafficDensity, 'off');
+    assert.equal(byPreset(densityBtns, 'settingTrafficdensity', 'off').classList.contains('active'), true);
+    // Sequential taps each apply once; re-tapping the active preset is a no-op.
+    byPreset(densityBtns, 'settingTrafficdensity', 'light').click();
+    await flushFrames(rafQueue);
+    assert.deepEqual(calls[1], { enabled: true, carCount: 60, trafficRadius: 380 });
+    byPreset(densityBtns, 'settingTrafficdensity', 'heavy').click();
+    await flushFrames(rafQueue);
+    assert.deepEqual(calls[2], { enabled: true, carCount: 400, trafficRadius: 380 });
+    byPreset(densityBtns, 'settingTrafficdensity', 'heavy').click();
+    await flushFrames(rafQueue);
+    assert.equal(calls.length, 3, 're-tapping the active preset applies nothing');
+  } finally {
+    if (prevRaf === undefined) delete globalThis.requestAnimationFrame;
+    else globalThis.requestAnimationFrame = prevRaf;
+  }
+});
+
+test('traffic panel: a failed build restores the last good config, gear and world agree (issue #266)', async () => {
+  const prevRaf = globalThis.requestAnimationFrame;
+  const rafQueue = [];
+  globalThis.requestAnimationFrame = (cb) => { rafQueue.push(cb); return rafQueue.length; };
+  try {
+    const { doc, statusEl, densityBtns, byPreset } = stubPanel();
+    const settings = resolveSettings();
+    const calls = [];
+    initSettingsPanel({
+      settings, taipeiSettings: {}, doc,
+      onTraffic: (cfg) => { calls.push({ ...cfg }); if (cfg.carCount === 400) throw new Error('simulated build failure'); },
+      persist: () => {},
+    });
+    byPreset(densityBtns, 'settingTrafficdensity', 'light').click();
+    await flushFrames(rafQueue);
+    assert.equal(calls.length, 1);
+    byPreset(densityBtns, 'settingTrafficdensity', 'heavy').click();
+    await flushFrames(rafQueue);
+    // The failed Heavy build is followed by a re-apply of Light (the
+    // last good config), and the setting is restored to Light.
+    assert.deepEqual(calls.map((c) => c.carCount), [60, 400, 60]);
+    assert.equal(settings.trafficDensity, 'light');
+    assert.equal(statusEl.textContent, 'change failed — kept previous state');
+  } finally {
+    if (prevRaf === undefined) delete globalThis.requestAnimationFrame;
+    else globalThis.requestAnimationFrame = prevRaf;
+  }
 });
