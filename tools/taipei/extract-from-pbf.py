@@ -63,6 +63,22 @@ EDU_AMENITIES = ('school', 'kindergarten', 'university', 'college')
 def is_edu(t):
     return t.get('amenity') in EDU_AMENITIES or t.get('landuse') == 'education'
 
+# Issue #246: park sports features (playgrounds, pitches, picnic
+# tables/sites, shelters/pavilions) for the parkSports geodata
+# section. Same tag set as the #246 census (census246.py); the
+# derive step (build-park-sports.mjs) applies the mapping rules
+# and the inside-a-park test, so the extract stays a dumb filter.
+def is_park_sport(t):
+    if t.get('leisure') in ('playground', 'pitch', 'track', 'picnic_table', 'shelter'):
+        return True
+    if t.get('amenity') == 'shelter' or t.get('building') == 'pavilion':
+        return True
+    if t.get('shelter_type') or t.get('tourism') == 'picnic_site':
+        return True
+    if t.get('sport'):
+        return True
+    return False
+
 class Collector(osmium.SimpleHandler):
     def __init__(self):
         super().__init__()
@@ -72,7 +88,11 @@ class Collector(osmium.SimpleHandler):
         self.school_nodes = {}  # id -> {tags, lat, lon} (education campuses mapped as a point only, issue #221)
         self.relations = []   # {tags, members:[(type, ref, role)]}
         self.rel_member_ways = set()  # member way ids of interesting relations (pass-2 recovery)
+        self.sports_nodes = {}  # id -> {tags, lat, lon} (park-sport nodes in bbox, issue #246)
     def node(self, n):
+        if is_park_sport(n.tags):
+            if in_bbox(n.location.lat, n.location.lon, M):
+                self.sports_nodes[n.id] = {'tags': dict(n.tags), 'lat': n.location.lat, 'lon': n.location.lon}
         if is_edu(n.tags):
             if in_bbox(n.location.lat, n.location.lon, M):
                 self.school_nodes[n.id] = {'tags': dict(n.tags), 'lat': n.location.lat, 'lon': n.location.lon}
@@ -171,6 +191,14 @@ def main():
                  for wid, w in c.ways.items() if wid in tile_way_ids and is_lm(w['tags'])]
     landmarks += [{'type': 'node', 'id': nid, 'tags': n['tags'], 'lat': n['lat'], 'lon': n['lon']}
                   for nid, n in c.nodes.items()]
+
+    # Park sports (issue #246): every in-tile way/node carrying a
+    # playground/pitch/picnic/shelter/sport tag, with geometry; the
+    # derive step maps them to park-anchored rects.
+    sports = [{'type': 'way', 'id': wid, 'tags': w['tags'], 'geometry': w['geometry']}
+              for wid, w in c.ways.items() if wid in tile_way_ids and is_park_sport(w['tags'])]
+    sports += [{'type': 'node', 'id': nid, 'tags': n['tags'], 'lat': n['lat'], 'lon': n['lon']}
+               for nid, n in c.sports_nodes.items()]
 
     # Railways (issue #118): every way carrying a `railway` tag (tracks,
     # platforms, station outlines) with node refs preserved like roads,
@@ -307,7 +335,7 @@ def main():
         }
 
     import os
-    for name, els in [('osm_roads', roads), ('osm_water', water), ('osm_parks', parks), ('osm_landmarks', landmarks), ('osm_green', green), ('osm_railways', railways), ('osm_aeroway', aeroway), ('osm_sites', sites), ('osm_schools', schools)]:
+    for name, els in [('osm_roads', roads), ('osm_water', water), ('osm_parks', parks), ('osm_landmarks', landmarks), ('osm_green', green), ('osm_railways', railways), ('osm_aeroway', aeroway), ('osm_sites', sites), ('osm_schools', schools), ('osm_park_sports', sports)]:
         path = os.path.join(outdir, name + '.json')
         with open(path, 'w') as f:
             json.dump({'version': 0.7, 'generator': 'extract-from-pbf.py (Geofabrik Taiwan extract)', 'elements': els}, f)
