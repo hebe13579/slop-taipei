@@ -165,7 +165,7 @@
 
 import { ribbonPoly, pointInPoly, buildPolyGrid, pointInAnyPoly } from './taipei-painted.js';
 import { medianKind, medianStripWidth, buildMedianStrips } from './taipei-surfaces.js';
-import { planJunctionCaps, planRoundabouts, ringPoints, capSurfacePolys, roundaboutDashOccluders } from './taipei-junctions.js';
+import { planJunctionCaps, planRoundabouts, ringPoints, capSurfacePolys, roundaboutDashOccluders, isMajorJunction } from './taipei-junctions.js';
 
 export const LANE_W = 3.2;               // generator's width-per-lane conversion
 export const DASH_LEN = 3;               // m of paint per dash
@@ -955,6 +955,41 @@ export function junctionArmDivided(junction, arm, roadbeds) {
   return false;
 }
 
+// POC (#214) G1 classifier: a fitted, unsignalized junction whose
+// through road is divided (a merged bed carrying a median, or a
+// same-name same-direction twin carriageway pair) and is crossed
+// by a minor arm. Returns null, or the axis frame the zebra POC
+// places against: { mode: 'merged' | 'twin', ux, uz (axis dir),
+// axisArm, half, medianHalf (merged), twins (twin mode) }.
+const crossAngleOk = (a, b) => {
+  const dot = Math.max(-1, Math.min(1, a.dirX * b.dirX + a.dirZ * b.dirZ));
+  const ang = (Math.acos(dot) * 180) / Math.PI;
+  return ang >= 35 && ang <= 145;
+};
+export function dividedAvenueInfo(j, roadbeds) {
+  if (!j || j.signalized || isMajorJunction(j)) return null;
+  const arms = j.arms || [];
+  const crossedByMinor = (a) => arms.some((c) =>
+    c !== a && c.name !== a.name && crossAngleOk(a, c) && !roadbeds[c.bed].deck);
+  for (const a of arms) {
+    if (!medianKind(roadbeds[a.bed])) continue;
+    if (!crossedByMinor(a)) continue;
+    const { medianHalf } = laneLayout(roadbeds[a.bed]);
+    return { mode: 'merged', ux: a.dirX, uz: a.dirZ, axisArm: a, half: roadbeds[a.bed].width / 2, medianHalf };
+  }
+  for (let i = 0; i < arms.length; i++) {
+    for (let k = i + 1; k < arms.length; k++) {
+      const a = arms[i], b = arms[k];
+      if (!a.name || a.name !== b.name) continue;
+      if (a.dirX * b.dirX + a.dirZ * b.dirZ < Math.cos((25 * Math.PI) / 180)) continue;
+      if (!junctionArmDivided(j, a, roadbeds)) continue;
+      if (!crossedByMinor(a)) continue;
+      return { mode: 'twin', ux: a.dirX, uz: a.dirZ, axisArm: a, twins: [a, b] };
+    }
+  }
+  return null;
+}
+
 // buildJunctionFurniture(roadbeds, junctions) ->
 // { stripes, stopLines, signals, suppress, stats, bands, bandJunction }
 // stripes / stopLines are quads for the renderer's quadsGeometry.
@@ -971,7 +1006,7 @@ export function junctionArmDivided(junction, arm, roadbeds) {
 // mast arm over the approach) on divided approaches only, 'pole'
 // (plain corner pole) elsewhere; armLen is the mast arm's reach.
 // suppress feeds buildLaneDividers' stop-line zones.
-export function buildJunctionFurniture(roadbeds, junctions, capsIn = null) {
+export function buildJunctionFurniture(roadbeds, junctions, capsIn = null, opts = {}) {
   let stripes = [], stopLines = [], signals = [];
   // Provenance (issue #75 audit/tests): the junction index that
   // generated each stripe / stop-line quad, aligned with the
@@ -986,6 +1021,7 @@ export function buildJunctionFurniture(roadbeds, junctions, capsIn = null) {
   const suppress = new Map();
   const stats = {
     junctions: 0, crosswalks: 0, stopLines: 0, signals: 0, skippedArms: 0,
+    dividedPocJunctions: 0, dividedPocCrosswalks: 0,
     mastSignals: 0, poleSignals: 0, clearanceMoved: 0, clearanceUnresolved: 0, clearanceFallback: 0,
     ringArmsSkipped: 0, deckArmsSkipped: 0,
     // Furniture discipline (issue #170): surface-relocated signal
@@ -1333,6 +1369,81 @@ export function buildJunctionFurniture(roadbeds, junctions, capsIn = null) {
       }
     }
   });
+  // ---- POC (#214) G1: divided-avenue zebras ----------------------
+  // Flag-gated (opts.dividedPoc); off by default the furniture is
+  // exactly the signalized-only set above. At a fitted junction
+  // whose through road is divided, each minor arm's mouth gets a
+  // zebra across EACH carriageway of the avenue, seated on the
+  // cap: the band is perpendicular to the avenue, centred on the
+  // minor arm's axis where it meets the avenue centreline, and
+  // spans one carriageway (one half of a merged bed split by its
+  // median, or one twin bed). Stripes use the same pitch/width/
+  // depth as the signalized crossings and join the same groups,
+  // so the #170 discipline pass below judges them identically.
+  if (opts.dividedPoc) {
+    const placePocBand = (cx, cz, ux, uz, vx, vz, spanHalf, ji, rank, width) => {
+      const d = CROSSWALK_DEPTH / 2;
+      const gStart = stripes.length;
+      let firstO = null, lastO = null;
+      for (let o = -spanHalf + 0.35 + STRIPE_W / 2; o <= spanHalf - 0.35 - STRIPE_W / 2 + 1e-6; o += STRIPE_PITCH) {
+        const oHi = o + STRIPE_W / 2, oLo = o - STRIPE_W / 2;
+        stripes.push([
+          cx - ux * d + vx * oHi, cz - uz * d + vz * oHi,
+          cx + ux * d + vx * oHi, cz + uz * d + vz * oHi,
+          cx + ux * d + vx * oLo, cz + uz * d + vz * oLo,
+          cx - ux * d + vx * oLo, cz - uz * d + vz * oLo,
+        ]);
+        stripeJunction.push(ji);
+        if (firstO === null) firstO = o;
+        lastO = o;
+      }
+      if (firstO !== null) {
+        const bHi = lastO + STRIPE_W / 2, bLo = firstO - STRIPE_W / 2;
+        bands.push({
+          quad: [
+            cx - ux * d + vx * bHi, cz - uz * d + vz * bHi,
+            cx + ux * d + vx * bHi, cz + uz * d + vz * bHi,
+            cx + ux * d + vx * bLo, cz + uz * d + vz * bLo,
+            cx - ux * d + vx * bLo, cz - uz * d + vz * bLo,
+          ],
+          width: bHi - bLo,
+        });
+        bandJunction.push(ji);
+        groups.push({ ji, start: gStart, count: stripes.length - gStart, rank, width });
+        stats.dividedPocCrosswalks++;
+      }
+    };
+    junctions.forEach((j, ji) => {
+      if (claimOf.get(ji)) return;
+      const info = dividedAvenueInfo(j, roadbeds);
+      if (!info) return;
+      stats.dividedPocJunctions++;
+      const ux = info.ux, uz = info.uz, vx = -uz, vz = ux;
+      const axisName = info.axisArm.name;
+      for (const c of j.arms) {
+        if (c.name === axisName) continue;
+        if (roadbeds[c.bed].deck) continue;
+        if (!crossAngleOk(info.axisArm, c)) continue;
+        const sStar = (c.endX - j.x) * ux + (c.endZ - j.z) * uz;
+        if (info.mode === 'merged') {
+          const oAxis = (info.axisArm.endX - j.x) * vx + (info.axisArm.endZ - j.z) * vz;
+          for (const [lo, hi] of [[info.medianHalf, info.half], [-info.half, -info.medianHalf]]) {
+            if (hi - lo < CROSSWALK_MIN_ARM_W) continue;
+            const oMid = oAxis + (lo + hi) / 2;
+            placePocBand(j.x + ux * sStar + vx * oMid, j.z + uz * sStar + vz * oMid,
+              ux, uz, vx, vz, (hi - lo) / 2, ji, c.rank || 0, hi - lo);
+          }
+        } else {
+          for (const t of info.twins) {
+            if (t.width < CROSSWALK_MIN_ARM_W) continue;
+            const oT = (t.endX - j.x) * vx + (t.endZ - j.z) * vz;
+            placePocBand(j.x + ux * sStar + vx * oT, j.z + uz * sStar + vz * oT,
+              ux, uz, vx, vz, t.width / 2, ji, c.rank || 0, t.width);
+          }
+        }
+      }
+    });
+  }
   // ---- furniture discipline pass (issue #170) -------------------
   // Runs over the placed furniture; the junction surfaces and the
   // dash suppression map are NOT touched. Planner quads are simple
@@ -1709,7 +1820,7 @@ export function buildJunctionFurniture(roadbeds, junctions, capsIn = null) {
 // At roundabout-claimed junctions, ring-carriageway arms get no
 // furniture at all (see buildJunctionFurniture): the crossings
 // stand on the ring entries only.
-export function buildRoadMarkings(roadbeds, medianStrips = null, caps = null, junctionsIn = null, greenPolys = []) {
+export function buildRoadMarkings(roadbeds, medianStrips = null, caps = null, junctionsIn = null, greenPolys = [], opts = {}) {
   const junctions = junctionsIn || detectJunctions(roadbeds);
   if (!caps) caps = planJunctionCaps(roadbeds, junctions);
   // Issue #163: dashes clip against the caps' full paved
@@ -1720,7 +1831,7 @@ export function buildRoadMarkings(roadbeds, medianStrips = null, caps = null, ju
   // across the planted wedges at the Renai circle.
   const sites = planRoundabouts(roadbeds, junctions);
   const capPolys = [...caps.flatMap((c) => capSurfacePolys(c)), ...roundaboutDashOccluders(sites, greenPolys)];
-  const furniture = buildJunctionFurniture(roadbeds, junctions, caps);
+  const furniture = buildJunctionFurniture(roadbeds, junctions, caps, opts);
   // Issue #182: the placed crosswalk bands and stripes are dash
   // occluders too — the furniture is final here (the #170 pass
   // has already culled it), and the divider builder culls dash
@@ -1768,6 +1879,8 @@ export function buildRoadMarkings(roadbeds, medianStrips = null, caps = null, ju
       furnStripSegmentsClipped: dividers.stats.furnStripSegmentsClipped,
       medianBlockedSamples: dividers.stats.medianBlockedSamples,
       crosswalks: furniture.stats.crosswalks,
+      dividedPocJunctions: furniture.stats.dividedPocJunctions,
+      dividedPocCrosswalks: furniture.stats.dividedPocCrosswalks,
       stopLines: furniture.stats.stopLines,
       signalUnits: furniture.stats.signals,
       signalMast: furniture.stats.mastSignals,

@@ -8,7 +8,7 @@ import { buildPaintedBands } from './taipei-painted.js';
 import { buildAirfieldPaint, buildRoadTunnelPortals, roadTrenchSlots } from './taipei-airfield.js';
 import { SURFACE_TONES, surfaceClass, buildMedianStrips, isPlazaPark, isPodiumBlock, podiumCentresOf, memorialPaving, MEMORIAL_GRID_TONE } from './taipei-surfaces.js';
 import { buildRoadMarkings, detectJunctions, DASH_LEN, DASH_GAP, STRIPE_W, STRIPE_PITCH } from './taipei-markings.js';
-import { planJunctionCaps, planRoundabouts, ringPoints, capSurfacePolys, capClipPolys, CAP_Y, ISLAND_Y } from './taipei-junctions.js';
+import { planJunctionCaps, planRoundabouts, ringPoints, capSurfacePolys, capClipPolys, capWaterPolys, CAP_Y, ISLAND_Y } from './taipei-junctions.js';
 import { buildDeckGeometry, groundContactPolys, portalTrenchSlots, diveAdjustedPiers, PIER_W, PIER_D } from './taipei-viaduct.js';
 import { buildDriveModel, taipeiExtraColliders } from './taipei-drive.js';
 import { ribbonsQuads, jointFramesFor } from './taipei-ribbons.js';
@@ -1333,7 +1333,13 @@ export async function buildTaipeiGround(scene, tile, deps = {}) {
   // builder (which used to detect its own copy).
   const junctions = detectJunctions(carriageways);
   const roundabouts = planRoundabouts(carriageways, junctions);
-  const caps = planJunctionCaps(carriageways, junctions, roundabouts, capClipPolys(geo));
+  // POC (#214, flag-gated via deps.poc — off by default the boot is
+  // byte-identical to main): waterClip cuts creek-water spill from
+  // caps (R1), cornerClamp seats diagonal hull corners on the kerb
+  // (G2), divided feeds the G1 zebra POC in buildRoadMarkings.
+  const poc = deps.poc || {};
+  const caps = planJunctionCaps(carriageways, junctions, roundabouts, capClipPolys(geo),
+    poc.waterClip ? capWaterPolys(geo) : null, { cornerClamp: !!poc.cornerClamp });
   const capPolys = [
     ...caps.flatMap((c) => capSurfacePolys(c)),
     ...roundabouts.flatMap((s) => [s.disc, ...s.aprons]).map((c) => ringPoints(c.ring)),
@@ -1393,7 +1399,7 @@ export async function buildTaipeiGround(scene, tile, deps = {}) {
   // obey them; scooter waiting boxes are out of scope (user cut).
   const markingsStart = performance.now();
   const markings = buildRoadMarkings(carriageways, medians, caps, junctions,
-    [...(geo.parks || []), ...(geo.green || [])].map((g) => ringPoints(g.ring))); // reuses the strips built above as dash occluders; greens feed the #173 roundabout wedge occluders
+    [...(geo.parks || []), ...(geo.green || [])].map((g) => ringPoints(g.ring)), { dividedPoc: !!poc.divided }); // reuses the strips built above as dash occluders; greens feed the #173 roundabout wedge occluders
   // Dashes and zebra stripes render as shader patterns over plain
   // ribbons/bands (issue #90 — the plan in taipei-markings.js is
   // unchanged; only the baking moved into the fragment shader).
