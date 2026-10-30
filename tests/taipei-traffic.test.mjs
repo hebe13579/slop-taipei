@@ -164,15 +164,15 @@ test('network: generic builder keeps a strongly connected drivable core', () => 
   // because the bridge/tunnel crossings stay in the graph.
   // Re-pinned for issue #254: taipeiTrafficEnv now serves the DECK
   // graph (ramps + decks rejoin through the level-join rule), so the
-  // core grows to 21,387 / 16,305 / 7,478 — 1,076 more directed
-  // edges, 588 more nodes, all of them deck/ramp fabric attached to
+  // core grows to 21,385 / 16,328 / 7,493 — 1,099 more directed
+  // edges, 603 more nodes, all of them deck/ramp fabric attached to
   // the same core through ramps. Cross-run proof: the ground-only
   // builder on THIS geodata reproduces 20,984 / 15,229 / 6,890
   // exactly (asserted in tests/taipei-deck-traffic.test.mjs), so the
   // whole delta is the deck graph and nothing else.
   const env = taipeiTrafficEnv(200);
   const net = buildRoadNetwork([], [], env.networkEnv);
-  assert.equal(net.nodes.length, 7478);
-  assert.equal(net.edges.length, 16305);
-  assert.equal(net.paintEdges.length, 21387);
+  assert.equal(net.nodes.length, 7493);
+  assert.equal(net.edges.length, 16328);
+  assert.equal(net.paintEdges.length, 21385);
 });

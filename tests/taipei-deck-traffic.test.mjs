@@ -242,8 +242,79 @@ test('ground core: the #252 network is unchanged (issue #254)', () => {
   }
 });
 
-test('synthetic: ramp joins levels, false joins do not, unplaced decks drop (issue #254)', () => {
-  // A ground street (nodes 0-1-2), an on-ramp (1-4, digest 0 ->
+test('pocket: the NW Huanhe pocket rejoins the core, both directions, deck at height (issues #254/#274)', () => {
+  // GRAPH-INPUT STATEMENT: buildTaipeiRoadGraph({ includeDecks: true })
+  // starts from the UNFILTERED drivable edges (rg.edges) — the #252
+  // drop rule is bypassed in deck mode; only unplaceable level >= 2
+  // edges (32) and broken profiles (0) leave. The Huanhe census
+  // (huanhe-evidence/census3.mjs) measured the NW pocket — nodes of
+  // 環河北*/重陽* edges with either endpoint x < -6200, 141 nodes —
+  // at 71/141 in the main strongly-connected component unfiltered
+  // vs 10/141 under the #252 filter. The deck network must
+  // restore-or-beat 71: buildRoadNetwork step 7 keeps only the main
+  // SCC, so a surviving edge through the pocket IS the core.
+  // Measured on this tree (huanhe-evidence/measure-deck-pocket.mjs):
+  // 98/141 pocket nodes within 20 m of a surviving deck-network
+  // edge (20 m absorbs junction-collapse shifts; the chained runs
+  // are straight chords), 51 northbound + 63 southbound
+  // ground-loop edges through the pocket box, 15 deck edges >= 5 m
+  // within 300 m of the 重陽橋 east landing, 1 approach edge
+  // climbing > 3 m in the 三段 box. The ground network on the same
+  // tree covers 22/141 with 0 northbound / 1 southbound loop edge
+  // — the pocket stays stranded there, which is #274's separate
+  // height-independent defect, not this test's. Floors below are
+  // the census baselines, not the measured values, so the test
+  // fails only if the pocket actually strands again.
+  const rg = TAIPEI_GEO.roadGraph;
+  const gNodes = rg.nodes;
+  const pocket = new Set();
+  for (const e of rg.edges) {
+    const n = e.name || '';
+    if (!n.includes('環河北') && !n.includes('重陽')) continue;
+    if (gNodes[e.a * 2] < -6200 || gNodes[e.b * 2] < -6200) { pocket.add(e.a); pocket.add(e.b); }
+  }
+  assert.equal(pocket.size, 141, 'pocket node set matches the census definition');
+  const net = deckNetwork();
+  const distToSeg = (px, pz, ax, az, bx, bz) => {
+    const dx = bx - ax, dz = bz - az;
+    const L2 = dx * dx + dz * dz;
+    let t = L2 ? ((px - ax) * dx + (pz - az) * dz) / L2 : 0;
+    t = Math.max(0, Math.min(1, t));
+    return Math.hypot(px - (ax + t * dx), pz - (az + t * dz));
+  };
+  let covered = 0;
+  for (const i of pocket) {
+    const x = gNodes[i * 2], z = gNodes[i * 2 + 1];
+    let best = Infinity;
+    for (const e of net.edges) {
+      const d = distToSeg(x, z, e.sx, e.sz, e.sx + e.dx * e.len, e.sz + e.dz * e.len);
+      if (d < best) best = d;
+      if (best <= 20) break;
+    }
+    if (best <= 20) covered++;
+  }
+  assert.ok(covered >= 71, `pocket rejoins the core: ${covered}/141 covered, baseline 71`);
+  let north = 0, south = 0, landingDeck = 0, approach = 0;
+  for (const e of net.edges) {
+    const mx = e.sx + e.dx * e.len / 2, mz = e.sz + e.dz * e.len / 2;
+    const hi = Math.max(e.y0 || 0, e.y1 || 0);
+    if (mx < -6200 && mz >= -6170 && mz <= -4580 && hi <= 0.5 && Math.abs(e.dz) > Math.abs(e.dx)) {
+      if (e.dz < 0) north++;
+      else south++;
+    }
+    if (Math.hypot(mx + 5491, mz + 6001) <= 300 && hi >= 5) landingDeck++;
+    if (mx >= -5765 && mx <= -5711 && mz >= -5268 && mz <= -5087 && e.yProf) {
+      let mn = Infinity, mxh = -Infinity;
+      for (const h of e.yProf) { if (h < mn) mn = h; if (h > mxh) mxh = h; }
+      if (mxh - mn > 3) approach++;
+    }
+  }
+  assert.ok(north >= 10 && south >= 10, `bend loop drives both directions: north ${north}, south ${south}`);
+  assert.ok(landingDeck >= 5, `bridge deck at height by the east landing: ${landingDeck} edges`);
+  assert.ok(approach >= 1, '三段 approach climbs onto the deck');
+});
+
+test('synthetic: ramp joins levels, false joins do not, unplaced decks drop (issue #254)', () => {  // A ground street (nodes 0-1-2), an on-ramp (1-4, digest 0 ->
   // 9), a two-way deck (4-3, digest flat 9), an off-ramp (3-2,
   // digest 9 -> 0), a ground street (2-3) sharing the deck's end
   // node (the false join), and a deck chord (2-3) with no digest
