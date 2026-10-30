@@ -2145,6 +2145,13 @@ function buildCityBlocks(scene, opts = null) {
     } else {
       mass(b, [rect(minX, maxX, minZ, maxZ)], lot.arcade && floors >= 2 ? 1 : 0, floors);
     }
+    // Issue #132: a planned lot may carry a seated base (lot.y,
+    // from the Taipei drape seating in taipeiCityBlocksOptions) —
+    // shift every massed part up by it BEFORE commit, so facades,
+    // footprints, colliders, cornices and roof gear all ride the
+    // seated base. Lots without lot.y are untouched (the whole
+    // Manhattan path and every flat Taipei lot).
+    if (lot.y) for (const p of b.parts) { p.y0 += lot.y; p.y1 += lot.y; }
     // Issue #85: no Manhattan storefront dressing on planned lots — the
     // avenueFront path (commit step 4) hangs a canvas awning, an
     // English-text fascia sign and a storefront spotlight on every

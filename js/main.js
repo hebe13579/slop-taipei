@@ -182,8 +182,9 @@ async function initApp() {
     cityGrid = await boot.buildTaipeiGround(scene, activeTile, {
       buildCityBlocks,
       // Issue #218: the settings the boot builds with (density
-      // preset + special-buildings visibility).
-      settings: { density: settings.density, specials: settings.specials },
+      // preset + special-buildings visibility). Issue #132: the
+      // drape flag rides the same object (the boot's kill-switch).
+      settings: { density: settings.density, specials: settings.specials, drape: settings.drape },
       // Real staged progress (issue #63): the boot fires this as each
       // construction stage actually completes — the loader names the
       // finished stage and fills its share of the bar. No estimates:
@@ -275,6 +276,9 @@ async function initApp() {
     onGraphics: (preset) => applyGraphicsSettings(renderer, lightingSystem.sunLight, preset, window.devicePixelRatio || 1),
     onFarDetail: (preset) => setFarFadeEnabled(preset !== 'full'),
     onTraffic: (cfg) => applyTrafficConfig(cfg),
+    // Issue #132: the drape is a boot-time setting — the toggle
+    // persists (above) and the page reloads into the new ground.
+    onDrape: () => window.location.reload(),
     persist: () => persistSettings(window.localStorage, settings),
   });
 

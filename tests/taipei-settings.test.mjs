@@ -42,21 +42,21 @@ function fingerprint(plan) {
 }
 
 test('settings resolution: defaults are the pre-#218 behaviour', () => {
-  assert.deepEqual(resolveSettings(), { specials: true, density: 'fine', graphics: 'medium', farDetail: 'fade', trafficDensity: 'off', trafficRange: 'normal' });
+  assert.deepEqual(resolveSettings(), { specials: true, density: 'fine', graphics: 'medium', farDetail: 'fade', drape: true, trafficDensity: 'off', trafficRange: 'normal' });
   assert.deepEqual(resolveSettings({ search: '', stored: null }), DEFAULT_SETTINGS);
 });
 
 test('settings resolution: storage beats defaults, URL beats storage, per field', () => {
   const stored = JSON.stringify({ specials: false, density: 'dense', graphics: 'low' });
-  assert.deepEqual(resolveSettings({ stored }), { specials: false, density: 'dense', graphics: 'low', farDetail: 'fade', trafficDensity: 'off', trafficRange: 'normal' });
+  assert.deepEqual(resolveSettings({ stored }), { specials: false, density: 'dense', graphics: 'low', farDetail: 'fade', drape: true, trafficDensity: 'off', trafficRange: 'normal' });
   // URL overrides only the fields it names.
   assert.deepEqual(
     resolveSettings({ stored, search: '?density=coarse' }),
-    { specials: false, density: 'coarse', graphics: 'low', farDetail: 'fade', trafficDensity: 'off', trafficRange: 'normal' },
+    { specials: false, density: 'coarse', graphics: 'low', farDetail: 'fade', drape: true, trafficDensity: 'off', trafficRange: 'normal' },
   );
   assert.deepEqual(
     resolveSettings({ stored, search: '?specials=on&graphics=high' }),
-    { specials: true, density: 'dense', graphics: 'high', farDetail: 'fade', trafficDensity: 'off', trafficRange: 'normal' },
+    { specials: true, density: 'dense', graphics: 'high', farDetail: 'fade', drape: true, trafficDensity: 'off', trafficRange: 'normal' },
   );
   // Stored value may arrive as an object too.
   assert.equal(resolveSettings({ stored: { density: 'coarse' } }).density, 'coarse');
@@ -65,11 +65,11 @@ test('settings resolution: storage beats defaults, URL beats storage, per field'
 test('settings resolution: invalid values fall back per field, never throw', () => {
   assert.deepEqual(
     resolveSettings({ stored: '{not json', search: '?density=huge&graphics=ultra&specials=maybe' }),
-    { specials: true, density: 'fine', graphics: 'medium', farDetail: 'fade', trafficDensity: 'off', trafficRange: 'normal' },
+    { specials: true, density: 'fine', graphics: 'medium', farDetail: 'fade', drape: true, trafficDensity: 'off', trafficRange: 'normal' },
   );
   assert.deepEqual(
     resolveSettings({ stored: JSON.stringify({ density: 'huge', graphics: 7, specials: 'off' }) }),
-    { specials: false, density: 'fine', graphics: 'medium', farDetail: 'fade', trafficDensity: 'off', trafficRange: 'normal' },
+    { specials: false, density: 'fine', graphics: 'medium', farDetail: 'fade', drape: true, trafficDensity: 'off', trafficRange: 'normal' },
   );
   // Boolean spellings the URL layer accepts.
   for (const [raw, want] of [['off', false], ['0', false], ['no', false], ['on', true], ['1', true], ['yes', true]]) {
@@ -83,7 +83,7 @@ test('settings persistence: round-trip through storage, failures stay silent', (
     getItem: (k) => (mem.has(k) ? mem.get(k) : null),
     setItem: (k, v) => mem.set(k, String(v)),
   };
-  const s = { specials: false, density: 'dense', graphics: 'high', farDetail: 'full', trafficDensity: 'off', trafficRange: 'normal' };
+  const s = { specials: false, density: 'dense', graphics: 'high', farDetail: 'full', drape: false, trafficDensity: 'off', trafficRange: 'normal' };
   assert.equal(persistSettings(storage, s), true);
   assert.deepEqual(resolveSettings({ stored: readStoredSettings(storage) }), s);
   assert.equal(mem.has(SETTINGS_STORAGE_KEY), true);
@@ -153,6 +153,8 @@ test('settings UI: gear button and panel rows in index.html', () => {
   assert.match(indexSource, /id="btn-settings"[^>]*popovertarget="settings-popover"/);
   assert.match(indexSource, /id="settings-popover" class="popover settings-popover" popover/);
   assert.match(indexSource, /id="set-specials"/);
+  // Issue #132: the drape kill-switch row.
+  assert.match(indexSource, /id="set-drape"/);
   for (const p of ['coarse', 'fine', 'dense']) assert.match(indexSource, new RegExp(`data-setting-density="${p}"`));
   for (const p of ['low', 'medium', 'high']) assert.match(indexSource, new RegExp(`data-setting-graphics="${p}"`));
   // Issue #266: Off is a density option — no separate switch. The
@@ -241,8 +243,8 @@ test('settings UI: distant-buildings row in index.html, wired in main.js', () =>
 test('settings wiring: main.js resolves + passes settings, boot exposes the runtime API', () => {
   assert.match(mainSource, /resolveSettings\(\{/);
   assert.match(mainSource, /initSettingsPanel\(\{/);
-  assert.match(mainSource, /settings: \{ density: settings\.density, specials: settings\.specials \}/);
-  assert.match(bootSource, /planTaipeiBuildings\(geo, \{ density: bootSettings\.density \}\)/);
+  assert.match(mainSource, /settings: \{ density: settings\.density, specials: settings\.specials, drape: settings\.drape \}/);
+  assert.match(bootSource, /planTaipeiBuildings\(geo, \{ density: bootSettings\.density, groundAt: drapeHeight \}\)/);
   assert.match(bootSource, /setDensity\(preset\)/);
   assert.match(bootSource, /setSpecialsVisible\(visible\)/);
   assert.match(bootSource, /taipeiSettings,/);
@@ -456,7 +458,7 @@ test('mobile detection: phones count, tablets and desktops do not (issue #268)',
 test('mobile defaults: phones SET Coarse + Low over stored settings, URL still wins (issue #268)', () => {
   assert.deepEqual(
     resolveSettings({ isMobile: true }),
-    { specials: true, density: 'coarse', graphics: 'low', farDetail: 'fade', trafficDensity: 'off', trafficRange: 'normal' },
+    { specials: true, density: 'coarse', graphics: 'low', farDetail: 'fade', drape: true, trafficDensity: 'off', trafficRange: 'normal' },
   );
   assert.deepEqual(resolveSettings({ isMobile: false }), resolveSettings(), 'desktop resolution is unchanged');
   // The phone never reads the previous density/graphics: a stored
