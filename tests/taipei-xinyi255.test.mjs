@@ -47,7 +47,12 @@ test('the five #255 structures are registered with the reference-pack facts', ()
   assert.ok(hyatt, 'Grand Hyatt registered');
   assert.equal(hyatt.realHeight, 104, 'published 104 m (OSM 85 superseded, see entry comment)');
   assert.equal(hyatt.estimated, false);
-  assert.equal(hyatt.facade.kind, 'curtain', 'brown-bronze curtain wall, not OSM wheat');
+  // REWORK (2026-10-30, user verdict: the specials read as cubes):
+  // the street photo (xinyi255-rework-evidence/ref-hyatt-twtc.jpg)
+  // shows pale stone wings + podium with a dark curved-glass
+  // centre bay, not an all-bronze curtain — the satellite's
+  // bronze read does not survive the street view.
+  assert.equal(hyatt.facade.kind, 'prewar', 'pale stone wings, dark-glass centre bay (street photo)');
   assert.ok(hyatt.sign && hyatt.sign.text === 'GRAND HYATT', 'entrance wordmark');
 
   const att = byId.get('att-4-fun');

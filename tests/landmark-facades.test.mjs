@@ -70,12 +70,14 @@ const EXPECTED_FACADES = {
   'national-palace-museum': 'prewar',
   'miramar-entertainment-park': 'curtain',
   // Batch 11 (issue #255): the Xinyi five — Hall 1's green-glass
-  // terraces, the Hyatt's bronze curtain, ATT's dark glass and
-  // Bellavita's cream stone; A4/A8 move from stone to curtain
-  // (the #255 correction: A4 is glass-and-girders, A8's red
-  // exoskeleton hangs on a dark-glass hall).
+  // terraces, the Hyatt's pale stone with a dark-glass centre bay
+  // (REWORK 2026-10-30: the street photo overrules the satellite's
+  // bronze read), ATT's dark glass and Bellavita's cream stone;
+  // A4/A8 move from stone to curtain (the #255 correction: A4 is
+  // glass-and-girders, A8's red exoskeleton hangs on a dark-glass
+  // hall).
   'twtc-exhibition-hall-1': 'curtain', // green-tinted showground glass
-  'grand-hyatt-taipei': 'curtain', // bronze-brown hotel curtain
+  'grand-hyatt-taipei': 'prewar', // pale stone wings, dark-glass centre bay
   'att-4-fun': 'curtain', // dark glass box
   'bellavita': 'prewar', // cream palace stone
 };
