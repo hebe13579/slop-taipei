@@ -13,6 +13,7 @@ import {
   graphicsConfig,
   trafficConfig,
   initSettingsPanel,
+  isMobileDevice,
   TRAFFIC_DENSITY_COUNTS,
   TRAFFIC_RANGE_METERS,
 } from '../js/settings.js';
@@ -426,4 +427,51 @@ test('traffic panel: a failed first build falls back to Off and the gear agrees 
 test('boot timing: markInit is a no-op after initTimings is nulled (issue #266 gate fix)', () => {
   assert.match(mainSource, /const markInit = \(label\) => \{[^}]*if \(!initTimings\) return;/s);
   assert.match(mainSource, /initTimings = null;/);
+});
+
+// Issue #268 — phones default to Coarse buildings + Low graphics.
+// Detection is a pure function over a browser snapshot; the device
+// defaults fill in only where storage and the URL are silent.
+test('mobile detection: phones count, tablets and desktops do not (issue #268)', () => {
+  const iphone = 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1';
+  const androidPhone = 'Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Mobile Safari/537.36';
+  const androidTablet = 'Mozilla/5.0 (Linux; Android 14; SM-X710) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Safari/537.36';
+  const desktop = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Safari/537.36';
+  assert.equal(isMobileDevice({ userAgent: iphone }), true);
+  assert.equal(isMobileDevice({ userAgent: androidPhone }), true);
+  assert.equal(isMobileDevice({ userAgent: androidTablet }), false, 'Android without the Mobile token is a tablet');
+  assert.equal(isMobileDevice({ userAgent: desktop }), false);
+  assert.equal(isMobileDevice({}), false, 'no signals at all is not mobile');
+  // Webview fallback: a desktop UA with a coarse pointer, touch, and
+  // a small short side still counts; a large screen does not.
+  assert.equal(isMobileDevice({ userAgent: desktop, pointerCoarse: true, maxTouchPoints: 5, smallestScreen: 390 }), true);
+  assert.equal(isMobileDevice({ userAgent: desktop, pointerCoarse: true, maxTouchPoints: 5, smallestScreen: 1200 }), false);
+  assert.equal(isMobileDevice({ userAgent: desktop, pointerCoarse: true, maxTouchPoints: 0, smallestScreen: 390 }), false, 'no touch, no fallback');
+});
+
+test('mobile defaults: phones SET Coarse + Low over stored settings, URL still wins (issue #268)', () => {
+  assert.deepEqual(
+    resolveSettings({ isMobile: true }),
+    { specials: true, density: 'coarse', graphics: 'low', farDetail: 'fade', trafficDensity: 'off', trafficRange: 'normal' },
+  );
+  assert.deepEqual(resolveSettings({ isMobile: false }), resolveSettings(), 'desktop resolution is unchanged');
+  // The phone never reads the previous density/graphics: a stored
+  // Fine/High (e.g. saved on desktop) is overridden, so the phone
+  // browser cannot OOM on the saved load. Other stored fields still
+  // apply.
+  const fromDesktop = resolveSettings({ isMobile: true, stored: JSON.stringify({ density: 'fine', graphics: 'high', specials: false }) });
+  assert.equal(fromDesktop.density, 'coarse');
+  assert.equal(fromDesktop.graphics, 'low');
+  assert.equal(fromDesktop.specials, false);
+  // A URL param is an explicit current choice and still wins.
+  assert.equal(resolveSettings({ isMobile: true, search: '?density=dense&graphics=medium' }).density, 'dense');
+  assert.equal(resolveSettings({ isMobile: true, search: '?density=dense&graphics=medium' }).graphics, 'medium');
+  assert.equal(resolveSettings({ isMobile: true, stored: JSON.stringify({ density: 'fine' }), search: '?density=dense' }).density, 'dense');
+});
+
+test('settings wiring: main.js detects the device and passes it to resolution (issue #268)', () => {
+  assert.match(mainSource, /isMobileDevice\(/);
+  assert.match(mainSource, /isMobile: isMobileDevice\(/);
+  assert.match(mainSource, /pointer: coarse/);
+
 });

@@ -19,7 +19,7 @@ import { LightingSystem } from './lighting.js';
 import { NYCMapSystem } from './nyc-map.js';
 import { setupSceneCulling, updateSceneCulling } from './scene-culling.js';
 import { CityAudioSystem } from './audio-system.js';
-import { resolveSettings, readStoredSettings, persistSettings, graphicsConfig, applyGraphicsSettings, initSettingsPanel, trafficConfig, TRAFFIC_DENSITY_COUNTS } from './settings.js';
+import { resolveSettings, readStoredSettings, persistSettings, graphicsConfig, applyGraphicsSettings, initSettingsPanel, trafficConfig, TRAFFIC_DENSITY_COUNTS, isMobileDevice } from './settings.js';
 import { setFarFadeEnabled } from './tsl-materials.js';
 
 // js/main.js
@@ -97,11 +97,20 @@ async function initApp() {
   }
 
   // Issue #218: runtime settings (settings gear) — URL params beat
-  // localStorage beat the defaults, and the defaults are exactly
-  // the pre-#218 behaviour (see js/settings.js).
+  // localStorage beat the device defaults (issue #268: phones start
+  // on Coarse buildings + Low graphics) beat the defaults, and the
+  // defaults are exactly the pre-#218 behaviour (see js/settings.js).
   const settings = resolveSettings({
     search: window.location.search,
     stored: readStoredSettings(window.localStorage),
+    isMobile: isMobileDevice({
+      userAgent: (typeof navigator !== 'undefined' && navigator.userAgent) || '',
+      maxTouchPoints: (typeof navigator !== 'undefined' && navigator.maxTouchPoints) || 0,
+      pointerCoarse: (typeof window !== 'undefined' && window.matchMedia && window.matchMedia('(pointer: coarse)').matches) || false,
+      smallestScreen: (typeof window !== 'undefined' && window.screen)
+        ? Math.min(window.screen.width || Infinity, window.screen.height || Infinity)
+        : Infinity,
+    }),
   });
 
   // 1. Initialize Three.js WebGPURenderer with 32-bit float reversedDepthBuffer
