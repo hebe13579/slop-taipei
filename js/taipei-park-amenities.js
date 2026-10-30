@@ -1,14 +1,15 @@
 // js/taipei-park-amenities.js
-// Park amenity dressing (issue #222): benches, lamp poles, litter
-// bins, vending-machine clusters, restroom blocks, sculptures,
-// drinking fountains and bush clusters, planned procedurally over
-// the geodata park polygons — seeded per park, density by park
-// area and path length, hard per-park caps per kit class. Pure
-// functions over the geodata shapes (no three.js), the
-// taipei-streetscape.js pattern; js/taipei-boot.js turns the plan
-// into one InstancedMesh per kit class.
+// Park amenity dressing (issues #222 + #246): benches, lamp poles,
+// litter bins, vending-machine clusters, restroom blocks, sculptures,
+// drinking fountains and bush clusters (#222), plus children's
+// playgrounds, picnic tables, basketball/tennis courts and 涼亭
+// pavilions (#246) — planned procedurally over the geodata park
+// polygons, seeded per park, density by park area and path length,
+// hard per-park caps per kit class. Pure functions over the geodata
+// shapes (no three.js), the taipei-streetscape.js pattern;
+// js/taipei-boot.js turns the plan into one InstancedMesh per kit class.
 //
-// Placement doctrine (the issue's rules, as the data supports):
+// Placement doctrine (the issues' rules, as the data supports):
 //   - Everything is anchored to the park's own path network (the
 //     non-carriageway ways that cross the ring) or to its
 //     entrances (path x boundary crossings). Furniture stands
@@ -16,7 +17,10 @@
 //   - A park with no mapped interior path gets NO furniture —
 //     there is no faithful place to put it (1,114 of 1,575
 //     dressed parks at the #222 census; they still receive the
-//     varied-tree scatter from planParkTrees).
+//     varied-tree scatter from planParkTrees). EXCEPTION (#246):
+//     OSM-mapped sports features (the geodata parkSports section)
+//     are ground truth and ARE placed in pathless parks too,
+//     subject to the same hard exclusions.
 //   - Nothing lands on water, a carriageway, a building lot, a
 //     landmark site, or a caller-supplied exclusion polygon
 //     (junction caps, MRT ground beds, trench slots — the boot
@@ -26,6 +30,13 @@
 //     path-anchored offsets are the proxy (census note on #222).
 //   - 廣場-named polygons are paved civic squares (#29) and are
 //     skipped whole, exactly as planParkTrees skips them.
+//   - #246 selectivity: mapped kits win over seeded ones; seeded
+//     courts and pavilions exist only in large parks, seeded
+//     playgrounds/picnic only in medium+ parks, and a court never
+//     appears in a pocket park. Mapped kits claim their ground
+//     first (before the #222 furniture), seeded kits last (after
+//     the bushes), so the #222 census moves only where a mapped
+//     pad covers a furniture spot — the re-pin reason.
 //
 // Budgets: per-park caps by the park-tree area classes, so the
 // riverside strips (12+ km of path inside one polygon) cannot
@@ -34,7 +45,7 @@
 // in the boot: ~13 added draw calls, low-poly parts throughout.
 
 import {
-  hash01, distToSegment, buildSegmentGrid, pointInRing, ringArea, parkSizeClass,
+  hash01, distToSegment, buildSegmentGrid, buildExclusionIndex, pointInRing, ringArea, parkSizeClass,
 } from './taipei-streetscape.js';
 
 const NON_CARRIAGEWAY = new Set(['footway', 'path', 'steps', 'pedestrian', 'cycleway', 'corridor', 'elevator', 'crossing', 'platform', 'traffic_island']);
@@ -51,6 +62,24 @@ export const VENDING_MIN_AREA = 4000;   // m2 — below this, no machines
 export const RESTROOM_MIN_AREA = 15000; // m2 — one block per such park
 export const SCULPTURE_MIN_AREA = 40000; // m2 — large class only, ~50%
 export const FOUNTAIN_MIN_AREA = 100000; // m2 — rare, ~60%, at most one
+
+// Issue #246: seeded-kit eligibility. Mapped kits (the parkSports
+// section) have no area floor — OSM put them there. Seeded kits
+// are the gap-fillers: playgrounds/picnic in medium+ parks, courts
+// and pavilions in large parks only.
+export const PLAYGROUND_MIN_AREA = 4000;
+export const PICNIC_MIN_AREA = 4000;
+export const COURT_MIN_AREA = 40000;
+export const PAVILION_MIN_AREA = 40000;
+export const SEEDED_KIT_CAPS = { large: 3, medium: 2, small: 0, tiny: 0 };
+// Seeded acceptance rolls (deterministic per-park hashes).
+export const SEEDED_ROLLS = { playground: 0.45, picnic: 0.35, court: 0.5, pavilion: 0.35 };
+// Seeded pad sizes (m, w x d). Mapped pads carry their own dims.
+export const SEEDED_RECT = {
+  playground: { w: 14, d: 11 },
+  pavilion: { w: 8, d: 8 },
+  court: { basketball: { w: 30, d: 17 }, tennis: { w: 28, d: 14 } },
+};
 
 const BENCH_SPACING = 24, BENCH_ACCEPT = 0.5, BENCH_PAIR = 0.25;
 const LAMP_SPACING = 28, LAMP_ACCEPT = 0.85;
@@ -145,15 +174,7 @@ export function planParkAmenities(geodata, plan, opts = {}) {
     return { ring, minX, maxX, minZ, maxZ };
   });
   const inWater = (x, z) => water.some((w) => x >= w.minX && x <= w.maxX && z >= w.minZ && z <= w.maxZ && pointInRing(x, z, w.ring));
-  const exclPolys = (opts.exclusions || []).map((ring) => {
-    let minX = Infinity, maxX = -Infinity, minZ = Infinity, maxZ = -Infinity;
-    for (let i = 0; i < ring.length; i += 2) {
-      minX = Math.min(minX, ring[i]); maxX = Math.max(maxX, ring[i]);
-      minZ = Math.min(minZ, ring[i + 1]); maxZ = Math.max(maxZ, ring[i + 1]);
-    }
-    return { ring, minX, maxX, minZ, maxZ };
-  });
-  const inExclusion = (x, z) => exclPolys.some((p) => x >= p.minX && x <= p.maxX && z >= p.minZ && z <= p.maxZ && pointInRing(x, z, p.ring));
+  const inExclusion = buildExclusionIndex(opts.exclusions);
   const lots = plan?.lots || [];
   const lotGrid = new Map();
   const lotKey = (cx, cz) => `${cx},${cz}`;
@@ -189,18 +210,69 @@ export function planParkAmenities(geodata, plan, opts = {}) {
   for (const lt of plan?.landmarkTowers || []) for (const s of lt.sites || []) siteRects.push(s);
   const inSite = (x, z, pad) => siteRects.some((r) => x >= r.minX - pad && x <= r.maxX + pad && z >= r.minZ - pad && z <= r.maxZ + pad);
 
-  const items = { bench: [], lamp: [], bin: [], vending: [], restroom: [], sculpture: [], fountain: [], bush: [] };
+  // Issue #246: OSM-mapped sports features (geodata.parkSports,
+  // derived by tools/taipei/build-park-sports.mjs). Each entry is
+  // assigned to the park whose ring contains its centroid, via a
+  // bbox grid over the parks — the same park a same-named polygon
+  // would claim is irrelevant; containment is the join key, so
+  // split riverside polygons with one shared name each receive
+  // their own features.
+  const mappedByPark = parks.map(() => []);
+  {
+    const MCELL = 200;
+    const parkGrid = new Map();
+    const pkey = (cx, cz) => `${cx},${cz}`;
+    parks.forEach((park, pi) => {
+      const ring = park.ring;
+      if (!ring || ring.length < 6) return;
+      let minX = Infinity, maxX = -Infinity, minZ = Infinity, maxZ = -Infinity;
+      for (let i = 0; i < ring.length; i += 2) {
+        minX = Math.min(minX, ring[i]); maxX = Math.max(maxX, ring[i]);
+        minZ = Math.min(minZ, ring[i + 1]); maxZ = Math.max(maxZ, ring[i + 1]);
+      }
+      for (let cx = Math.floor(minX / MCELL); cx <= Math.floor(maxX / MCELL); cx++) {
+        for (let cz = Math.floor(minZ / MCELL); cz <= Math.floor(maxZ / MCELL); cz++) {
+          const k = pkey(cx, cz);
+          if (!parkGrid.has(k)) parkGrid.set(k, []);
+          parkGrid.get(k).push(pi);
+        }
+      }
+    });
+    for (const e of geodata.parkSports || []) {
+      const cell = parkGrid.get(pkey(Math.floor(e.x / MCELL), Math.floor(e.z / MCELL))) || [];
+      let placedAt = -1;
+      for (const pi of cell) {
+        if (pointInRing(e.x, e.z, parks[pi].ring)) { placedAt = pi; break; }
+      }
+      if (placedAt >= 0) mappedByPark[placedAt].push(e);
+    }
+  }
+
+  const items = { bench: [], lamp: [], bin: [], vending: [], restroom: [], sculpture: [], fountain: [], bush: [], playground: [], picnic: [], court: [], pavilion: [] };
+  // Issue #246: pad rings for every placed #246 kit, returned so
+  // the boot can keep park trees out of the pads (69 trunks stood
+  // inside pads before this — 51 in courts). Closed rect rings
+  // in the tree planners' exclusion format.
+  const pads = [];
   const stats = {
-    parksTotal: 0, parksPlaza: 0, parksPathless: 0, parksDressed: 0,
+    parksTotal: 0, parksPlaza: 0, parksPathless: 0, parksDressed: 0, parksMapped: 0, parksSeeded246: 0,
     byClass: {}, rejected: { water: 0, carriageway: 0, path: 0, lot: 0, site: 0, placed: 0, outside: 0 },
     skipped: { restroom: 0, sculpture: 0, fountain: 0, vending: 0 },
-    perKitParks: { bench: 0, lamp: 0, bin: 0, vending: 0, restroom: 0, sculpture: 0, fountain: 0, bush: 0 },
+    perKitParks: { bench: 0, lamp: 0, bin: 0, vending: 0, restroom: 0, sculpture: 0, fountain: 0, bush: 0, playground: 0, picnic: 0, court: 0, pavilion: 0 },
+    kits246: {
+      mapped: { playground: 0, picnic: 0, court: 0, pavilion: 0 },
+      seeded: { playground: 0, picnic: 0, court: 0, pavilion: 0 },
+      mappedSkipped: { playground: 0, picnic: 0, court: 0, pavilion: 0 },
+      mappedOrphan: 0,
+    },
     topParks: [],
   };
+  stats.kits246.mappedOrphan = (geodata.parkSports || []).length - mappedByPark.reduce((s, l) => s + l.length, 0);
   for (const id of ['large', 'medium', 'small', 'tiny']) stats.byClass[id] = { parks: 0, items: 0 };
   const perParkCounts = [];
 
-  for (const park of parks) {
+  for (let parkIdx = 0; parkIdx < parks.length; parkIdx++) {
+    const park = parks[parkIdx];
     stats.parksTotal++;
     if (isPlazaName(park.name)) { stats.parksPlaza++; continue; }
     const ring = park.ring;
@@ -215,6 +287,168 @@ export function planParkAmenities(geodata, plan, opts = {}) {
       minZ = Math.min(minZ, ring[i + 1]); maxZ = Math.max(maxZ, ring[i + 1]);
     }
     const cenX = (minX + maxX) / 2, cenZ = (minZ + maxZ) / 2;
+
+    // Per-park placement context, hoisted above the pathless
+    // early-continue so the #246 mapped features (ground truth)
+    // can claim their ground in pathless parks too. checkOK is
+    // pure (returns the rejection reason or null) so search-style
+    // placements can evaluate candidate configurations
+    // speculatively; spotOK wraps it with the census counters.
+    const placed = []; // {x, z, r}
+    const hitsPlaced = (x, z, r, slack = 0) => placed.some((p) => Math.hypot(p.x - x, p.z - z) < p.r + r - slack);
+    const checkOK = (x, z, r) => {
+      if (!pointInRing(x, z, ring)) return 'outside';
+      if (inWater(x, z)) return 'water';
+      for (const s of bedGrid.near(x, z)) {
+        if (distToSegment(x, z, s.ax, s.az, s.bx, s.bz) < s.half + r + 0.35) return 'carriageway';
+      }
+      for (const s of pathGrid.near(x, z)) {
+        if (distToSegment(x, z, s.ax, s.az, s.bx, s.bz) < s.half + r) return 'path';
+      }
+      if (inLot(x, z, r)) return 'lot';
+      if (inSite(x, z, r)) return 'site';
+      if (inExclusion(x, z)) return 'outside';
+      if (hitsPlaced(x, z, r)) return 'placed';
+      return null;
+    };
+    const spotOK = (x, z, r) => {
+      const why = checkOK(x, z, r);
+      if (why) { stats.rejected[why]++; return false; }
+      return true;
+    };
+    const counts = { bench: 0, lamp: 0, bin: 0, vending: 0, restroom: 0, sculpture: 0, fountain: 0, bush: 0, playground: 0, picnic: 0, court: 0, pavilion: 0 };
+    const put = (kind, item, r) => {
+      items[kind].push(item);
+      placed.push({ x: item.x, z: item.z, r });
+      counts[kind]++;
+      stats.byClass[cls].items++;
+    };
+    const yawTo = (dx, dz) => Math.atan2(dx, dz);
+    let mappedHere = 0, seededHere = 0;
+    const putMapped = (kind, item, r) => { put(kind, item, r); mappedHere++; stats.kits246.mapped[kind]++; };
+    const putSeeded = (kind, item, r) => { put(kind, item, r); seededHere++; stats.kits246.seeded[kind]++; };
+    // Rect clearance for the #246 pads: the pad must fit wholly
+    // inside the ring and clear every hard exclusion. Samples the
+    // pad on a 2 m lattice plus its corners AND edge midpoints,
+    // each sample under the point checkOK with a 0.6 m probe
+    // radius (edge midpoints close the lattice gap where a
+    // water/road sliver can clip a pad edge between lattice
+    // points). The rotation convention matches the renderer
+    // (THREE Y-rotation) and the derive step's rotOf: local
+    // (lx, lz) -> world.
+    const rectClear = (cx, cz, rot, hw, hd) => {
+      const c = Math.cos(rot), s = Math.sin(rot);
+      const toW = (lx, lz) => [cx + lx * c + lz * s, cz - lx * s + lz * c];
+      const inset = 0.3, step = 2.0;
+      for (let lx = -hw + inset; lx <= hw - inset + 1e-9; lx += step) {
+        for (let lz = -hd + inset; lz <= hd - inset + 1e-9; lz += step) {
+          const [x, z] = toW(lx, lz);
+          if (checkOK(x, z, 0.6)) return false;
+        }
+      }
+      for (const [lx, lz] of [[-hw, -hd], [hw, -hd], [hw, hd], [-hw, hd], [0, -hd], [0, hd], [-hw, 0], [hw, 0], [0, 0]]) {
+        const [x, z] = toW(lx, lz);
+        if (checkOK(x, z, 0.6)) return false;
+      }
+      return true;
+    };
+    // Mapped-pad admission (issue #246, ground truth): the hard
+    // exclusions apply to the whole pad, but paths are soft for
+    // mapped features — OSM draws the access path to a pavilion
+    // door or along a court fence, so a path grazing the pad
+    // edge must not veto the feature. Only courts and
+    // playgrounds keep a path check, on the pad core (pad
+    // shrunk 1.5 m: the equipment zone), so no path crosses the
+    // slide set or the court lines. Pavilions and picnic tables
+    // are path-adjacent by design (a path under a pavilion roof
+    // reads true). Mapped-vs-mapped collision is SAT rect
+    // overlap, not the circumradius disc: a court beside a
+    // playground must not veto it, and split-slab siblings
+    // (same src) abut by design.
+    const checkHard = (x, z, r) => {
+      const why = checkOK(x, z, r);
+      return why === 'path' || why === 'placed' ? null : why;
+    };
+    const rectSamples = (cx, cz, rot, hw, hd) => {
+      const c = Math.cos(rot), s = Math.sin(rot);
+      const toW = (lx, lz) => [cx + lx * c + lz * s, cz - lx * s + lz * c];
+      const pts = [];
+      const inset = 0.3, step = 2.0;
+      for (let lx = -hw + inset; lx <= hw - inset + 1e-9; lx += step) {
+        for (let lz = -hd + inset; lz <= hd - inset + 1e-9; lz += step) pts.push(toW(lx, lz));
+      }
+      for (const [lx, lz] of [[-hw, -hd], [hw, -hd], [hw, hd], [-hw, hd], [0, -hd], [0, hd], [-hw, 0], [hw, 0], [0, 0]]) pts.push(toW(lx, lz));
+      return pts;
+    };
+    // Closed rect ring for the boot's tree exclusions.
+    const padRing = (x, z, rot, hw, hd) => {
+      const c = Math.cos(rot), s = Math.sin(rot);
+      const toW = (lx, lz) => [x + lx * c + lz * s, z - lx * s + lz * c];
+      const pts = [[-hw, -hd], [hw, -hd], [hw, hd], [-hw, hd], [-hw, -hd]].map(([lx, lz]) => toW(lx, lz));
+      return pts.flat();
+    };
+    const rectsOverlap = (a, b, margin) => {
+      const axes = [];
+      for (const r of [a, b]) {
+        const c = Math.cos(r.rot), s = Math.sin(r.rot);
+        axes.push([c, -s], [s, c]);
+      }
+      const corners = (r) => {
+        const c = Math.cos(r.rot), s = Math.sin(r.rot);
+        const hw = r.hw + margin, hd = r.hd + margin;
+        return [[-hw, -hd], [hw, -hd], [hw, hd], [-hw, hd]].map(([lx, lz]) => [r.x + lx * c + lz * s, r.z - lx * s + lz * c]);
+      };
+      const ca = corners(a), cb = corners(b);
+      for (const [ax, az] of axes) {
+        let mnA = Infinity, mxA = -Infinity, mnB = Infinity, mxB = -Infinity;
+        for (const [x, z] of ca) { const p = x * ax + z * az; mnA = Math.min(mnA, p); mxA = Math.max(mxA, p); }
+        for (const [x, z] of cb) { const p = x * ax + z * az; mnB = Math.min(mnB, p); mxB = Math.max(mxB, p); }
+        if (mxA < mnB || mxB < mnA) return false;
+      }
+      return true;
+    };
+    const placedRects = [];
+    const rectClearMapped = (e, hw, hd) => {
+      for (const [x, z] of rectSamples(e.x, e.z, e.rot, hw, hd)) {
+        if (checkHard(x, z, 0.6)) return false;
+      }
+      if (e.kind === 'court' || e.kind === 'playground') {
+        const shrink = Math.min(1.5, Math.max(0, Math.min(hw, hd) - 0.3));
+        for (const [x, z] of rectSamples(e.x, e.z, e.rot, Math.max(hw - shrink, 0.3), Math.max(hd - shrink, 0.3))) {
+          for (const s of pathGrid.near(x, z)) {
+            if (distToSegment(x, z, s.ax, s.az, s.bx, s.bz) < s.half + 0.6) return false;
+          }
+        }
+      }
+      const rect = { x: e.x, z: e.z, rot: e.rot, hw, hd, src: e.src };
+      if (placedRects.some((p) => p.src !== e.src && rectsOverlap(rect, p, 0.6))) return false;
+      placedRects.push(rect);
+      return true;
+    };
+    const tallyPark = () => {
+      for (const k of Object.keys(counts)) if (counts[k] > 0) stats.perKitParks[k]++;
+      if (mappedHere > 0) stats.parksMapped++;
+      if (seededHere > 0) stats.parksSeeded246++;
+      const totalHere = Object.values(counts).reduce((s, v) => s + v, 0);
+      if (totalHere > 0) perParkCounts.push({ name: park.name || '', cls, area: Math.round(area), items: totalHere, counts: { ...counts } });
+    };
+
+    // --- issue #246: mapped sports features claim their ground
+    // first (they are OSM ground truth). A mapped pad that fails
+    // the tiered admission (hard exclusions on the full pad,
+    // path-core for courts/playgrounds, SAT overlap) is skipped
+    // and counted — the seeded pass below never re-claims a
+    // skipped mapped spot with a different kit.
+    const mappedKinds = new Set();
+    for (const e of mappedByPark[parkIdx]) {
+      const hw = e.w / 2, hd = e.d / 2;
+      if (!rectClearMapped(e, hw, hd)) { stats.kits246.mappedSkipped[e.kind]++; continue; }
+      const item = { x: e.x, z: e.z, rot: e.rot, park: park.name || '', src: 'mapped' };
+      if (e.kind === 'court') item.sport = e.sport;
+      putMapped(e.kind, item, Math.hypot(hw, hd));
+      pads.push(padRing(e.x, e.z, e.rot, hw, hd));
+      mappedKinds.add(e.kind);
+    }
 
     // This park's path ways + in-park path length.
     const wayIdx = waysNear(minX, maxX, minZ, maxZ);
@@ -268,43 +502,9 @@ export function planParkAmenities(geodata, plan, opts = {}) {
     }
     entrances.sort((a, b) => b.busy - a.busy);
 
-    if (!myWays.length) { stats.parksPathless++; continue; }
+    if (!myWays.length) { stats.parksPathless++; tallyPark(); continue; }
     stats.parksDressed++;
 
-    // Per-park placement context. checkOK is pure (returns the
-    // rejection reason or null) so search-style placements can
-    // evaluate candidate configurations speculatively; spotOK
-    // wraps it with the census counters.
-    const placed = []; // {x, z, r}
-    const hitsPlaced = (x, z, r, slack = 0) => placed.some((p) => Math.hypot(p.x - x, p.z - z) < p.r + r - slack);
-    const checkOK = (x, z, r) => {
-      if (!pointInRing(x, z, ring)) return 'outside';
-      if (inWater(x, z)) return 'water';
-      for (const s of bedGrid.near(x, z)) {
-        if (distToSegment(x, z, s.ax, s.az, s.bx, s.bz) < s.half + r + 0.35) return 'carriageway';
-      }
-      for (const s of pathGrid.near(x, z)) {
-        if (distToSegment(x, z, s.ax, s.az, s.bx, s.bz) < s.half + r) return 'path';
-      }
-      if (inLot(x, z, r)) return 'lot';
-      if (inSite(x, z, r)) return 'site';
-      if (inExclusion(x, z)) return 'outside';
-      if (hitsPlaced(x, z, r)) return 'placed';
-      return null;
-    };
-    const spotOK = (x, z, r) => {
-      const why = checkOK(x, z, r);
-      if (why) { stats.rejected[why]++; return false; }
-      return true;
-    };
-    const counts = { bench: 0, lamp: 0, bin: 0, vending: 0, restroom: 0, sculpture: 0, fountain: 0, bush: 0 };
-    const put = (kind, item, r) => {
-      items[kind].push(item);
-      placed.push({ x: item.x, z: item.z, r });
-      counts[kind]++;
-      stats.byClass[cls].items++;
-    };
-    const yawTo = (dx, dz) => Math.atan2(dx, dz);
 
     // --- restroom (first: the biggest footprint claims its spot)
     if (area >= RESTROOM_MIN_AREA) {
@@ -528,11 +728,100 @@ export function planParkAmenities(geodata, plan, opts = {}) {
       }, 0.75);
     }
 
-    for (const k of Object.keys(counts)) if (counts[k] > 0) stats.perKitParks[k]++;
-    const totalHere = Object.values(counts).reduce((s, v) => s + v, 0);
-    if (totalHere > 0) perParkCounts.push({ name: park.name || '', cls, area: Math.round(area), items: totalHere, counts });
+    // --- issue #246: seeded kits, LAST (after the bushes), so
+    // the #222 census moves only where a mapped pad claimed a
+    // furniture spot. Eligibility is by area class + a
+    // deterministic per-park roll; a park with a mapped kit of a
+    // kind never gets a seeded one of the same kind. Anchors are
+    // entrance lawns, then longest-path lawns, then a centre
+    // spiral — the first rect-clear anchor wins per kit, and the
+    // per-park seeded cap keeps a big park from collecting all
+    // four kits by default.
+    // (bare block: the seeded pass below)
+    {
+      const seededCount = () => seededHere;
+      const anchors = [];
+      for (const e of entrances.slice(0, 3)) {
+        for (const side of [1, -1]) {
+          for (const depth of [8, 14, 20]) {
+            anchors.push({
+              x: e.x + e.ix * depth + (-e.iz) * side * (e.half + 6),
+              z: e.z + e.iz * depth + (e.ix) * side * (e.half + 6),
+              rot: yawTo(e.ix, e.iz),
+            });
+          }
+        }
+      }
+      if (myWays.length) {
+        const w = myWays.reduce((a, b) => (b.len > a.len ? b : a));
+        for (const f of [0.3, 0.5, 0.7]) {
+          const sts = walkStations(w.pts, Math.max(w.len, 1), w.len * f);
+          if (!sts[0]) continue;
+          for (const sgn of [1, -1]) {
+            for (const off of [9, 15]) {
+              anchors.push({
+                x: sts[0].x + sts[0].nx * sgn * (w.half + off),
+                z: sts[0].z + sts[0].nz * sgn * (w.half + off),
+                rot: yawTo(sts[0].dx, sts[0].dz),
+              });
+            }
+          }
+        }
+      }
+      for (const rr of [8, 14, 20, 26]) {
+        for (let k = 0; k < 6; k++) {
+          const t = (k / 6) * Math.PI * 2 + hash01(`${key}|246|spiral`) * 0.6;
+          anchors.push({ x: cenX + Math.cos(t) * rr, z: cenZ + Math.sin(t) * rr, rot: hash01(`${key}|246|spiralrot|${rr}|${k}`) * Math.PI });
+        }
+      }
+      const tryRect = (kind, item, hw, hd) => {
+        for (const a of anchors) {
+          const x = a.x, z = a.z;
+          if (!rectClear(x, z, a.rot, hw, hd)) continue;
+          putSeeded(kind, { ...item, x, z, rot: a.rot }, Math.hypot(hw, hd));
+          pads.push(padRing(x, z, a.rot, hw, hd));
+          return true;
+        }
+        return false;
+      };
+      const roll = (tag) => hash01(`${key}|246|${tag}`);
+      if (area >= PLAYGROUND_MIN_AREA && !mappedKinds.has('playground')
+        && seededCount() < SEEDED_KIT_CAPS[cls] && roll('playground') < SEEDED_ROLLS.playground) {
+        tryRect('playground', { park: park.name || '', src: 'seeded' }, SEEDED_RECT.playground.w / 2, SEEDED_RECT.playground.d / 2);
+      }
+      if (area >= PICNIC_MIN_AREA && !mappedKinds.has('picnic')
+        && seededCount() < SEEDED_KIT_CAPS[cls] && roll('picnic') < SEEDED_ROLLS.picnic) {
+        // Picnic tables are point-sized, but the table rect
+        // (2.4x1.8) must still clear — a centre-only probe lets
+        // a table corner hang over water or a path.
+        let done = false;
+        for (const a of anchors) {
+          if (done) break;
+          for (const [dx, dz] of [[0, 0], [2.5, 0], [-2.5, 0], [0, 2.5], [0, -2.5]]) {
+            const x = a.x + dx, z = a.z + dz;
+            if (!rectClear(x, z, a.rot, 1.2, 0.9)) continue;
+            putSeeded('picnic', { x, z, rot: a.rot, park: park.name || '', src: 'seeded' }, 1.2);
+            pads.push(padRing(x, z, a.rot, 1.2, 0.9));
+            done = true;
+            break;
+          }
+        }
+      }
+      if (area >= COURT_MIN_AREA && !mappedKinds.has('court')
+        && seededCount() < SEEDED_KIT_CAPS[cls] && roll('court') < SEEDED_ROLLS.court) {
+        const sport = roll('courtsport') < 0.6 ? 'basketball' : 'tennis';
+        const dims = SEEDED_RECT.court[sport];
+        tryRect('court', { park: park.name || '', src: 'seeded', sport }, dims.w / 2, dims.d / 2);
+      }
+      if (area >= PAVILION_MIN_AREA && !mappedKinds.has('pavilion')
+        && seededCount() < SEEDED_KIT_CAPS[cls] && roll('pavilion') < SEEDED_ROLLS.pavilion) {
+        tryRect('pavilion', { park: park.name || '', src: 'seeded' }, SEEDED_RECT.pavilion.w / 2, SEEDED_RECT.pavilion.d / 2);
+      }
+    }
+
+    tallyPark();
   }
 
   stats.topParks = perParkCounts.sort((a, b) => b.items - a.items).slice(0, 8);
-  return { items, stats };
+  return { items, stats, pads };
 }

@@ -931,7 +931,7 @@ test('buildings options: plan faithfully adapted for the upstream building syste
     assert.ok(Math.abs((l.x0 + l.x1) / 2 - p.x) < 0.051 && Math.abs((l.z0 + l.z1) / 2 - p.z) < 0.051, 'lot centre matches the plan');
     assert.ok(Math.abs((l.x1 - l.x0) - p.w) < 0.051 && Math.abs((l.z1 - l.z0) - p.d) < 0.051, 'lot footprint matches the plan');
     assert.equal(l.h, p.h, 'lot height matches the plan');
-    assert.ok(Number.isInteger(l.mat) && l.mat >= 0 && l.mat <= 9, `facade material index ${l.mat} within upstream's ten families`);
+    assert.ok(Number.isInteger(l.mat) && l.mat >= 0 && l.mat <= 11, `facade material index ${l.mat} within the twelve families (0-9 upstream/Taiwan, 10/11 issue #256)`);
   });
   // Material zoning: tall lots never wear the low masonry families
   // (0-2), and the low residential interiors stay masonry. Issue #136
@@ -1504,14 +1504,19 @@ test('rooftop clamp: a full-roof hut displaces HVAC and tank', (t) => {
     waterTowers: [{ x: lot.x0 + 3, y: 20, z: 3 }],
     hvacUnits: [{ x: lot.x0 + 9, y: 20, z: 7.5, w: 3, h: 2, d: 3 }],
   });
-  let hutLot = null, plainLot = null;
-  for (let i = 0; i < 400 && (!hutLot || !plainLot); i++) {
+  // Issue #241: the AC roll decides per lot, so the contrast lot must
+  // be a plain lot whose roll KEEPS its unit; a second plain lot
+  // whose roll drops it pins the drop side.
+  let hutLot = null, keepLot = null, dropLot = null;
+  for (let i = 0; i < 400 && (!hutLot || !keepLot || !dropLot); i++) {
     const lot = mkLot(i * 37.3);
-    const has = taipeiRooftopAdditions(mkGear(lot), lot, []).huts.length > 0;
-    if (has && !hutLot) hutLot = lot;
-    if (!has && !plainLot) plainLot = lot;
+    const adds = taipeiRooftopAdditions(mkGear(lot), lot, []);
+    if (adds.huts.length > 0) { if (!hutLot) hutLot = lot; continue; }
+    const kept = clampTaipeiRooftopGear(mkGear(lot), lot).hvacUnits.length > 0;
+    if (kept && !keepLot) keepLot = lot;
+    if (!kept && !dropLot) dropLot = lot;
   }
-  assert.ok(hutLot && plainLot, 'scan finds both a hut lot and a plain lot');
+  assert.ok(hutLot && keepLot && dropLot, 'scan finds a hut lot, a keeping plain lot and a dropping plain lot');
   const gHut = clampTaipeiRooftopGear(mkGear(hutLot), hutLot);
   assert.equal(gHut.rooftopAdds.length, 1, 'hut lot carries its addition');
   assert.equal(gHut.hvacUnits.length, 0, 'hut displaces the roof HVAC unit');
@@ -1519,7 +1524,82 @@ test('rooftop clamp: a full-roof hut displaces HVAC and tank', (t) => {
   const hut = gHut.rooftopAdds[0];
   assert.ok(Math.abs(hut.w - (18 - 0.8)) < 1e-9 && Math.abs(hut.d - (15 - 0.8)) < 1e-9,
     'clamp hut spans the full roof inset 0.4 m');
-  const gPlain = clampTaipeiRooftopGear(mkGear(plainLot), plainLot);
-  assert.equal(gPlain.rooftopAdds.length, 0, 'plain lot has no addition');
-  assert.equal(gPlain.hvacUnits.length, 1, 'plain lot keeps its HVAC unit');
+  const gKeep = clampTaipeiRooftopGear(mkGear(keepLot), keepLot);
+  assert.equal(gKeep.rooftopAdds.length, 0, 'keeping plain lot has no addition');
+  assert.equal(gKeep.hvacUnits.length, 1, 'keeping plain lot keeps its HVAC unit');
+  const gDrop = clampTaipeiRooftopGear(mkGear(dropLot), dropLot);
+  assert.equal(gDrop.rooftopAdds.length, 0, 'dropping plain lot has no addition');
+  assert.equal(gDrop.hvacUnits.length, 0, 'dropping plain lot loses its HVAC unit to the #241 roll');
+});
+
+// Issue #241: rooftop AC is sparse — the clamp keeps a roof's HVAC
+// units only on a seeded per-lot roll (~1 in 3). The roll runs after
+// the rooftop additions, so tank/hut placement never reshuffles, and
+// a surviving unit keeps its exact clamped position and size.
+test('rooftop AC roll: seeded subset, deterministic, additions untouched', (t) => {
+  const mkLot = (i) => ({ x0: i * 37.3, x1: i * 37.3 + 18, z0: (i % 61) * 29.7, z1: (i % 61) * 29.7 + 15, h: 20, mat: 6 });
+  const mkGear = (lot) => ({
+    maxH: 20,
+    waterTowers: [{ x: lot.x0 + 3, y: 20, z: 3 }],
+    hvacUnits: [{ x: lot.x0 + 9, y: 20, z: lot.z0 + 7.5, w: 3, h: 2, d: 3 }],
+  });
+  let kept = 0, dropped = 0, hutLots = 0;
+  for (let i = 0; i < 4000; i++) {
+    const lot = mkLot(i);
+    const gear = mkGear(lot);
+    const adds = taipeiRooftopAdditions(gear, lot, gear.hvacUnits);
+    const out = clampTaipeiRooftopGear(gear, lot);
+    // The clamp returns exactly the additions' tanks and huts: the
+    // roll touches HVAC only, never tank/hut placement.
+    assert.deepEqual(out.waterTowers, adds.tanks, 'tank placement untouched by the AC roll');
+    assert.deepEqual(out.rooftopAdds, adds.huts, 'hut placement untouched by the AC roll');
+    // Determinism: the same lot, clamped twice, decides the same way.
+    assert.deepEqual(clampTaipeiRooftopGear(gear, lot), out, 'clamp is deterministic per lot');
+    if (adds.huts.length) { hutLots++; assert.equal(out.hvacUnits.length, 0, 'hut still displaces HVAC'); continue; }
+    if (out.hvacUnits.length) {
+      kept++;
+      // A surviving unit is the clamped unit, unmoved: same centre
+      // and size the fit rules produce, inside the roof.
+      const u = out.hvacUnits[0];
+      assert.equal(u.x, lot.x0 + 9, 'surviving unit keeps its x');
+      assert.equal(u.z, lot.z0 + 7.5, 'surviving unit keeps its z');
+      assert.ok(u.w <= 4.2 && u.d <= 4.2 && u.h <= 3.0, 'surviving unit keeps its clamped size');
+    } else dropped++;
+  }
+  const share = kept / (kept + dropped);
+  t.diagnostic(`synthetic AC roll: ${kept} keep / ${dropped} drop over ${kept + dropped} non-hut lots (${(share * 100).toFixed(1)}%, ${hutLots} hut lots)`);
+  assert.ok(share > 0.28 && share < 0.39, `AC kept share at its ~1/3 design point (${share.toFixed(3)})`);
+});
+
+// Issue #241: census of the AC roll on the real plan. Every frame lot
+// is fed one fitting unit; the clamp's fit gate, hut displacement and
+// roll decide. Pins measured on this tree (main 1b56e38): 5,892 hut
+// lots — identical to the #208 hut census, proving the roll-after-
+// additions order leaves hut selection untouched — and 20,957 of the
+// 62,678 non-hut lots keep AC (33.4%, the 1/3 design point). The
+// census is clamp-level: the commit step may emit no unit on some
+// lots, so the on-screen share is at most this.
+test('rooftop AC census on the real plan: one roof in three keeps AC', (t) => {
+  const plan = planTaipeiBuildings(TAIPEI_GEO);
+  const frameLots = taipeiCityBlocksOptions(TAIPEI_GEO, plan).lots;
+  let hut = 0, kept = 0, dropped = 0;
+  for (const lot of frameLots) {
+    const gear = { maxH: lot.h, waterTowers: [], hvacUnits: [{ x: (lot.x0 + lot.x1) / 2, y: lot.h, z: (lot.z0 + lot.z1) / 2, w: 3, h: 2.4, d: 3 }] };
+    const out = clampTaipeiRooftopGear(gear, lot);
+    if (out.rooftopAdds.length) { hut++; continue; }
+    if (out.hvacUnits.length) kept++; else dropped++;
+  }
+  t.diagnostic(`real-plan AC census: ${hut} hut lots, ${kept} keep / ${dropped} drop`);
+  assert.equal(hut, 5892, 'hut selection untouched by the AC roll');
+  // Issue #216: the facing pass moves lots, and the AC roll is
+  // seeded from lot position — 50 moved lots flip their roll, so
+  // kept moves 20,957 -> 21,007, while the hut selection is
+  // unchanged and the kept share stays at the 1/3 design point.
+  // Proven by cross-run: with { facing: false } the census
+  // returns to exactly 20,957 / 41,721
+  // (facing216b-evidence/proof-ac-off.mjs).
+  assert.equal(kept, 21007, 'kept AC lots on this tree');
+  assert.equal(dropped, 41671, 'dropped AC lots on this tree');
+  const share = kept / (kept + dropped);
+  assert.ok(share > 0.30 && share < 0.37, `kept share at the 1/3 design point (${share.toFixed(3)})`);
 });

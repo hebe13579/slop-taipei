@@ -141,7 +141,13 @@ function setupSceneCulling(scene, roots, shadow = null) {
   for (const root of roots) {
     root.traverse((o) => {
       if (!o.isInstancedMesh || !isStaticMesh(o) || o.count < 64 || o.count !== o.instanceMatrix.count) return;
-      if (o.count * triangleCount(o.geometry) < 40000) return;
+      // Issue #245: a mesh carrying an explicit cullDistance cap must
+      // be chunked (and so distance-culled) even when it is too small
+      // for the triangle gate — the small blossom-tone meshes (white
+      // 223, gold 119 instances) fell below 40k tris, stayed whole,
+      // and rendered at any distance: the probe caught 2 whole-tile
+      // blossom meshes visible with their near edge >1200 m away.
+      if (o.count * triangleCount(o.geometry) < 40000 && o.userData.cullDistance == null) return;
       if (!o.boundingSphere) o.computeBoundingSphere();
       if (o.boundingSphere.radius < 1500) return;
       chunkable.push(o);
@@ -151,6 +157,12 @@ function setupSceneCulling(scene, roots, shadow = null) {
     // unlit (glowing) props, like signal lenses & lamp bulbs, read from much further away at night
     const glow = mesh.material.isMeshBasicNodeMaterial || mesh.material.type === 'MeshBasicNodeMaterial' ? 3 : 1;
     let cullDist = Math.max(CULL_MIN, instanceSize(mesh) * CULL_PER_METRE * glow);
+    // Issue #245: an explicit per-mesh cap (park trees carry
+    // userData.cullDistance from the boot). The computed distance
+    // for a tree exceeds CULL_MAX, so without the cap the mesh is
+    // never chunked and never culled; the cap keeps the computed
+    // floor (CULL_MIN) and only ever shortens the distance.
+    if (mesh.userData.cullDistance != null) cullDist = Math.max(CULL_MIN, Math.min(cullDist, mesh.userData.cullDistance));
     if (cullDist > CULL_MAX) cullDist = Infinity;
     const cell = Number.isFinite(cullDist) ? Math.min(600, Math.max(250, cullDist * 0.5)) : 0;
     if (!cell) continue; // big things (sidewalk slabs, light pools...) stay whole: chunking them would only add draws

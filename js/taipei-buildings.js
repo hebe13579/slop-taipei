@@ -179,6 +179,33 @@ const PALETTE = [
 ];
 
 const CLASS_RANK = { motorway: 6, trunk: 5, primary: 4, secondary: 3, tertiary: 2 };
+
+// Issue #216, the user-confirmed facing rule (2026-10-29): a
+// frontage lot faces the CLOSEST road; if a MAIN road is close,
+// it faces the main road instead (mimic 文湖街 / 復興南路, where
+// buildings angle to the diagonal arterial). "Main" is rank >= 3
+// (secondary or better); "close" is within FACING_MAIN_CLOSE_M of
+// the closest face's gap. Faces arrive measured: { axis, dir,
+// rank, gap, segAng, ... } — gap is the sample-min distance from
+// the face to the bed's section edge. Returns the winning face.
+// Ties: closest gap wins; a gap tie goes to the higher rank; a
+// main-road tie goes to the smallest gap.
+export const FACING_MAIN_RANK = 3;
+export const FACING_MAIN_CLOSE_M = 10;
+export function chooseFacingFace(faces) {
+  if (!faces || !faces.length) return null;
+  let closest = faces[0];
+  for (const f of faces) {
+    if (f.gap < closest.gap - 1e-9 || (Math.abs(f.gap - closest.gap) <= 1e-9 && f.rank > closest.rank)) closest = f;
+  }
+  let main = null;
+  for (const f of faces) {
+    if (f.rank < FACING_MAIN_RANK) continue;
+    if (f.gap > closest.gap + FACING_MAIN_CLOSE_M) continue;
+    if (!main || f.rank > main.rank || (f.rank === main.rank && f.gap < main.gap)) main = f;
+  }
+  return main || closest;
+}
 const NON_CARRIAGEWAY = new Set(['footway', 'path', 'steps', 'pedestrian', 'cycleway', 'corridor', 'elevator', 'crossing', 'platform', 'traffic_island']);
 
 // Deterministic 0..1 hash of an integer seed (splitmix-style finaliser).
@@ -3228,7 +3255,7 @@ export function planSchoolCampuses(geodata, landmarkSites, carriageways, originL
 }
 
 export function planTaipeiBuildings(geodata, opts = {}) {
-  const stats = { blocksSeen: 0, blocksFine: 0, lotsFine: 0, blocksSkippedSmall: 0, blocksSkippedParkWater: 0, blocksSkippedGreen: 0, blocksSkippedAirfield: 0, blocksSkippedSchool: 0, blocksSkippedLoop: 0, blocksSkippedNpmSite: 0, blocksSkippedOutsideUnion: 0, lotsDroppedVacancy: 0, lotsDroppedParkWater: 0, lotsDroppedGreen: 0, lotsDroppedRiverside: 0, lotsDroppedAirfield: 0, lotsDroppedSchool: 0, lotsDroppedLoop: 0, lotsDroppedNpmSite: 0, lotsDroppedTowerSite: 0, lotsDroppedRoad: 0, lotsDroppedMedian: 0, lotsDroppedOutsideUnion: 0, lotsDroppedTrackBed: 0, lotsDroppedTrackPierce: 0, lotsDroppedPier: 0, blocksRotated: 0, lotsRotated: 0, lotsPackedFrontage: 0, lotsTallFrontage: 0, heightsPermit: 0, heightsOsmHeight: 0, heightsOsmLevels: 0, heightsDoor: 0, heightsField: 0, heightsProc: 0, heightsGuardParcel: 0, heightsGuardExtreme: 0, heightsSteppedGroups: 0, heightsSteppedLots: 0, lotsFrontagePulled: 0, lotsFrontageFlush: 0, lotsFrontageHeldNoBed: 0, lotsFrontageHeldBlocked: 0, frontagePullMetres: 0 };
+  const stats = { blocksSeen: 0, blocksFine: 0, lotsFine: 0, blocksSkippedSmall: 0, blocksSkippedParkWater: 0, blocksSkippedGreen: 0, blocksSkippedAirfield: 0, blocksSkippedSchool: 0, blocksSkippedLoop: 0, blocksSkippedNpmSite: 0, blocksSkippedOutsideUnion: 0, lotsDroppedVacancy: 0, lotsDroppedParkWater: 0, lotsDroppedGreen: 0, lotsDroppedRiverside: 0, lotsDroppedAirfield: 0, lotsDroppedSchool: 0, lotsDroppedLoop: 0, lotsDroppedNpmSite: 0, lotsDroppedTowerSite: 0, lotsDroppedRoad: 0, lotsDroppedMedian: 0, lotsDroppedOutsideUnion: 0, lotsDroppedTrackBed: 0, lotsDroppedTrackPierce: 0, lotsDroppedPier: 0, blocksRotated: 0, lotsRotated: 0, lotsPackedFrontage: 0, lotsTallFrontage: 0, heightsPermit: 0, heightsOsmHeight: 0, heightsOsmLevels: 0, heightsDoor: 0, heightsField: 0, heightsProc: 0, heightsGuardParcel: 0, heightsGuardExtreme: 0, heightsSteppedGroups: 0, heightsSteppedLots: 0, lotsFrontagePulled: 0, lotsFrontageFlush: 0, lotsFrontageHeldNoBed: 0, lotsFrontageHeldBlocked: 0, frontagePullMetres: 0, lotsFacingTurned: 0, lotsFacingHeld: 0, lotsFacingHeldNoFace: 0, lotsFacingHeldSmallTurn: 0, lotsFacingHeldFacade: 0, lotsFacingHeldClear: 0, lotsFacingHeldAlignedMain: 0, lotsFacingTurnedFull: 0, lotsFacingTurnedPartial: 0 };
   // Issue #218: building-density presets (settings gear). 'fine'
   // is the shipped default: every constant it selects below is the
   // literal this code used before the option existed, so the
@@ -4775,12 +4802,14 @@ export function planTaipeiBuildings(geodata, opts = {}) {
       // before/after in the #185 evidence).
       const MAT_H_PROBES = [6, 13, 18, 26, 33, 38, 50];
       const probeLot = { ...lot };
-      const mats0 = MAT_H_PROBES.map((h) => { probeLot.h = h; return facadeMatFor(probeLot); });
+      // Guard mode (issue #256): judge landings by the pre-#256 family
+      // so the new types move no lot — see facadeMatFor.
+      const mats0 = MAT_H_PROBES.map((h) => { probeLot.h = h; return facadeMatFor(probeLot, { guard: true }); });
       const visualSame = (nx, nz) => {
         probeLot.x = nx; probeLot.z = nz;
         for (let k = 0; k < MAT_H_PROBES.length; k++) {
           probeLot.h = MAT_H_PROBES[k];
-          if (facadeMatFor(probeLot) !== mats0[k]) return false;
+          if (facadeMatFor(probeLot, { guard: true }) !== mats0[k]) return false;
         }
         return true;
       };
@@ -4848,6 +4877,412 @@ export function planTaipeiBuildings(geodata, opts = {}) {
         break;
       }
       if (!applied) stats.lotsFrontageHeldBlocked++;
+    }
+    // Issue #216: facing. The pull above settles a frontage lot's
+    // POSITION against its street section; this pass settles its
+    // ANGLE. A lot inherits its block grid's angle (theta — the
+    // dominant frontage direction of the whole block): on a
+    // trapezoid block the losing face keeps the winning grid's
+    // angle, on a two-grid block theta is 0 or a compromise that
+    // leaves both faces skewed, and along a curved street theta is
+    // the chord, wrong at both ends. (Baseline census on current
+    // main: of the lots fronting a tertiary-or-better road, 35%
+    // sit > 5° off it and 21% > 10°; the worst cells are the
+    // northern diagonal corridors — 承德路, 文林北路 — and Dazhi.)
+    // The rule, CONFIRMED by the user 2026-10-29 (it supersedes
+    // the rank-first scoping first drafted for this issue): a
+    // frontage lot faces the CLOSEST road; if a MAIN road is
+    // close, it faces the main road instead — mimic 文湖街 /
+    // 復興南路, where buildings angle to the diagonal arterial.
+    // "Main" is rank >= 3 (secondary or better) and "close" is
+    // within 10 m of the closest face's gap (see
+    // chooseFacingFace). Corner lots take the winning face;
+    // interior lots keep the grid. Eligible faces are the pull's
+    // de-facto faces (the outermost surviving lot of each block
+    // face line), admitted at rank >= 2 — one class wider than
+    // the pull's, because a tertiary street is a real frontage
+    // even where no pull toward it was wanted.
+    //
+    // Turns are planned per face group (one block face's lots,
+    // each lot assigned to its winning face): a packed row can
+    // only turn together — a lone lot's turned back corner lands
+    // in the still-unturned neighbour's footprint, and vice versa,
+    // so per-lot sequential turns deadlock. The group's planned
+    // turns are applied jointly, then validated in rounds: every
+    // turned lot must pass pullClear at its turned frame against
+    // the current state of the whole plan (ribbons, sites, tracks,
+    // piers, neighbours turned or not), and its front midpoint
+    // must sit no further from its own bed's section edge than it
+    // did before the turn, so the #185 gains cannot regress. A
+    // lot whose state fails advances through its remaining states
+    // — footprint variants that shed depth from the back (the
+    // front anchored; a diagonal parcel is a shallower wedge than
+    // the axis cell it replaces), then the partial turns — and
+    // only a lot out of states reverts to the grid angle, counted
+    // in lotsFacingHeld; every failure consumes one state, so the
+    // rounds settle. A turn pivots the lot about its front edge's
+    // midpoint — the wall point the pull just set — optionally
+    // slid along the turned face to satisfy the facade-family
+    // probe (the hash reads position, exactly as in the pull).
+    // Candidates run most-preferred first: the full turn (on a
+    // > 45° skew the flank turn first — it sweeps least and still
+    // puts a facade parallel to the street), then partials. Lots
+    // under the minimum turn, or whose face no bed fronts
+    // measurably, stay byte-identical.
+    // opts.facingBlocks (a Set of block indices) scopes the pass
+    // for POC work; null (the default) applies it tile-wide.
+    // opts.facing === false skips the pass (cross-run A/B).
+    if (opts.facing !== false) {
+    const facingBlocks = opts && opts.facingBlocks ? opts.facingBlocks : null;
+    const FACE_MIN_RANK = 2; // tertiary or better (see the face construction below)
+    const FACE_TURN_MIN_RAD = (2.5 * Math.PI) / 180;
+    const FACE_KEEP_RAD = (5 * Math.PI) / 180; // "already facing well": the census's first bucket
+    const FACE_H_PROBES = [6, 13, 18, 26, 33, 38, 50];
+    // The angle of the bed a face sits on: frontGapAt's sampling
+    // and gates, but the along-gate relaxed (0.5, not 0.8) — a road
+    // running skewed to the face still measures, and that skew is
+    // the quantity being corrected. Returns the binding
+    // (smallest-gap) sample's { gap, segAng, seg, anchorGap } or
+    // null; seg is the winning segment itself, so the post-turn
+    // gap can be read against the same bed (see the validation
+    // below). anchorGap is the face MIDPOINT's own distance to
+    // the winning bed's section edge (the sample-min gap binds at
+    // a face end on skewed faces; the post-turn check reads the
+    // midpoint, so the pre-turn anchor must read it too).
+    const frontAngleAt = (fx, fz, nx, nz, tx, tz, len) => {
+      let mid = null, best = null;
+      for (const f of [-0.4, 0, 0.4]) {
+        const sx = fx + tx * f * len, sz = fz + tz * f * len;
+        const bucket = frontGrid.get(cellKey(Math.floor(sx / FRONT_CELL), Math.floor(sz / FRONT_CELL)));
+        if (!bucket) continue;
+        let sBest = null, sBestC = null;
+        for (const sg of bucket) {
+          if (sg.rank < FRONTAGE_BED_MIN_RANK) continue;
+          const dx = sg.bx - sg.ax, dz = sg.bz - sg.az, L2 = dx * dx + dz * dz || 1e-9;
+          let t = ((sx - sg.ax) * dx + (sz - sg.az) * dz) / L2;
+          t = Math.max(0, Math.min(1, t));
+          const vx = sg.ax + t * dx - sx, vz = sg.az + t * dz - sz;
+          const d = Math.hypot(vx, vz);
+          if (d <= sg.half) continue;                 // sample inside the bed — not its frontage
+          if (vx * nx + vz * nz < 0.55 * d) continue;  // bed not in front of the face
+          const sl = Math.sqrt(L2);
+          const along = Math.abs((dx / sl) * tx + (dz / sl) * tz);
+          if (along < 0.5) continue; // crosses the face, not along it
+          const gap = d - sg.half - sg.band;
+          if (gap < -0.5 || gap > 30) continue;       // face past the edge, or beyond measure
+          const cand = { gap, segAng: Math.atan2(dz, dx), seg: sg };
+          if (sBest === null || gap < sBest.gap) sBest = cand;
+          // The segment the census would pair this face point
+          // with (its gates: along >= 0.7, gap <= 26, rank wins
+          // near-ties) — preferred whenever one exists, so the
+          // turn targets the same segment the census scores.
+          // Without this, a closer-but-steeper segment wins the
+          // relaxed gates and the lot turns away from the road
+          // the census (and the eye) scores it against.
+          if (along >= 0.7 && gap <= 26) {
+            if (sBestC === null || gap < sBestC.gap - 0.5 || (Math.abs(gap - sBestC.gap) <= 0.5 && sg.rank > sBestC.seg.rank)) sBestC = cand;
+          }
+        }
+        const pick = sBestC || sBest;
+        if (f === 0) mid = pick;
+        if (pick && (best === null || pick.gap < best.gap)) best = pick;
+      }
+      const win = mid || best;
+      if (!win) return null;
+      const sg = win.seg;
+      const dx = sg.bx - sg.ax, dz = sg.bz - sg.az, L2 = dx * dx + dz * dz || 1e-9;
+      let t = ((fx - sg.ax) * dx + (fz - sg.az) * dz) / L2;
+      t = Math.max(0, Math.min(1, t));
+      const anchorGap = Math.hypot(sg.ax + t * dx - fx, sg.az + t * dz - fz) - sg.half - sg.band;
+      return { gap: win.gap, segAng: win.segAng, seg: sg, anchorGap };
+    };
+    // Plan every eligible lot's turn first (see the group note):
+    // lot index -> { cands, faGap, faSeg } grouped by winning face.
+    // A candidate is one turn size at one lattice position; the
+    // footprint variants (below) are derived from it in validation.
+    const faceGroups = new Map();
+    for (let i = 0; i < lots.length; i++) {
+      const rec0 = lotFront[i];
+      if (facingBlocks && !facingBlocks.has(rec0.bi)) continue;
+      const lot = lots[i];
+      // Effective faces: the faces this lot is the outermost
+      // surviving lot of (the pull's de-facto-face construction —
+      // a direct face lot is always its line's outermost survivor,
+      // so this subsumes the direct faces). The pull admits these
+      // at rank >= 3; facing admits rank >= 2 (tertiary streets
+      // are real frontages — the Beitou foothill streets are the
+      // curved type case — while lanes keep the grid).
+      const vF = [], uF = [];
+      const ou = outerU.get(`${rec0.bi}|${rec0.row}`), ov = outerV.get(`${rec0.bi}|${rec0.col}`);
+      if (ou.lo === i && rec0.rUL >= FACE_MIN_RANK) uF.push([-1, rec0.rUL]);
+      if (ou.hi === i && rec0.rUH >= FACE_MIN_RANK) uF.push([1, rec0.rUH]);
+      if (ov.lo === i && rec0.rVL >= FACE_MIN_RANK) vF.push([-1, rec0.rVL]);
+      if (ov.hi === i && rec0.rVH >= FACE_MIN_RANK) vF.push([1, rec0.rVH]);
+      if (!vF.length && !uF.length) continue;
+      const rot0 = lot.rot || 0;
+      const c0 = Math.cos(rot0), s0 = Math.sin(rot0);
+      const U = [c0, s0], V = [-s0, c0];
+      // Measure every effective face, then arbitrate by the
+      // confirmed rule (closest road; a close main road wins).
+      const measured = [];
+      const measureFace = (axis, dir, rank, frontLen) => {
+        const N = axis === 'v' ? [V[0] * dir, V[1] * dir] : [U[0] * dir, U[1] * dir];
+        const T = axis === 'v' ? U : V;
+        const depth = axis === 'v' ? lot.d : lot.w;
+        const mx = lot.x + (N[0] * depth) / 2, mz = lot.z + (N[1] * depth) / 2;
+        const fa = frontAngleAt(mx, mz, N[0], N[1], T[0], T[1], frontLen);
+        if (fa) {
+          let dPhi = fa.segAng - Math.atan2(T[1], T[0]);
+          while (dPhi > Math.PI / 2) dPhi -= Math.PI;
+          while (dPhi <= -Math.PI / 2) dPhi += Math.PI;
+          measured.push({ axis, dir, rank, gap: fa.gap, anchorGap: fa.anchorGap, segAng: fa.segAng, seg: fa.seg, dPhi, N, T, depth, frontLen, mx, mz });
+        }
+      };
+      for (const [dir, rank] of vF) measureFace('v', dir, rank, lot.w);
+      for (const [dir, rank] of uF) measureFace('u', dir, rank, lot.d);
+      if (!measured.length) { stats.lotsFacingHeld++; stats.lotsFacingHeldNoFace++; continue; }
+      const prim = chooseFacingFace(measured);
+      const { N, T, depth, mx, mz } = prim;
+      const dPhi = prim.dPhi;
+      let deltas;
+      if (Math.abs(dPhi) <= Math.PI / 4) deltas = [dPhi, dPhi * 0.66, dPhi * 0.4, dPhi * 0.25];
+      else {
+        const dFlank = dPhi - Math.sign(dPhi) * (Math.PI / 2);
+        deltas = [dFlank, dPhi, dFlank * 0.66, dFlank * 0.4, dFlank * 0.25];
+      }
+      deltas = deltas.filter((d) => Math.abs(d) >= FACE_TURN_MIN_RAD);
+      if (!deltas.length) { stats.lotsFacingHeld++; stats.lotsFacingHeldSmallTurn++; continue; }
+      // A turn must not wreck a frontage that is already good: any
+      // turn size that would push an already-aligned (<= 5°) face
+      // past 10° off its road is dropped (smaller partials are
+      // still tried). Without this, lots aligned to one street
+      // turned toward a closer lane and regressed past 10° on the
+      // street they had faced well (44 lots before the guard).
+      const fold90 = (a) => { while (a > Math.PI / 2) a -= Math.PI; while (a <= -Math.PI / 2) a += Math.PI; return a; };
+      const goodFaces = measured.filter((f) => Math.abs(f.dPhi) <= FACE_KEEP_RAD);
+      deltas = deltas.filter((d) => goodFaces.every((f) => Math.abs(fold90(f.dPhi - d)) <= (10 * Math.PI) / 180));
+      if (!deltas.length) { stats.lotsFacingHeld++; stats.lotsFacingHeldAlignedMain++; continue; }
+      // The facade-family guard, the pull's own: the turned lot
+      // must reproduce its post-pull facade family at the new
+      // position under every height-band probe. Guard mode
+      // (issue #256): judge by the PRE-#256 family, exactly like
+      // the pull guard above — otherwise the new types re-roll
+      // the probe and the facing pass moves lots the pull guard
+      // held still.
+      const probeLot = { ...lot };
+      const mats0 = FACE_H_PROBES.map((h) => { probeLot.h = h; return facadeMatFor(probeLot, { guard: true }); });
+      const visualSame = (nx, nz) => {
+        probeLot.x = nx; probeLot.z = nz;
+        for (let k = 0; k < FACE_H_PROBES.length; k++) {
+          probeLot.h = FACE_H_PROBES[k];
+          if (facadeMatFor(probeLot, { guard: true }) !== mats0[k]) return false;
+        }
+        return true;
+      };
+      // One candidate per turn size: the pivot outcome, walked
+      // over a slide/nudge lattice (slides along the turned face,
+      // nudges along its normal — outward to +0.5 m, inward only
+      // 0.3, inside the gap-regression budget) ordered by total
+      // offset, until the facade probe passes. The pull needs the
+      // same lattice scale: the probe passes roughly one position
+      // in three for low lots and far fewer for tall ones, so a
+      // coarse search starves it (measured: a 33-position search
+      // left over half the candidates unplaced on the probe alone).
+      const cands = [];
+      for (const delta of deltas) {
+        const rot1 = rot0 + delta;
+        const cd = Math.cos(delta), sd = Math.sin(delta);
+        const dx = lot.x - mx, dz = lot.z - mz;
+        const rx = dx * cd - dz * sd, rz = dx * sd + dz * cd;
+        const c1 = Math.cos(rot1), s1 = Math.sin(rot1);
+        const T1 = prim.axis === 'v' ? [c1, s1] : [-s1, c1];
+        const N1 = prim.axis === 'v' ? [-s1 * prim.dir, c1 * prim.dir] : [c1 * prim.dir, s1 * prim.dir];
+        const offsets = [];
+        for (let sl = -3; sl <= 3.001; sl += 0.3) for (let nu = -0.3; nu <= 0.501; nu += 0.1) offsets.push([Math.round(sl * 10) / 10, Math.round(nu * 10) / 10]);
+        offsets.sort((a, b) => (Math.abs(a[0]) + 2 * Math.abs(a[1])) - (Math.abs(b[0]) + 2 * Math.abs(b[1])) || Math.abs(a[0]) - Math.abs(b[0]) || a[0] - b[0] || a[1] - b[1]);
+        for (const [slide, nudge] of offsets) {
+          const nx = Math.round((mx + rx + T1[0] * slide + N1[0] * nudge) * 10) / 10;
+          const nz = Math.round((mz + rz + T1[1] * slide + N1[1] * nudge) * 10) / 10;
+          if (!visualSame(nx, nz)) continue;
+          cands.push({ nx, nz, rot1, delta, n1: N1, depth, depAxis: prim.axis === 'v' ? 'd' : 'w' });
+          break;
+        }
+      }
+      if (!cands.length) { stats.lotsFacingHeld++; stats.lotsFacingHeldFacade++; continue; }
+      const gk = `${rec0.bi}|${prim.axis}${prim.dir}`;
+      let g = faceGroups.get(gk);
+      if (!g) faceGroups.set(gk, g = []);
+      g.push({ i, cands, anchorGap: prim.anchorGap, faSeg: prim.seg, ci: 0, vi: 0, rot0, dPhi, appliedDelta: 0 });
+    }
+    // Footprint variants of one candidate, front edge anchored:
+    // full size first, then depth shed from the back (the street
+    // wall is untouched; a diagonal parcel is a shallower wedge
+    // than the axis cell it replaces), then width. A turned lot
+    // whose swept back corners meet the row behind can still turn
+    // by giving up rear yard — the facing is the point of the
+    // issue; the parcel fit is geometry.
+    const FACE_VARIANTS = [[1, 1], [1, 0.92], [1, 0.85], [0.94, 0.92], [0.88, 0.8]];
+    // Apply each group's turns jointly, then validate in rounds.
+    // A member whose state fails advances to its next variant,
+    // then its next candidate (the partial turn), before it gives
+    // up: most failures are a turned corner meeting a neighbour
+    // or a ribbon, and the smaller states sweep less. Only a
+    // member out of states reverts to the grid angle, immediately,
+    // so later members in the round validate against the freed
+    // space. Every failure consumes one state, so rounds settle.
+    for (const members of faceGroups.values()) {
+      const saved = new Map();
+      for (const m of members) {
+        const lot = lots[m.i];
+        saved.set(m.i, { x: lot.x, z: lot.z, w: lot.w, d: lot.d, rot: lot.rot });
+        m.probeLot = { ...lot };
+        m.mats0 = FACE_H_PROBES.map((h) => { m.probeLot.h = h; return facadeMatFor(m.probeLot, { guard: true }); });
+      }
+      // Put member m into its current (ci, vi) state; false when
+      // the state is unavailable (below the planner's size floors,
+      // or the facade probe rejects the shifted centre).
+      const applyState = (m) => {
+        const lot = lots[m.i], sv = saved.get(m.i), cd = m.cands[m.ci];
+        const [fw, fd] = FACE_VARIANTS[m.vi];
+        // fw scales the frontage extent, fd the depth extent;
+        // which of w/d is the depth depends on the primary face.
+        const depFull = cd.depAxis === 'w' ? sv.w : sv.d;
+        const froFull = cd.depAxis === 'w' ? sv.d : sv.w;
+        const dep = Math.round(depFull * fd * 10) / 10;
+        const fro = Math.round(froFull * fw * 10) / 10;
+        // Size floors: the planner never emits a footprint under
+        // 7 m on either side (tests/taipei.test.mjs pins w >= 7
+        // && d >= 7), and a facing turn must not invent one.
+        if (dep < 7 || fro < 7) return false;
+        // The candidate's front midpoint (full-size placement),
+        // then the centre for this variant's depth, front fixed.
+        const fmx = cd.nx + (cd.n1[0] * cd.depth) / 2, fmz = cd.nz + (cd.n1[1] * cd.depth) / 2;
+        const nx = Math.round((fmx - (cd.n1[0] * dep) / 2) * 10) / 10;
+        const nz = Math.round((fmz - (cd.n1[1] * dep) / 2) * 10) / 10;
+        m.probeLot.x = nx; m.probeLot.z = nz;
+        for (let k = 0; k < FACE_H_PROBES.length; k++) {
+          m.probeLot.h = FACE_H_PROBES[k];
+          if (facadeMatFor(m.probeLot, { guard: true }) !== m.mats0[k]) return false;
+        }
+        // Normalize the frame angle into (0, PI/2): the rot
+        // field's contract (tests/orientation.test.mjs) is a
+        // frame angle in (0, 90°) with devDeg > 2.9°. A 90°
+        // frame rotation with w/d swapped is the identical
+        // footprint (same centre, same corner set), so fold
+        // rot1 into range and swap the extents to match. A
+        // folded angle within 2.9° of an axis is effectively
+        // unturned, and the state is rejected (the lot keeps
+        // the grid rather than carrying a near-zero rot).
+        let rotN = cd.rot1;
+        const k = Math.floor(rotN / (Math.PI / 2));
+        rotN -= k * (Math.PI / 2);
+        let wN = cd.depAxis === 'w' ? dep : fro;
+        let dN = cd.depAxis === 'w' ? fro : dep;
+        if (k % 2 !== 0) { const t = wN; wN = dN; dN = t; }
+        const devN = Math.min(rotN, Math.PI / 2 - rotN);
+        if (devN <= (2.9 * Math.PI) / 180) return false;
+        lot.x = nx;
+        lot.z = nz;
+        lot.w = wN;
+        lot.d = dN;
+        lot.rot = Math.round(rotN * 10000) / 10000;
+        // cos/sin of the ROUNDED angle: pullClear's rotated
+        // checks then see exactly the corners the tests
+        // reconstruct from the emitted plan.
+        m.c = Math.cos(lot.rot);
+        m.s = Math.sin(lot.rot);
+        m.fmx = fmx;
+        m.fmz = fmz;
+        m.appliedDelta = cd.rot1 - m.rot0;
+        return true;
+      };
+      const revert = (m) => {
+        const lot = lots[m.i], sv = saved.get(m.i);
+        lot.x = sv.x;
+        lot.z = sv.z;
+        lot.w = sv.w;
+        lot.d = sv.d;
+        if (sv.rot === undefined) delete lot.rot; else lot.rot = sv.rot;
+      };
+      let active = [];
+      for (const m of members) {
+        // Advance to the first available state (variant 0 of
+        // candidate 0 was facade-verified at its full-size centre
+        // in planning, but the probe is re-run here on the same
+        // numbers for uniformity).
+        let placed = false;
+        while (m.ci < m.cands.length) {
+          if (applyState(m)) { placed = true; break; }
+          m.vi++;
+          if (m.vi >= FACE_VARIANTS.length) { m.vi = 0; m.ci++; }
+        }
+        if (placed) active.push(m);
+        else { stats.lotsFacingHeld++; stats.lotsFacingHeldFacade++; }
+      }
+      // Rounds run until a full round passes with no failure:
+      // every failure consumes one (candidate, variant) state,
+      // so the rounds settle in at most totalStates + 1 rounds.
+      // A round cap (the first draft's members.length + 3) can
+      // strand a member advanced in the final round without
+      // re-validation — that stranded state is how turned
+      // corners grazed ribbons and park polygons. If the cap
+      // is ever hit (unreachable while states only advance),
+      // the whole group reverts: safe, and counted as held.
+      const totalStates = members.reduce((n, m) => n + m.cands.length * FACE_VARIANTS.length, 0) + 1;
+      for (let round = 0; active.length; round++) {
+        if (round > totalStates) {
+          for (const m of active) { revert(m); stats.lotsFacingHeld++; stats.lotsFacingHeldClear++; }
+          active.length = 0;
+          break;
+        }
+        let anyFailure = false;
+        for (const m of active.slice()) {
+          const lot = lots[m.i];
+          let ok = pullClear(lot, m.i, { c: m.c, s: m.s }, lot.x, lot.z);
+          if (ok) {
+            // #185 non-regression, read against the same bed the
+            // face measured pre-turn: the turned front midpoint
+            // must sit no further from that bed's section edge
+            // than the face did before the turn.
+            const sg = m.faSeg;
+            const dx = sg.bx - sg.ax, dz = sg.bz - sg.az, L2 = dx * dx + dz * dz || 1e-9;
+            let t = ((m.fmx - sg.ax) * dx + (m.fmz - sg.az) * dz) / L2;
+            t = Math.max(0, Math.min(1, t));
+            const dd = Math.hypot(sg.ax + t * dx - m.fmx, sg.az + t * dz - m.fmz);
+            ok = dd - sg.half - sg.band <= m.anchorGap + 0.35;
+          }
+          if (!ok) {
+            anyFailure = true;
+            // Advance: next variant, then next candidate; revert
+            // when out of states.
+            let placed = false;
+            for (;;) {
+              m.vi++;
+              if (m.vi >= FACE_VARIANTS.length) { m.vi = 0; m.ci++; }
+              if (m.ci >= m.cands.length) break;
+              if (applyState(m)) { placed = true; break; }
+            }
+            if (!placed) {
+              revert(m);
+              stats.lotsFacingHeld++;
+              stats.lotsFacingHeldClear++;
+              active.splice(active.indexOf(m), 1);
+            }
+          }
+        }
+        if (!anyFailure) break;
+      }
+      for (const m of active) {
+        stats.lotsFacingTurned++;
+        if (Math.abs(m.appliedDelta) >= 0.9 * Math.abs(m.dPhi)) stats.lotsFacingTurnedFull++;
+        else stats.lotsFacingTurnedPartial++;
+      }
+      // The rot field's contract (tests/orientation.test.mjs) is
+      // "rot fields == lotsRotated": recount from the emitted
+      // lots — the pass adds rot fields to axis lots it turns.
+      stats.lotsRotated = 0;
+      for (const lot of lots) if (lot.rot) stats.lotsRotated++;
+    }
     }
   }
 
@@ -4983,13 +5418,50 @@ export function officeCoreFor(lot) {
 // accent, and the 22–40 m glass share drops from a half to a fifth.
 // Issue #142 revises the Xinyi half of that core rule afterwards:
 // see xinyiGlassOrLight below.
-function facadeMatFor(lot) {
+// Issue #256: the newer-apartment spawn rule, measured from the plan
+// (see apartments256-evidence/measure256*.mjs): tall lots are the
+// fine-grain plan's scarcest stock (2,400 lots at 40 m+ outside the
+// office cores, median narrow side 13.3 m), and only 50 of them span
+// 24 m both ways — a twin-slab complex needs a whole wide lot, so
+// the rule keys on height + a minimum narrow side, not on area:
+//   h >= 40, outside every office core (the #136 tall-Taiwan test
+//   forbids new Taiwan families inside a core), min(w, d) >= 14 m.
+// Of the eligible lots a seeded 30% become the modern slab (10) and
+// 25% the neoclassical stone tower (11); the rest keep the existing
+// tall-Taiwan pick, and the 12% glass accent roll above is evaluated
+// first with the exact pre-#256 formula, so glass counts are
+// untouched. Deterministic from the lot's position hash, like every
+// other facade rule — the frontage-pull guard probes it at seven
+// heights and the choice is height-regime independent.
+export const NEWER_APARTMENT_MIN_DIM = 14;
+const NEWER_APARTMENT_SHARE_A = 0.30;
+const NEWER_APARTMENT_SHARE_B = 0.25;
+export function newerApartmentKind(lot, seed) {
+  if (Math.min(lot.w, lot.d) < NEWER_APARTMENT_MIN_DIM) return 0;
+  const u = hash01(seed ^ 0x2560);
+  if (u < NEWER_APARTMENT_SHARE_A) return 10;
+  if (u < NEWER_APARTMENT_SHARE_A + NEWER_APARTMENT_SHARE_B) return 11;
+  return 0;
+}
+
+export function facadeMatFor(lot, opts) {
   const seed = (Math.imul(Math.round(lot.x * 10), 73856093) ^ Math.imul(Math.round(lot.z * 10), 19349663) ^ 0x101) | 0;
   const r = hash01(seed);
   const core = officeCoreFor(lot);
   if (lot.h >= 40) {
     if (core) return xinyiGlassOrLight(lot, seed, [3, 4, 5][Math.floor(r * 3) % 3]);
     if (r < 0.12) { const u = r / 0.12; return [3, 4, 5][Math.floor(u * 3) % 3]; } // glass accent: the curtain-wall 豪宅 minority
+    // Issue #256: opts.guard is the frontage-pull guard below — it
+    // compares the PRE-#256 family so a pull landing is judged exactly
+    // as before and #256 moves no lot: the new types are a post-pull
+    // assignment in taipeiCityBlocksOptions, keyed on the final
+    // position. Without the guard the pull search would re-roll
+    // 800 landings city-wide (measured) for a hash difference that
+    // is not a band crossing.
+    if (!opts?.guard) {
+      const newer = newerApartmentKind(lot, seed);
+      if (newer) return newer;
+    }
     return tallTaiwanTypeFor(lot, seed);
   }
   if (lot.h >= 22) {
@@ -5159,7 +5631,19 @@ export function clampTaipeiRooftopGear(gear, lot) {
   // Issue #100: a full-roof 鐵皮屋 is built over the roof plane — the
   // roof's clamped HVAC units are displaced, not dodged: they stood
   // where the addition now stands.
-  return { waterTowers: adds.tanks, hvacUnits: adds.huts.length ? [] : units, rooftopAdds: adds.huts };
+  // Issue #241: AC is sparse — keep the roof's units only on a seeded
+  // per-lot roll (~1 in 3 roofs). The roll runs AFTER the additions
+  // above on purpose: taipeiRooftopAdditions places tanks around the
+  // FULL unit list, so rolling here leaves every tank/hut placement
+  // exactly where it was, and surviving units keep their exact
+  // clamped position/size (no reshuffle). Fresh salt (0xac01), so
+  // the draw is independent of the hut/tank draws (seed 0x7a11).
+  let hvacUnits = adds.huts.length ? [] : units;
+  if (hvacUnits.length) {
+    const acSeed = lotPolicySeed(lot, 0xac01);
+    if (hash01(acSeed ^ 0xac11) >= TAIPEI_AC_RATE) hvacUnits = [];
+  }
+  return { waterTowers: adds.tanks, hvacUnits, rooftopAdds: adds.huts };
 }
 
 // --- Issue #56 rooftop furniture: stainless tanks & 鐵皮屋 additions ---
@@ -5182,6 +5666,14 @@ export function clampTaipeiRooftopGear(gear, lot) {
 // (roof form, patched sheet panels, a roof bump) — see the hut block.
 export const TAIPEI_TANK_RATE = 0.14;
 export const TAIPEI_HUT_RATE = 0.12;
+// Issue #241: rooftop AC units are sparse on purpose, like the tanks
+// and huts — the commit step gives every fitting roof exactly one
+// HVAC box, which read as a grey box on essentially every roof. The
+// clamp keeps a roof's units only on a seeded per-lot roll, so about
+// one roof in three shows AC. The roll is drawn AFTER the rooftop
+// additions (see clampTaipeiRooftopGear) so tank/hut placement —
+// which reads the full unit list — never reshuffles.
+export const TAIPEI_AC_RATE = 1 / 3;
 // Issue #208: the palette grows from four to six — the original
 // weathered red / green / grey-blue / rust plus a galvanized
 // grey-green and a weathered off-white, the two other staples of
@@ -5373,6 +5865,136 @@ export function taipeiArcadeParts(lot) {
   return { depth: D, core, columns };
 }
 
+// --- Issue #256: newer apartment massing ------------------------------
+// Pure data, consumed by js/buildings.js's populatePlannedLot like the
+// arcade parts above. The podium is the lot's own rect (massed by the
+// caller, storeys 0–2); these are the tower(s) and crowns above it:
+//   - towers: the tower rect(s), inset TOWER_INSET on every side so
+//     the podium reads as a setback garden deck. A wide lot splits
+//     into TWIN slabs along its long axis with a 3 m gap — the
+//     勝旺有境 read — when the inset tower's long side still spans
+//     two honest slabs (>= 2 * SLAB_MIN + GAP).
+//   - crowns: each tower's top two storeys, inset CROWN_INSET further,
+//     for the stepped/crowned tops in both user photos.
+// The entrance canopy + piers (family 11 only) need a street side,
+// which the planner never knows (see the arcade note above), so they
+// are built renderer-side in populatePlannedLot from the block's
+// street faces; taipeiEntranceCanopy below takes the rect + side and
+// returns the explicit-height parts. Returns null when the lot is too
+// small for the tower split (defensive: facadeMatFor already gates
+// families 10/11 on min(w, d) >= 14).
+export const NEWER_TOWER_INSET = 1.5;
+export const NEWER_CROWN_INSET = 2;
+export const NEWER_TWIN_GAP = 3;
+export const NEWER_SLAB_MIN = 9.5;
+
+export function taipeiNewerApartmentParts(lot) {
+  const w = lot.x1 - lot.x0, d = lot.z1 - lot.z0;
+  if (Math.min(w, d) < NEWER_APARTMENT_MIN_DIM) return null;
+  const t = {
+    x0: lot.x0 + NEWER_TOWER_INSET, x1: lot.x1 - NEWER_TOWER_INSET,
+    z0: lot.z0 + NEWER_TOWER_INSET, z1: lot.z1 - NEWER_TOWER_INSET,
+  };
+  const tw = t.x1 - t.x0, td = t.z1 - t.z0;
+  let towers;
+  let twin = false;
+  if (tw >= 2 * NEWER_SLAB_MIN + NEWER_TWIN_GAP && tw >= td) {
+    const slab = (tw - NEWER_TWIN_GAP) / 2;
+    towers = [
+      { ...t, x1: t.x0 + slab },
+      { ...t, x0: t.x1 - slab },
+    ];
+    twin = true;
+  } else if (td >= 2 * NEWER_SLAB_MIN + NEWER_TWIN_GAP && td > tw) {
+    const slab = (td - NEWER_TWIN_GAP) / 2;
+    towers = [
+      { ...t, z1: t.z0 + slab },
+      { ...t, z0: t.z1 - slab },
+    ];
+    twin = true;
+  } else {
+    towers = [t];
+  }
+  const crowns = towers.map((r) => ({
+    x0: r.x0 + NEWER_CROWN_INSET, x1: r.x1 - NEWER_CROWN_INSET,
+    z0: r.z0 + NEWER_CROWN_INSET, z1: r.z1 - NEWER_CROWN_INSET,
+  }));
+  return { towers, crowns, twin };
+}
+
+// Entrance canopy + flanking piers for one street face of a family-11
+// lot, in the lot's local frame. The canopy fascia stands 0.05 m proud
+// of the face (no z-fighting, no reach past the sidewalk band); the
+// piers stand on the same plane. Explicit heights (not storey-aligned):
+// the fascia caps the ground-floor entrance at canopy height, the
+// piers run from the ground to its underside. All faces blank stone,
+// so the fascia paints the family's gold trim at its coping.
+export const NEWER_CANOPY_Y0 = 3.5;
+export const NEWER_CANOPY_Y1 = 4.05;
+export const NEWER_CANOPY_PROUD = 0.05;
+export const NEWER_CANOPY_DEPTH = 0.55;
+export const NEWER_PIER = 0.4;
+
+export function taipeiEntranceCanopy(lot, side) {
+  const w = lot.x1 - lot.x0, d = lot.z1 - lot.z0;
+  const faceLen = side === 'n' || side === 's' ? w : d;
+  const cw = Math.min(6, faceLen * 0.6);
+  if (cw < 2) return null;
+  const c0 = (faceLen - cw) / 2;
+  const y0 = NEWER_CANOPY_Y0, y1 = NEWER_CANOPY_Y1;
+  const P = NEWER_PIER, proud = NEWER_CANOPY_PROUD, dep = NEWER_CANOPY_DEPTH;
+  // Along-face coordinate helper: returns [a0, a1] offsets from the
+  // face's start corner, and the cross-face [b0, b1] for the slab.
+  if (side === 's') {
+    const x0 = lot.x0 + c0, x1 = x0 + cw;
+    return {
+      canopy: { x0, x1, z0: lot.z1 - dep, z1: lot.z1 + proud, y0, y1 },
+      piers: [
+        { x0, x1: x0 + P, z0: lot.z1 - dep, z1: lot.z1 + proud, y0: 0, y1: y0 },
+        { x0: x1 - P, x1, z0: lot.z1 - dep, z1: lot.z1 + proud, y0: 0, y1: y0 },
+      ],
+    };
+  }
+  if (side === 'n') {
+    const x0 = lot.x0 + c0, x1 = x0 + cw;
+    return {
+      canopy: { x0, x1, z0: lot.z0 - proud, z1: lot.z0 + dep, y0, y1 },
+      piers: [
+        { x0, x1: x0 + P, z0: lot.z0 - proud, z1: lot.z0 + dep, y0: 0, y1: y0 },
+        { x0: x1 - P, x1, z0: lot.z0 - proud, z1: lot.z0 + dep, y0: 0, y1: y0 },
+      ],
+    };
+  }
+  if (side === 'e') {
+    const z0 = lot.z0 + c0, z1 = z0 + cw;
+    return {
+      canopy: { x0: lot.x1 - dep, x1: lot.x1 + proud, z0, z1, y0, y1 },
+      piers: [
+        { x0: lot.x1 - dep, x1: lot.x1 + proud, z0, z1: z0 + P, y0: 0, y1: y0 },
+        { x0: lot.x1 - dep, x1: lot.x1 + proud, z0: z1 - P, z1, y0: 0, y1: y0 },
+      ],
+    };
+  }
+  // side === 'w'
+  const z0 = lot.z0 + c0, z1 = z0 + cw;
+  return {
+    canopy: { x0: lot.x0 - proud, x1: lot.x0 + dep, z0, z1, y0, y1 },
+    piers: [
+      { x0: lot.x0 - proud, x1: lot.x0 + dep, z0, z1: z0 + P, y0: 0, y1: y0 },
+      { x0: lot.x0 - proud, x1: lot.x0 + dep, z0: z1 - P, z1, y0: 0, y1: y0 },
+    ],
+  };
+}
+
+// The entrance for a family-11 lot: the canopy + piers on the lot's
+// longest face (ties prefer the south face). Planned lots face a
+// street or lane on every side (see the arcade note above), so the
+// face is picked by length alone — no street data needed.
+export function taipeiNewerEntrance(lot) {
+  const w = lot.x1 - lot.x0, d = lot.z1 - lot.z0;
+  return taipeiEntranceCanopy(lot, w >= d ? 's' : 'e');
+}
+
 // --- Issue #56: vertical signs （直式招牌） ------------------------------
 // The street photo's defining layer: thin sign panels mounted
 // PERPENDICULAR to the facade, stacked with glyph characters, in reds,
@@ -5441,6 +6063,17 @@ export function taipeiCityBlocksOptions(geodata, plan = planTaipeiBuildings(geod
       // Issue #55: F7 arcade lots carry their recessed-ground-floor
       // massing (null on lots too small for the inset core).
       if (r.mat === 7) r.arcade = taipeiArcadeParts(r);
+      // Issue #256: newer apartment lots carry their podium/tower/
+      // crown parts (null on lots too small for the tower split) and,
+      // for the stone tower, the entrance canopy + piers.
+      if (r.mat === 10 || r.mat === 11) {
+        const newer = taipeiNewerApartmentParts(r);
+        if (newer) r.newer = newer;
+      }
+      if (r.mat === 11) {
+        const entrance = taipeiNewerEntrance(r);
+        if (entrance) r.entrance = entrance;
+      }
       // Issue #56: vertical signs on a hashed subset of Taiwan-type lots.
       const signs = taipeiVerticalSigns(r);
       if (signs.length) r.signs = signs;
