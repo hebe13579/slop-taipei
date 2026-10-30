@@ -1591,8 +1591,15 @@ test('rooftop AC census on the real plan: one roof in three keeps AC', (t) => {
   }
   t.diagnostic(`real-plan AC census: ${hut} hut lots, ${kept} keep / ${dropped} drop`);
   assert.equal(hut, 5892, 'hut selection untouched by the AC roll');
-  assert.equal(kept, 20957, 'kept AC lots on this tree');
-  assert.equal(dropped, 41721, 'dropped AC lots on this tree');
+  // Issue #216: the facing pass moves lots, and the AC roll is
+  // seeded from lot position — 50 moved lots flip their roll, so
+  // kept moves 20,957 -> 21,007, while the hut selection is
+  // unchanged and the kept share stays at the 1/3 design point.
+  // Proven by cross-run: with { facing: false } the census
+  // returns to exactly 20,957 / 41,721
+  // (facing216b-evidence/proof-ac-off.mjs).
+  assert.equal(kept, 21007, 'kept AC lots on this tree');
+  assert.equal(dropped, 41671, 'dropped AC lots on this tree');
   const share = kept / (kept + dropped);
   assert.ok(share > 0.30 && share < 0.37, `kept share at the 1/3 design point (${share.toFixed(3)})`);
 });
