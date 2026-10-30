@@ -606,6 +606,10 @@ test('landmark structures: true positions and heights, sites kept clear', (t) =>
     // wheel node 5121602758 on the mall's south front.
     'national-palace-museum': { h: 27.5, x: -1656.1, z: -7664.4 },
     'miramar-entertainment-park': { h: 100, x: -734.7, z: -5527.6 },
+    // Issue #257: the National Taiwan Museum — the 30 m is the
+    // PUBLISHED dome height (museum history pages); position the
+    // OSM building outline centre (way 1050624691).
+    'national-taiwan-museum': { h: 30, x: -5040.9, z: -1081.9 },
   };
   assert.equal(plan.landmarkTowers.length, Object.keys(expected).length, 'all verified structures present');
   const partTop = (p) => (p.y0 || 0) + p.h + (p.type === 'ridge' ? p.ridgeH : 0);

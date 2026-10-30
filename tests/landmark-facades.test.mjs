@@ -69,6 +69,10 @@ const EXPECTED_FACADES = {
   // overrides); Miramar — the mall's glass slab takes curtain.
   'national-palace-museum': 'prewar',
   'miramar-entertainment-park': 'curtain',
+  // Issue #257: the National Taiwan Museum — pale stone Greek
+  // Revival hall takes the prewar grid (its green dome is a flat
+  // override; the portico columns are flat stone).
+  'national-taiwan-museum': 'prewar',
 };
 
 // The only Latin wordmarks a landmark sign may carry — the ones the
@@ -88,6 +92,9 @@ const EXPECTED_SIGNS = {
   // Issue #186: the Miramar mall's south-front wordmark band —
   // a real Latin wordmark the building itself carries.
   'miramar-entertainment-park': { text: 'MIRAMAR' },
+  // Issue #257: the museum's frieze band — 7 abstract glyph blocks
+  // for 國立臺灣博物館, as on the real portico.
+  'national-taiwan-museum': { glyphs: 7 },
 };
 
 test('every landmark resolves its pinned facade treatment', () => {
