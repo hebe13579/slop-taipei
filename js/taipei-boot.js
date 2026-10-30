@@ -1,7 +1,7 @@
 import * as THREE from 'three/webgpu';
 
 import { planTaipeiBuildings, taipeiCityBlocksOptions, createTaipei101, createTaipeiLandmarkTowers, updateSchoolLodGroup, updateSpecialLodGroup } from './taipei-buildings.js';
-import { buildSidewalkBands, planStreetTrees, planParkTrees } from './taipei-streetscape.js';
+import { buildSidewalkBands, planStreetTrees, planParkTrees, planStreetLamps, LAMP_HEAD_H, LAMP_POOL_RX, LAMP_POOL_RZ } from './taipei-streetscape.js';
 import { planParkAmenities } from './taipei-park-amenities.js';
 import { AvatarFigure } from './avatar-figure.js';
 import { buildPaintedBands } from './taipei-painted.js';
@@ -19,7 +19,8 @@ import { buildSkybridgeGeometry } from './taipei-skybridges.js';
 import { buildTerrainSkinGeometry } from './taipei-terrain.js';
 import { buildGreenTintLayers, buildLoopTintLayers, consumeGreenFamilyOverlaps, GREEN_TINT_Y } from './taipei-green.js';
 import { unionExclusionRects, clipRectToBoxes } from './taipei-union.js';
-import { createCurtainWallMaterial, createPreWarBuildingMaterial, createTaipeiMarkingMaterial, setTaipeiSignAtlases } from './tsl-materials.js';
+import { createCurtainWallMaterial, createPreWarBuildingMaterial, createTaipeiMarkingMaterial, setTaipeiSignAtlases, cityUniforms } from './tsl-materials.js';
+import { color, mix, smoothstep, uv, float } from 'three/tsl';
 import { drawBandAtlas, drawBladeAtlas, BAND_ATLAS, BLADE_ATLAS, TAIPEI_BAND_SIGNS, TAIPEI_BLADE_SIGNS } from './taipei-signs.js';
 import { createBuildProgress, TAIPEI_BUILD_STAGES } from './taipei-progress.js';
 
@@ -56,7 +57,7 @@ import { createBuildProgress, TAIPEI_BUILD_STAGES } from './taipei-progress.js';
 // 0.06, junction caps 0.061, boulevard median strips 0.062,
 // roundabout islands 0.0635, painted-walkway green band 0.065
 // and its white edge lines 0.066,
-// road markings 0.068), not terrain elevation:
+// road markings 0.068, lamp light pools 0.071), not terrain elevation:
 // the tile is the flat basin floor. The one true elevation in the
 // tile is the elevated-highway decks (issue #61): real structures
 // at their computed heights over the ground stack. Behind the
@@ -749,6 +750,110 @@ function lampGeometry() {
     addPart(new THREE.BoxGeometry(0.08, 0.08, 0.85), 0x2f3338, { p: [0, 4.52, 0.36] });
     addPart(new THREE.BoxGeometry(0.34, 0.07, 0.6), 0xd9d5c6, { p: [0, 4.46, 0.72] });
   });
+}
+
+// ---------------------------------------------------------------------
+// Issue #280 — street lamps (cobra-head posts along roads + decks).
+// One 8 m pole type (the arterial band of the lighting standard):
+// tapered pole, two-segment curved arm reaching ~3 m over the
+// carriageway, cobra-head housing. The geometry's arm points +Z;
+// the planner's rot aims +Z at the road. Deck lamps use the same
+// geometry (their arms are ~3 m too, by the planner's head offset),
+// so ground and deck posts stay one InstancedMesh.
+//
+// Three InstancedMeshes, zero real lights (the issue's hard rule):
+// posts (vertex-coloured standard material), lens glow (basic node
+// material whose warm colour fades in with uInteriorGlow, the same
+// smoothstep the NYC cobra lamps use), and light pools (flat
+// ellipses on the road under each head, additive, radial falloff
+// from the CircleGeometry uv, opacity driven by uInteriorGlow —
+// invisible by day, a warm pool at night). +3 draw calls total.
+function streetLampGeometry() {
+  return mergeColouredParts((addPart) => {
+    addPart(new THREE.CylinderGeometry(0.16, 0.2, 0.3, 6), 0x3a3e44, { p: [0, 0.15, 0] }); // footing
+    addPart(new THREE.CylinderGeometry(0.06, 0.09, 8.0, 6), 0x2f3338, { p: [0, 4.0, 0] }); // pole
+    addPart(new THREE.BoxGeometry(0.09, 0.09, 1.5), 0x2f3338, { p: [0, 8.12, 0.7], r: [-0.31, 0, 0] }); // arm rise
+    addPart(new THREE.BoxGeometry(0.09, 0.09, 1.4), 0x2f3338, { p: [0, 8.35, 2.1] }); // arm reach
+    addPart(new THREE.BoxGeometry(0.3, 0.1, 0.62), 0x2f3338, { p: [0, 8.32, 3.0] }); // head housing
+  });
+}
+
+function streetLampLensGeometry() {
+  const geo = new THREE.BoxGeometry(0.22, 0.04, 0.5);
+  return geo;
+}
+
+function streetLampPoolGeometry() {
+  // Flat unit disc; instances scale it to the pool ellipse and
+  // rotate it onto the road direction. uv is centred (0.5, 0.5)
+  // with radius 0.5, which the pool material reads for falloff.
+  return new THREE.CircleGeometry(1, 12).rotateX(-Math.PI / 2);
+}
+
+// Night factor shared by the lens + pool materials: 0 by day, 1 at
+// night (uInteriorGlow 0.24 midday / 0.48 golden / 1.25 twilight /
+// 1.55 midnight), the same smoothstep the NYC lamp glow uses.
+const lampNightFactor = () => smoothstep(0.4, 1.1, cityUniforms.uInteriorGlow);
+
+function buildStreetLampMeshes(lamps, yAt = null) {
+  if (!lamps.length) return [];
+  const groundAt = typeof yAt === 'function' ? yAt : () => 0;
+  const baseY = (l) => groundAt(l.x, l.z) + (l.deckH || 0);
+  const dummy = new THREE.Object3D();
+  const out = [];
+
+  const postMesh = new THREE.InstancedMesh(streetLampGeometry(), new THREE.MeshStandardNodeMaterial({ vertexColors: true, roughness: 0.9, metalness: 0.0 }), lamps.length);
+  postMesh.name = 'TaipeiStreetLamps';
+  postMesh.castShadow = false;
+  lamps.forEach((l, i) => {
+    dummy.position.set(l.x, baseY(l), l.z);
+    dummy.rotation.set(0, l.rot || 0, 0);
+    dummy.scale.setScalar(1);
+    dummy.updateMatrix();
+    postMesh.setMatrixAt(i, dummy.matrix);
+  });
+  postMesh.instanceMatrix.needsUpdate = true;
+  out.push(postMesh);
+
+  const lensMat = new THREE.MeshBasicNodeMaterial();
+  lensMat.colorNode = mix(color(0x8f918c), color(0xfff1d6).mul(2.1), lampNightFactor());
+  const lensMesh = new THREE.InstancedMesh(streetLampLensGeometry(), lensMat, lamps.length);
+  lensMesh.name = 'TaipeiStreetLampLenses';
+  lensMesh.castShadow = false;
+  lamps.forEach((l, i) => {
+    dummy.position.set(l.hx, baseY(l) + LAMP_HEAD_H - 0.04, l.hz);
+    dummy.rotation.set(0, l.rot || 0, 0);
+    dummy.scale.setScalar(1);
+    dummy.updateMatrix();
+    lensMesh.setMatrixAt(i, dummy.matrix);
+  });
+  lensMesh.instanceMatrix.needsUpdate = true;
+  out.push(lensMesh);
+
+  const poolMat = new THREE.MeshBasicNodeMaterial({ transparent: true, depthWrite: false, blending: THREE.AdditiveBlending });
+  poolMat.colorNode = color(0xffb45e).mul(1.6);
+  // Radial falloff from the disc uv (0 at centre, 1 at the rim),
+  // times the night factor, so pools are invisible by day and a
+  // warm ellipse on the road at night.
+  poolMat.opacityNode = float(1.0).sub(smoothstep(0.15, 1.0, uv().sub(0.5).length().mul(2.0))).mul(lampNightFactor()).mul(0.55);
+  const poolMesh = new THREE.InstancedMesh(streetLampPoolGeometry(), poolMat, lamps.length);
+  poolMesh.name = 'TaipeiStreetLampPools';
+  poolMesh.castShadow = false;
+  // Pools render after the opaque pass (transparent) and sit 0.071
+  // above the carriageway / deck top — just over the markings
+  // (0.068) — with no depth write, so overlapping pools blend.
+  poolMesh.renderOrder = 2;
+  lamps.forEach((l, i) => {
+    dummy.position.set(l.hx, groundAt(l.hx, l.hz) + (l.deckH || 0) + 0.071, l.hz);
+    dummy.rotation.set(0, l.poolRot || 0, 0);
+    dummy.scale.set(LAMP_POOL_RX, 1, LAMP_POOL_RZ);
+    dummy.updateMatrix();
+    poolMesh.setMatrixAt(i, dummy.matrix);
+  });
+  poolMesh.instanceMatrix.needsUpdate = true;
+  out.push(poolMesh);
+
+  return out;
 }
 
 function binGeometry() {
@@ -1870,9 +1975,18 @@ export async function buildTaipeiGround(scene, tile, deps = {}) {
     // class, built inside this stage (the stage list is a pinned
     // contract; park greenery + furniture is the one stage).
     for (const mesh of buildParkAmenityMeshes(amenityPlan, drapeHeight)) meshes.push(mesh);
+    // Issue #280: street lamps — planned with the trees (same
+    // exclusions + building plan, so posts keep out of lots and
+    // junction asphalt), rendered as three InstancedMeshes (posts,
+    // lens glow, light pools) with zero real lights. Re-planned on
+    // a density switch with the rest of this closure.
+    const lampStart = performance.now();
+    const lampPlan = planStreetLamps(geo, forPlan, { exclusions: treeExclusions });
+    for (const mesh of buildStreetLampMeshes(lampPlan.lamps, drapeHeight)) meshes.push(mesh);
+    console.info(`[taipei-lamps] ${lampPlan.lamps.length} street lamps (${lampPlan.stats.ground} ground, ${lampPlan.stats.deck} deck${lampPlan.stats.capped ? `, capped at ${lampPlan.stats.cap}` : ''}) planned in ${Math.round(performance.now() - lampStart)}ms`);
     const amenityTotal = Object.values(amenityPlan.items).reduce((s, v) => s + v.length, 0);
     console.info(`[taipei-parks] ${amenityTotal} amenity items (${Object.entries(amenityPlan.items).map(([k, v]) => `${k} ${v.length}`).join(', ')}) in ${amenityPlan.stats.parksDressed} parks (${amenityPlan.stats.parksPathless} pathless parks get trees only) planned in ${Math.round(performance.now() - amenityStart)}ms`);
-    return { street, park, amenityPlan, amenityTotal, parkByVariant, meshes };
+    return { street, park, amenityPlan, amenityTotal, parkByVariant, meshes, lamps: lampPlan };
   };
   let trees = buildTrees(plan);
   for (const mesh of trees.meshes) group.add(mesh);
