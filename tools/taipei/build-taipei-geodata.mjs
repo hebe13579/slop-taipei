@@ -21,6 +21,7 @@ import { pedestrianLayout } from './pedestrian-layout.mjs';
 import { buildElevated, buildMrtDecks } from './build-elevated.mjs';
 import { deriveLoopSites } from './build-loops.mjs';
 import { deriveSkybridges } from './build-skybridges.mjs';
+import { deriveParkSports } from './build-park-sports.mjs';
 import { digestRedLine, digestWenhuLine } from './build-mrt.mjs';
 import { planTaipeiBuildings } from '../../js/taipei-buildings.js';
 
@@ -1127,6 +1128,19 @@ TAIPEI_GEO.schools = schools;
   const sky = deriveSkybridges(roadsElements, toWorld);
   if (sky.segments.length) TAIPEI_GEO.skybridges = sky.segments;
   console.log(`[taipei-geodata] skybridges: ${sky.stats.waysKept} OSM bridge ways -> ${sky.stats.chains} chains, ${sky.stats.totalLenM} m (${sky.stats.flagshipSegs} flagship-width segments; excluded: ${sky.stats.excludedRings} terrace ring, ${sky.stats.excludedOutside} outside the district window; ${sky.stats.fragmentsDropped} fragments dropped) (issue #212)`);
+}
+
+// ---- park sports features (issue #246) ----
+// Playgrounds, basketball/tennis courts, picnic tables and 涼亭
+// pavilions mapped inside park rings, derived from the park-sports
+// extract (tools/taipei/build-park-sports.mjs) so mapped locations
+// win over the planner's seeded kits. Pure scenery data for the
+// amenity planner — the lot plan never sees it.
+{
+  const sportsElements = load('osm_park_sports.json').elements;
+  const sports = deriveParkSports(sportsElements, TAIPEI_GEO.parks, toWorld);
+  if (sports.entries.length) TAIPEI_GEO.parkSports = sports.entries;
+  console.log(`[taipei-geodata] park sports: ${sports.stats.seen} OSM features -> ${sports.stats.kept} rects in ${sports.stats.parks} parks (playground ${sports.stats.byKind.playground}, court ${sports.stats.byKind.court}, picnic ${sports.stats.byKind.picnic}, pavilion ${sports.stats.byKind.pavilion}; skipped: ${JSON.stringify(sports.stats.skipped)}, ${sports.stats.splitSlabs} multi-court slabs split) (issue #246)`);
 }
 
 // ---- terrain skin grids (issue #129) ----

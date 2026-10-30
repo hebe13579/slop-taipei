@@ -351,3 +351,79 @@ test('traffic panel: a failed build restores the last good config, gear and worl
     else globalThis.requestAnimationFrame = prevRaf;
   }
 });
+
+// Gate follow-up (issue #266): the live settle probe could not prove
+// the Off-after-rapid-taps path — the headless browser barely
+// produces frames, and the coalesced apply runs on the next frame,
+// while the "rebuilding…" status is painted at schedule time, before
+// the apply runs. A stuck status plus a present world therefore
+// cannot distinguish "apply never ran" from "apply failed". Prove
+// the settle at unit level with the controllable rAF queue: the
+// five-tap burst from an on state must collapse into ONE apply
+// ending at Off, destroying the world.
+test('traffic panel: rapid taps from an on state settle at Off with the world destroyed (issue #266 gate)', async () => {
+  const prevRaf = globalThis.requestAnimationFrame;
+  const rafQueue = [];
+  globalThis.requestAnimationFrame = (cb) => { rafQueue.push(cb); return rafQueue.length; };
+  try {
+    const { doc, statusEl, densityBtns, byPreset } = stubPanel();
+    const settings = resolveSettings({ search: '?trafficDensity=normal' });
+    let worldPresent = true; // booted with traffic on (?traffic=1 maps to normal)
+    const calls = [];
+    initSettingsPanel({
+      settings, taipeiSettings: {}, doc,
+      onTraffic: (cfg) => { calls.push({ ...cfg }); worldPresent = cfg.enabled; },
+      persist: () => {},
+    });
+    for (const p of ['off', 'light', 'heavy', 'normal', 'off']) byPreset(densityBtns, 'settingTrafficdensity', p).click();
+    assert.equal(calls.length, 0, 'nothing applies before the frame');
+    await flushFrames(rafQueue);
+    assert.equal(calls.length, 1, 'one coalesced apply for the whole burst');
+    assert.deepEqual(calls[0], { enabled: false, carCount: 0, trafficRadius: 380 });
+    assert.equal(worldPresent, false, 'the Off apply destroys the world');
+    assert.equal(settings.trafficDensity, 'off');
+    assert.equal(statusEl.textContent, '');
+  } finally {
+    if (prevRaf === undefined) delete globalThis.requestAnimationFrame;
+    else globalThis.requestAnimationFrame = prevRaf;
+  }
+});
+
+// Gate follow-up (issue #266): when the FIRST build fails there is no
+// last-good config yet — the fallback re-applies the boot state (Off),
+// which is destroy-only and cannot throw the build, and the gear must
+// agree with the world.
+test('traffic panel: a failed first build falls back to Off and the gear agrees (issue #266 gate)', async () => {
+  const prevRaf = globalThis.requestAnimationFrame;
+  const rafQueue = [];
+  globalThis.requestAnimationFrame = (cb) => { rafQueue.push(cb); return rafQueue.length; };
+  try {
+    const { doc, statusEl, densityBtns, byPreset } = stubPanel();
+    const settings = resolveSettings();
+    const seen = [];
+    let calls = 0;
+    initSettingsPanel({
+      settings, taipeiSettings: {}, doc,
+      onTraffic: (cfg) => { seen.push({ ...cfg }); calls += 1; if (calls === 1) throw new Error('simulated first-build failure'); },
+      persist: () => {},
+    });
+    byPreset(densityBtns, 'settingTrafficdensity', 'light').click();
+    await flushFrames(rafQueue);
+    assert.deepEqual(seen.map((c) => c.carCount), [60, 0], 'failed Light build, then the Off fallback');
+    assert.equal(settings.trafficDensity, 'off');
+    assert.equal(statusEl.textContent, 'change failed — kept previous state');
+  } finally {
+    if (prevRaf === undefined) delete globalThis.requestAnimationFrame;
+    else globalThis.requestAnimationFrame = prevRaf;
+  }
+});
+
+// Gate follow-up (issue #266): main.js nulls initTimings after the
+// boot log, but applyTrafficConfig calls markInit('traffic') on every
+// post-boot build. Without the guard the push threw after every
+// successful build and the fallback rolled the good build back. No
+// test executes main.js, so pin the guard as a source contract.
+test('boot timing: markInit is a no-op after initTimings is nulled (issue #266 gate fix)', () => {
+  assert.match(mainSource, /const markInit = \(label\) => \{[^}]*if \(!initTimings\) return;/s);
+  assert.match(mainSource, /initTimings = null;/);
+});

@@ -120,6 +120,13 @@ async function initApp() {
   let initTimings = [];
   let initMark = performance.now();
   const markInit = (label) => {
+    // Gate fix (issue #266): initTimings is nulled after the boot log
+    // (line 981), but applyTrafficConfig calls markInit('traffic') on
+    // every panel-driven build after boot. An unguarded push threw
+    // after every successful post-boot build, and #266's new
+    // failure fallback then rolled the good build back to Off.
+    // Post-boot marks are no-ops; boot logging is unchanged.
+    if (!initTimings) return;
     const now = performance.now();
     initTimings.push(`${label} ${Math.round(now - initMark)}ms`);
     initMark = now;
