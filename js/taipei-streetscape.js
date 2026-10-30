@@ -1068,6 +1068,13 @@ export function planStreetLamps(geodata, plan, opts = {}) {
   decks.forEach((line) => {
     if (!line.pts || line.pts.length < 4) return;
     if (Math.max(...(line.h || [0])) <= 0.5) return;
+    // Single-lane interchange ramps (4.4 m) take no lamps: a 3 m
+    // cobra arm would reach clear across the ramp, and the real
+    // ramps are lit from parapet mounts the single post geometry
+    // cannot express. The 7 m floor keeps every deck arm ≥ 2.5 m,
+    // so the fixed-arm post geometry stays within 0.5 m of the
+    // planned head on every deck.
+    if ((line.width || 0) < 7) return;
     const key = `deck|${line.wayId || ''}|${line.name || ''}|${line.pts[0]},${line.pts[1]}`;
     const spacing = LAMP_SPACING * (0.9 + hash01(`${key}|spacing`) * 0.2);
     const phase = hash01(`${key}|phase`) * spacing;
