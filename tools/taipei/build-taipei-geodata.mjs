@@ -345,6 +345,7 @@ let roadTunnels = null;
       name: b.name, highway: b.highway, width: b.width, pedestrianLayout: b.pedestrianLayout,
       pts: b.centreline, sourceWayIds: b.sourceWayIds, ...(b.merged ? { merged: true } : {}),
       ...(b.deck ? { deck: true } : {}),
+      ...(b.oneway ? { oneway: true } : {}), // issue #249: carried through from the generation map
     }));
     // Issue #183: the generation map's airfield tunnel records
     // (suppressed underpass runs + portal mouths) ride along and are

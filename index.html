@@ -196,10 +196,15 @@
       <span class="pop-name">High</span>
       <span class="pop-sub">Pixel ratio up to 2.0 (retina) · shadows on</span>
     </button>
+    <div class="pop-title">Terrain drape</div>
+    <button id="set-drape" class="pop-item tp-btn" type="button" aria-pressed="true">
+      <span class="pop-name">Beitou &amp; Yuanshan hills <span class="set-state">On</span></span>
+      <span class="pop-sub">Roads &amp; buildings follow the real terrain · off restores flat ground · reloads</span>
+    </button>
     <div class="pop-title">Traffic <span id="set-traffic-status" class="set-status"></span></div>
-    <button id="set-traffic" class="pop-item tp-btn" type="button" aria-pressed="false">
-      <span class="pop-name">Traffic <span class="set-state">Off</span></span>
-      <span class="pop-sub">Cars on Taipei streets · ground level only, never on decks · default off</span>
+    <button class="pop-item tp-btn" type="button" data-setting-trafficdensity="off">
+      <span class="pop-name">Traffic off</span>
+      <span class="pop-sub">No cars · default</span>
     </button>
     <button class="pop-item tp-btn" type="button" data-setting-trafficdensity="light">
       <span class="pop-name">Light traffic</span>
@@ -207,7 +212,7 @@
     </button>
     <button class="pop-item tp-btn" type="button" data-setting-trafficdensity="normal">
       <span class="pop-name">Normal traffic</span>
-      <span class="pop-sub">200 cars · default</span>
+      <span class="pop-sub">200 cars</span>
     </button>
     <button class="pop-item tp-btn" type="button" data-setting-trafficdensity="heavy">
       <span class="pop-name">Heavy traffic</span>
