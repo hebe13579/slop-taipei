@@ -1160,11 +1160,15 @@ const LANDMARK_STRUCTURES = [
       { type: 'box', w: 19, d: 20, h: 18, y0: 82, dx: 40.9, dz: -17.1 },
       // Centre bay: recessed dark glass (the concave bay in the
       // photo, faked as a deep recess — no curved part exists),
-      // with pale floor bands across it.
-      { type: 'box', w: 53, d: 16, h: 82, y0: 18, dx: -1.1, dz: -20, flat: { color: 0x232830, roughness: 0.12, metalness: 0.55 } },
-      { type: 'box', w: 53, d: 1, h: 1, y0: 38, dx: -1.1, dz: -12.5, flat: 0xd8cfc0 },
-      { type: 'box', w: 53, d: 1, h: 1, y0: 58, dx: -1.1, dz: -12.5, flat: 0xd8cfc0 },
-      { type: 'box', w: 53, d: 1, h: 1, y0: 78, dx: -1.1, dz: -12.5, flat: 0xd8cfc0 },
+      // with pale floor bands across it. The bands are 2 m tall:
+      // at street level in the midday sun (NW sun, south faces in
+      // shadow) 1 m bands vanished and the bay read as a black
+      // void (probe-hyatt-south / probe-hyatt-close); the 2 m
+      // bands give the bay its floor rhythm from the south.
+      { type: 'box', w: 53, d: 16, h: 82, y0: 18, dx: -1.1, dz: -20, flat: { color: 0x232830, roughness: 0.25, metalness: 0.55 } },
+      { type: 'box', w: 53, d: 1, h: 2, y0: 38, dx: -1.1, dz: -12.5, flat: 0xe8dcc0 },
+      { type: 'box', w: 53, d: 1, h: 2, y0: 58, dx: -1.1, dz: -12.5, flat: 0xe8dcc0 },
+      { type: 'box', w: 53, d: 1, h: 2, y0: 78, dx: -1.1, dz: -12.5, flat: 0xe8dcc0 },
       // Octagonal terracotta roof feature as a frustum pavilion
       // (was a flat cylinder disc — read as a floating plate).
       { type: 'frustum', wB: 24, dB: 24, wT: 16, dT: 16, h: 4, y0: 100, dx: -1, dz: -10, flat: 0xc98a6b },
@@ -1176,7 +1180,7 @@ const LANDMARK_STRUCTURES = [
       { type: 'box', w: 22, d: 20, h: 18, y0: 82, dx: -44.6, dz: -17.1 },
       { type: 'box', w: 27, d: 28, h: 64, y0: 18, dx: 40.9, dz: -17.1 },
       { type: 'box', w: 19, d: 20, h: 18, y0: 82, dx: 40.9, dz: -17.1 },
-      { type: 'box', w: 53, d: 16, h: 82, y0: 18, dx: -1.1, dz: -20, flat: { color: 0x232830, roughness: 0.12, metalness: 0.55 } },
+      { type: 'box', w: 53, d: 16, h: 82, y0: 18, dx: -1.1, dz: -20, flat: { color: 0x232830, roughness: 0.25, metalness: 0.55 } },
       { type: 'frustum', wB: 24, dB: 24, wT: 16, dT: 16, h: 4, y0: 100, dx: -1, dz: -10, flat: 0xc98a6b },
     ],
   },
