@@ -931,7 +931,7 @@ test('buildings options: plan faithfully adapted for the upstream building syste
     assert.ok(Math.abs((l.x0 + l.x1) / 2 - p.x) < 0.051 && Math.abs((l.z0 + l.z1) / 2 - p.z) < 0.051, 'lot centre matches the plan');
     assert.ok(Math.abs((l.x1 - l.x0) - p.w) < 0.051 && Math.abs((l.z1 - l.z0) - p.d) < 0.051, 'lot footprint matches the plan');
     assert.equal(l.h, p.h, 'lot height matches the plan');
-    assert.ok(Number.isInteger(l.mat) && l.mat >= 0 && l.mat <= 9, `facade material index ${l.mat} within upstream's ten families`);
+    assert.ok(Number.isInteger(l.mat) && l.mat >= 0 && l.mat <= 11, `facade material index ${l.mat} within the twelve families (0-9 upstream/Taiwan, 10/11 issue #256)`);
   });
   // Material zoning: tall lots never wear the low masonry families
   // (0-2), and the low residential interiors stay masonry. Issue #136

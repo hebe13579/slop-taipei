@@ -4802,12 +4802,14 @@ export function planTaipeiBuildings(geodata, opts = {}) {
       // before/after in the #185 evidence).
       const MAT_H_PROBES = [6, 13, 18, 26, 33, 38, 50];
       const probeLot = { ...lot };
-      const mats0 = MAT_H_PROBES.map((h) => { probeLot.h = h; return facadeMatFor(probeLot); });
+      // Guard mode (issue #256): judge landings by the pre-#256 family
+      // so the new types move no lot — see facadeMatFor.
+      const mats0 = MAT_H_PROBES.map((h) => { probeLot.h = h; return facadeMatFor(probeLot, { guard: true }); });
       const visualSame = (nx, nz) => {
         probeLot.x = nx; probeLot.z = nz;
         for (let k = 0; k < MAT_H_PROBES.length; k++) {
           probeLot.h = MAT_H_PROBES[k];
-          if (facadeMatFor(probeLot) !== mats0[k]) return false;
+          if (facadeMatFor(probeLot, { guard: true }) !== mats0[k]) return false;
         }
         return true;
       };
@@ -5062,14 +5064,18 @@ export function planTaipeiBuildings(geodata, opts = {}) {
       if (!deltas.length) { stats.lotsFacingHeld++; stats.lotsFacingHeldAlignedMain++; continue; }
       // The facade-family guard, the pull's own: the turned lot
       // must reproduce its post-pull facade family at the new
-      // position under every height-band probe.
+      // position under every height-band probe. Guard mode
+      // (issue #256): judge by the PRE-#256 family, exactly like
+      // the pull guard above — otherwise the new types re-roll
+      // the probe and the facing pass moves lots the pull guard
+      // held still.
       const probeLot = { ...lot };
-      const mats0 = FACE_H_PROBES.map((h) => { probeLot.h = h; return facadeMatFor(probeLot); });
+      const mats0 = FACE_H_PROBES.map((h) => { probeLot.h = h; return facadeMatFor(probeLot, { guard: true }); });
       const visualSame = (nx, nz) => {
         probeLot.x = nx; probeLot.z = nz;
         for (let k = 0; k < FACE_H_PROBES.length; k++) {
           probeLot.h = FACE_H_PROBES[k];
-          if (facadeMatFor(probeLot) !== mats0[k]) return false;
+          if (facadeMatFor(probeLot, { guard: true }) !== mats0[k]) return false;
         }
         return true;
       };
@@ -5130,7 +5136,7 @@ export function planTaipeiBuildings(geodata, opts = {}) {
         const lot = lots[m.i];
         saved.set(m.i, { x: lot.x, z: lot.z, w: lot.w, d: lot.d, rot: lot.rot });
         m.probeLot = { ...lot };
-        m.mats0 = FACE_H_PROBES.map((h) => { m.probeLot.h = h; return facadeMatFor(m.probeLot); });
+        m.mats0 = FACE_H_PROBES.map((h) => { m.probeLot.h = h; return facadeMatFor(m.probeLot, { guard: true }); });
       }
       // Put member m into its current (ci, vi) state; false when
       // the state is unavailable (below the planner's size floors,
@@ -5156,7 +5162,7 @@ export function planTaipeiBuildings(geodata, opts = {}) {
         m.probeLot.x = nx; m.probeLot.z = nz;
         for (let k = 0; k < FACE_H_PROBES.length; k++) {
           m.probeLot.h = FACE_H_PROBES[k];
-          if (facadeMatFor(m.probeLot) !== m.mats0[k]) return false;
+          if (facadeMatFor(m.probeLot, { guard: true }) !== m.mats0[k]) return false;
         }
         // Normalize the frame angle into (0, PI/2): the rot
         // field's contract (tests/orientation.test.mjs) is a
@@ -5412,13 +5418,50 @@ export function officeCoreFor(lot) {
 // accent, and the 22–40 m glass share drops from a half to a fifth.
 // Issue #142 revises the Xinyi half of that core rule afterwards:
 // see xinyiGlassOrLight below.
-function facadeMatFor(lot) {
+// Issue #256: the newer-apartment spawn rule, measured from the plan
+// (see apartments256-evidence/measure256*.mjs): tall lots are the
+// fine-grain plan's scarcest stock (2,400 lots at 40 m+ outside the
+// office cores, median narrow side 13.3 m), and only 50 of them span
+// 24 m both ways — a twin-slab complex needs a whole wide lot, so
+// the rule keys on height + a minimum narrow side, not on area:
+//   h >= 40, outside every office core (the #136 tall-Taiwan test
+//   forbids new Taiwan families inside a core), min(w, d) >= 14 m.
+// Of the eligible lots a seeded 30% become the modern slab (10) and
+// 25% the neoclassical stone tower (11); the rest keep the existing
+// tall-Taiwan pick, and the 12% glass accent roll above is evaluated
+// first with the exact pre-#256 formula, so glass counts are
+// untouched. Deterministic from the lot's position hash, like every
+// other facade rule — the frontage-pull guard probes it at seven
+// heights and the choice is height-regime independent.
+export const NEWER_APARTMENT_MIN_DIM = 14;
+const NEWER_APARTMENT_SHARE_A = 0.30;
+const NEWER_APARTMENT_SHARE_B = 0.25;
+export function newerApartmentKind(lot, seed) {
+  if (Math.min(lot.w, lot.d) < NEWER_APARTMENT_MIN_DIM) return 0;
+  const u = hash01(seed ^ 0x2560);
+  if (u < NEWER_APARTMENT_SHARE_A) return 10;
+  if (u < NEWER_APARTMENT_SHARE_A + NEWER_APARTMENT_SHARE_B) return 11;
+  return 0;
+}
+
+export function facadeMatFor(lot, opts) {
   const seed = (Math.imul(Math.round(lot.x * 10), 73856093) ^ Math.imul(Math.round(lot.z * 10), 19349663) ^ 0x101) | 0;
   const r = hash01(seed);
   const core = officeCoreFor(lot);
   if (lot.h >= 40) {
     if (core) return xinyiGlassOrLight(lot, seed, [3, 4, 5][Math.floor(r * 3) % 3]);
     if (r < 0.12) { const u = r / 0.12; return [3, 4, 5][Math.floor(u * 3) % 3]; } // glass accent: the curtain-wall 豪宅 minority
+    // Issue #256: opts.guard is the frontage-pull guard below — it
+    // compares the PRE-#256 family so a pull landing is judged exactly
+    // as before and #256 moves no lot: the new types are a post-pull
+    // assignment in taipeiCityBlocksOptions, keyed on the final
+    // position. Without the guard the pull search would re-roll
+    // 800 landings city-wide (measured) for a hash difference that
+    // is not a band crossing.
+    if (!opts?.guard) {
+      const newer = newerApartmentKind(lot, seed);
+      if (newer) return newer;
+    }
     return tallTaiwanTypeFor(lot, seed);
   }
   if (lot.h >= 22) {
@@ -5822,6 +5865,136 @@ export function taipeiArcadeParts(lot) {
   return { depth: D, core, columns };
 }
 
+// --- Issue #256: newer apartment massing ------------------------------
+// Pure data, consumed by js/buildings.js's populatePlannedLot like the
+// arcade parts above. The podium is the lot's own rect (massed by the
+// caller, storeys 0–2); these are the tower(s) and crowns above it:
+//   - towers: the tower rect(s), inset TOWER_INSET on every side so
+//     the podium reads as a setback garden deck. A wide lot splits
+//     into TWIN slabs along its long axis with a 3 m gap — the
+//     勝旺有境 read — when the inset tower's long side still spans
+//     two honest slabs (>= 2 * SLAB_MIN + GAP).
+//   - crowns: each tower's top two storeys, inset CROWN_INSET further,
+//     for the stepped/crowned tops in both user photos.
+// The entrance canopy + piers (family 11 only) need a street side,
+// which the planner never knows (see the arcade note above), so they
+// are built renderer-side in populatePlannedLot from the block's
+// street faces; taipeiEntranceCanopy below takes the rect + side and
+// returns the explicit-height parts. Returns null when the lot is too
+// small for the tower split (defensive: facadeMatFor already gates
+// families 10/11 on min(w, d) >= 14).
+export const NEWER_TOWER_INSET = 1.5;
+export const NEWER_CROWN_INSET = 2;
+export const NEWER_TWIN_GAP = 3;
+export const NEWER_SLAB_MIN = 9.5;
+
+export function taipeiNewerApartmentParts(lot) {
+  const w = lot.x1 - lot.x0, d = lot.z1 - lot.z0;
+  if (Math.min(w, d) < NEWER_APARTMENT_MIN_DIM) return null;
+  const t = {
+    x0: lot.x0 + NEWER_TOWER_INSET, x1: lot.x1 - NEWER_TOWER_INSET,
+    z0: lot.z0 + NEWER_TOWER_INSET, z1: lot.z1 - NEWER_TOWER_INSET,
+  };
+  const tw = t.x1 - t.x0, td = t.z1 - t.z0;
+  let towers;
+  let twin = false;
+  if (tw >= 2 * NEWER_SLAB_MIN + NEWER_TWIN_GAP && tw >= td) {
+    const slab = (tw - NEWER_TWIN_GAP) / 2;
+    towers = [
+      { ...t, x1: t.x0 + slab },
+      { ...t, x0: t.x1 - slab },
+    ];
+    twin = true;
+  } else if (td >= 2 * NEWER_SLAB_MIN + NEWER_TWIN_GAP && td > tw) {
+    const slab = (td - NEWER_TWIN_GAP) / 2;
+    towers = [
+      { ...t, z1: t.z0 + slab },
+      { ...t, z0: t.z1 - slab },
+    ];
+    twin = true;
+  } else {
+    towers = [t];
+  }
+  const crowns = towers.map((r) => ({
+    x0: r.x0 + NEWER_CROWN_INSET, x1: r.x1 - NEWER_CROWN_INSET,
+    z0: r.z0 + NEWER_CROWN_INSET, z1: r.z1 - NEWER_CROWN_INSET,
+  }));
+  return { towers, crowns, twin };
+}
+
+// Entrance canopy + flanking piers for one street face of a family-11
+// lot, in the lot's local frame. The canopy fascia stands 0.05 m proud
+// of the face (no z-fighting, no reach past the sidewalk band); the
+// piers stand on the same plane. Explicit heights (not storey-aligned):
+// the fascia caps the ground-floor entrance at canopy height, the
+// piers run from the ground to its underside. All faces blank stone,
+// so the fascia paints the family's gold trim at its coping.
+export const NEWER_CANOPY_Y0 = 3.5;
+export const NEWER_CANOPY_Y1 = 4.05;
+export const NEWER_CANOPY_PROUD = 0.05;
+export const NEWER_CANOPY_DEPTH = 0.55;
+export const NEWER_PIER = 0.4;
+
+export function taipeiEntranceCanopy(lot, side) {
+  const w = lot.x1 - lot.x0, d = lot.z1 - lot.z0;
+  const faceLen = side === 'n' || side === 's' ? w : d;
+  const cw = Math.min(6, faceLen * 0.6);
+  if (cw < 2) return null;
+  const c0 = (faceLen - cw) / 2;
+  const y0 = NEWER_CANOPY_Y0, y1 = NEWER_CANOPY_Y1;
+  const P = NEWER_PIER, proud = NEWER_CANOPY_PROUD, dep = NEWER_CANOPY_DEPTH;
+  // Along-face coordinate helper: returns [a0, a1] offsets from the
+  // face's start corner, and the cross-face [b0, b1] for the slab.
+  if (side === 's') {
+    const x0 = lot.x0 + c0, x1 = x0 + cw;
+    return {
+      canopy: { x0, x1, z0: lot.z1 - dep, z1: lot.z1 + proud, y0, y1 },
+      piers: [
+        { x0, x1: x0 + P, z0: lot.z1 - dep, z1: lot.z1 + proud, y0: 0, y1: y0 },
+        { x0: x1 - P, x1, z0: lot.z1 - dep, z1: lot.z1 + proud, y0: 0, y1: y0 },
+      ],
+    };
+  }
+  if (side === 'n') {
+    const x0 = lot.x0 + c0, x1 = x0 + cw;
+    return {
+      canopy: { x0, x1, z0: lot.z0 - proud, z1: lot.z0 + dep, y0, y1 },
+      piers: [
+        { x0, x1: x0 + P, z0: lot.z0 - proud, z1: lot.z0 + dep, y0: 0, y1: y0 },
+        { x0: x1 - P, x1, z0: lot.z0 - proud, z1: lot.z0 + dep, y0: 0, y1: y0 },
+      ],
+    };
+  }
+  if (side === 'e') {
+    const z0 = lot.z0 + c0, z1 = z0 + cw;
+    return {
+      canopy: { x0: lot.x1 - dep, x1: lot.x1 + proud, z0, z1, y0, y1 },
+      piers: [
+        { x0: lot.x1 - dep, x1: lot.x1 + proud, z0, z1: z0 + P, y0: 0, y1: y0 },
+        { x0: lot.x1 - dep, x1: lot.x1 + proud, z0: z1 - P, z1, y0: 0, y1: y0 },
+      ],
+    };
+  }
+  // side === 'w'
+  const z0 = lot.z0 + c0, z1 = z0 + cw;
+  return {
+    canopy: { x0: lot.x0 - proud, x1: lot.x0 + dep, z0, z1, y0, y1 },
+    piers: [
+      { x0: lot.x0 - proud, x1: lot.x0 + dep, z0, z1: z0 + P, y0: 0, y1: y0 },
+      { x0: lot.x0 - proud, x1: lot.x0 + dep, z0: z1 - P, z1, y0: 0, y1: y0 },
+    ],
+  };
+}
+
+// The entrance for a family-11 lot: the canopy + piers on the lot's
+// longest face (ties prefer the south face). Planned lots face a
+// street or lane on every side (see the arcade note above), so the
+// face is picked by length alone — no street data needed.
+export function taipeiNewerEntrance(lot) {
+  const w = lot.x1 - lot.x0, d = lot.z1 - lot.z0;
+  return taipeiEntranceCanopy(lot, w >= d ? 's' : 'e');
+}
+
 // --- Issue #56: vertical signs （直式招牌） ------------------------------
 // The street photo's defining layer: thin sign panels mounted
 // PERPENDICULAR to the facade, stacked with glyph characters, in reds,
@@ -5890,6 +6063,17 @@ export function taipeiCityBlocksOptions(geodata, plan = planTaipeiBuildings(geod
       // Issue #55: F7 arcade lots carry their recessed-ground-floor
       // massing (null on lots too small for the inset core).
       if (r.mat === 7) r.arcade = taipeiArcadeParts(r);
+      // Issue #256: newer apartment lots carry their podium/tower/
+      // crown parts (null on lots too small for the tower split) and,
+      // for the stone tower, the entrance canopy + piers.
+      if (r.mat === 10 || r.mat === 11) {
+        const newer = taipeiNewerApartmentParts(r);
+        if (newer) r.newer = newer;
+      }
+      if (r.mat === 11) {
+        const entrance = taipeiNewerEntrance(r);
+        if (entrance) r.entrance = entrance;
+      }
       // Issue #56: vertical signs on a hashed subset of Taiwan-type lots.
       const signs = taipeiVerticalSigns(r);
       if (signs.length) r.signs = signs;
