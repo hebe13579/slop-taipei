@@ -19,7 +19,7 @@ import { LightingSystem } from './lighting.js';
 import { NYCMapSystem } from './nyc-map.js';
 import { setupSceneCulling, updateSceneCulling } from './scene-culling.js';
 import { CityAudioSystem } from './audio-system.js';
-import { resolveSettings, readStoredSettings, persistSettings, graphicsConfig, applyGraphicsSettings, initSettingsPanel, trafficConfig } from './settings.js';
+import { resolveSettings, readStoredSettings, persistSettings, graphicsConfig, applyGraphicsSettings, initSettingsPanel, trafficConfig, TRAFFIC_DENSITY_COUNTS } from './settings.js';
 import { setFarFadeEnabled } from './tsl-materials.js';
 
 // js/main.js
@@ -120,6 +120,13 @@ async function initApp() {
   let initTimings = [];
   let initMark = performance.now();
   const markInit = (label) => {
+    // Gate fix (issue #266): initTimings is nulled after the boot log
+    // (line 981), but applyTrafficConfig calls markInit('traffic') on
+    // every panel-driven build after boot. An unguarded push threw
+    // after every successful post-boot build, and #266's new
+    // failure fallback then rolled the good build back to Off.
+    // Post-boot marks are no-ops; boot logging is unchanged.
+    if (!initTimings) return;
     const now = performance.now();
     initTimings.push(`${label} ${Math.round(now - initMark)}ms`);
     initMark = now;
@@ -230,19 +237,25 @@ async function initApp() {
   };
 
   // The gear must show the EFFECTIVE initial state: the legacy
-  // ?traffic= flag wins over the stored setting, so sync the
-  // in-memory field (not storage — the flag must not stick after
-  // it leaves the URL) before the panel first reflects it.
-  const initialTraffic = isTaipei ? trafficConfig(settings) : { enabled: false, carCount: 0, trafficRadius: 0 };
+  // ?traffic= flag wins over the stored setting, so map its count
+  // onto the nearest density preset and sync the in-memory field
+  // (not storage — the flag must not stick after it leaves the URL)
+  // before the panel first reflects it. Issue #266: Off is a
+  // density option, so the sync targets trafficDensity.
   if (isTaipei) {
     const search = new URLSearchParams(window.location.search);
     if (search.has('traffic')) {
       const legacyCount = taipeiTraffic.trafficCountFromSearch(window.location.search);
-      initialTraffic.enabled = legacyCount > 0;
-      if (legacyCount > 0) initialTraffic.carCount = legacyCount;
+      let nearest = 'off';
+      let nearestGap = Infinity;
+      for (const preset of ['light', 'normal', 'heavy']) {
+        const gap = Math.abs(TRAFFIC_DENSITY_COUNTS[preset] - legacyCount);
+        if (gap < nearestGap) { nearest = preset; nearestGap = gap; }
+      }
+      settings.trafficDensity = legacyCount > 0 ? nearest : 'off';
     }
   }
-  if (isTaipei) settings.trafficEnabled = initialTraffic.enabled;
+  const initialTraffic = isTaipei ? trafficConfig(settings) : { enabled: false, carCount: 0, trafficRadius: 0 };
 
   // Issue #218: wire the settings gear. Graphics apply in every
   // mode; density/specials go through the Taipei boot's runtime
