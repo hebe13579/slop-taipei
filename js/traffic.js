@@ -49,6 +49,27 @@ const NEAR_RADIUS = 350;
 const VEHICLE_SPAWN_DISTANCE = 250;
 const PED_SPAWN_DISTANCE = 150;
 
+// Issue #252: the traffic radius is env-driven (the gear's spawn-range
+// control) with the historical constants as defaults, so an env that
+// never sets it — NYC, and every existing caller — behaves exactly as
+// before. One radius drives all three vehicle distances: the spawn band
+// and the retire distance are the same radius (cars spawn within it and
+// retire beyond it), and the near-view pop-in protection scales with it
+// so a short radius cannot protect every spawn point out of existence.
+// Pedestrians keep their own radii: Taipei disables them, NYC never sets
+// the env knob.
+export function trafficRadii(env = null) {
+  if (!env || !Number.isFinite(env.trafficRadius)) {
+    return { retire: VEHICLE_RADIUS, near: NEAR_RADIUS, spawnProtect: VEHICLE_SPAWN_DISTANCE };
+  }
+  const r = Math.max(60, Math.min(1200, Math.round(env.trafficRadius)));
+  return {
+    retire: r,
+    near: r,
+    spawnProtect: Math.min(VEHICLE_SPAWN_DISTANCE, Math.max(60, Math.round(r * 0.66))),
+  };
+}
+
 function createBusDestinationTexture() {
   const c = document.createElement('canvas');
   c.width = 256;
@@ -84,6 +105,7 @@ function createTrafficSystem(scene, sidewalks, obstacles, env = null) {
   const numCars = env && env.carCount != null ? env.carCount : NUM_CARS;
   const numBuses = env && env.busCount != null ? env.busCount : NUM_BUSES;
   const pedsEnabled = !env || env.pedestrians !== false;
+  const radii = trafficRadii(env); // issue #252: env-driven spawn range, historical defaults otherwise
   let collisionListener = null;
   const collisionEvent = { a: null, b: null, kind: 'vehicle', x: 0, y: 0, z: 0, nx: 0, ny: 0, nz: 0, speed: 0 };
 
@@ -569,7 +591,11 @@ function createTrafficSystem(scene, sidewalks, obstacles, env = null) {
   const nearSignals = [];
   let nearX = Infinity;
   let nearZ = Infinity;
-  function refreshNear() {
+  // `near` is a parameter (defaulting to the historical constant) rather
+  // than the closure's env-derived radii: tests/traffic.test.cjs extracts
+  // this function by source and evals it standalone, where only the
+  // module constants exist. Production passes radii.near.
+  function refreshNear(near = NEAR_RADIUS) {
     if (Math.hypot(focusX - nearX, focusZ - nearZ) < 40) return;
     nearX = focusX;
     nearZ = focusZ;
@@ -578,11 +604,11 @@ function createTrafficSystem(scene, sidewalks, obstacles, env = null) {
     for (const e of edges) {
       const s = clamp((focusX - e.sx) * e.dx + (focusZ - e.sz) * e.dz, 0, e.len);
       const dx = e.sx + e.dx * s - focusX, dz = e.sz + e.dz * s - focusZ;
-      if (dx * dx + dz * dz < NEAR_RADIUS * NEAR_RADIUS) nearEdges.push(e);
+      if (dx * dx + dz * dz < near * near) nearEdges.push(e);
     }
     for (const n of nodes) {
       const dx = n.x - focusX, dz = n.z - focusZ;
-      if (n.signal && dx * dx + dz * dz < NEAR_RADIUS * NEAR_RADIUS) nearSignals.push(n);
+      if (n.signal && dx * dx + dz * dz < near * near) nearSignals.push(n);
     }
   }
 
@@ -1371,7 +1397,11 @@ function createTrafficSystem(scene, sidewalks, obstacles, env = null) {
   }
 
   // Put v in a free lane around the focus. Normal replenishment protects the near view; teleports can fill it.
-  function spawnVehicle(v, rMin, rMax, protectView) {
+  // `spawnProtect` is a parameter (defaulting to the historical constant)
+  // rather than the closure's env-derived radii: tests/traffic.test.cjs
+  // extracts this function by source and evals it standalone, where only
+  // the module constants exist. Production passes radii.spawnProtect.
+  function spawnVehicle(v, rMin, rMax, protectView, spawnProtect = VEHICLE_SPAWN_DISTANCE) {
     for (let attempt = 0; attempt < 12; attempt++) {
       const e = nearEdges[Math.floor(Math.random() * nearEdges.length)];
       if (!e || (v.bus && e.axis !== 'ave') || e.len < 2 * v.half + 10) continue;
@@ -1384,7 +1414,7 @@ function createTrafficSystem(scene, sidewalks, obstacles, env = null) {
       const x = e.sx + e.dx * s + e.rx * e.lanes[lane];
       const z = e.sz + e.dz * s + e.rz * e.lanes[lane];
       const d = Math.hypot(x - focusX, z - focusZ);
-      if (d < rMin || d > rMax || (protectView && nearView(x, z, v.half + 4, VEHICLE_SPAWN_DISTANCE))) continue;
+      if (d < rMin || d > rMax || (protectView && nearView(x, z, v.half + 4, spawnProtect))) continue;
       if (player.active && Math.hypot(x - player.x, z - player.z) < 25) continue;
       if (!laneClear(e.occ[lane], s, v.half + 8)) continue;
       place(v, e, lane, s);
@@ -1974,7 +2004,7 @@ function createTrafficSystem(scene, sidewalks, obstacles, env = null) {
     const jump = Math.hypot(focusX - lastFocusX, focusZ - lastFocusZ) > 140;
     lastFocusX = focusX;
     lastFocusZ = focusZ;
-    refreshNear();
+    refreshNear(radii.near);
     updateView(camera);
 
     player.active = Boolean(playerEntity && activeMode !== 'helicopter' && playerEntity.position.y < 2.6);
@@ -1999,9 +2029,9 @@ function createTrafficSystem(scene, sidewalks, obstacles, env = null) {
       const v = vehicles[vehicleCursor];
       vehicleCursor = (vehicleCursor + 1) % vehicles.length;
       const d = v.edge ? Math.hypot(v.x - focusX, v.z - focusZ) : Infinity;
-      if (d <= (jump ? NEAR_RADIUS : VEHICLE_RADIUS)) continue;
+      if (d <= (jump ? radii.near : radii.retire)) continue;
       budget--;
-      spawnVehicle(v, jump ? 0 : 100, NEAR_RADIUS, !jump);
+      spawnVehicle(v, jump ? 0 : 100, radii.near, !jump, radii.spawnProtect);
     }
     buildOccupancy();
     for (const m of bodyMeshes) m.count = 0;

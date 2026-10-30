@@ -153,7 +153,7 @@
   </div>
 
   <!-- Settings (issue #218): runtime toggles — special buildings, building
-       density, graphics; traffic is a reserved row until issue #210 lands.
+       density, graphics, far detail, traffic (issue #252).
        Wired by js/settings.js (initSettingsPanel) from js/main.js. -->
   <div id="settings-popover" class="popover settings-popover" popover data-side="below" data-anchor="hud-toolbar" aria-label="Settings">
     <div class="pop-title">Special buildings</div>
@@ -196,10 +196,34 @@
       <span class="pop-name">High</span>
       <span class="pop-sub">Pixel ratio up to 2.0 (retina) · shadows on</span>
     </button>
-    <div class="pop-title">Traffic</div>
-    <button class="pop-item tp-btn" type="button" disabled aria-disabled="true">
-      <span class="pop-name">Traffic</span>
-      <span class="pop-sub">Coming soon — being measured behind a flag (issue #210)</span>
+    <div class="pop-title">Traffic <span id="set-traffic-status" class="set-status"></span></div>
+    <button class="pop-item tp-btn" type="button" data-setting-trafficdensity="off">
+      <span class="pop-name">Traffic off</span>
+      <span class="pop-sub">No cars · default</span>
+    </button>
+    <button class="pop-item tp-btn" type="button" data-setting-trafficdensity="light">
+      <span class="pop-name">Light traffic</span>
+      <span class="pop-sub">60 cars</span>
+    </button>
+    <button class="pop-item tp-btn" type="button" data-setting-trafficdensity="normal">
+      <span class="pop-name">Normal traffic</span>
+      <span class="pop-sub">200 cars</span>
+    </button>
+    <button class="pop-item tp-btn" type="button" data-setting-trafficdensity="heavy">
+      <span class="pop-name">Heavy traffic</span>
+      <span class="pop-sub">400 cars</span>
+    </button>
+    <button class="pop-item tp-btn" type="button" data-setting-trafficrange="near">
+      <span class="pop-name">Traffic nearby</span>
+      <span class="pop-sub">Cars within 200 m of you</span>
+    </button>
+    <button class="pop-item tp-btn" type="button" data-setting-trafficrange="normal">
+      <span class="pop-name">Traffic around you</span>
+      <span class="pop-sub">Cars within 380 m · default</span>
+    </button>
+    <button class="pop-item tp-btn" type="button" data-setting-trafficrange="far">
+      <span class="pop-name">Traffic far out</span>
+      <span class="pop-sub">Cars within 600 m</span>
     </button>
   </div>
 

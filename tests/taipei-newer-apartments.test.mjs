@@ -38,14 +38,20 @@ test('newer apartments: census pins — both families planted, glass untouched',
   assert.equal(plan.lots.length, 68570, 'the rule moves families only — the lot count is the composed plan');
   const fam = {};
   for (const l of opts.lots) fam[l.mat] = (fam[l.mat] || 0) + 1;
-  // Pinned at the #256 gate on the composed tree: 485 tall-Taiwan lots
-  // convert (267 slab + 218 stone), all from families 6/8/9; family 7
+  // Pinned at the #256 gate on the composed tree: 492 tall-Taiwan lots
+  // convert (272 slab + 220 stone), all from families 6/8/9; family 7
   // (arcade) and the glass families keep their pre-#256 counts exactly.
-  assert.equal(fam[10], 267, 'modern slab family planted in the hundreds');
-  assert.equal(fam[11], 218, 'neoclassical stone family planted in the hundreds');
+  // Re-pinned from the branch-tree 267/218 at the gate: the branch base
+  // predates the #270 facing pass, and with the facing probes guarded
+  // (pre-#256 family, like the pull guard) a turned lot re-rolls its
+  // rendered family at its final position. The plan itself is
+  // byte-identical to main (0 differing lots, full-field diff), so
+  // this is a census re-pin, not a moved city.
+  assert.equal(fam[10], 272, 'modern slab family planted in the hundreds');
+  assert.equal(fam[11], 220, 'neoclassical stone family planted in the hundreds');
   assert.equal(fam[6], 7567, 'tile shophouse gives up its seeded share');
-  assert.equal(fam[8], 7504, 'walk-up slab gives up its seeded share');
-  assert.equal(fam[9], 5782, 'pebble-dash gives up its seeded share');
+  assert.equal(fam[8], 7499, 'walk-up slab gives up its seeded share');
+  assert.equal(fam[9], 5780, 'pebble-dash gives up its seeded share');
   assert.equal(fam[7], 6687, 'arcade family untouched — the rule never consults it');
   assert.equal(fam[3], 5135, 'glass family 3 untouched — the accent roll runs first');
   assert.equal(fam[4], 1068, 'glass family 4 untouched');
@@ -67,9 +73,10 @@ test('newer apartments: spawn rule invariants', () => {
   const f11 = opts.lots.filter((l) => l.mat === 11);
   assert.ok(f11.every((l) => l.entrance), 'every stone tower carries its entrance canopy + piers');
   assert.ok(opts.lots.filter((l) => l.mat === 10).every((l) => !l.entrance), 'slabs carry no canopy');
-  // Twin slabs are the wide-lot minority: 18 of the 267 slab lots.
+  // Twin slabs are the wide-lot minority: 19 of the 272 slab lots
+  // (re-pinned from 18 at the gate — same facing-guard reason as above).
   const twins = opts.lots.filter((l) => l.mat === 10 && l.newer.twin);
-  assert.equal(twins.length, 18, 'twin-slab complexes planted on the widest lots');
+  assert.equal(twins.length, 19, 'twin-slab complexes planted on the widest lots');
 });
 
 test('newer apartments: rule is deterministic and height-banded', () => {
