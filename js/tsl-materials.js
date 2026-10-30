@@ -1229,6 +1229,21 @@ function createTileShophouseMaterial(opts = {}) {
     tilePalette = [0xe9e2d0, 0xe3d6ba, 0xdbc7a6, 0xd2ccc0],
     accentColor = 0xc9a582,
     accentEvery = 3, // accent band every Nth bay column; 0 disables
+    // Issue #256: newer-apartment treatments (families 10/11 only).
+    // floorBandColor paints a dark horizontal spandrel band under
+    // every upper window (the modern slab's dark window bands); 0
+    // disables. latticeColor draws a decorative grille panel above
+    // the window on latticeEvery-th bay columns (the neoclassical
+    // tower's lattice inserts); 0 disables. pilaster strengthens
+    // the accent columns into full-height stone fins (same columns
+    // accentEvery picks) with a shadow edge.
+    floorBandColor = 0,
+    floorBandTop = 0.22,
+    latticeColor = 0,
+    latticeEvery = 0,
+    latticeProb = 0.8,
+    pilaster = 0,
+    pilasterColor = 0xd8d2c4,
     trimColor = 0xb0a184,
     tileModule = 0.3, // ceramic tile size in metres
     pebble = 0, // 0..1 washed-stone speckle replacing the tile grid
@@ -1341,6 +1356,9 @@ function createTileShophouseMaterial(opts = {}) {
     const cTileC = color(tilePalette[2]);
     const cTileD = color(tilePalette[3]);
     const cAccent = color(accentColor);
+    const cFloorBand = color(floorBandColor);
+    const cLattice = color(latticeColor);
+    const cPilaster = color(pilasterColor);
     const cPlasterA = color(0xcfc9bc);
     const cPlasterB = color(0xbdb5a6);
     const cTrim = color(trimColor);
@@ -1372,6 +1390,14 @@ function createTileShophouseMaterial(opts = {}) {
       : float(0.0);
     tileCol = mix(tileCol, cAccent, accentCol.mul(0.38));
     tileCol = mix(tileCol, tileCol.mul(0.80), grout.mul(0.85));
+    // Issue #256: pilaster fins — the accent columns painted near-full
+    // pilaster stone with a shadow edge, so the strip reads as a
+    // projecting vertical fin rather than a flat tint.
+    if (pilaster) {
+      tileCol = mix(tileCol, cPilaster, accentCol.mul(0.72));
+      const pilEdge = max(lineAA(cellUV.x, 0.035), lineAA(float(1.0).sub(cellUV.x), 0.035));
+      tileCol = mix(tileCol, tileCol.mul(0.68), pilEdge.mul(accentCol));
+    }
 
     // --- Plain plaster (rear / lot-line walls): large weather blotches.
     const blotch = smoothstep(0.52, 0.88, noise2D(vec2(uCoord.mul(0.21), vCoord.mul(0.21)).add(tone.mul(9.0))));
@@ -1388,6 +1414,15 @@ function createTileShophouseMaterial(opts = {}) {
 
     // Parapet coping: a slightly darker trim band.
     col = mix(col, cTrim, cell.coping);
+
+    // Issue #256: dark horizontal spandrel band under every upper
+    // window — the modern slab's banded read. Painted on the wall
+    // before the window mix, so glass and balconies overlay it.
+    if (floorBandColor) {
+      const bandMask = filteredPulse(cellUV.y, 0.0, float(floorBandTop), fw.y)
+        .mul(isGroundFloor.oneMinus()).mul(back.oneMinus()).mul(cell.solid.oneMinus());
+      col = mix(col, cFloorBand, bandMask.mul(0.85));
+    }
 
     // --- Windows: aluminium grid. Ground-floor shopfronts span nearly the
     // whole bay, exactly like the prewar family's wide shop glass.
@@ -1462,6 +1497,25 @@ function createTileShophouseMaterial(opts = {}) {
     glassCol = mix(glassCol, shopInterior, isGroundFloor);
 
     col = mix(col, glassCol, inWindow);
+
+    // Issue #256: decorative lattice panel in the frieze above the
+    // window (neoclassical tower) — a diagonal crosshatch in bronze,
+    // on hash-chosen columns of the lattice rhythm, fronts only.
+    if (latticeColor) {
+      const latColMask = latticeEvery > 0
+        ? step(mod(cellId.x, float(latticeEvery)), 0.5)
+        : float(1.0);
+      const latHash = hash2D(cellId.add(vec2(13.7, 5.9)).add(boxSeed));
+      const latOn = step(latHash, float(latticeProb)).mul(latColMask)
+        .mul(isGroundFloor.oneMinus()).mul(back.oneMinus());
+      const diag = max(
+        step(0.72, fract(cellUV.x.mul(5.0).add(cellUV.y.mul(5.0)))),
+        step(0.72, fract(cellUV.x.mul(5.0).sub(cellUV.y.mul(5.0))))
+      );
+      const latZone = filteredPulse(cellUV.y, winTop.add(0.02), 0.97, fw.y);
+      const latMask = diag.mul(latZone).mul(latOn).mul(inWindow.oneMinus());
+      col = mix(col, cLattice, latMask.mul(0.8));
+    }
 
     // --- Painted balconies, stacked in hash-chosen bay columns in front of
     // the window's lower half (style opt): 0 = semi-circular parapet (an

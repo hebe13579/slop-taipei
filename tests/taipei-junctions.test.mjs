@@ -6,7 +6,7 @@ import { pointInPoly, buildPolyGrid, pointInAnyPoly, ribbonPoly } from '../js/ta
 import { buildPaintedBands } from '../js/taipei-painted.js';
 import { buildMedianStrips, surfaceClass } from '../js/taipei-surfaces.js';
 import { detectJunctions, buildRoadMarkings } from '../js/taipei-markings.js';
-import { convexHull, planJunctionCaps, planRoundabouts, ringPoints, CAP_Y, MAIN_CORNER_STRIP_TOL_M } from '../js/taipei-junctions.js';
+import { convexHull, planJunctionCaps, planRoundabouts, ringPoints, capSurfacePolys, capClipPolys, capWaterPolys, CAP_Y, MAIN_CORNER_STRIP_TOL_M } from '../js/taipei-junctions.js';
 
 // Issue #66 — junction caps. The rules live in js/taipei-junctions.js
 // (pure) so these tests pin the exact code the renderer draws with:
@@ -962,4 +962,134 @@ test('issue #163: the user junction ji562 — the avenue band is paved', () => {
   for (const p of [rel(-8, 0), rel(8, 0), rel(-8, 10), rel(8, -10), rel(-8, -10), rel(8, 10), rel(0, 8), rel(0, -8)])
     assert.ok(surf.some((poly) => distToPoly(p, poly) <= 0.15), `ji562 point ${p.map((v) => v.toFixed(0))} paved`);
   assert.ok(distToPoly(rel(-8, 0), ringPoints(cap.ring)) > 3, 'the ring alone still leaves the band bare (strip does the work)');
+});
+
+// POC (#214) G2 corner clamp + R1 water clip: flag-gated, off by
+// default. The clamp seats diagonal hull corners on the kerb
+// (outer-edge x outer-edge) and pulls diagonal mouth-segment ends
+// laterally onto their arm's kerb; right-angle junctions and the
+// flag-off path are byte-identical.
+const diagCrossing = (deg) => {
+  const r = (deg * Math.PI) / 180;
+  const dx = Math.cos(r), dz = Math.sin(r);
+  return [
+    bed('A Rd', 'secondary', 20, [1], [-100, 0, 0, 0]),
+    bed('A Rd', 'secondary', 20, [1], [0, 0, 100, 0]),
+    bed('B Rd', 'secondary', 20, [2], [-100 * dx, -100 * dz, 0, 0]),
+    bed('B Rd', 'secondary', 20, [2], [0, 0, 100 * dx, 100 * dz]),
+  ];
+};
+// Lateral excess of a ring vertex past the kerb: the smallest
+// (lat - halfWidth) over arms whose along-range contains it.
+const maxKerbExcess = (j, ring) => {
+  let worst = -Infinity;
+  for (const p of ring) {
+    let best = Infinity;
+    for (const a of j.arms) {
+      const dx = p[0] - j.x, dz = p[1] - j.z;
+      const along = dx * a.dirX + dz * a.dirZ;
+      if (along < -5 || along > a.crossHalf + 40) continue;
+      best = Math.min(best, Math.abs(dx * -a.dirZ + dz * a.dirX) - a.width / 2);
+    }
+    if (best !== Infinity) worst = Math.max(worst, best);
+  }
+  return worst;
+};
+
+test('POC #214 G2: right-angle crossing is untouched by the corner clamp', () => {
+  const beds = diagCrossing(90);
+  const js = detectJunctions(beds);
+  assert.equal(js.length, 1);
+  const off = planJunctionCaps(beds, js);
+  const on = planJunctionCaps(beds, js, null, null, null, { cornerClamp: true });
+  assert.equal(on.length, off.length);
+  assert.deepEqual(ringPoints(on[0].ring), ringPoints(off[0].ring));
+  assert.equal(on[0].area, off[0].area);
+});
+
+test('POC #214 G2: diagonal crossing seats every hull corner on a kerb', () => {
+  const beds = diagCrossing(70);
+  const js = detectJunctions(beds);
+  assert.equal(js.length, 1);
+  assert.equal(js[0].signalized, true, 'two arterials crossing is signalized (mouth segments apply)');
+  const off = planJunctionCaps(beds, js);
+  const on = planJunctionCaps(beds, js, null, null, null, { cornerClamp: true });
+  const offExcess = maxKerbExcess(js[0], ringPoints(off[0].ring));
+  assert.ok(offExcess > 0.25, `flag-off corner pokes past the kerb (${offExcess.toFixed(2)} m)`);
+  const onExcess = maxKerbExcess(js[0], ringPoints(on[0].ring));
+  assert.ok(onExcess <= 0.25, `flag-on corner seated (excess ${onExcess.toFixed(2)} m)`);
+  // The clamped cap still covers its centre and every arm end.
+  const poly = ringPoints(on[0].ring);
+  assert.ok(pointInPoly([js[0].x, js[0].z], poly), 'centre covered');
+  for (const a of js[0].arms) assert.ok(distToPoly([a.endX, a.endZ], poly) <= 0.15, `arm end ${a.name} covered`);
+});
+
+test('POC #214 G2: flag-off path is identical with an empty opts object', () => {
+  const beds = TAIPEI_GEO.roadbeds;
+  const junctions = detectJunctions(beds);
+  const a = planJunctionCaps(beds, junctions);
+  const b = planJunctionCaps(beds, junctions, null, null, null, {});
+  assert.equal(b.length, a.length);
+  assert.equal(b.reduce((s, c) => s + c.area, 0), a.reduce((s, c) => s + c.area, 0));
+});
+
+test('POC #214 G2: real tile — 基隆路二段 x 光復南路 mouth ends sit on the kerb', () => {
+  const beds = TAIPEI_GEO.roadbeds;
+  const junctions = detectJunctions(beds);
+  const sites = planRoundabouts(beds, junctions);
+  const clip = capClipPolys(TAIPEI_GEO);
+  const off = planJunctionCaps(beds, junctions, sites, clip);
+  const on = planJunctionCaps(beds, junctions, sites, clip, null, { cornerClamp: true });
+  const near = (caps, x, z) => caps.map((c) => ({ c, d: Math.hypot(c.x - x, c.z - z) })).sort((p, q) => p.d - q.d)[0].c;
+  const offCap = near(off, -744.6, 355.0);
+  const onCap = near(on, -744.6, 355.0);
+  assert.ok(Math.hypot(offCap.x + 744.6, offCap.z - 355.0) < 2, 'ji1540 cap found');
+  const j = junctions.find((jj) => Math.hypot(jj.x - offCap.x, jj.z - offCap.z) <= 1);
+  const offExcess = maxKerbExcess(j, ringPoints(offCap.ring));
+  assert.ok(offExcess > 0.9, `flag-off mouth margin pokes ~1 m (${offExcess.toFixed(2)} m)`);
+  assert.ok(maxKerbExcess(j, ringPoints(onCap.ring)) <= 0.25, 'flag-on ring seated on the kerbs');
+  assert.equal(on.length, off.length, 'no cap dropped by the clamp');
+});
+
+test('POC #214 R1: creek-water clip cuts off-ribbon spill, keeps bridge decks', () => {
+  // The round-1 POC (junction214-poc d0f2959), ported: creek
+  // water joins the cut set, eroded by the actual carriageway
+  // ribbons near the junction, so cap on a bridge deck survives
+  // and only spill onto open water is cut. Tile-wide census on
+  // current main: spill 2693 -> 685 m2. Here, one worst site:
+  // ji2244 (Dadu Rd x Danbei Rd, 325 m2 spill) must read zero
+  // off-ribbon water cells under the clip, and the cap must
+  // still cover the crossing ribbons.
+  const beds = TAIPEI_GEO.roadbeds;
+  const junctions = detectJunctions(beds);
+  const sites = planRoundabouts(beds, junctions);
+  const clip = capClipPolys(TAIPEI_GEO);
+  const water = capWaterPolys(TAIPEI_GEO);
+  const flat = (ring) => { const pts = []; for (let i = 0; i + 1 < ring.length; i += 2) pts.push([ring[i], ring[i + 1]]); return pts; };
+  const creeks = TAIPEI_GEO.water.filter((w) => w.derived || (w.name || '').includes('\u6eaa')).map((w) => flat(w.ring));
+  const creekGrid = buildPolyGrid(creeks);
+  const ribbons = beds.map(ribbonPoly);
+  const ribGrid = buildPolyGrid(ribbons);
+  const measure = (caps) => {
+    const cap = caps.map((c) => ({ c, d: Math.hypot(c.x - -9132, c.z - -9934) })).sort((a, b) => a.d - b.d)[0].c;
+    assert.ok(Math.hypot(cap.x + 9132, cap.z + 9934) < 2, 'ji2244 cap found');
+    let spill = 0, onDeck = 0;
+    for (const poly of capSurfacePolys(cap)) {
+      let minX = 1e18, minZ = 1e18, maxX = -1e18, maxZ = -1e18;
+      for (const [x, z] of poly) { minX = Math.min(minX, x); maxX = Math.max(maxX, x); minZ = Math.min(minZ, z); maxZ = Math.max(maxZ, z); }
+      for (let x = Math.floor(minX) + 0.5; x < maxX; x += 1) for (let z = Math.floor(minZ) + 0.5; z < maxZ; z += 1) {
+        if (!pointInPoly([x, z], poly)) continue;
+        if (!pointInAnyPoly(creekGrid, creeks, [x, z])) continue;
+        if (pointInAnyPoly(ribGrid, ribbons, [x, z])) { onDeck++; continue; }
+        spill++;
+      }
+    }
+    return { spill, onDeck };
+  };
+  const off = measure(planJunctionCaps(beds, junctions, sites, clip));
+  assert.ok(off.spill > 100, `flag-off spill present (${off.spill} m2)`);
+  assert.ok(off.onDeck > 0, 'flag-off cap covers the bridge deck');
+  const on = measure(planJunctionCaps(beds, junctions, sites, clip, water));
+  assert.equal(on.spill, 0, 'flag-on: no off-ribbon cap on creek water at ji2244');
+  assert.ok(on.onDeck > 0, 'flag-on: bridge-deck cap survives the clip');
 });

@@ -8,7 +8,7 @@ import { buildPaintedBands } from './taipei-painted.js';
 import { buildAirfieldPaint, buildRoadTunnelPortals, roadTrenchSlots } from './taipei-airfield.js';
 import { SURFACE_TONES, surfaceClass, buildMedianStrips, isPlazaPark, isPodiumBlock, podiumCentresOf, memorialPaving, MEMORIAL_GRID_TONE } from './taipei-surfaces.js';
 import { buildRoadMarkings, detectJunctions, DASH_LEN, DASH_GAP, STRIPE_W, STRIPE_PITCH } from './taipei-markings.js';
-import { planJunctionCaps, planRoundabouts, ringPoints, capSurfacePolys, capClipPolys, CAP_Y, ISLAND_Y } from './taipei-junctions.js';
+import { planJunctionCaps, planRoundabouts, ringPoints, capSurfacePolys, capClipPolys, capWaterPolys, CAP_Y, ISLAND_Y } from './taipei-junctions.js';
 import { buildDeckGeometry, groundContactPolys, portalTrenchSlots, diveAdjustedPiers, PIER_W, PIER_D } from './taipei-viaduct.js';
 import { buildDriveModel, taipeiExtraColliders } from './taipei-drive.js';
 import { ribbonsQuads, jointFramesFor, densifyPts } from './taipei-ribbons.js';
@@ -610,7 +610,7 @@ function mergeColouredParts(build) {
   return geo;
 }
 
-function instancedFromGeometry(geo, list, name, baseY = 0, yAt = null) {
+function instancedFromGeometry(geo, list, name, baseY = 0, opts = {}, yAt = null) {
   if (!list.length) return null;
   const mesh = new THREE.InstancedMesh(
     geo,
@@ -618,6 +618,9 @@ function instancedFromGeometry(geo, list, name, baseY = 0, yAt = null) {
     list.length,
   );
   mesh.name = name;
+  // Issue #245: opts.cullDistance caps the chunk-culling distance
+  // scene-culling.js computes for this mesh (park trees only).
+  if (opts.cullDistance != null) mesh.userData.cullDistance = opts.cullDistance;
   const dummy = new THREE.Object3D();
   list.forEach((t, i) => {
     // Issue #132: yAt (the drape height field, or baseY + it for
@@ -642,7 +645,7 @@ function streetTreeGeometry() {
 }
 
 function buildStreetTreeMesh(trees, yAt = null) {
-  return instancedFromGeometry(streetTreeGeometry(), trees, 'TaipeiStreetTrees', 0, yAt);
+  return instancedFromGeometry(streetTreeGeometry(), trees, 'TaipeiStreetTrees', 0, {}, yAt);
 }
 
 // Issue #222: park-tree canopy variants. Street trees keep the
@@ -690,6 +693,35 @@ function coniferTreeGeometry() {
     addPart(new THREE.ConeGeometry(1.02, 2.0, 7), 0x386b3c, { p: [0, 4.5, 0] });
   });
 }
+
+// Issue #245: blossom canopies — the flowering-tree variant. Same
+// round-canopy silhouette as parkRoundTreeGeometry, flattened a
+// little wider, in one of the three Taipei blossom tones (cherry
+// pink, white, golden-shower gold). One geometry per tone, so each
+// tone stays one InstancedMesh like the other variants.
+const BLOSSOM_TONES = {
+  pink: [0xdf8fb4, 0xeeb4cb, 0xd67ba0],
+  white: [0xf3ede4, 0xffffff, 0xe8ddcf],
+  gold: [0xe3b83c, 0xf0cd6a, 0xd19f2e],
+};
+function blossomTreeGeometry(tone) {
+  const [c0, c1, c2] = BLOSSOM_TONES[tone] || BLOSSOM_TONES.pink;
+  return mergeColouredParts((addPart) => {
+    addPart(new THREE.CylinderGeometry(0.16, 0.23, 2.8, 5), 0x634628, { p: [0, 1.4, 0] });
+    addPart(new THREE.IcosahedronGeometry(1.8, 0), c0, { p: [0, 4.1, 0], s: [1.25, 0.68, 1.25] });
+    addPart(new THREE.IcosahedronGeometry(1.2, 0), c1, { p: [0.65, 5.0, 0.25], s: [1.2, 0.65, 1.2] });
+    addPart(new THREE.IcosahedronGeometry(0.85, 0), c2, { p: [-0.75, 4.7, -0.3], s: [1.2, 0.65, 1.2] });
+  });
+}
+
+// Issue #245: park-tree far LOD. Park trees are small props whose
+// computed chunk-cull distance exceeds CULL_MAX (kept at any
+// distance), so a park reads as green fuzz from 3 km away. Past
+// this distance a tree is a few pixels; the chunk-culling path
+// hides whole chunks, which vanishes grove by grove instead of
+// popping the whole park at once. Street trees and the amenity
+// kit keep their existing culling (no override set).
+export const PARK_TREE_LOD_M = 1200;
 
 // ---------------------------------------------------------------------
 // Park amenity kit (issue #222): the furniture plan from
@@ -786,6 +818,103 @@ function bushGeometry() {
   });
 }
 
+// ---------------------------------------------------------------------
+// Park amenity kit II (issue #246): playgrounds, picnic tables,
+// basketball/tennis courts and 涼亭 pavilions. Same idiom as the
+// #222 kit above — merged coloured parts standing on y=0, one
+// InstancedMesh per kit class at the lawn surface, fronts facing
+// local +Z. Pad sizes are the planner's fixed kit rects
+// (playground 14x11, pavilion 8x8, courts per sport), so the
+// drawn pad is exactly the rect the planner cleared.
+function playgroundGeometry() {
+  return mergeColouredParts((addPart) => {
+    addPart(new THREE.BoxGeometry(14, 0.15, 11), 0xd8c49a, { p: [0, 0.075, 0] }); // sand/rubber pad
+    addPart(new THREE.BoxGeometry(1.4, 1.1, 1.4), 0x2e5fa3, { p: [-3.8, 0.55, -2.2] }); // slide platform
+    addPart(new THREE.BoxGeometry(0.7, 0.08, 3.4), 0xc8402e, { p: [-3.8, 0.62, 0], r: [0.31, 0, 0] }); // slide chute
+    addPart(new THREE.BoxGeometry(0.08, 0.18, 3.4), 0xc8402e, { p: [-4.15, 0.78, 0], r: [0.31, 0, 0] });
+    addPart(new THREE.BoxGeometry(0.08, 0.18, 3.4), 0xc8402e, { p: [-3.45, 0.78, 0], r: [0.31, 0, 0] });
+    addPart(new THREE.BoxGeometry(0.08, 1.4, 0.08), 0xe0a81c, { p: [-4.35, 0.7, -3.05] }); // ladder rails
+    addPart(new THREE.BoxGeometry(0.08, 1.4, 0.08), 0xe0a81c, { p: [-3.25, 0.7, -3.05] });
+    for (const y of [0.35, 0.7, 1.05]) addPart(new THREE.BoxGeometry(1.1, 0.07, 0.07), 0xe0a81c, { p: [-3.8, y, -3.05] });
+    for (const sx of [-1, 1]) for (const sz of [-1, 1]) { // swing A-legs
+      addPart(new THREE.BoxGeometry(0.1, 2.65, 0.1), 0xe0a81c, { p: [2.5 + sx * 1.2, 1.25, sz * 0.4], r: [-sz * 0.31, 0, 0] });
+    }
+    addPart(new THREE.BoxGeometry(3.0, 0.12, 0.12), 0xe0a81c, { p: [2.5, 2.5, 0] }); // swing top bar
+    for (const sx of [2.0, 3.0]) { // two swings
+      addPart(new THREE.BoxGeometry(0.04, 1.3, 0.04), 0x33373b, { p: [sx - 0.25, 1.8, 0] });
+      addPart(new THREE.BoxGeometry(0.04, 1.3, 0.04), 0x33373b, { p: [sx + 0.25, 1.8, 0] });
+      addPart(new THREE.BoxGeometry(0.55, 0.06, 0.25), 0x2e5fa3, { p: [sx, 1.12, 0] });
+    }
+    for (const sx of [-1, 1]) for (const sz of [-1, 1]) { // climb-dome struts
+      addPart(new THREE.BoxGeometry(0.09, 2.0, 0.09), 0x3f7d4e, { p: [0.5 + sx * 0.7, 0.85, 3.2 + sz * 0.7], r: [sz * 0.55, 0, -sx * 0.55] });
+    }
+    addPart(new THREE.IcosahedronGeometry(0.3, 0), 0x3f7d4e, { p: [0.5, 1.9, 3.2] });
+  });
+}
+
+function picnicGeometry() {
+  return mergeColouredParts((addPart) => {
+    addPart(new THREE.BoxGeometry(2.2, 0.08, 1.0), 0x8a6844, { p: [0, 0.75, 0] });
+    addPart(new THREE.BoxGeometry(2.2, 0.07, 0.35), 0x8a6844, { p: [0, 0.45, -0.72] });
+    addPart(new THREE.BoxGeometry(2.2, 0.07, 0.35), 0x8a6844, { p: [0, 0.45, 0.72] });
+    addPart(new THREE.BoxGeometry(0.09, 0.75, 0.9), 0x6b4a2f, { p: [-0.9, 0.375, 0] });
+    addPart(new THREE.BoxGeometry(0.09, 0.75, 0.9), 0x6b4a2f, { p: [0.9, 0.375, 0] });
+    for (const sx of [-1, 1]) for (const sz of [-1, 1]) {
+      addPart(new THREE.BoxGeometry(0.09, 0.45, 0.3), 0x6b4a2f, { p: [sx * 0.9, 0.225, sz * 0.72] });
+    }
+  });
+}
+
+// Court pads reuse the school-grounds acrylics (taipei-buildings.js
+// handcraft: basketball 0x3f6d8e, tennis 0x3f7d6b). Lines are thin
+// white boxes on the pad top; hoops / net posts stand at the ends.
+function basketballCourtGeometry() {
+  return mergeColouredParts((addPart) => {
+    addPart(new THREE.BoxGeometry(30, 0.12, 17), 0x3f6d8e, { p: [0, 0.06, 0] });
+    addPart(new THREE.BoxGeometry(29.7, 0.02, 0.15), 0xf2f2e8, { p: [0, 0.13, -8.35] });
+    addPart(new THREE.BoxGeometry(29.7, 0.02, 0.15), 0xf2f2e8, { p: [0, 0.13, 8.35] });
+    addPart(new THREE.BoxGeometry(0.15, 0.02, 16.7), 0xf2f2e8, { p: [-14.85, 0.13, 0] });
+    addPart(new THREE.BoxGeometry(0.15, 0.02, 16.7), 0xf2f2e8, { p: [14.85, 0.13, 0] });
+    addPart(new THREE.BoxGeometry(0.15, 0.02, 16.7), 0xf2f2e8, { p: [0, 0.13, 0] });
+    addPart(new THREE.TorusGeometry(1.8, 0.07, 6, 24), 0xf2f2e8, { p: [0, 0.13, 0], r: [Math.PI / 2, 0, 0] });
+    addPart(new THREE.BoxGeometry(0.15, 0.02, 4.9), 0xf2f2e8, { p: [-9.2, 0.13, 0] });
+    addPart(new THREE.BoxGeometry(0.15, 0.02, 4.9), 0xf2f2e8, { p: [9.2, 0.13, 0] });
+    for (const sx of [-1, 1]) {
+      addPart(new THREE.CylinderGeometry(0.09, 0.11, 3.9, 6), 0x2f3338, { p: [sx * 14.2, 1.95, 0] });
+      addPart(new THREE.BoxGeometry(1.8, 1.05, 0.06), 0xdfe8ec, { p: [sx * 13.9, 3.6, 0] });
+      addPart(new THREE.TorusGeometry(0.23, 0.03, 6, 12), 0xc8402e, { p: [sx * 13.55, 3.05, 0], r: [Math.PI / 2, 0, 0] });
+    }
+  });
+}
+
+function tennisCourtGeometry() {
+  return mergeColouredParts((addPart) => {
+    addPart(new THREE.BoxGeometry(28, 0.12, 14), 0x3f7d6b, { p: [0, 0.06, 0] });
+    addPart(new THREE.BoxGeometry(27.7, 0.02, 0.15), 0xf2f2e8, { p: [0, 0.13, -6.85] });
+    addPart(new THREE.BoxGeometry(27.7, 0.02, 0.15), 0xf2f2e8, { p: [0, 0.13, 6.85] });
+    addPart(new THREE.BoxGeometry(0.15, 0.02, 13.7), 0xf2f2e8, { p: [-13.85, 0.13, 0] });
+    addPart(new THREE.BoxGeometry(0.15, 0.02, 13.7), 0xf2f2e8, { p: [13.85, 0.13, 0] });
+    addPart(new THREE.BoxGeometry(0.15, 0.02, 13.7), 0xf2f2e8, { p: [-6.4, 0.13, 0] });
+    addPart(new THREE.BoxGeometry(0.15, 0.02, 13.7), 0xf2f2e8, { p: [6.4, 0.13, 0] });
+    addPart(new THREE.BoxGeometry(12.8, 0.02, 0.15), 0xf2f2e8, { p: [0, 0.13, 0] });
+    addPart(new THREE.CylinderGeometry(0.07, 0.07, 1.07, 6), 0x2f3338, { p: [0, 0.535, -7.3] });
+    addPart(new THREE.CylinderGeometry(0.07, 0.07, 1.07, 6), 0x2f3338, { p: [0, 0.535, 7.3] });
+    addPart(new THREE.BoxGeometry(0.06, 0.95, 14.4), 0x2a2c30, { p: [0, 0.55, 0] });
+  });
+}
+
+function pavilionGeometry() {
+  return mergeColouredParts((addPart) => {
+    addPart(new THREE.CylinderGeometry(4.2, 4.5, 0.3, 6), 0x9b9587, { p: [0, 0.15, 0] }); // hexagonal pad
+    for (let k = 0; k < 6; k++) {
+      const a = (k / 6) * Math.PI * 2;
+      addPart(new THREE.CylinderGeometry(0.18, 0.2, 2.6, 6), 0xa83c2a, { p: [Math.cos(a) * 3.4, 1.6, Math.sin(a) * 3.4] });
+    }
+    addPart(new THREE.ConeGeometry(4.8, 1.9, 6), 0x8a4a32, { p: [0, 3.85, 0], r: [0, Math.PI / 6, 0] });
+    addPart(new THREE.CylinderGeometry(0.08, 0.12, 0.5, 6), 0xc9a227, { p: [0, 5.0, 0] });
+  });
+}
+
 function buildParkAmenityMeshes(amenityPlan, yAt = null) {
   const it = amenityPlan.items;
   const meshes = [];
@@ -793,18 +922,25 @@ function buildParkAmenityMeshes(amenityPlan, yAt = null) {
   // Issue #132: furniture stands on the park surface (0.04) PLUS
   // the drape; without yAt it stands at 0.04 exactly as before.
   const seat = yAt ? (x, z) => PARK_SURFACE_Y + yAt(x, z) : null;
-  add(instancedFromGeometry(benchGeometry(), it.bench, 'TaipeiParkBenches', PARK_SURFACE_Y, seat));
-  add(instancedFromGeometry(lampGeometry(), it.lamp, 'TaipeiParkLamps', PARK_SURFACE_Y, seat));
-  add(instancedFromGeometry(binGeometry(), it.bin, 'TaipeiParkBins', PARK_SURFACE_Y, seat));
+  add(instancedFromGeometry(benchGeometry(), it.bench, 'TaipeiParkBenches', PARK_SURFACE_Y, {}, seat));
+  add(instancedFromGeometry(lampGeometry(), it.lamp, 'TaipeiParkLamps', PARK_SURFACE_Y, {}, seat));
+  add(instancedFromGeometry(binGeometry(), it.bin, 'TaipeiParkBins', PARK_SURFACE_Y, {}, seat));
   for (let tint = 0; tint < VENDING_TINTS.length; tint++) {
-    add(instancedFromGeometry(vendingGeometry(tint), it.vending.filter((v) => v.tint === tint), `TaipeiParkVending${tint}`, PARK_SURFACE_Y, seat));
+    add(instancedFromGeometry(vendingGeometry(tint), it.vending.filter((v) => v.tint === tint), `TaipeiParkVending${tint}`, PARK_SURFACE_Y, {}, seat));
   }
-  add(instancedFromGeometry(restroomGeometry(), it.restroom, 'TaipeiParkRestrooms', PARK_SURFACE_Y, seat));
+  add(instancedFromGeometry(restroomGeometry(), it.restroom, 'TaipeiParkRestrooms', PARK_SURFACE_Y, {}, seat));
   for (let form = 0; form < 3; form++) {
-    add(instancedFromGeometry(sculptureGeometry(form), it.sculpture.filter((s) => s.form === form), `TaipeiParkSculpture${form}`, PARK_SURFACE_Y, seat));
+    add(instancedFromGeometry(sculptureGeometry(form), it.sculpture.filter((s) => s.form === form), `TaipeiParkSculpture${form}`, PARK_SURFACE_Y, {}, seat));
   }
-  add(instancedFromGeometry(fountainGeometry(), it.fountain, 'TaipeiParkFountains', PARK_SURFACE_Y, seat));
-  add(instancedFromGeometry(bushGeometry(), it.bush, 'TaipeiParkBushes', PARK_SURFACE_Y, seat));
+  add(instancedFromGeometry(fountainGeometry(), it.fountain, 'TaipeiParkFountains', PARK_SURFACE_Y, {}, seat));
+  add(instancedFromGeometry(bushGeometry(), it.bush, 'TaipeiParkBushes', PARK_SURFACE_Y, {}, seat));
+  // Issue #246: playgrounds, picnic tables, courts (one mesh per
+  // sport, like the vending tints above) and pavilions.
+  add(instancedFromGeometry(playgroundGeometry(), it.playground, 'TaipeiParkPlaygrounds', PARK_SURFACE_Y, {}, seat));
+  add(instancedFromGeometry(picnicGeometry(), it.picnic, 'TaipeiParkPicnics', PARK_SURFACE_Y, {}, seat));
+  add(instancedFromGeometry(basketballCourtGeometry(), it.court.filter((c) => c.sport === 'basketball'), 'TaipeiParkBasketballCourts', PARK_SURFACE_Y, {}, seat));
+  add(instancedFromGeometry(tennisCourtGeometry(), it.court.filter((c) => c.sport === 'tennis'), 'TaipeiParkTennisCourts', PARK_SURFACE_Y, {}, seat));
+  add(instancedFromGeometry(pavilionGeometry(), it.pavilion, 'TaipeiParkPavilions', PARK_SURFACE_Y, {}, seat));
   return meshes;
 }
 
@@ -1392,7 +1528,13 @@ export async function buildTaipeiGround(scene, tile, deps = {}) {
   // builder (which used to detect its own copy).
   const junctions = detectJunctions(carriageways);
   const roundabouts = planRoundabouts(carriageways, junctions);
-  const caps = planJunctionCaps(carriageways, junctions, roundabouts, capClipPolys(geo));
+  // POC (#214, flag-gated via deps.poc — off by default the boot is
+  // byte-identical to main): waterClip cuts creek-water spill from
+  // caps (R1), cornerClamp seats diagonal hull corners on the kerb
+  // (G2), divided feeds the G1 zebra POC in buildRoadMarkings.
+  const poc = deps.poc || {};
+  const caps = planJunctionCaps(carriageways, junctions, roundabouts, capClipPolys(geo),
+    poc.waterClip ? capWaterPolys(geo) : null, { cornerClamp: !!poc.cornerClamp });
   const capPolys = [
     ...caps.flatMap((c) => capSurfacePolys(c)),
     ...roundabouts.flatMap((s) => [s.disc, ...s.aprons]).map((c) => ringPoints(c.ring)),
@@ -1443,14 +1585,16 @@ export async function buildTaipeiGround(scene, tile, deps = {}) {
   await completeStage('medians', `${medians.stats.plantedBeds + medians.stats.plainBeds} median beds, painted walkways clipped at ${capPolys.length} junction caps`);
   // Road detail (issue #45, js/taipei-markings.js): dashed white lane
   // dividers between same-direction lanes (never on a median, broken
-  // at junctions), zebra crosswalks + stop lines at signalized
-  // junctions, and one STATIC signal unit per signalized approach —
+  // at junctions), yellow centre lines on two-way beds (issue #249:
+  // double solid yellow wide, single dashed yellow narrow), zebra
+  // crosswalks + stop lines at signalized junctions, and one STATIC
+  // signal unit per signalized approach —
   // pole + horizontal 3-lamp head with unlit lenses and a static lit
   // red pedestrian panel. No phase cycle yet, and traffic does not
   // obey them; scooter waiting boxes are out of scope (user cut).
   const markingsStart = performance.now();
   const markings = buildRoadMarkings(carriageways, medians, caps, junctions,
-    [...(geo.parks || []), ...(geo.green || [])].map((g) => ringPoints(g.ring))); // reuses the strips built above as dash occluders; greens feed the #173 roundabout wedge occluders
+    [...(geo.parks || []), ...(geo.green || [])].map((g) => ringPoints(g.ring)), { dividedPoc: !!poc.divided }); // reuses the strips built above as dash occluders; greens feed the #173 roundabout wedge occluders
   // Dashes and zebra stripes render as shader patterns over plain
   // ribbons/bands (issue #90 — the plan in taipei-markings.js is
   // unchanged; only the baking moved into the fragment shader).
@@ -1468,9 +1612,21 @@ export async function buildTaipeiGround(scene, tile, deps = {}) {
     mat(0xf2f2f2, 0.9),
     'TaipeiRoadStopLines'
   );
+  // Centre lines (issue #249): double solid yellow on wide two-way
+  // beds, single dashed yellow on narrower two-way beds — solid
+  // quads in marking yellow, at the same markings Y as the white
+  // paint (the two never overlap in plan: the centre line is
+  // occluded by the same caps / furniture as the dividers).
+  if (markings.centerQuads.length) {
+    addLayer(
+      quadsGeometry(markings.centerQuads, 0.068),
+      mat(0xf2c200, 0.9),
+      'TaipeiRoadCenterLines'
+    );
+  }
   const signalMesh = buildSignalMesh(markings.signals, drapeHeight);
   if (signalMesh) group.add(signalMesh);
-  console.info(`[taipei-markings] ${markings.stats.dividerKm.toFixed(1)} km of lane dividers on ${markings.stats.dividerBeds} beds; ${markings.stats.signalized} signalized junctions, ${markings.stats.crosswalks} crosswalks, ${markings.stats.stopLines} stop lines, ${markings.stats.signalUnits} static signal units (${markings.stats.signalMast} mast-arm / ${markings.stats.signalPole} corner-pole, ${markings.stats.clearanceUnresolved} unresolved corners) planned in ${Math.round(performance.now() - markingsStart)}ms`);
+  console.info(`[taipei-markings] ${markings.stats.dividerKm.toFixed(1)} km of lane dividers on ${markings.stats.dividerBeds} beds; ${markings.stats.centerDoubleKm.toFixed(1)} km double-yellow + ${markings.stats.centerDashKm.toFixed(1)} km dashed-yellow centre lines on ${markings.stats.centerBeds} beds; ${markings.stats.signalized} signalized junctions, ${markings.stats.crosswalks} crosswalks, ${markings.stats.stopLines} stop lines, ${markings.stats.signalUnits} static signal units (${markings.stats.signalMast} mast-arm / ${markings.stats.signalPole} corner-pole, ${markings.stats.clearanceUnresolved} unresolved corners) planned in ${Math.round(performance.now() - markingsStart)}ms`);
   await completeStage('markings', `${markings.stats.crosswalks} crosswalks, ${markings.stats.signalUnits} signal units`);
 
   // Elevated highway decks (issue #61, js/taipei-viaduct.js): the
@@ -1668,28 +1824,47 @@ export async function buildTaipeiGround(scene, tile, deps = {}) {
   // keep out of the lots), so it is a closure the density switch
   // below can re-run against a fresh plan.
   const buildTrees = (forPlan) => {
+    // Issue #246: amenity dressing is planned BEFORE the trees
+    // so the PARK tree planner can exclude the kit pads through
+    // the same exclusions channel — 69 park trunks stood inside
+    // pads (51 in courts) before this ordering, because the pads
+    // are far larger than the #222 furniture footprints. Street
+    // trees keep the plain exclusions: they plant on road bands
+    // outside the pads, and the street collect is linear over
+    // ~80k stations, so it must not pay the 485-ring scan.
+    const amenityStart = performance.now();
+    const amenityPlan = planParkAmenities(geo, forPlan, { exclusions: treeExclusions });
+    const padExclusions = amenityPlan.pads || [];
+    const treeAndPadExclusions = [...treeExclusions, ...padExclusions];
     const street = planStreetTrees(geo, forPlan, { exclusions: treeExclusions });
-    const park = planParkTrees(geo, forPlan, { exclusions: treeExclusions });
+    const park = planParkTrees(geo, forPlan, { exclusions: treeAndPadExclusions });
     const meshes = [];
     const streetMesh = buildStreetTreeMesh(street.trees, drapeHeight);
     if (streetMesh) meshes.push(streetMesh);
     // Issue #222: park trees render per canopy variant (the street
-    // mesh above keeps the original single look).
-    const parkByVariant = { banyan: [], palm: [], conifer: [], round: [] };
-    for (const t of park.trees) (parkByVariant[t.variant] || parkByVariant.round).push(t);
+    // mesh above keeps the original single look). Issue #245 adds
+    // the blossom variant (one mesh per tone) and the far LOD: every
+    // park-tree mesh carries the cull-distance cap, so the
+    // chunk-culling path hides groves past PARK_TREE_LOD_M.
+    const parkByVariant = { banyan: [], palm: [], conifer: [], round: [], blossomPink: [], blossomWhite: [], blossomGold: [] };
+    for (const t of park.trees) {
+      if (t.variant === 'blossom') (parkByVariant[`blossom${t.tone === 'white' ? 'White' : t.tone === 'gold' ? 'Gold' : 'Pink'}`] || parkByVariant.blossomPink).push(t);
+      else (parkByVariant[t.variant] || parkByVariant.round).push(t);
+    }
     for (const mesh of [
-      instancedFromGeometry(banyanTreeGeometry(), parkByVariant.banyan, 'TaipeiParkBanyanTrees', 0, drapeHeight),
-      instancedFromGeometry(palmTreeGeometry(), parkByVariant.palm, 'TaipeiParkPalmTrees', 0, drapeHeight),
-      instancedFromGeometry(coniferTreeGeometry(), parkByVariant.conifer, 'TaipeiParkConiferTrees', 0, drapeHeight),
-      instancedFromGeometry(parkRoundTreeGeometry(), parkByVariant.round, 'TaipeiParkRoundTrees', 0, drapeHeight),
+      instancedFromGeometry(banyanTreeGeometry(), parkByVariant.banyan, 'TaipeiParkBanyanTrees', 0, { cullDistance: PARK_TREE_LOD_M }, drapeHeight),
+      instancedFromGeometry(palmTreeGeometry(), parkByVariant.palm, 'TaipeiParkPalmTrees', 0, { cullDistance: PARK_TREE_LOD_M }, drapeHeight),
+      instancedFromGeometry(coniferTreeGeometry(), parkByVariant.conifer, 'TaipeiParkConiferTrees', 0, { cullDistance: PARK_TREE_LOD_M }, drapeHeight),
+      instancedFromGeometry(parkRoundTreeGeometry(), parkByVariant.round, 'TaipeiParkRoundTrees', 0, { cullDistance: PARK_TREE_LOD_M }, drapeHeight),
+      instancedFromGeometry(blossomTreeGeometry('pink'), parkByVariant.blossomPink, 'TaipeiParkBlossomPinkTrees', 0, { cullDistance: PARK_TREE_LOD_M }, drapeHeight),
+      instancedFromGeometry(blossomTreeGeometry('white'), parkByVariant.blossomWhite, 'TaipeiParkBlossomWhiteTrees', 0, { cullDistance: PARK_TREE_LOD_M }, drapeHeight),
+      instancedFromGeometry(blossomTreeGeometry('gold'), parkByVariant.blossomGold, 'TaipeiParkBlossomGoldTrees', 0, { cullDistance: PARK_TREE_LOD_M }, drapeHeight),
     ]) if (mesh) meshes.push(mesh);
     // Issue #222: park amenity dressing — same exclusions as the
     // trees, planned after the building plan so furniture keeps
     // out of lots and landmark sites; one InstancedMesh per kit
     // class, built inside this stage (the stage list is a pinned
     // contract; park greenery + furniture is the one stage).
-    const amenityStart = performance.now();
-    const amenityPlan = planParkAmenities(geo, forPlan, { exclusions: treeExclusions });
     for (const mesh of buildParkAmenityMeshes(amenityPlan, drapeHeight)) meshes.push(mesh);
     const amenityTotal = Object.values(amenityPlan.items).reduce((s, v) => s + v.length, 0);
     console.info(`[taipei-parks] ${amenityTotal} amenity items (${Object.entries(amenityPlan.items).map(([k, v]) => `${k} ${v.length}`).join(', ')}) in ${amenityPlan.stats.parksDressed} parks (${amenityPlan.stats.parksPathless} pathless parks get trees only) planned in ${Math.round(performance.now() - amenityStart)}ms`);
@@ -1737,6 +1912,17 @@ export async function buildTaipeiGround(scene, tile, deps = {}) {
       if (preset !== 'coarse' && preset !== 'fine' && preset !== 'dense') return null;
       if (preset === bootSettings.density) return { density: preset, lots: plan.lots.length, ms: 0 };
       const t0 = performance.now();
+      // Issue #245: chunk-aware teardown. setupSceneCulling replaces
+      // a chunked mesh in the group with its chunks (same name,
+      // shared geometry); removing only the recorded mesh would leak
+      // the chunks and leave stale trees standing after a switch.
+      // Remove every group child carrying a torn-down mesh's name —
+      // the trees stage is the only producer of those names — then
+      // dispose the recorded meshes themselves.
+      const tornDown = new Set(trees.meshes.map((m) => m.name));
+      for (const child of [...group.children]) {
+        if (tornDown.has(child.name)) { group.remove(child); disposeBuilt(child); }
+      }
       for (const mesh of trees.meshes) { group.remove(mesh); disposeBuilt(mesh); }
       if (cityBlocks) { scene.remove(cityBlocks.group); disposeBuilt(cityBlocks.group); }
       bootSettings.density = preset;
