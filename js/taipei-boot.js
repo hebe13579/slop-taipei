@@ -1,6 +1,6 @@
 import * as THREE from 'three/webgpu';
 
-import { planTaipeiBuildings, taipeiCityBlocksOptions, createTaipei101, createTaipeiLandmarkTowers, updateSchoolLodGroup } from './taipei-buildings.js';
+import { planTaipeiBuildings, taipeiCityBlocksOptions, createTaipei101, createTaipeiLandmarkTowers, updateSchoolLodGroup, updateSpecialLodGroup } from './taipei-buildings.js';
 import { buildSidewalkBands, planStreetTrees, planParkTrees } from './taipei-streetscape.js';
 import { planParkAmenities } from './taipei-park-amenities.js';
 import { AvatarFigure } from './avatar-figure.js';
@@ -1772,7 +1772,11 @@ export async function buildTaipeiGround(scene, tile, deps = {}) {
     specialGroups.push(g);
   };
   addSpecial(createTaipei101(THREE, plan, landmarkFactories));
-  addSpecial(createTaipeiLandmarkTowers(THREE, plan, landmarkFactories));
+  // Issue #257: the landmark group carries the specials LOD
+  // entries (userData.specialLod); the per-frame facade update
+  // below swaps far specials to their simplified massing.
+  const landmarkTowersGroup = createTaipeiLandmarkTowers(THREE, plan, landmarkFactories);
+  addSpecial(landmarkTowersGroup);
   // Songshan Airport site structures (issue #135): the terminal
   // complex, rendered with the landmark massing path but kept
   // off the registry (no pins/search) — see
@@ -1893,7 +1897,7 @@ export async function buildTaipeiGround(scene, tile, deps = {}) {
     get group() { return cityBlocks?.group ?? null; },
     colliders: [],
     allBlocks: allBlocksLive,
-    update: (x, z, force) => { if (cityBlocks) cityBlocks.update(x, z, force); if (schoolLodGroup) updateSchoolLodGroup(schoolLodGroup, x, z); },
+    update: (x, z, force) => { if (cityBlocks) cityBlocks.update(x, z, force); if (schoolLodGroup) updateSchoolLodGroup(schoolLodGroup, x, z); if (landmarkTowersGroup) updateSpecialLodGroup(landmarkTowersGroup, x, z); },
     updateLights: (camera) => { if (cityBlocks?.updateLights) cityBlocks.updateLights(camera); },
   };
   const disposeBuilt = (obj) => {

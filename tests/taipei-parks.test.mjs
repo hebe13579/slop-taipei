@@ -44,12 +44,24 @@ test('amenity census: the shipped totals are pinned', () => {
   // shipped entries place; 148 skip (hard conflicts, a path
   // through the equipment core, or SAT overlap with a neighbour
   // mapped pad). parksMapped 147, parksSeeded246 120.
+  // Re-pinned for issue #257 (National Taiwan Museum): the
+  // museum's site + plaza rects join the planner's hard
+  // exclusions, so 18 furniture spots on the terrace, steps and
+  // forecourt are removed (6 benches, 1 lamp, 3 bins, 8 bushes —
+  // every removed item inside the new rects, proven by the
+  // before/after item diff in museum257-evidence/amenity-diff.mjs;
+  // zero removals anywhere else) and the per-park caps refill 9
+  // of them elsewhere in 228 Peace Memorial Park (6 benches,
+  // 1 lamp, 2 bins), for a net bin −1, bush −8.
+  // The 9 net removals all sit in the 'large' area class (228
+  // Peace Memorial Park): large 9740 → 9731, other classes
+  // unchanged.
   assert.deepEqual(counts, {
-    bench: 4102, lamp: 3785, bin: 2324, vending: 300,
-    restroom: 81, sculpture: 18, fountain: 12, bush: 8704,
+    bench: 4102, lamp: 3785, bin: 2323, vending: 300,
+    restroom: 81, sculpture: 18, fountain: 12, bush: 8696,
     playground: 133, picnic: 78, court: 90, pavilion: 184,
   });
-  assert.equal(Object.values(counts).reduce((s, v) => s + v, 0), 19811, 'grand total');
+  assert.equal(Object.values(counts).reduce((s, v) => s + v, 0), 19802, 'grand total');
   assert.equal(stats.parksTotal, 1600);
   assert.equal(stats.parksPlaza, 25);
   assert.equal(stats.parksPathless, 1114);
@@ -63,7 +75,8 @@ test('amenity census: the shipped totals are pinned', () => {
   assert.deepEqual(
     Object.fromEntries(Object.entries(stats.byClass).map(([k, v]) => [k, v.items])),
     // +138 large / +194 medium / +46 small / +3 tiny vs #236.
-    { large: 9740, medium: 8181, small: 1852, tiny: 38 },
+    // −9 large for #257 (see the census re-pin above).
+    { large: 9731, medium: 8181, small: 1852, tiny: 38 },
     'items by area class',
   );
   // Every park eligible for a restroom got one (81 of 81).
@@ -132,7 +145,7 @@ test('placement invariants: inside a park, off water and off paths', () => {
       checked++;
     }
   }
-  assert.equal(checked, 19326);
+  assert.equal(checked, 19317); // −9 for #257: the museum forecourt spots (see the census re-pin above).
 });
 
 test('placement invariants, rect kits: pads inside a park, off water and carriageways, cores off paths', () => {

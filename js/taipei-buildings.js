@@ -2239,6 +2239,83 @@ const LANDMARK_STRUCTURES = [
       { type: 'wheel', y0: 30, h: 70, flat: 0xe9e7e0, cabinFlat: 0xc8ccd2 },
     ],
   },
+  {
+    // --- National Taiwan Museum (issue #257) ---
+    // The main hall in 228 Peace Memorial Park: Greek Revival /
+    // neoclassical, built 1913-1915 (architects Ichiro Nomura and
+    // Eiichi Araki), pale stone, Doric hexastyle portico facing
+    // north toward Xiangyang Rd, central dome 30 m, raised base
+    // with wide front steps. Footprint is the OSM building outline
+    // (way 1050624691, 91.0 x 32.1 m, axis-aligned): end pavilions
+    // and wings at the outline's jogs, central hall with a rear
+    // projection to the outline's south edge, portico + terrace
+    // projecting north of the wall line as in the reference photos
+    // (the OSM outline simplifies the colonnade). The dome centre
+    // sits ~1/3 of the depth from the north edge, as the satellite
+    // view shows. The frieze carries 7 abstract glyph blocks for
+    // 國立臺灣博物館 (never real characters, per the sign rule).
+    // The pediment triangle is stepped boxes — the ridge primitive
+    // gables east/west and cannot face the triangle north.
+    // site/plaza keep the building, terrace, steps and forecourt
+    // clear of procedural lots (the park exclusion already leaves
+    // the area lot-free; the rects pin that). farParts is the
+    // simplified far massing for the #255-style LOD swap.
+    id: 'national-taiwan-museum', name: 'National Taiwan Museum', nameZh: '國立臺灣博物館',
+    lat: 25.042767, lon: 121.515052, realHeight: 30, color: 0xd6cfbc,
+    site: { w: 94, d: 42, dx: -0.9, dz: -1.6 },
+    plaza: { w: 64, d: 36, dx: -0.9, dz: -34 },
+    facade: { kind: 'prewar', stoneColor: 0xd6cfbc, trimColor: 0xb3a98f, windowGlassColor: 0x2c3540, windowWidth: 2.6, floorHeight: 4.4, litProbability: 0.25, warmth: 0.6, seed: 57.40 },
+    sign: { glyphs: 7, w: 16, h: 2.5, y: 14.1, dx: -0.8, dz: -22.2, rotY: Math.PI, bg: '#d3ccb8', fg: '#a8892f' },
+    parts: [
+      // Raised terrace under the whole building + portico.
+      { type: 'box', w: 88, d: 36, h: 1.6, dx: -0.9, dz: -3.6, flat: 0xb9b4a6 },
+      // West end pavilion / wing (outline jogs, west side).
+      { type: 'box', w: 13.9, d: 17.9, h: 16, dx: -39.4, dz: -0.8 },
+      { type: 'box', w: 20, d: 18.5, h: 13.5, dx: -22.4, dz: 0.9 },
+      // East wing / end pavilion (the east wing is shallower, per the outline).
+      { type: 'box', w: 20, d: 16, h: 13.5, dx: 20.9, dz: 0.9 },
+      { type: 'box', w: 13.5, d: 15.3, h: 16, dx: 37.85, dz: -1.9 },
+      // Central hall + rear projection to the outline's south edge.
+      { type: 'box', w: 23.3, d: 27, h: 18.5, dx: -0.8, dz: -2 },
+      { type: 'box', w: 19.4, d: 5, h: 15, dx: -0.8, dz: 11.5 },
+      // Dark flat roof caps, as the satellite view shows.
+      { type: 'box', w: 14.3, d: 18.3, h: 0.4, y0: 16, dx: -39.4, dz: -0.8, flat: 0x6f7377 },
+      { type: 'box', w: 20.4, d: 18.9, h: 0.4, y0: 13.5, dx: -22.4, dz: 0.9, flat: 0x6f7377 },
+      { type: 'box', w: 20.4, d: 16.4, h: 0.4, y0: 13.5, dx: 20.9, dz: 0.9, flat: 0x6f7377 },
+      { type: 'box', w: 13.9, d: 15.7, h: 0.4, y0: 16, dx: 37.85, dz: -1.9, flat: 0x6f7377 },
+      { type: 'box', w: 23.7, d: 27.4, h: 0.4, y0: 18.5, dx: -0.8, dz: -2, flat: 0x6f7377 },
+      // Attic block, drum, dome (30 m) and finial.
+      { type: 'box', w: 20, d: 16, h: 3.5, y0: 18.5, dx: -0.8, dz: -6 },
+      { type: 'cylinder', r: 8.5, h: 4.5, y0: 19, dx: -0.8, dz: -5.2, flat: 0xd6cfbc },
+      { type: 'dome', rx: 9, rz: 9, h: 6.5, y0: 23.5, dx: -0.8, dz: -5.2, flat: { color: 0x66816f, roughness: 0.45, metalness: 0.35 } },
+      // Hexastyle Doric portico: 6 columns, entablature, stepped pediment.
+      // The entablature is deepened to 2.6 m so the frieze band (the
+      // pinned 2.5 m sign floor in landmark-facades) fits its face.
+      { type: 'cylinder', r: 0.75, h: 11.2, y0: 1.6, dx: -10.4, dz: -20.5, flat: 0xe3ddcc },
+      { type: 'cylinder', r: 0.75, h: 11.2, y0: 1.6, dx: -6.6, dz: -20.5, flat: 0xe3ddcc },
+      { type: 'cylinder', r: 0.75, h: 11.2, y0: 1.6, dx: -2.8, dz: -20.5, flat: 0xe3ddcc },
+      { type: 'cylinder', r: 0.75, h: 11.2, y0: 1.6, dx: 1.2, dz: -20.5, flat: 0xe3ddcc },
+      { type: 'cylinder', r: 0.75, h: 11.2, y0: 1.6, dx: 5, dz: -20.5, flat: 0xe3ddcc },
+      { type: 'cylinder', r: 0.75, h: 11.2, y0: 1.6, dx: 8.8, dz: -20.5, flat: 0xe3ddcc },
+      { type: 'box', w: 27, d: 7, h: 2.6, y0: 12.8, dx: -0.8, dz: -18.5 },
+      { type: 'box', w: 27, d: 7, h: 1.2, y0: 15.4, dx: -0.8, dz: -18.5 },
+      { type: 'box', w: 19, d: 7, h: 1.2, y0: 16.6, dx: -0.8, dz: -18.5 },
+      { type: 'box', w: 11, d: 7, h: 1.2, y0: 17.8, dx: -0.8, dz: -18.5 },
+      // Wide front steps descending north from the terrace.
+      { type: 'box', w: 28, d: 2, h: 0.55, y0: 1.05, dx: -0.8, dz: -20.6, flat: 0xb9b4a6 },
+      { type: 'box', w: 30, d: 2, h: 0.55, y0: 0.5, dx: -0.8, dz: -22.1, flat: 0xb9b4a6 },
+      { type: 'box', w: 32, d: 2, h: 0.5, y0: 0, dx: -0.8, dz: -23.6, flat: 0xb9b4a6 },
+    ],
+    // Issue #257: simplified far massing — flat materials only, no
+    // sign, no columns or steps. Stays visible at any distance
+    // (the #240 rule for specials).
+    farParts: [
+      { type: 'box', w: 88, d: 34, h: 14, dx: -0.9, dz: -2.6 },
+      { type: 'box', w: 23.3, d: 27, h: 18.5, dx: -0.8, dz: -2 },
+      { type: 'cylinder', r: 8.5, h: 4.5, y0: 19, dx: -0.8, dz: -5.2 },
+      { type: 'dome', rx: 9, rz: 9, h: 6.5, y0: 23.5, dx: -0.8, dz: -5.2, flat: { color: 0x66816f, roughness: 0.45, metalness: 0.35 } },
+    ],
+  },
 ];
 
 // Songshan Airport site structures (issue #135): the terminal
@@ -2306,6 +2383,7 @@ const AIRPORT_SITE_STRUCTURES = [
       { type: 'box', w: 96, d: 27, h: 1, y0: 9, flat: 0xd8d5cc },
     ],
   },
+
 ];
 
 // Resolve a structure definition into plan data: true tile-frame
@@ -2330,6 +2408,9 @@ function resolveLandmark(def, originLatLon) {
     color: def.color, site, openGround,
     sites: openGround ? [site, openGround] : [site],
     parts: def.parts,
+    // Issue #257: simplified far massing for the LOD swap (null
+    // for entries without one).
+    farParts: def.farParts || null,
     // Issue #57: the structure's facade treatment + optional sign,
     // pure registry data (the builders turn them into materials).
     facade: def.facade || null,
@@ -6448,6 +6529,15 @@ export function updateSchoolLodGroup(group, camX, camZ) {
   if (entries && entries.length) updateSchoolLod(entries, camX, camZ);
 }
 
+// Issue #257: the same 700/600 m swap for registry specials with
+// farParts — the entry's near subgroup (full detail) hides past
+// SCHOOL_LOD_FAR_M and its far subgroup (simplified massing)
+// shows; the massing itself never despawns, only simplifies.
+export function updateSpecialLodGroup(group, camX, camZ) {
+  const entries = group && group.userData ? group.userData.specialLod : null;
+  if (entries && entries.length) updateSchoolLod(entries, camX, camZ);
+}
+
 function landmarkFacadeMaterial(THREE, factories, facade, fallbackColor, doubleSide) {
   if (factories && facade && (facade.kind === 'curtain' || facade.kind === 'prewar')) {
     const opts = { ...facade, boxLocal: false };
@@ -6560,6 +6650,7 @@ export function createTaipeiLandmarkTowers(THREE, plan, factories) {
   const nearDomeGeo = new THREE.SphereGeometry(1, SCHOOL_DOME_WIDTH_SEGMENTS, SCHOOL_DOME_HEIGHT_SEGMENTS, 0, Math.PI * 2, 0, Math.PI / 2);
   const farDomeGeo = new THREE.SphereGeometry(1, SCHOOL_LOD_FAR_DOME_WIDTH_SEGMENTS, SCHOOL_LOD_FAR_DOME_HEIGHT_SEGMENTS, 0, Math.PI * 2, 0, Math.PI / 2);
   const lodEntries = [];
+  const specialLodEntries = [];
   for (const s of plan.landmarkTowers) {
     const mat = landmarkFacadeMaterial(THREE, factories, s.facade, s.color, false);
     const soupMat = landmarkFacadeMaterial(THREE, factories, s.facade, s.color, true);
@@ -6735,8 +6826,62 @@ export function createTaipeiLandmarkTowers(THREE, plan, factories) {
     }
     const signMesh = landmarkSignMesh(THREE, s);
     if (signMesh) sub.add(signMesh);
+    if (s.farParts && s.farParts.length) {
+      // Issue #257: simplified far massing — flat materials only,
+      // no sign, no thin members. The near subgroup hides past
+      // the LOD distance and this one shows; the structure
+      // itself stays visible (the #240 rule for specials).
+      const farSub = new THREE.Group();
+      farSub.name = `${s.id}-far`;
+      farSub.visible = false;
+      const farFlat = (part) => flatPartMaterial(
+        part.flat !== undefined && part.flat !== null ? part.flat : s.color, false);
+      const farBuckets = new Map();
+      for (const part of s.farParts) {
+        const y0 = part.y0 || 0;
+        let mesh = null;
+        if (part.type === 'box') {
+          mesh = new THREE.Mesh(new THREE.BoxGeometry(part.w, part.h, part.d), farFlat(part));
+          mesh.position.set(s.x + (part.dx || 0), y0 + part.h / 2, s.z + (part.dz || 0));
+          if (part.rotY) mesh.rotation.y = -part.rotY;
+        } else if (part.type === 'cylinder') {
+          mesh = new THREE.Mesh(new THREE.CylinderGeometry(part.r, part.r, part.h, 24), farFlat(part));
+          if (part.rz) mesh.scale.z = part.rz / part.r;
+          mesh.position.set(s.x + (part.dx || 0), y0 + part.h / 2, s.z + (part.dz || 0));
+        } else if (part.type === 'dome') {
+          mesh = new THREE.Mesh(new THREE.SphereGeometry(1, SCHOOL_DOME_WIDTH_SEGMENTS, SCHOOL_DOME_HEIGHT_SEGMENTS, 0, Math.PI * 2, 0, Math.PI / 2), farFlat(part));
+          mesh.scale.set(part.rx, part.h, part.rz);
+          mesh.position.set(s.x + (part.dx || 0), y0, s.z + (part.dz || 0));
+          if (part.flip) mesh.rotation.x = Math.PI;
+        } else if (part.type === 'frustum') {
+          mesh = new THREE.Mesh(frustumGeometry(THREE, part), flatPartMaterial(
+            part.flat !== undefined && part.flat !== null ? part.flat : s.color, true));
+          mesh.position.set(s.x, y0, s.z);
+        }
+        if (!mesh) continue;
+        mesh.castShadow = true;
+        mesh.receiveShadow = true;
+        if (part.type === 'frustum') { farSub.add(mesh); continue; }
+        let list = farBuckets.get(mesh.material);
+        if (!list) farBuckets.set(mesh.material, (list = []));
+        list.push(mesh);
+      }
+      for (const [material, meshes] of farBuckets) {
+        if (meshes.length === 1) { farSub.add(meshes[0]); continue; }
+        const geos = meshes.map((m) => { m.updateMatrix(); return m.geometry.clone().applyMatrix4(m.matrix); });
+        const merged = mergePartGeometries(THREE, geos);
+        if (!merged) { for (const m of meshes) farSub.add(m); continue; }
+        const mergedMesh = new THREE.Mesh(merged, material);
+        mergedMesh.castShadow = true;
+        mergedMesh.receiveShadow = true;
+        farSub.add(mergedMesh);
+      }
+      group.add(farSub);
+      specialLodEntries.push({ near: sub, far: farSub, x: s.x, z: s.z, mode: 'near' });
+    }
     group.add(sub);
   }
   group.userData.schoolLod = lodEntries;
+  group.userData.specialLod = specialLodEntries;
   return group;
 }
