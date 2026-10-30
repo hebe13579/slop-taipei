@@ -7,7 +7,7 @@ import { medianStripWidth } from '../js/taipei-surfaces.js';
 import * as markings from '../js/taipei-markings.js';
 import {
   LANE_W, DASH_LEN, DASH_GAP, DIVIDER_W, MAST_ARM_MIN, MAST_ARM_MAX,
-  laneLayout, dividersFor, buildLaneDividers,
+  laneLayout, dividersFor, buildLaneDividers, dividedAvenueInfo,
   detectJunctions, buildJunctionFurniture, buildRoadMarkings,
 } from '../js/taipei-markings.js';
 
@@ -776,4 +776,74 @@ test('roundabout occluders (issue #173): no dash overlaps an island or apron on 
     }
     assert.equal(bad, 0, `${s.id}: dashes overlapping island/aprons`);
   }
+});
+
+// POC (#214) G1: divided-avenue zebras. Flag-gated via
+// opts.dividedPoc on buildJunctionFurniture / buildRoadMarkings;
+// off by default the furniture is exactly the signalized-only
+// set (the 'non-signalized junctions get nothing' test above
+// keeps passing unchanged).
+test('POC #214 G1: synthetic divided-avenue T gets two carriageway zebras, flag-on only', () => {
+  // Merged-bed avenue (tertiary, so the junction stays fitted,
+  // like ji570's 民生東路三段） with one lane T-ing in from the
+  // south. Unsignalized: one rank>=1 road only.
+  const beds = [
+    bed('Ave', 'tertiary', 30, [1, 2], [-100, 0, 0, 0]),
+    bed('Ave', 'tertiary', 30, [1, 2], [0, 0, 100, 0]),
+    bed('Lane 5', 'residential', 6, [3], [0, 0, 0, 80]),
+  ];
+  const js = detectJunctions(beds);
+  assert.equal(js.length, 1);
+  assert.equal(js[0].signalized, false);
+  const info = dividedAvenueInfo(js[0], beds);
+  assert.equal(info?.mode, 'merged');
+  const off = buildJunctionFurniture(beds, js);
+  assert.equal(off.stripes.length + off.bands.length, 0, 'flag-off: no furniture at an unsignalized junction');
+  const on = buildJunctionFurniture(beds, js, null, { dividedPoc: true });
+  assert.equal(on.stats.dividedPocJunctions, 1);
+  assert.equal(on.stats.dividedPocCrosswalks, 2, 'one zebra per carriageway');
+  assert.equal(on.bands.length, 2);
+  // Bands cross the avenue at the lane mouth (x ~ 0), one per
+  // side of the median: opposite z signs, each spanning most
+  // of a 15 m half-carriageway.
+  const centres = on.bands.map((b) => quadCentre(b.quad));
+  assert.ok(centres.every(([x]) => Math.abs(x) < 2), `bands at the mouth, centres ${JSON.stringify(centres)}`);
+  assert.ok(centres.some(([, z]) => z > 5) && centres.some(([, z]) => z < -5), 'one band per side of the median');
+  for (const b of on.bands) assert.ok(b.width > 10, `band spans the carriageway (width ${b.width})`);
+  assert.equal(on.signals.length, 0, 'no signals: the POC adds zebras only');
+  assert.equal(on.stopLines.length, 0, 'no stop lines: the POC adds zebras only');
+});
+
+test('POC #214 G1: classifier finds the real divided-avenue class (ji570 + a twin site)', () => {
+  const beds = TAIPEI_GEO.roadbeds;
+  const junctions = detectJunctions(beds);
+  const byCentre = (x, z) => junctions.map((j, ji) => ({ j, ji, d: Math.hypot(j.x - x, j.z - z) })).sort((a, b) => a.d - b.d)[0];
+  const m = byCentre(-1773.1, -2738.7);
+  assert.ok(m.d < 2, 'ji570 found');
+  assert.equal(dividedAvenueInfo(m.j, beds)?.mode, 'merged', 'ji570 is the merged-bed type site');
+  const t = byCentre(-4333, -2757);
+  assert.ok(t.d < 2, 'ji919 found');
+  assert.equal(dividedAvenueInfo(t.j, beds)?.mode, 'twin', 'ji919 is a twin-carriageway site');
+  let d1 = 0, d2 = 0;
+  for (const j of junctions) {
+    const info = dividedAvenueInfo(j, beds);
+    if (info?.mode === 'twin') d1++;
+    else if (info?.mode === 'merged') d2++;
+  }
+  assert.equal(d1, 4, 'D1 twin census');
+  assert.equal(d2, 49, 'D2 merged census');
+});
+
+test('POC #214 G1: real tile — POC adds 157 surviving bands at 53 junctions, flag-off unchanged', () => {
+  // Census-pinned (poc-census.mjs on current main, green-clipped
+  // caps: 1281 -> 1438; this test plans caps unclipped, which
+  // shifts both counts by one band: 1282 -> 1439, same +157).
+  const beds = TAIPEI_GEO.roadbeds;
+  const junctions = detectJunctions(beds);
+  const off = buildRoadMarkings(beds, null, null, junctions, [], {});
+  const on = buildRoadMarkings(beds, null, null, junctions, [], { dividedPoc: true });
+  assert.equal(off.bands.length, 1282, 'flag-off band count is the audited value');
+  assert.equal(on.stats.dividedPocJunctions, 53);
+  assert.equal(on.bands.length, 1439);
+  assert.equal(on.stats.crosswalks, 1439);
 });
