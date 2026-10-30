@@ -7,7 +7,10 @@ import { medianStripWidth } from '../js/taipei-surfaces.js';
 import * as markings from '../js/taipei-markings.js';
 import {
   LANE_W, DASH_LEN, DASH_GAP, DIVIDER_W, MAST_ARM_MIN, MAST_ARM_MAX,
-  laneLayout, dividersFor, buildLaneDividers,
+  CENTER_DOUBLE_MIN_W, CENTER_MIN_W, CENTER_LINE_W, CENTER_DOUBLE_HALF,
+  CENTER_DASH_LEN, CENTER_DASH_GAP,
+  laneLayout, dividersFor, buildLaneDividers, centerLinesFor, buildCenterLines,
+  dividedAvenueInfo,
   detectJunctions, buildJunctionFurniture, buildRoadMarkings,
 } from '../js/taipei-markings.js';
 
@@ -776,4 +779,209 @@ test('roundabout occluders (issue #173): no dash overlaps an island or apron on 
     }
     assert.equal(bad, 0, `${s.id}: dashes overlapping island/aprons`);
   }
+});
+
+// Issue #249 — yellow centre lines on two-way roads. The rule lives in
+// js/taipei-markings.js and follows the Taiwan 道路交通標誌標線號誌設置規則:
+// 分向限制線 (art. 165) is double solid yellow, 10 cm lines 10 cm
+// apart, on wide beds; 行車分向線 (art. 181) is single dashed yellow,
+// 4 m / 6 m, 10 cm wide, on two-way beds >= 6 m. One-way beds (the
+// OSM oneway flag, carried into roadbeds by #249), merged beds (the
+// median divides), deck beds (no ground paint, issue #162), beds
+// narrower than 6 m, and the alley classes get none.
+
+test('centerLinesFor: gates — width, one-way, merged, deck, class', () => {
+  assert.ok(centerLinesFor(bed('x', 'tertiary', 12.8, [7])), 'wide two-way bed');
+  assert.ok(centerLinesFor(bed('x', 'residential', 6.4, [7])), 'narrow two-way bed at the 6 m rule');
+  assert.ok(!centerLinesFor(bed('x', 'tertiary', 5.9, [7])), 'under 6 m: no centre line');
+  assert.ok(!centerLinesFor({ ...bed('x', 'tertiary', 12.8, [7]), oneway: true }), 'one-way bed: no opposing traffic');
+  assert.ok(!centerLinesFor(bed('x', 'tertiary', 12.8, [7, 8])), 'merged bed: the median is the divider');
+  assert.ok(!centerLinesFor({ ...bed('x', 'tertiary', 12.8, [7]), deck: true }), 'deck bed: no ground paint');
+  assert.ok(!centerLinesFor(bed('x', 'service', 12.8, [7])), 'service class: alley discretion, unpainted');
+  assert.ok(!centerLinesFor(bed('x', 'living_street', 8, [7])), 'living street: unpainted');
+  assert.ok(!centerLinesFor(null));
+});
+
+test('centre lines (issue #249): double solid yellow geometry on a wide bed', () => {
+  const { quads, stats } = buildCenterLines([bed('x', 'tertiary', 12.8, [7])]);
+  assert.equal(stats.beds, 1);
+  assert.equal(stats.doubleBeds, 1);
+  assert.equal(stats.dashBeds, 0);
+  // 100 m bed densified at 1.5 m: 67 intervals x 2 lines.
+  assert.equal(quads.length, 134, `double quads ${quads.length}`);
+  for (const q of quads) {
+    const c = quadCentre(q);
+    assert.ok(Math.abs(Math.abs(c[1]) - CENTER_DOUBLE_HALF) < 0.01, `line centre offset ${c[1]} ≈ ±${CENTER_DOUBLE_HALF}`);
+    const w = Math.hypot(q[0] - q[6], q[1] - q[7]);
+    assert.ok(Math.abs(w - CENTER_LINE_W) < 0.01, `line width ${w} ≈ ${CENTER_LINE_W}`);
+  }
+  assert.ok(Math.abs(stats.doubleKm - 0.2) < 0.01, `double km ${stats.doubleKm} (2 lines x 100 m)`);
+});
+
+test('centre lines (issue #249): single dashed yellow phase on a narrow bed', () => {
+  const { quads, stats } = buildCenterLines([bed('x', 'tertiary', 6.4, [7])]);
+  assert.equal(stats.beds, 1);
+  assert.equal(stats.doubleBeds, 0);
+  assert.equal(stats.dashBeds, 1);
+  assert.ok(quads.length > 0 && quads.length < 67, `dashed quads ${quads.length} (a 4 m / 6 m subset of 67 intervals)`);
+  for (const q of quads) {
+    const c = quadCentre(q);
+    assert.ok(Math.abs(c[1]) < 0.01, `dashed line on the centreline, offset ${c[1]}`);
+    // Dash phase keys on the centreline arc: the quad centre's x IS
+    // its mid-arc on this straight bed, so it must sit in a 4 m
+    // paint window of the 10 m cycle (art. 181: 4 m line / 6 m gap).
+    const phase = ((c[0] % (CENTER_DASH_LEN + CENTER_DASH_GAP)) + (CENTER_DASH_LEN + CENTER_DASH_GAP)) % (CENTER_DASH_LEN + CENTER_DASH_GAP);
+    assert.ok(phase < CENTER_DASH_LEN + 0.01, `dash phase ${phase} < ${CENTER_DASH_LEN}`);
+  }
+});
+
+test('centre lines (issue #249): caps, suppression zones, furniture and medians occlude', () => {
+  const b = bed('x', 'tertiary', 12.8, [7]);
+  // A junction cap over the middle third: no centre line inside it.
+  const cap = [[30, -10], [70, -10], [70, 10], [30, 10]];
+  const capped = buildCenterLines([b], new Map(), null, [cap]);
+  assert.ok(capped.quads.length > 0, 'paint survives outside the cap');
+  for (const q of capped.quads) {
+    const c = quadCentre(q);
+    assert.ok(c[0] < 30 || c[0] > 70, `no centre quad inside the cap (centre ${c[0]})`);
+  }
+  // A stop-line suppression zone trims both ends, as for dividers.
+  const sup = new Map([['0:0', 20], ['0:1', 20]]);
+  const trimmed = buildCenterLines([b], sup);
+  for (const q of trimmed.quads) {
+    const c = quadCentre(q);
+    assert.ok(c[0] > 20 && c[0] < 80, `suppression zone respected (centre ${c[0]})`);
+  }
+  assert.ok(trimmed.quads.length < buildCenterLines([b]).quads.length, 'suppression removes paint');
+  // Crosswalk furniture: a band quad over the middle culls the
+  // centre quads overlapping it (issue #182's hairline rule).
+  const furn = [[40, -5], [60, -5], [60, 5], [40, 5]];
+  const furned = buildCenterLines([b], new Map(), null, null, [furn]);
+  for (const q of furned.quads) {
+    const c = quadCentre(q);
+    assert.ok(c[0] < 42 || c[0] > 58, `no centre quad over the furniture (centre ${c[0]})`);
+  }
+  // A median strip down the middle blocks the centre line outright.
+  // (Median strips are flat 8-number quads, as buildMedianStrips
+  // emits them — not point arrays.)
+  const strips = { planted: [[40, -1, 60, -1, 60, 1, 40, 1]], plain: [] };
+  const stripped = buildCenterLines([b], new Map(), strips);
+  for (const q of stripped.quads) {
+    const c = quadCentre(q);
+    assert.ok(c[0] < 40 || c[0] > 60, `no centre quad on the median strip (centre ${c[0]})`);
+  }
+  assert.ok(stripped.quads.length < buildCenterLines([b]).quads.length, 'median strip removes paint');
+});
+
+test('geodata: tile-wide centre-line census is the audited rule (issue #249)', () => {
+  const r = buildRoadMarkings(TAIPEI_GEO.roadbeds);
+  // Pins measured on this tree (main fb1aec99 + the #249 oneway
+  // carry, which changes no divider/furniture pin): 2,855 beds
+  // carry a centre line — 599 wide beds double solid yellow
+  // (141.34 km), 2,256 narrower beds single dashed yellow
+  // (119.59 km). The divider pins in the bands test above are
+  // unchanged by the centre-line addition (dashQuads 169,213,
+  // dividerKm 251.82, crossPairs 262, signalized 406).
+  assert.equal(r.stats.centerBeds, 2855, `centre-line beds ${r.stats.centerBeds}`);
+  assert.equal(r.stats.centerDoubleBeds, 599, `double beds ${r.stats.centerDoubleBeds}`);
+  assert.equal(r.stats.centerDashBeds, 2256, `dashed beds ${r.stats.centerDashBeds}`);
+  assert.ok(Math.abs(r.stats.centerDoubleKm - 141.34) < 0.05, `double km ${r.stats.centerDoubleKm}`);
+  assert.ok(Math.abs(r.stats.centerDashKm - 119.59) < 0.05, `dashed km ${r.stats.centerDashKm}`);
+  assert.equal(r.stats.centerDoubleQuads, 94852, `double quads ${r.stats.centerDoubleQuads}`);
+  assert.equal(r.stats.centerDashQuads, 80603, `dashed quads ${r.stats.centerDashQuads}`);
+  assert.equal(r.centerQuads.length, r.stats.centerDoubleQuads + r.stats.centerDashQuads, 'quads array matches the split census');
+  // Skip census: every bed is accounted for exactly once.
+  assert.equal(r.stats.centerOnewayBedsSkipped, 4232, `one-way skipped ${r.stats.centerOnewayBedsSkipped}`);
+  assert.equal(r.stats.centerMergedBedsSkipped, 772, `merged skipped ${r.stats.centerMergedBedsSkipped}`);
+  assert.equal(r.stats.centerNarrowBedsSkipped, 6361, `narrow skipped ${r.stats.centerNarrowBedsSkipped}`);
+  assert.equal(r.stats.centerExcludedBedsSkipped, 301, `excluded-class skipped ${r.stats.centerExcludedBedsSkipped}`);
+  assert.equal(r.stats.centerDeckBedsSkipped, 25, `deck skipped ${r.stats.centerDeckBedsSkipped}`);
+  const accounted = r.stats.centerBeds + r.stats.centerOnewayBedsSkipped + r.stats.centerMergedBedsSkipped
+    + r.stats.centerNarrowBedsSkipped + r.stats.centerExcludedBedsSkipped + r.stats.centerDeckBedsSkipped;
+  assert.equal(accounted, TAIPEI_GEO.roadbeds.length, `every bed accounted for (${accounted} vs ${TAIPEI_GEO.roadbeds.length})`);
+  // Exclusion invariant, measured directly: the union of every
+  // skipped bed paints nothing at all.
+  const skipped = TAIPEI_GEO.roadbeds.filter((bed) => bed.oneway || bed.deck
+    || (Array.isArray(bed.sourceWayIds) && bed.sourceWayIds.length >= 2)
+    || (bed.width || 0) < CENTER_MIN_W
+    || ['service', 'living_street', 'track', 'rest_area', 'services', 'busway'].includes(bed.highway));
+  assert.equal(buildCenterLines(skipped).quads.length, 0, 'no centre paint on any skipped bed');
+  // The user-reported case: 北投路二段's 12.8 m two-way beds carry
+  // double solid yellow and nothing else.
+  const beitou = TAIPEI_GEO.roadbeds.filter((bed) => bed.name === '北投路二段' && bed.width === 12.8 && !bed.oneway);
+  assert.equal(beitou.length, 2, 'two 12.8 m Beitou Rd beds');
+  const bc = buildCenterLines(beitou);
+  assert.equal(bc.stats.doubleBeds, 2);
+  assert.equal(bc.stats.dashBeds, 0);
+  assert.ok(Math.abs(bc.stats.doubleKm - 0.75) < 0.05, `Beitou Rd double km ${bc.stats.doubleKm}`);
+});
+
+// POC (#214) G1: divided-avenue zebras. Flag-gated via
+// opts.dividedPoc on buildJunctionFurniture / buildRoadMarkings;
+// off by default the furniture is exactly the signalized-only
+// set (the 'non-signalized junctions get nothing' test above
+// keeps passing unchanged).
+test('POC #214 G1: synthetic divided-avenue T gets two carriageway zebras, flag-on only', () => {
+  // Merged-bed avenue (tertiary, so the junction stays fitted,
+  // like ji570's 民生東路三段） with one lane T-ing in from the
+  // south. Unsignalized: one rank>=1 road only.
+  const beds = [
+    bed('Ave', 'tertiary', 30, [1, 2], [-100, 0, 0, 0]),
+    bed('Ave', 'tertiary', 30, [1, 2], [0, 0, 100, 0]),
+    bed('Lane 5', 'residential', 6, [3], [0, 0, 0, 80]),
+  ];
+  const js = detectJunctions(beds);
+  assert.equal(js.length, 1);
+  assert.equal(js[0].signalized, false);
+  const info = dividedAvenueInfo(js[0], beds);
+  assert.equal(info?.mode, 'merged');
+  const off = buildJunctionFurniture(beds, js);
+  assert.equal(off.stripes.length + off.bands.length, 0, 'flag-off: no furniture at an unsignalized junction');
+  const on = buildJunctionFurniture(beds, js, null, { dividedPoc: true });
+  assert.equal(on.stats.dividedPocJunctions, 1);
+  assert.equal(on.stats.dividedPocCrosswalks, 2, 'one zebra per carriageway');
+  assert.equal(on.bands.length, 2);
+  // Bands cross the avenue at the lane mouth (x ~ 0), one per
+  // side of the median: opposite z signs, each spanning most
+  // of a 15 m half-carriageway.
+  const centres = on.bands.map((b) => quadCentre(b.quad));
+  assert.ok(centres.every(([x]) => Math.abs(x) < 2), `bands at the mouth, centres ${JSON.stringify(centres)}`);
+  assert.ok(centres.some(([, z]) => z > 5) && centres.some(([, z]) => z < -5), 'one band per side of the median');
+  for (const b of on.bands) assert.ok(b.width > 10, `band spans the carriageway (width ${b.width})`);
+  assert.equal(on.signals.length, 0, 'no signals: the POC adds zebras only');
+  assert.equal(on.stopLines.length, 0, 'no stop lines: the POC adds zebras only');
+});
+
+test('POC #214 G1: classifier finds the real divided-avenue class (ji570 + a twin site)', () => {
+  const beds = TAIPEI_GEO.roadbeds;
+  const junctions = detectJunctions(beds);
+  const byCentre = (x, z) => junctions.map((j, ji) => ({ j, ji, d: Math.hypot(j.x - x, j.z - z) })).sort((a, b) => a.d - b.d)[0];
+  const m = byCentre(-1773.1, -2738.7);
+  assert.ok(m.d < 2, 'ji570 found');
+  assert.equal(dividedAvenueInfo(m.j, beds)?.mode, 'merged', 'ji570 is the merged-bed type site');
+  const t = byCentre(-4333, -2757);
+  assert.ok(t.d < 2, 'ji919 found');
+  assert.equal(dividedAvenueInfo(t.j, beds)?.mode, 'twin', 'ji919 is a twin-carriageway site');
+  let d1 = 0, d2 = 0;
+  for (const j of junctions) {
+    const info = dividedAvenueInfo(j, beds);
+    if (info?.mode === 'twin') d1++;
+    else if (info?.mode === 'merged') d2++;
+  }
+  assert.equal(d1, 4, 'D1 twin census');
+  assert.equal(d2, 49, 'D2 merged census');
+});
+
+test('POC #214 G1: real tile — POC adds 157 surviving bands at 53 junctions, flag-off unchanged', () => {
+  // Census-pinned (poc-census.mjs on current main, green-clipped
+  // caps: 1281 -> 1438; this test plans caps unclipped, which
+  // shifts both counts by one band: 1282 -> 1439, same +157).
+  const beds = TAIPEI_GEO.roadbeds;
+  const junctions = detectJunctions(beds);
+  const off = buildRoadMarkings(beds, null, null, junctions, [], {});
+  const on = buildRoadMarkings(beds, null, null, junctions, [], { dividedPoc: true });
+  assert.equal(off.bands.length, 1282, 'flag-off band count is the audited value');
+  assert.equal(on.stats.dividedPocJunctions, 53);
+  assert.equal(on.bands.length, 1439);
+  assert.equal(on.stats.crosswalks, 1439);
 });

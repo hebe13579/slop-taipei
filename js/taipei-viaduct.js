@@ -730,6 +730,15 @@ export function parapetTrims(elevated) {
 export function buildDeckGeometry(elevated, opts = {}) {
   const tracks = !!opts.tracks;
   const depth = elevated?.deckDepth ?? 1.8;
+  // Issue #132: groundAt(x, z) lifts every cross-section by the
+  // draped terrain height at its centreline point, so a deck/MRT
+  // guideway follows the terrain it stands on. Form decisions
+  // (low-bed vs slab, dive re-profiling, parapet trims, pier
+  // clamps) keep reading the AUTHORED profile h: the lift is a
+  // rigid vertical shift per cross-section, never a re-profile.
+  // The deck stays level across its width (one g per section, at
+  // the centreline). Absent, the flat build is byte-identical.
+  const groundAt = typeof opts.groundAt === 'function' ? opts.groundAt : () => 0;
   const lines = elevated?.lines || [];
   const concrete = { pos: [], nor: [] };
   const asphalt = { pos: [], nor: [] };
@@ -816,16 +825,21 @@ export function buildDeckGeometry(elevated, opts = {}) {
     const [nx, nz] = c.nHat;
     const M = c.M;
     const faceLo = c.spanLo - PORTAL_WALL_OFF_M, faceHi = c.spanHi + PORTAL_WALL_OFF_M;
-    const baseY = -PORTAL_DIVE_DEPTH_M - PORTAL_FACE_BASE_M;
-    const openTop = -PORTAL_DIVE_DEPTH_M + PORTAL_OPENING_H;
+    // Issue #132: the trench sits in draped ground at the cluster
+    // face; all dive chains in this tile measure g = 0, so this is
+    // belt-and-braces — the face and coping ride the local ground.
+    const gM = groundAt(M[0], M[1]);
+    const baseY = -PORTAL_DIVE_DEPTH_M - PORTAL_FACE_BASE_M + gM;
+    const openTop = -PORTAL_DIVE_DEPTH_M + PORTAL_OPENING_H + gM;
+    const faceTop = PORTAL_FACE_TOP_M + gM;
     const at = (off, y, back = 0) => [M[0] + nx * off - c.tHat[0] * back, y, M[1] + nz * off - c.tHat[1] * back];
     const openings = c.members.map((d) => [d.c - d.oHalf, d.c + d.oHalf]).sort((a, b) => a[0] - b[0]);
     const piers = [];
     let lo = faceLo;
     for (const [oLo, oHi] of openings) { piers.push([lo, oLo]); lo = oHi; }
     piers.push([lo, faceHi]);
-    for (const [pLo, pHi] of piers) quad(portal, at(pLo, baseY), at(pHi, baseY), at(pHi, PORTAL_FACE_TOP_M), at(pLo, PORTAL_FACE_TOP_M));
-    quad(portal, at(faceLo, openTop), at(faceHi, openTop), at(faceHi, PORTAL_FACE_TOP_M), at(faceLo, PORTAL_FACE_TOP_M));
+    for (const [pLo, pHi] of piers) quad(portal, at(pLo, baseY), at(pHi, baseY), at(pHi, faceTop), at(pLo, faceTop));
+    quad(portal, at(faceLo, openTop), at(faceHi, openTop), at(faceHi, faceTop), at(faceLo, faceTop));
     for (const [oLo, oHi] of openings) {
       const dk = (off, y) => at(off, y, -0.06);
       quad(portalDark, dk(oLo, -PORTAL_DIVE_DEPTH_M), dk(oHi, -PORTAL_DIVE_DEPTH_M), dk(oHi, openTop), dk(oLo, openTop));
@@ -836,20 +850,23 @@ export function buildDeckGeometry(elevated, opts = {}) {
     const stAt = (st, off) => [st.x + nx * off, st.z + nz * off];
     for (let i = 0; i + 1 < c.stations.length; i++) {
       const A = c.stations[i], B = c.stations[i + 1];
+      // Issue #132: floor and walls ride the draped ground at each
+      // station (the running-surface profile plus the local lift).
+      const gA = groundAt(A.x, A.z), gB = groundAt(B.x, B.z);
       // Floor strip (top at the running-surface profile).
       const aA = stAt(A, c.centreOff - floorHalf), aB = stAt(B, c.centreOff - floorHalf);
       const bA = stAt(A, c.centreOff + floorHalf), bB = stAt(B, c.centreOff + floorHalf);
-      quad(floorSink, [aA[0], A.y, aA[1]], [aB[0], B.y, aB[1]], [bB[0], B.y, bB[1]], [bA[0], A.y, bA[1]]);
+      quad(floorSink, [aA[0], A.y + gA, aA[1]], [aB[0], B.y + gB, aB[1]], [bB[0], B.y + gB, bB[1]], [bA[0], A.y + gA, bA[1]]);
       for (const s of [-1, 1]) {
         const wallOff = (s < 0 ? c.spanLo : c.spanHi) + s * PORTAL_WALL_OFF_M;
         const wA = stAt(A, wallOff), wB = stAt(B, wallOff);
-        const botA = [wA[0], A.y - PORTAL_WALL_BASE_M, wA[1]], botB = [wB[0], B.y - PORTAL_WALL_BASE_M, wB[1]];
-        const topA = [wA[0], PORTAL_WALL_TOP_M, wA[1]], topB = [wB[0], PORTAL_WALL_TOP_M, wB[1]];
+        const botA = [wA[0], A.y - PORTAL_WALL_BASE_M + gA, wA[1]], botB = [wB[0], B.y - PORTAL_WALL_BASE_M + gB, wB[1]];
+        const topA = [wA[0], PORTAL_WALL_TOP_M + gA, wA[1]], topB = [wB[0], PORTAL_WALL_TOP_M + gB, wB[1]];
         if (s < 0) quad(portal, botA, topA, topB, botB);
         else quad(portal, botA, botB, topB, topA);
         const cA = stAt(A, wallOff + s * PORTAL_COPING_M), cB = stAt(B, wallOff + s * PORTAL_COPING_M);
-        const inA = [wA[0], PORTAL_WALL_TOP_M, wA[1]], inB = [wB[0], PORTAL_WALL_TOP_M, wB[1]];
-        const outA = [cA[0], PORTAL_WALL_TOP_M, cA[1]], outB = [cB[0], PORTAL_WALL_TOP_M, cB[1]];
+        const inA = [wA[0], PORTAL_WALL_TOP_M + gA, wA[1]], inB = [wB[0], PORTAL_WALL_TOP_M + gB, wB[1]];
+        const outA = [cA[0], PORTAL_WALL_TOP_M + gA, cA[1]], outB = [cB[0], PORTAL_WALL_TOP_M + gB, cB[1]];
         if (s < 0) quad(portal, outA, outB, inB, inA);
         else quad(portal, inA, inB, outB, outA);
       }
@@ -860,7 +877,7 @@ export function buildDeckGeometry(elevated, opts = {}) {
       const n2 = pointNormals(rec.pts);
       const offs = d.line.tracks?.length ? d.line.tracks : [0];
       const fn = d.line.trackStyle === 'guideway' ? guideStrip : trackStrip;
-      for (const si of d.trenchSegs) for (const o of offs) fn(rec.pts[si], n2[si], rec.h[si], rec.pts[si + 1], n2[si + 1], rec.h[si + 1], o);
+      for (const si of d.trenchSegs) for (const o of offs) fn(rec.pts[si], n2[si], rec.h[si] + groundAt(rec.pts[si][0], rec.pts[si][1]), rec.pts[si + 1], n2[si + 1], rec.h[si + 1] + groundAt(rec.pts[si + 1][0], rec.pts[si + 1][1]), o);
     }
   };
 
@@ -884,18 +901,25 @@ export function buildDeckGeometry(elevated, opts = {}) {
     // cross-sections follow the re-profiled heights on dive lines.
     const cs = pts.map((p, i) => {
       const h = effRec ? effRec.h[i] : (line.h[i] ?? 0);
+      // Issue #132: one lift per cross-section, sampled at the
+      // centreline point — the deck stays level across its width
+      // and follows the terrain it stands on. `h` stays the
+      // authored/effective profile: every form decision below
+      // (low-bed, caps, trims) reads it, never the lifted height.
+      const g = groundAt(p[0], p[1]);
+      const hg = h + g;
       const [nx, nz] = normals[i];
       const lx = p[0] + nx * half, lz = p[1] + nz * half;
       const rx = p[0] - nx * half, rz = p[1] - nz * half;
       const ilx = p[0] + nx * inner, ilz = p[1] + nz * inner;
       const irx = p[0] - nx * inner, irz = p[1] - nz * inner;
-      const yB = Math.max(h - depth, 0);
-      const yP = h + PARAPET_H, yA = h + ASPHALT_LIFT;
+      const yB = Math.max(hg - depth, g);
+      const yP = hg + PARAPET_H, yA = hg + ASPHALT_LIFT;
       return {
-        h,
-        TL: [lx, h, lz], TR: [rx, h, rz], BL: [lx, yB, lz], BR: [rx, yB, rz],
-        oL: [lx, h, lz], oLt: [lx, yP, lz], iL: [ilx, h, ilz], iLt: [ilx, yP, ilz],
-        oR: [rx, h, rz], oRt: [rx, yP, rz], iR: [irx, h, irz], iRt: [irx, yP, irz],
+        h, g,
+        TL: [lx, hg, lz], TR: [rx, hg, rz], BL: [lx, yB, lz], BR: [rx, yB, rz],
+        oL: [lx, hg, lz], oLt: [lx, yP, lz], iL: [ilx, hg, ilz], iLt: [ilx, yP, ilz],
+        oR: [rx, hg, rz], oRt: [rx, yP, rz], iR: [irx, hg, irz], iRt: [irx, yP, irz],
         aL: [ilx, yA, ilz], aR: [irx, yA, irz],
       };
     });
@@ -909,9 +933,10 @@ export function buildDeckGeometry(elevated, opts = {}) {
       if (Math.max(A.h, B.h) < LOW_BED_MAX && !(effRec && effRec.runSegs.has(i))) {
         // At-grade stretch: a low flat bed (top LOW_BED_H, no
         // parapets) with its asphalt on top — the ramp foot's
-        // pavement where the ground bed is suppressed.
-        const flat = (c, key) => [c[key][0], LOW_BED_H, c[key][2]];
-        const bot = (c, key) => [c[key][0], 0, c[key][2]];
+        // pavement where the ground bed is suppressed. Issue #132:
+        // the bed's top and foot ride the draped ground.
+        const flat = (c, key) => [c[key][0], LOW_BED_H + c.g, c[key][2]];
+        const bot = (c, key) => [c[key][0], c.g, c[key][2]];
         const aT = flat(A, 'TL'), aTb = flat(B, 'TL'), aR = flat(A, 'TR'), aRb = flat(B, 'TR');
         const aBl = bot(A, 'TL'), aBlb = bot(B, 'TL'), aBr = bot(A, 'TR'), aBrb = bot(B, 'TR');
         quad(concrete, aT, aTb, aRb, aR);          // top
@@ -919,10 +944,10 @@ export function buildDeckGeometry(elevated, opts = {}) {
         quad(concrete, aT, aBl, aBlb, aTb);        // left side
         quad(concrete, aR, aRb, aBrb, aBr);        // right side
         if (!tracks) {
-          const asph = (c, key) => [c[key][0], LOW_BED_H + ASPHALT_LIFT, c[key][2]];
+          const asph = (c, key) => [c[key][0], LOW_BED_H + ASPHALT_LIFT + c.g, c[key][2]];
           quad(asphalt, asph(A, 'aL'), asph(B, 'aL'), asph(B, 'aR'), asph(A, 'aR'));
         } else {
-          for (const o of trackOffs) stripFn(pts[i], normals[i], LOW_BED_H, pts[i + 1], normals[i + 1], LOW_BED_H, o);
+          for (const o of trackOffs) stripFn(pts[i], normals[i], LOW_BED_H + A.g, pts[i + 1], normals[i + 1], LOW_BED_H + B.g, o);
         }
         continue;
       }
@@ -975,9 +1000,10 @@ export function buildDeckGeometry(elevated, opts = {}) {
         emitSide(segTrim.right, false);
       }
       // Top ribbon inside the parapets: the asphalt ribbon, or in
-      // track mode the ballast strips + rails on the slab top.
+      // track mode the ballast strips + rails on the slab top
+      // (the lifted running surface, issue #132).
       if (!tracks) quad(asphalt, A.aL, B.aL, B.aR, A.aR);
-      else for (const o of trackOffs) stripFn(pts[i], normals[i], A.h, pts[i + 1], normals[i + 1], B.h, o);
+      else for (const o of trackOffs) stripFn(pts[i], normals[i], A.h + A.g, pts[i + 1], normals[i + 1], B.h + B.g, o);
     }
     // End caps where the line ends in the air (portal ends sit at
     // h ~ 0 and need none; tile-edge ends close the box).

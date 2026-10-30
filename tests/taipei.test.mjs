@@ -935,7 +935,7 @@ test('buildings options: plan faithfully adapted for the upstream building syste
     assert.ok(Math.abs((l.x0 + l.x1) / 2 - p.x) < 0.051 && Math.abs((l.z0 + l.z1) / 2 - p.z) < 0.051, 'lot centre matches the plan');
     assert.ok(Math.abs((l.x1 - l.x0) - p.w) < 0.051 && Math.abs((l.z1 - l.z0) - p.d) < 0.051, 'lot footprint matches the plan');
     assert.equal(l.h, p.h, 'lot height matches the plan');
-    assert.ok(Number.isInteger(l.mat) && l.mat >= 0 && l.mat <= 9, `facade material index ${l.mat} within upstream's ten families`);
+    assert.ok(Number.isInteger(l.mat) && l.mat >= 0 && l.mat <= 11, `facade material index ${l.mat} within the twelve families (0-9 upstream/Taiwan, 10/11 issue #256)`);
   });
   // Material zoning: tall lots never wear the low masonry families
   // (0-2), and the low residential interiors stay masonry. Issue #136
@@ -1595,8 +1595,15 @@ test('rooftop AC census on the real plan: one roof in three keeps AC', (t) => {
   }
   t.diagnostic(`real-plan AC census: ${hut} hut lots, ${kept} keep / ${dropped} drop`);
   assert.equal(hut, 5892, 'hut selection untouched by the AC roll');
-  assert.equal(kept, 20957, 'kept AC lots on this tree');
-  assert.equal(dropped, 41721, 'dropped AC lots on this tree');
+  // Issue #216: the facing pass moves lots, and the AC roll is
+  // seeded from lot position — 50 moved lots flip their roll, so
+  // kept moves 20,957 -> 21,007, while the hut selection is
+  // unchanged and the kept share stays at the 1/3 design point.
+  // Proven by cross-run: with { facing: false } the census
+  // returns to exactly 20,957 / 41,721
+  // (facing216b-evidence/proof-ac-off.mjs).
+  assert.equal(kept, 21007, 'kept AC lots on this tree');
+  assert.equal(dropped, 41671, 'dropped AC lots on this tree');
   const share = kept / (kept + dropped);
   assert.ok(share > 0.30 && share < 0.37, `kept share at the 1/3 design point (${share.toFixed(3)})`);
 });

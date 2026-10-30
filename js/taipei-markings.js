@@ -149,15 +149,43 @@
 // phase. Stop lines are single solid quads (not periodic) and stay
 // on the solid path.
 
+// CENTRE LINES (issue #249). Two-way roads carry a yellow centre
+// line the divider rule deliberately never painted: double solid
+// yellow (分向限制線, art. 165: 10 cm lines, 10 cm apart) on wide
+// beds, single dashed yellow (行車分向線, art. 181: 4 m / 6 m,
+// 10 cm) on narrower two-way beds >= 6 m. One-way beds carry the
+// OSM oneway flag since #249 (see build-generation-map.mjs), merged
+// beds are divided by their median, deck beds get no ground paint
+// (issue #162) — all three are skipped, and the same cap / ribbon /
+// median / furniture occlusion as the dividers applies, so no centre
+// line crosses a junction core or a zebra. Rendered as solid quads
+// in marking yellow by the boot (the shader-strip form is for
+// periodic white patterns; a solid line is a quad run, like the
+// stop lines).
+
 import { ribbonPoly, pointInPoly, buildPolyGrid, pointInAnyPoly } from './taipei-painted.js';
 import { medianKind, medianStripWidth, buildMedianStrips } from './taipei-surfaces.js';
-import { planJunctionCaps, planRoundabouts, ringPoints, capSurfacePolys, roundaboutDashOccluders } from './taipei-junctions.js';
+import { planJunctionCaps, planRoundabouts, ringPoints, capSurfacePolys, roundaboutDashOccluders, isMajorJunction } from './taipei-junctions.js';
 
 export const LANE_W = 3.2;               // generator's width-per-lane conversion
 export const DASH_LEN = 3;               // m of paint per dash
 export const DASH_GAP = 4.5;             // m of gap per dash cycle
 export const DIVIDER_W = 0.15;           // lane line width
 export const DIVIDER_MIN_RANK = 1;       // tertiary and above get dividers
+export const CENTER_DOUBLE_MIN_W = 9.6;   // >= 3 lanes: double solid yellow
+export const CENTER_MIN_W = 6;            // art. 181: dashed yellow from 6 m
+export const CENTER_LINE_W = 0.10;        // art. 165/181: 10 cm lines
+export const CENTER_DOUBLE_HALF = 0.15;   // line centres: 0.10 line + 0.10 gap
+export const CENTER_DASH_LEN = 4;         // art. 181: 4 m line
+export const CENTER_DASH_GAP = 6;         // art. 181: 6 m gap
+const CENTER_EXCLUDED = new Set(['service', 'living_street', 'track', 'rest_area', 'services', 'busway']);
+
+export const centerLinesFor = (bed) => {
+  if (!bed || bed.deck || bed.oneway) return false;
+  if (Array.isArray(bed.sourceWayIds) && bed.sourceWayIds.length >= 2) return false; // merged: median divides
+  if (CENTER_EXCLUDED.has(bed.highway)) return false;
+  return (bed.width || 0) >= CENTER_MIN_W;
+};
 const SAMPLE_STEP_M = 1.5;               // divider sampling step
 const GRID_M = 100;
 
@@ -318,6 +346,137 @@ export const bedLength = (bed) => {
 // ---------------------------------------------------------------------
 // Lane dividers.
 
+// Shared paint occluders for the divider builder and the centre-
+// line builder (issue #249): cap polygons, crosswalk furniture
+// polygons, median-strip polygons and foreign-bed ribbons. Factored
+// verbatim out of buildLaneDividers so both builders judge occlusion
+// identically; the divider body below is unchanged apart from this call.
+function buildPaintOccluders(roadbeds, medianStrips, capPolys, furnPolys) {
+    const capGrid = capPolys ? buildPolyGrid(capPolys) : null;
+    const capBlocked = (p) => pointInAnyPoly(capGrid, capPolys, p);
+    const furnGrid = furnPolys ? buildPolyGrid(furnPolys, FURN_GRID_M) : null;
+    // Candidate furniture polys for a query bbox (grid cells the
+    // bbox touches) — the pair tests below stay local.
+    const furnCands = (minx, minz, maxx, maxz) => {
+      const out = [], seen = new Set();
+      for (let gx = Math.floor(minx / FURN_GRID_M); gx <= Math.floor(maxx / FURN_GRID_M); gx++)
+        for (let gz = Math.floor(minz / FURN_GRID_M); gz <= Math.floor(maxz / FURN_GRID_M); gz++) {
+          for (const ci of furnGrid.get(`${gx},${gz}`) || []) if (!seen.has(ci)) { seen.add(ci); out.push(ci); }
+        }
+      return out;
+    };
+    // Area of subject ∩ clip for convex quads (Sutherland–Hodgman
+    // against the clip's edges, side-tested against the clip
+    // centroid so either winding works — the same construction
+    // the #170 furniture pass and the sweep probes use).
+    const overlapArea = (subject, clip) => {
+      const ccx = clip.reduce((s, p) => s + p[0], 0) / clip.length;
+      const ccz = clip.reduce((s, p) => s + p[1], 0) / clip.length;
+      let poly = subject;
+      for (let e = 0; e < clip.length && poly.length; e++) {
+        const a = clip[e], b = clip[(e + 1) % clip.length];
+        const ex = b[0] - a[0], ez = b[1] - a[1];
+        const side = (p) => ex * (p[1] - a[1]) - ez * (p[0] - a[0]);
+        const ref = side([ccx, ccz]);
+        const inside = (p) => side(p) * ref >= 0;
+        const next = [];
+        for (let i = 0; i < poly.length; i++) {
+          const cur = poly[i], prv = poly[(i + poly.length - 1) % poly.length];
+          const ci = inside(cur), pi = inside(prv);
+          if (ci !== pi) {
+            const t = side(prv) / (side(prv) - side(cur));
+            next.push([prv[0] + (cur[0] - prv[0]) * t, prv[1] + (cur[1] - prv[1]) * t]);
+          }
+          if (ci) next.push(cur);
+        }
+        poly = next;
+      }
+      if (poly.length < 3) return 0;
+      let ar = 0;
+      for (let i = 0; i < poly.length; i++) { const [x1, z1] = poly[i], [x2, z2] = poly[(i + 1) % poly.length]; ar += x1 * z2 - x2 * z1; }
+      return Math.abs(ar) / 2;
+    };
+    // Largest single-pair overlap of a dash quad (flat [x,z]x4)
+    // with any furniture poly whose bbox meets the quad's.
+    const furnOverlap = (q) => {
+      const pts = [[q[0], q[1]], [q[2], q[3]], [q[4], q[5]], [q[6], q[7]]];
+      const xs = pts.map((p) => p[0]), zs = pts.map((p) => p[1]);
+      let worst = 0;
+      for (const ci of furnCands(Math.min(...xs), Math.min(...zs), Math.max(...xs), Math.max(...zs))) {
+        const a = overlapArea(pts, furnPolys[ci]);
+        if (a > worst) worst = a;
+      }
+      return worst;
+    };
+    // Does the segment a->b pass through a furniture poly's
+    // interior? An endpoint inside, or a proper crossing of any
+    // edge (the #173 strict-orientation test). A tangential touch
+    // or a run along an edge paints nothing inside and stays.
+    const orient2 = (ax, az, bx, bz, px, pz) => (bx - ax) * (pz - az) - (bz - az) * (px - ax);
+    const segCrossesFurn = (ax, az, bx, bz) => {
+      for (const ci of furnCands(Math.min(ax, bx), Math.min(az, bz), Math.max(ax, bx), Math.max(az, bz))) {
+        const poly = furnPolys[ci];
+        if (pointInPoly([ax, az], poly) || pointInPoly([bx, bz], poly)) return true;
+        for (let e = 0; e < poly.length; e++) {
+          const [px, pz] = poly[e], [qx, qz] = poly[(e + 1) % poly.length];
+          const d1 = orient2(ax, az, bx, bz, px, pz), d2 = orient2(ax, az, bx, bz, qx, qz);
+          const d3 = orient2(px, pz, qx, qz, ax, az), d4 = orient2(px, pz, qx, qz, bx, bz);
+          if (((d1 > 0 && d2 < 0) || (d1 < 0 && d2 > 0)) && ((d3 > 0 && d4 < 0) || (d3 < 0 && d4 > 0))) return true;
+        }
+      }
+      return false;
+    };
+    const polys = roadbeds.map(ribbonPoly);
+    const grid = new Map();
+    polys.forEach((poly, i) => {
+      const xs = poly.map((p) => p[0]), zs = poly.map((p) => p[1]);
+      for (let gx = Math.floor(Math.min(...xs) / GRID_M); gx <= Math.floor(Math.max(...xs) / GRID_M); gx++)
+        for (let gz = Math.floor(Math.min(...zs) / GRID_M); gz <= Math.floor(Math.max(...zs) / GRID_M); gz++) {
+          const k = `${gx},${gz}`;
+          if (!grid.has(k)) grid.set(k, []);
+          grid.get(k).push(i);
+        }
+    });
+    const foreignBlocked = (p, selfIdx, selfWays) => {
+      const cand = grid.get(`${Math.floor(p[0] / GRID_M)},${Math.floor(p[1] / GRID_M)}`) || [];
+      for (const ci of cand) {
+        if (ci === selfIdx) continue;
+        if ((roadbeds[ci].sourceWayIds || []).some((w) => selfWays.has(w))) continue;
+        if (pointInPoly(p, polys[ci])) return true;
+      }
+      return false;
+    };
+    // Median strips are hard occluders for EVERY dash — including the
+    // dash bed's own strip and same-way neighbours'. Lane boundaries
+    // are computed to clear the strip, but near complex junctions
+    // overlapping same-road beds (the 光復南路 × 市民大道 interchange
+    // is the measured case: 108 dash centres) lay one bed's strip
+    // across another's carriageway where the foreign-bed clip cannot
+    // see it, because the beds share source ways. The strip polygons
+    // taipei-surfaces actually draws are the ground truth: no dash
+    // sample may fall inside any of them.
+    const strips = medianStrips || buildMedianStrips(roadbeds);
+    const stripPolys = [...strips.planted, ...strips.plain].map((q) => [[q[0], q[1]], [q[2], q[3]], [q[4], q[5]], [q[6], q[7]]]);
+    const STRIP_GRID_M = 25; // small cells: few candidate quads per lookup
+    const stripGrid = new Map();
+    stripPolys.forEach((poly, i) => {
+      const xs = poly.map((p) => p[0]), zs = poly.map((p) => p[1]);
+      for (let gx = Math.floor(Math.min(...xs) / STRIP_GRID_M); gx <= Math.floor(Math.max(...xs) / STRIP_GRID_M); gx++)
+        for (let gz = Math.floor(Math.min(...zs) / STRIP_GRID_M); gz <= Math.floor(Math.max(...zs) / STRIP_GRID_M); gz++) {
+          const k = `${gx},${gz}`;
+          if (!stripGrid.has(k)) stripGrid.set(k, []);
+          stripGrid.get(k).push(i);
+        }
+    });
+    const inMedianStrip = (p) => {
+      const cand = stripGrid.get(`${Math.floor(p[0] / STRIP_GRID_M)},${Math.floor(p[1] / STRIP_GRID_M)}`) || [];
+      for (const ci of cand) if (pointInPoly(p, stripPolys[ci])) return true;
+      return false;
+    };
+
+  return { capGrid, capBlocked, furnGrid, furnOverlap, segCrossesFurn, inMedianStrip, foreignBlocked };
+}
+
 // buildLaneDividers(roadbeds, suppress, medianStrips?, capPolys?)
 // -> { dashes, dashStrips, stats }
 // suppress: Map `${bedIndex}:${end}` -> arc metres from that bed end
@@ -347,127 +506,9 @@ export const bedLength = (bed) => {
 // centreline crosses one. Callers that pass no furnPolys (the
 // synthetic unit beds) get neither rule — byte-identical.
 export function buildLaneDividers(roadbeds, suppress = new Map(), medianStrips = null, capPolys = null, furnPolys = null) {
-  const capGrid = capPolys ? buildPolyGrid(capPolys) : null;
-  const capBlocked = (p) => pointInAnyPoly(capGrid, capPolys, p);
-  const furnGrid = furnPolys ? buildPolyGrid(furnPolys, FURN_GRID_M) : null;
-  // Candidate furniture polys for a query bbox (grid cells the
-  // bbox touches) — the pair tests below stay local.
-  const furnCands = (minx, minz, maxx, maxz) => {
-    const out = [], seen = new Set();
-    for (let gx = Math.floor(minx / FURN_GRID_M); gx <= Math.floor(maxx / FURN_GRID_M); gx++)
-      for (let gz = Math.floor(minz / FURN_GRID_M); gz <= Math.floor(maxz / FURN_GRID_M); gz++) {
-        for (const ci of furnGrid.get(`${gx},${gz}`) || []) if (!seen.has(ci)) { seen.add(ci); out.push(ci); }
-      }
-    return out;
-  };
-  // Area of subject ∩ clip for convex quads (Sutherland–Hodgman
-  // against the clip's edges, side-tested against the clip
-  // centroid so either winding works — the same construction
-  // the #170 furniture pass and the sweep probes use).
-  const overlapArea = (subject, clip) => {
-    const ccx = clip.reduce((s, p) => s + p[0], 0) / clip.length;
-    const ccz = clip.reduce((s, p) => s + p[1], 0) / clip.length;
-    let poly = subject;
-    for (let e = 0; e < clip.length && poly.length; e++) {
-      const a = clip[e], b = clip[(e + 1) % clip.length];
-      const ex = b[0] - a[0], ez = b[1] - a[1];
-      const side = (p) => ex * (p[1] - a[1]) - ez * (p[0] - a[0]);
-      const ref = side([ccx, ccz]);
-      const inside = (p) => side(p) * ref >= 0;
-      const next = [];
-      for (let i = 0; i < poly.length; i++) {
-        const cur = poly[i], prv = poly[(i + poly.length - 1) % poly.length];
-        const ci = inside(cur), pi = inside(prv);
-        if (ci !== pi) {
-          const t = side(prv) / (side(prv) - side(cur));
-          next.push([prv[0] + (cur[0] - prv[0]) * t, prv[1] + (cur[1] - prv[1]) * t]);
-        }
-        if (ci) next.push(cur);
-      }
-      poly = next;
-    }
-    if (poly.length < 3) return 0;
-    let ar = 0;
-    for (let i = 0; i < poly.length; i++) { const [x1, z1] = poly[i], [x2, z2] = poly[(i + 1) % poly.length]; ar += x1 * z2 - x2 * z1; }
-    return Math.abs(ar) / 2;
-  };
-  // Largest single-pair overlap of a dash quad (flat [x,z]x4)
-  // with any furniture poly whose bbox meets the quad's.
-  const furnOverlap = (q) => {
-    const pts = [[q[0], q[1]], [q[2], q[3]], [q[4], q[5]], [q[6], q[7]]];
-    const xs = pts.map((p) => p[0]), zs = pts.map((p) => p[1]);
-    let worst = 0;
-    for (const ci of furnCands(Math.min(...xs), Math.min(...zs), Math.max(...xs), Math.max(...zs))) {
-      const a = overlapArea(pts, furnPolys[ci]);
-      if (a > worst) worst = a;
-    }
-    return worst;
-  };
-  // Does the segment a->b pass through a furniture poly's
-  // interior? An endpoint inside, or a proper crossing of any
-  // edge (the #173 strict-orientation test). A tangential touch
-  // or a run along an edge paints nothing inside and stays.
-  const orient2 = (ax, az, bx, bz, px, pz) => (bx - ax) * (pz - az) - (bz - az) * (px - ax);
-  const segCrossesFurn = (ax, az, bx, bz) => {
-    for (const ci of furnCands(Math.min(ax, bx), Math.min(az, bz), Math.max(ax, bx), Math.max(az, bz))) {
-      const poly = furnPolys[ci];
-      if (pointInPoly([ax, az], poly) || pointInPoly([bx, bz], poly)) return true;
-      for (let e = 0; e < poly.length; e++) {
-        const [px, pz] = poly[e], [qx, qz] = poly[(e + 1) % poly.length];
-        const d1 = orient2(ax, az, bx, bz, px, pz), d2 = orient2(ax, az, bx, bz, qx, qz);
-        const d3 = orient2(px, pz, qx, qz, ax, az), d4 = orient2(px, pz, qx, qz, bx, bz);
-        if (((d1 > 0 && d2 < 0) || (d1 < 0 && d2 > 0)) && ((d3 > 0 && d4 < 0) || (d3 < 0 && d4 > 0))) return true;
-      }
-    }
-    return false;
-  };
-  const polys = roadbeds.map(ribbonPoly);
-  const grid = new Map();
-  polys.forEach((poly, i) => {
-    const xs = poly.map((p) => p[0]), zs = poly.map((p) => p[1]);
-    for (let gx = Math.floor(Math.min(...xs) / GRID_M); gx <= Math.floor(Math.max(...xs) / GRID_M); gx++)
-      for (let gz = Math.floor(Math.min(...zs) / GRID_M); gz <= Math.floor(Math.max(...zs) / GRID_M); gz++) {
-        const k = `${gx},${gz}`;
-        if (!grid.has(k)) grid.set(k, []);
-        grid.get(k).push(i);
-      }
-  });
-  const foreignBlocked = (p, selfIdx, selfWays) => {
-    const cand = grid.get(`${Math.floor(p[0] / GRID_M)},${Math.floor(p[1] / GRID_M)}`) || [];
-    for (const ci of cand) {
-      if (ci === selfIdx) continue;
-      if ((roadbeds[ci].sourceWayIds || []).some((w) => selfWays.has(w))) continue;
-      if (pointInPoly(p, polys[ci])) return true;
-    }
-    return false;
-  };
-  // Median strips are hard occluders for EVERY dash — including the
-  // dash bed's own strip and same-way neighbours'. Lane boundaries
-  // are computed to clear the strip, but near complex junctions
-  // overlapping same-road beds (the 光復南路 × 市民大道 interchange
-  // is the measured case: 108 dash centres) lay one bed's strip
-  // across another's carriageway where the foreign-bed clip cannot
-  // see it, because the beds share source ways. The strip polygons
-  // taipei-surfaces actually draws are the ground truth: no dash
-  // sample may fall inside any of them.
-  const strips = medianStrips || buildMedianStrips(roadbeds);
-  const stripPolys = [...strips.planted, ...strips.plain].map((q) => [[q[0], q[1]], [q[2], q[3]], [q[4], q[5]], [q[6], q[7]]]);
-  const STRIP_GRID_M = 25; // small cells: few candidate quads per lookup
-  const stripGrid = new Map();
-  stripPolys.forEach((poly, i) => {
-    const xs = poly.map((p) => p[0]), zs = poly.map((p) => p[1]);
-    for (let gx = Math.floor(Math.min(...xs) / STRIP_GRID_M); gx <= Math.floor(Math.max(...xs) / STRIP_GRID_M); gx++)
-      for (let gz = Math.floor(Math.min(...zs) / STRIP_GRID_M); gz <= Math.floor(Math.max(...zs) / STRIP_GRID_M); gz++) {
-        const k = `${gx},${gz}`;
-        if (!stripGrid.has(k)) stripGrid.set(k, []);
-        stripGrid.get(k).push(i);
-      }
-  });
-  const inMedianStrip = (p) => {
-    const cand = stripGrid.get(`${Math.floor(p[0] / STRIP_GRID_M)},${Math.floor(p[1] / STRIP_GRID_M)}`) || [];
-    for (const ci of cand) if (pointInPoly(p, stripPolys[ci])) return true;
-    return false;
-  };
+
+  const { capGrid, capBlocked, furnGrid, furnOverlap, segCrossesFurn, inMedianStrip, foreignBlocked } =
+    buildPaintOccluders(roadbeds, medianStrips, capPolys, furnPolys);
 
   const stats = { beds: 0, dashQuads: 0, dividerKm: 0, medianBlockedSamples: 0, deckBedsSkipped: 0, crossPairs: 0, crossBlockedSamples: 0, stripSegmentsClipped: 0, furnBlockedQuads: 0, furnStripSegmentsClipped: 0 };
 
@@ -690,6 +731,89 @@ export function buildLaneDividers(roadbeds, suppress = new Map(), medianStrips =
   return { dashes, dashStrips, stats };
 }
 
+export function buildCenterLines(roadbeds, suppress = new Map(), medianStrips = null, capPolys = null, furnPolys = null) {
+  const { capBlocked, furnGrid, furnOverlap, inMedianStrip, foreignBlocked } =
+    buildPaintOccluders(roadbeds, medianStrips, capPolys, furnPolys);
+  const stats = {
+    beds: 0, doubleBeds: 0, dashBeds: 0,
+    doubleKm: 0, dashKm: 0, doubleQuads: 0, dashQuads: 0,
+    medianBlockedSamples: 0, furnBlockedQuads: 0,
+    deckBedsSkipped: 0, onewayBedsSkipped: 0, mergedBedsSkipped: 0,
+    narrowBedsSkipped: 0, excludedBedsSkipped: 0,
+  };
+  const quads = [];
+  roadbeds.forEach((bed, selfIdx) => {
+    if (!centerLinesFor(bed)) {
+      // Census only, mirroring the divider builder's deck census:
+      // each skipped bed is counted under its first failing gate
+      // so the tile-wide pins decompose by rule, not by guess.
+      if (bed && bed.deck && !bed.oneway && !(Array.isArray(bed.sourceWayIds) && bed.sourceWayIds.length >= 2)
+        && !CENTER_EXCLUDED.has(bed.highway) && (bed.width || 0) >= CENTER_MIN_W) stats.deckBedsSkipped++;
+      else if (bed && bed.oneway) stats.onewayBedsSkipped++;
+      else if (bed && Array.isArray(bed.sourceWayIds) && bed.sourceWayIds.length >= 2) stats.mergedBedsSkipped++;
+      else if (bed && (bed.width || 0) < CENTER_MIN_W) stats.narrowBedsSkipped++;
+      else if (bed && CENTER_EXCLUDED.has(bed.highway)) stats.excludedBedsSkipped++;
+      return;
+    }
+    const selfWays = new Set(bed.sourceWayIds || []);
+    const densified = densifyPts(ptsOf(bed), SAMPLE_STEP_M);
+    const pts = densified.pts;
+    const arc = [0];
+    for (let i = 1; i < pts.length; i++) arc.push(arc[i - 1] + Math.hypot(pts[i][0] - pts[i - 1][0], pts[i][1] - pts[i - 1][1]));
+    const totalLen = arc[arc.length - 1];
+    const supStart = suppress.get(`${selfIdx}:0`) || 0;
+    const supEnd = suppress.get(`${selfIdx}:1`) || 0;
+    const frames = pts.map((p, i) => {
+      const a = pts[Math.max(0, i - 1)], c = pts[Math.min(pts.length - 1, i + 1)];
+      let dx = c[0] - a[0], dz = c[1] - a[1];
+      const n = Math.hypot(dx, dz) || 1; dx /= n; dz /= n;
+      return { p, nx: -dz, nz: dx, arc: arc[i], suppressed: arc[i] < supStart || totalLen - arc[i] < supEnd };
+    });
+    const isDouble = (bed.width || 0) >= CENTER_DOUBLE_MIN_W;
+    const offsets = isDouble ? [-CENTER_DOUBLE_HALF, CENTER_DOUBLE_HALF] : [0];
+    stats.beds++;
+    if (isDouble) stats.doubleBeds++; else stats.dashBeds++;
+    const half = CENTER_LINE_W / 2;
+    for (const off of offsets) {
+      const lo = off - half, hi = off + half;
+      const blocked = frames.map((f) => {
+        const pc = [f.p[0] + f.nx * off, f.p[1] + f.nz * off];
+        const pl = [f.p[0] + f.nx * lo, f.p[1] + f.nz * lo];
+        const ph = [f.p[0] + f.nx * hi, f.p[1] + f.nz * hi];
+        if (inMedianStrip(pc) || inMedianStrip(pl) || inMedianStrip(ph)) { stats.medianBlockedSamples++; return true; }
+        if (capBlocked(pc)) return true;
+        return f.suppressed || foreignBlocked(pc, selfIdx, selfWays) || foreignBlocked(pl, selfIdx, selfWays) || foreignBlocked(ph, selfIdx, selfWays);
+      });
+      for (let i = 0; i + 1 < frames.length; i++) {
+        if (blocked[i] || blocked[i + 1]) continue;
+        const f0 = frames[i], f1 = frames[i + 1];
+        if (!isDouble) {
+          const midArc = (f0.arc + f1.arc) / 2;
+          if (midArc % (CENTER_DASH_LEN + CENTER_DASH_GAP) >= CENTER_DASH_LEN) continue; // in the gap
+        }
+        const mid = [(f0.p[0] + f1.p[0]) / 2 + ((f0.nx + f1.nx) / 2) * off,
+                     (f0.p[1] + f1.p[1]) / 2 + ((f0.nz + f1.nz) / 2) * off];
+        if (foreignBlocked(mid, selfIdx, selfWays) || inMedianStrip(mid) || capBlocked(mid)) continue;
+        const quad = [
+          f0.p[0] + f0.nx * hi, f0.p[1] + f0.nz * hi,
+          f1.p[0] + f1.nx * hi, f1.p[1] + f1.nz * hi,
+          f1.p[0] + f1.nx * lo, f1.p[1] + f1.nz * lo,
+          f0.p[0] + f0.nx * lo, f0.p[1] + f0.nz * lo,
+        ];
+        // Furniture outranks paint, as for the dashes (issue #182):
+        // cull the quad when its own overlap with a band or stripe
+        // polygon exceeds the hairline.
+        if (furnGrid && furnOverlap(quad) > DASH_FURN_OVERLAP_M2) { stats.furnBlockedQuads++; continue; }
+        quads.push(quad);
+        const len = Math.hypot(f1.p[0] - f0.p[0], f1.p[1] - f0.p[1]) / 1000;
+        if (isDouble) { stats.doubleQuads++; stats.doubleKm += len; }
+        else { stats.dashQuads++; stats.dashKm += len; }
+      }
+    }
+  });
+  return { quads, stats };
+}
+
 // ---------------------------------------------------------------------
 // Junction detection.
 
@@ -831,6 +955,41 @@ export function junctionArmDivided(junction, arm, roadbeds) {
   return false;
 }
 
+// POC (#214) G1 classifier: a fitted, unsignalized junction whose
+// through road is divided (a merged bed carrying a median, or a
+// same-name same-direction twin carriageway pair) and is crossed
+// by a minor arm. Returns null, or the axis frame the zebra POC
+// places against: { mode: 'merged' | 'twin', ux, uz (axis dir),
+// axisArm, half, medianHalf (merged), twins (twin mode) }.
+const crossAngleOk = (a, b) => {
+  const dot = Math.max(-1, Math.min(1, a.dirX * b.dirX + a.dirZ * b.dirZ));
+  const ang = (Math.acos(dot) * 180) / Math.PI;
+  return ang >= 35 && ang <= 145;
+};
+export function dividedAvenueInfo(j, roadbeds) {
+  if (!j || j.signalized || isMajorJunction(j)) return null;
+  const arms = j.arms || [];
+  const crossedByMinor = (a) => arms.some((c) =>
+    c !== a && c.name !== a.name && crossAngleOk(a, c) && !roadbeds[c.bed].deck);
+  for (const a of arms) {
+    if (!medianKind(roadbeds[a.bed])) continue;
+    if (!crossedByMinor(a)) continue;
+    const { medianHalf } = laneLayout(roadbeds[a.bed]);
+    return { mode: 'merged', ux: a.dirX, uz: a.dirZ, axisArm: a, half: roadbeds[a.bed].width / 2, medianHalf };
+  }
+  for (let i = 0; i < arms.length; i++) {
+    for (let k = i + 1; k < arms.length; k++) {
+      const a = arms[i], b = arms[k];
+      if (!a.name || a.name !== b.name) continue;
+      if (a.dirX * b.dirX + a.dirZ * b.dirZ < Math.cos((25 * Math.PI) / 180)) continue;
+      if (!junctionArmDivided(j, a, roadbeds)) continue;
+      if (!crossedByMinor(a)) continue;
+      return { mode: 'twin', ux: a.dirX, uz: a.dirZ, axisArm: a, twins: [a, b] };
+    }
+  }
+  return null;
+}
+
 // buildJunctionFurniture(roadbeds, junctions) ->
 // { stripes, stopLines, signals, suppress, stats, bands, bandJunction }
 // stripes / stopLines are quads for the renderer's quadsGeometry.
@@ -847,7 +1006,7 @@ export function junctionArmDivided(junction, arm, roadbeds) {
 // mast arm over the approach) on divided approaches only, 'pole'
 // (plain corner pole) elsewhere; armLen is the mast arm's reach.
 // suppress feeds buildLaneDividers' stop-line zones.
-export function buildJunctionFurniture(roadbeds, junctions, capsIn = null) {
+export function buildJunctionFurniture(roadbeds, junctions, capsIn = null, opts = {}) {
   let stripes = [], stopLines = [], signals = [];
   // Provenance (issue #75 audit/tests): the junction index that
   // generated each stripe / stop-line quad, aligned with the
@@ -862,6 +1021,7 @@ export function buildJunctionFurniture(roadbeds, junctions, capsIn = null) {
   const suppress = new Map();
   const stats = {
     junctions: 0, crosswalks: 0, stopLines: 0, signals: 0, skippedArms: 0,
+    dividedPocJunctions: 0, dividedPocCrosswalks: 0,
     mastSignals: 0, poleSignals: 0, clearanceMoved: 0, clearanceUnresolved: 0, clearanceFallback: 0,
     ringArmsSkipped: 0, deckArmsSkipped: 0,
     // Furniture discipline (issue #170): surface-relocated signal
@@ -1209,6 +1369,81 @@ export function buildJunctionFurniture(roadbeds, junctions, capsIn = null) {
       }
     }
   });
+  // ---- POC (#214) G1: divided-avenue zebras ----------------------
+  // Flag-gated (opts.dividedPoc); off by default the furniture is
+  // exactly the signalized-only set above. At a fitted junction
+  // whose through road is divided, each minor arm's mouth gets a
+  // zebra across EACH carriageway of the avenue, seated on the
+  // cap: the band is perpendicular to the avenue, centred on the
+  // minor arm's axis where it meets the avenue centreline, and
+  // spans one carriageway (one half of a merged bed split by its
+  // median, or one twin bed). Stripes use the same pitch/width/
+  // depth as the signalized crossings and join the same groups,
+  // so the #170 discipline pass below judges them identically.
+  if (opts.dividedPoc) {
+    const placePocBand = (cx, cz, ux, uz, vx, vz, spanHalf, ji, rank, width) => {
+      const d = CROSSWALK_DEPTH / 2;
+      const gStart = stripes.length;
+      let firstO = null, lastO = null;
+      for (let o = -spanHalf + 0.35 + STRIPE_W / 2; o <= spanHalf - 0.35 - STRIPE_W / 2 + 1e-6; o += STRIPE_PITCH) {
+        const oHi = o + STRIPE_W / 2, oLo = o - STRIPE_W / 2;
+        stripes.push([
+          cx - ux * d + vx * oHi, cz - uz * d + vz * oHi,
+          cx + ux * d + vx * oHi, cz + uz * d + vz * oHi,
+          cx + ux * d + vx * oLo, cz + uz * d + vz * oLo,
+          cx - ux * d + vx * oLo, cz - uz * d + vz * oLo,
+        ]);
+        stripeJunction.push(ji);
+        if (firstO === null) firstO = o;
+        lastO = o;
+      }
+      if (firstO !== null) {
+        const bHi = lastO + STRIPE_W / 2, bLo = firstO - STRIPE_W / 2;
+        bands.push({
+          quad: [
+            cx - ux * d + vx * bHi, cz - uz * d + vz * bHi,
+            cx + ux * d + vx * bHi, cz + uz * d + vz * bHi,
+            cx + ux * d + vx * bLo, cz + uz * d + vz * bLo,
+            cx - ux * d + vx * bLo, cz - uz * d + vz * bLo,
+          ],
+          width: bHi - bLo,
+        });
+        bandJunction.push(ji);
+        groups.push({ ji, start: gStart, count: stripes.length - gStart, rank, width });
+        stats.dividedPocCrosswalks++;
+      }
+    };
+    junctions.forEach((j, ji) => {
+      if (claimOf.get(ji)) return;
+      const info = dividedAvenueInfo(j, roadbeds);
+      if (!info) return;
+      stats.dividedPocJunctions++;
+      const ux = info.ux, uz = info.uz, vx = -uz, vz = ux;
+      const axisName = info.axisArm.name;
+      for (const c of j.arms) {
+        if (c.name === axisName) continue;
+        if (roadbeds[c.bed].deck) continue;
+        if (!crossAngleOk(info.axisArm, c)) continue;
+        const sStar = (c.endX - j.x) * ux + (c.endZ - j.z) * uz;
+        if (info.mode === 'merged') {
+          const oAxis = (info.axisArm.endX - j.x) * vx + (info.axisArm.endZ - j.z) * vz;
+          for (const [lo, hi] of [[info.medianHalf, info.half], [-info.half, -info.medianHalf]]) {
+            if (hi - lo < CROSSWALK_MIN_ARM_W) continue;
+            const oMid = oAxis + (lo + hi) / 2;
+            placePocBand(j.x + ux * sStar + vx * oMid, j.z + uz * sStar + vz * oMid,
+              ux, uz, vx, vz, (hi - lo) / 2, ji, c.rank || 0, hi - lo);
+          }
+        } else {
+          for (const t of info.twins) {
+            if (t.width < CROSSWALK_MIN_ARM_W) continue;
+            const oT = (t.endX - j.x) * vx + (t.endZ - j.z) * vz;
+            placePocBand(j.x + ux * sStar + vx * oT, j.z + uz * sStar + vz * oT,
+              ux, uz, vx, vz, t.width / 2, ji, c.rank || 0, t.width);
+          }
+        }
+      }
+    });
+  }
   // ---- furniture discipline pass (issue #170) -------------------
   // Runs over the placed furniture; the junction surfaces and the
   // dash suppression map are NOT touched. Planner quads are simple
@@ -1585,7 +1820,7 @@ export function buildJunctionFurniture(roadbeds, junctions, capsIn = null) {
 // At roundabout-claimed junctions, ring-carriageway arms get no
 // furniture at all (see buildJunctionFurniture): the crossings
 // stand on the ring entries only.
-export function buildRoadMarkings(roadbeds, medianStrips = null, caps = null, junctionsIn = null, greenPolys = []) {
+export function buildRoadMarkings(roadbeds, medianStrips = null, caps = null, junctionsIn = null, greenPolys = [], opts = {}) {
   const junctions = junctionsIn || detectJunctions(roadbeds);
   if (!caps) caps = planJunctionCaps(roadbeds, junctions);
   // Issue #163: dashes clip against the caps' full paved
@@ -1596,7 +1831,7 @@ export function buildRoadMarkings(roadbeds, medianStrips = null, caps = null, ju
   // across the planted wedges at the Renai circle.
   const sites = planRoundabouts(roadbeds, junctions);
   const capPolys = [...caps.flatMap((c) => capSurfacePolys(c)), ...roundaboutDashOccluders(sites, greenPolys)];
-  const furniture = buildJunctionFurniture(roadbeds, junctions, caps);
+  const furniture = buildJunctionFurniture(roadbeds, junctions, caps, opts);
   // Issue #182: the placed crosswalk bands and stripes are dash
   // occluders too — the furniture is final here (the #170 pass
   // has already culled it), and the divider builder culls dash
@@ -1604,11 +1839,13 @@ export function buildRoadMarkings(roadbeds, medianStrips = null, caps = null, ju
   const furnPolys = [...furniture.bands.map((b) => b.quad), ...furniture.stripes]
     .map((q) => [[q[0], q[1]], [q[2], q[3]], [q[4], q[5]], [q[6], q[7]]]);
   const dividers = buildLaneDividers(roadbeds, furniture.suppress, medianStrips, capPolys, furnPolys);
+  const center = buildCenterLines(roadbeds, furniture.suppress, medianStrips, capPolys, furnPolys);
   return {
     junctions,
     caps,
     dashes: dividers.dashes,
     dashStrips: dividers.dashStrips,
+    centerQuads: center.quads,
     stripes: furniture.stripes,
     bands: furniture.bands,
     bandJunction: furniture.bandJunction,
@@ -1623,12 +1860,27 @@ export function buildRoadMarkings(roadbeds, medianStrips = null, caps = null, ju
       deckDividerBedsSkipped: dividers.stats.deckBedsSkipped,
       dashQuads: dividers.stats.dashQuads,
       dividerKm: dividers.stats.dividerKm,
+      centerBeds: center.stats.beds,
+      centerDoubleBeds: center.stats.doubleBeds,
+      centerDashBeds: center.stats.dashBeds,
+      centerDoubleKm: center.stats.doubleKm,
+      centerDashKm: center.stats.dashKm,
+      centerDoubleQuads: center.stats.doubleQuads,
+      centerDashQuads: center.stats.dashQuads,
+      centerFurnBlockedQuads: center.stats.furnBlockedQuads,
+      centerDeckBedsSkipped: center.stats.deckBedsSkipped,
+      centerOnewayBedsSkipped: center.stats.onewayBedsSkipped,
+      centerMergedBedsSkipped: center.stats.mergedBedsSkipped,
+      centerNarrowBedsSkipped: center.stats.narrowBedsSkipped,
+      centerExcludedBedsSkipped: center.stats.excludedBedsSkipped,
       crossPairs: dividers.stats.crossPairs,
       crossBlockedSamples: dividers.stats.crossBlockedSamples,
       furnBlockedQuads: dividers.stats.furnBlockedQuads,
       furnStripSegmentsClipped: dividers.stats.furnStripSegmentsClipped,
       medianBlockedSamples: dividers.stats.medianBlockedSamples,
       crosswalks: furniture.stats.crosswalks,
+      dividedPocJunctions: furniture.stats.dividedPocJunctions,
+      dividedPocCrosswalks: furniture.stats.dividedPocCrosswalks,
       stopLines: furniture.stats.stopLines,
       signalUnits: furniture.stats.signals,
       signalMast: furniture.stats.mastSignals,

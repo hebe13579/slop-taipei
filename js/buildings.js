@@ -477,6 +477,71 @@ function buildCityBlocks(scene, opts = null) {
       signRate: 0.5,
       recess: 0.25,
       wallRoughness: 0.9
+    }],
+    // 10/11: newer apartment towers (issue #256) — appended so the ten
+    // upstream/Taiwan indices never move. Only the Taipei planner
+    // assigns them (tall lots outside the office cores); Manhattan's
+    // matFor never returns them, so NYC renders as before.
+    // 10: modern white slab — white/light-grey cladding, dark glass,
+    // dark horizontal spandrel bands, straight-rail balcony grids,
+    // no shop signs (a residential lobby, not a shophouse).
+    [createTileShophouseMaterial, {
+      windowWidth: 2.4,
+      floorHeight: 3.1,
+      windowRatioX: 0.62,
+      windowRatioY: 0.62,
+      windowGlassColor: 0x141c24,
+      litProbability: 0.55,
+      warmth: 0.72,
+      seed: 511.7,
+      cornerPier: 0.55,
+      tilePalette: [0xeceae4, 0xe2e0da, 0xd8d6d0, 0xcfccc4],
+      accentColor: 0x8f959a,
+      accentEvery: 0,
+      trimColor: 0x9aa0a4,
+      tileModule: 0.3,
+      acThreshold: 0.78,
+      grilleProb: 0.10,
+      balconyStyle: 1,
+      balconyThreshold: 0.30,
+      balconyPalette: [0xdcd8d0, 0xc9c5bd],
+      signRate: 0,
+      recess: 0.30,
+      wallRoughness: 0.55,
+      floorBandColor: 0x2e3438,
+      floorBandTop: 0.22
+    }],
+    // 11: neoclassical stone-clad luxury tower — beige/grey stone,
+    // pilaster fins every 4th bay, bronze lattice frieze panels,
+    // deep rail balconies, gold trim (coping, door frames, fascia).
+    [createTileShophouseMaterial, {
+      windowWidth: 2.6,
+      floorHeight: 3.4,
+      windowRatioX: 0.52,
+      windowRatioY: 0.58,
+      windowGlassColor: 0x1c2630,
+      litProbability: 0.52,
+      warmth: 0.78,
+      seed: 617.3,
+      cornerPier: 0.7,
+      tilePalette: [0xcfc3a8, 0xc6b89e, 0xbcb096, 0xd6ccb4],
+      accentColor: 0xb5a888,
+      accentEvery: 4,
+      trimColor: 0xc9a84c,
+      tileModule: 0.45,
+      acThreshold: 0.85,
+      grilleProb: 0.22,
+      balconyStyle: 1,
+      balconyThreshold: 0.42,
+      balconyPalette: [0xc4b694, 0xb3a37e],
+      signRate: 0,
+      recess: 0.22,
+      wallRoughness: 0.7,
+      pilaster: 1,
+      pilasterColor: 0xddd5c0,
+      latticeColor: 0x6b5326,
+      latticeEvery: 2,
+      latticeProb: 0.8
     }]
   ];
   // Issue #240: Taipei lots fade facade detail with distance
@@ -2058,7 +2123,35 @@ function buildCityBlocks(scene, opts = null) {
       mass(b, a.columns, 0, 1);
       for (let i = colStart; i < b.parts.length; i++) b.parts[i].walls = WALL_KINDS.blankStone;
     }
-    mass(b, [rect(minX, maxX, minZ, maxZ)], lot.arcade && floors >= 2 ? 1 : 0, floors);
+    if (lot.newer && floors >= 6) {
+      // Issue #256 — newer apartment massing (parts computed by
+      // taipeiNewerApartmentParts in js/taipei-buildings.js, in this
+      // lot's local frame): a 2-storey podium at the full footprint,
+      // inset tower(s) above it, a stepped crown on each tower, and
+      // (family 11 only) a gold-trimmed entrance canopy + piers as
+      // blank-stone parts with explicit heights, like the arcade
+      // columns above. Every part stays inside the lot rect except
+      // the canopy fascia, which stands 0.05 m proud of the face.
+      const nw = lot.newer;
+      mass(b, [rect(minX, maxX, minZ, maxZ)], 0, 2);
+      mass(b, nw.towers.map((r) => rect(r.x0, r.x1, r.z0, r.z1)), 2, floors - 2);
+      mass(b, nw.crowns.map((r) => rect(r.x0, r.x1, r.z0, r.z1)), floors - 2, floors);
+      // Entrance canopy + piers (family 11): explicit-height parts,
+      // blank stone all round, like the arcade columns above.
+      const solidParts = [...(lot.entrance ? [lot.entrance.canopy, ...lot.entrance.piers] : [])];
+      const solidStart = b.parts.length;
+      for (const p of solidParts) b.parts.push({ x0: p.x0, x1: p.x1, z0: p.z0, z1: p.z1, y0: p.y0, y1: p.y1 });
+      for (let i = solidStart; i < b.parts.length; i++) b.parts[i].walls = WALL_KINDS.blankStone;
+    } else {
+      mass(b, [rect(minX, maxX, minZ, maxZ)], lot.arcade && floors >= 2 ? 1 : 0, floors);
+    }
+    // Issue #132: a planned lot may carry a seated base (lot.y,
+    // from the Taipei drape seating in taipeiCityBlocksOptions) —
+    // shift every massed part up by it BEFORE commit, so facades,
+    // footprints, colliders, cornices and roof gear all ride the
+    // seated base. Lots without lot.y are untouched (the whole
+    // Manhattan path and every flat Taipei lot).
+    if (lot.y) for (const p of b.parts) { p.y0 += lot.y; p.y1 += lot.y; }
     // Issue #85: no Manhattan storefront dressing on planned lots — the
     // avenueFront path (commit step 4) hangs a canvas awning, an
     // English-text fascia sign and a storefront spotlight on every
@@ -2074,8 +2167,10 @@ function buildCityBlocks(scene, opts = null) {
       // Taiwan types (issue #17): no stone cornice, no water tower (rooftop
       // gear is clamped below anyway); ground-floor shop share per type —
       // shophouses and arcades are retail-led, the walk-up and pebble-dash
-      // are housing-led with some shops.
-      ? { cornice: false, roof: 'prewar', wtP: 0, shops: [0.85, 0.9, 0.45, 0.35][mat - 6], awnings: false }
+      // are housing-led with some shops. The newer apartment towers
+      // (issue #256, families 10/11) are housing-led too: lobbies, not
+      // shops — the lowest shares in the table.
+      ? { cornice: false, roof: 'prewar', wtP: 0, shops: [0.85, 0.9, 0.45, 0.35, 0.35, 0.3][mat - 6], awnings: false }
       : mat >= 3
         ? { cornice: false, roof: 'mech', shops: 0.3, awnings: false }
         : { roof: 'prewar', wtP: 0.35, shops: 0.3, awnings: false });

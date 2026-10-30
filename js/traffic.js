@@ -571,19 +571,23 @@ function createTrafficSystem(scene, sidewalks, obstacles, env = null) {
     viewProjection.multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse);
     frustum.setFromProjectionMatrix(viewProjection);
   }
-  // Could the camera see a sphere of radius r around ground point (x, z)? Side planes only: the near and far
+  // Could the camera see a sphere of radius r around point (x, z)? Side planes only: the near and far
   // planes depend on depth conventions, and the side planes alone already rule out everything behind the camera.
-  function visible(x, z, r) {
+  // Issue #254: y is the point's height (default 1, the value the old
+  // y-less test evaluated the planes at, so flat callers are unchanged).
+  function visible(x, z, r, y = 1) {
     if (!hasView) return false;
     for (let k = 0; k < 4; k++) {
       const { normal, constant } = frustum.planes[k];
-      if (normal.x * x + normal.y + normal.z * z + constant < -r) return false;
+      if (normal.x * x + normal.y * y + normal.z * z + constant < -r) return false;
     }
     return true;
   }
 
-  function nearView(x, z, radius, distance) {
-    return hasView && Math.hypot(x - camX, camY, z - camZ) < distance && visible(x, z, radius);
+  // Issue #254: y (default 0, as before) makes the range test 3D,
+  // so a deck car overhead does not count as near the camera below it.
+  function nearView(x, z, radius, distance, y = 0) {
+    return hasView && Math.hypot(x - camX, y - camY, z - camZ) < distance && visible(x, z, radius, y);
   }
 
   // Edges and signalized intersections around the focus, to place vehicles and pedestrians on
@@ -595,7 +599,15 @@ function createTrafficSystem(scene, sidewalks, obstacles, env = null) {
   // than the closure's env-derived radii: tests/traffic.test.cjs extracts
   // this function by source and evals it standalone, where only the
   // module constants exist. Production passes radii.near.
-  function refreshNear(near = NEAR_RADIUS) {
+  // Issue #254: focusY (default 0, as before) makes the inclusion
+  // test 3D — the height at the closest point comes from the edge
+  // profile, looked up inline here (extracted code cannot call a
+  // module helper), so deck edges above the focus do not join the
+  // near set for the street below, and vice versa. The 40 m
+  // refresh hysteresis stays plan-based: reaching a deck always
+  // moves the focus in plan too (ramps), so refreshes happen on
+  // the way up.
+  function refreshNear(near = NEAR_RADIUS, focusY = 0) {
     if (Math.hypot(focusX - nearX, focusZ - nearZ) < 40) return;
     nearX = focusX;
     nearZ = focusZ;
@@ -604,7 +616,14 @@ function createTrafficSystem(scene, sidewalks, obstacles, env = null) {
     for (const e of edges) {
       const s = clamp((focusX - e.sx) * e.dx + (focusZ - e.sz) * e.dz, 0, e.len);
       const dx = e.sx + e.dx * s - focusX, dz = e.sz + e.dz * s - focusZ;
-      if (dx * dx + dz * dz < near * near) nearEdges.push(e);
+      const p = e.yProf;
+      let dy = -focusY;
+      if (p) {
+        const t = Math.max(0, Math.min(p.length - 1, (s + (e.yOff || 0)) / (e.yStep || 1)));
+        const k = Math.floor(t), f = t - k;
+        dy = (k + 1 < p.length ? p[k] + (p[k + 1] - p[k]) * f : p[p.length - 1]) - focusY;
+      }
+      if (dx * dx + dz * dz + dy * dy < near * near) nearEdges.push(e);
     }
     for (const n of nodes) {
       const dx = n.x - focusX, dz = n.z - focusZ;
@@ -616,6 +635,10 @@ function createTrafficSystem(scene, sidewalks, obstacles, env = null) {
   function relateToPlayer(v) {
     v.pAhead = Infinity;
     if (!player.active) return;
+    // Issue #254: a vehicle on another level never interacts with
+    // the player — a deck car overhead neither brakes for nor is
+    // blocked by the player underneath.
+    if (Math.abs((v.y || 0) - (player.y || 0)) > 3) return;
     const dx = player.x - v.x;
     const dz = player.z - v.z;
     if (Math.abs(dx) > LOOKAHEAD + 10 || Math.abs(dz) > LOOKAHEAD + 10) return;
@@ -1127,6 +1150,15 @@ function createTrafficSystem(scene, sidewalks, obstacles, env = null) {
     out.z = e.sz + e.dz * s + e.rz * e.lanes[i];
     out.dx = e.dx;
     out.dz = e.dz;
+    // Issue #254: height from the edge profile at the full-span
+    // position (placed s + the stop-line setback). Looked up inline:
+    // flat edges have no yProf and read 0, as before.
+    const p = e.yProf;
+    if (p) {
+      const t = Math.max(0, Math.min(p.length - 1, (s + (e.yOff || 0)) / (e.yStep || 1)));
+      const k = Math.floor(t), f = t - k;
+      out.y = k + 1 < p.length ? p[k] + (p[k + 1] - p[k]) * f : p[p.length - 1];
+    } else out.y = 0;
     return out;
   }
   function pathPoint(v, c, out) {
@@ -1155,6 +1187,11 @@ function createTrafficSystem(scene, sidewalks, obstacles, env = null) {
     const off = v.dl + v.axle * Math.sin(v.nose);
     v.x = (front.x + rear.x) / 2 - v.tz * off;
     v.z = (front.z + rear.z) / 2 + v.tx * off;
+    // Issue #254: height is the mean of the axle heights, and the
+    // grade (rise over the wheelbase) pitches the body on ramps.
+    // lanePoint/curvePoint always set y (0 on flat edges).
+    v.y = ((front.y || 0) + (rear.y || 0)) / 2;
+    v.grade = ((front.y || 0) - (rear.y || 0)) / l;
   }
 
   // Move v along and across its path by (dx, dz), as far as the road allows
@@ -1401,7 +1438,7 @@ function createTrafficSystem(scene, sidewalks, obstacles, env = null) {
   // rather than the closure's env-derived radii: tests/traffic.test.cjs
   // extracts this function by source and evals it standalone, where only
   // the module constants exist. Production passes radii.spawnProtect.
-  function spawnVehicle(v, rMin, rMax, protectView, spawnProtect = VEHICLE_SPAWN_DISTANCE) {
+  function spawnVehicle(v, rMin, rMax, protectView, spawnProtect = VEHICLE_SPAWN_DISTANCE, focusY = 0) {
     for (let attempt = 0; attempt < 12; attempt++) {
       const e = nearEdges[Math.floor(Math.random() * nearEdges.length)];
       if (!e || (v.bus && e.axis !== 'ave') || e.len < 2 * v.half + 10) continue;
@@ -1413,8 +1450,20 @@ function createTrafficSystem(scene, sidewalks, obstacles, env = null) {
       const s = minS + Math.random() * (maxS - minS);
       const x = e.sx + e.dx * s + e.rx * e.lanes[lane];
       const z = e.sz + e.dz * s + e.rz * e.lanes[lane];
-      const d = Math.hypot(x - focusX, z - focusZ);
-      if (d < rMin || d > rMax || (protectView && nearView(x, z, v.half + 4, spawnProtect))) continue;
+      // Issue #254: spawn distance is 3D — the height at the spawn
+      // point comes from the edge profile, looked up inline (this
+      // function is eval'd standalone in tests, so no module
+      // helper). Flat edges read 0. The player exclusion below stays
+      // plan-based on purpose: no popping in above the player.
+      const p = e.yProf;
+      let y = 0;
+      if (p) {
+        const t = Math.max(0, Math.min(p.length - 1, (s + (e.yOff || 0)) / (e.yStep || 1)));
+        const k = Math.floor(t), f = t - k;
+        y = k + 1 < p.length ? p[k] + (p[k + 1] - p[k]) * f : p[p.length - 1];
+      }
+      const d = Math.hypot(x - focusX, y - focusY, z - focusZ);
+      if (d < rMin || d > rMax || (protectView && nearView(x, z, v.half + 4, spawnProtect, y))) continue;
       if (player.active && Math.hypot(x - player.x, z - player.z) < 25) continue;
       if (!laneClear(e.occ[lane], s, v.half + 8)) continue;
       place(v, e, lane, s);
@@ -1707,15 +1756,20 @@ function createTrafficSystem(scene, sidewalks, obstacles, env = null) {
     const sinY = Math.sin(rotY);
     const cosY = Math.cos(rotY);
     const scale = radius / baseRadius;
+    // Issue #254: wheels sit on the road surface under the car —
+    // the car's height plus the grade's rise to each axle (the
+    // front axle is halfBase ahead of the centre, the rear behind).
+    const baseY = (v.y || 0) + radius;
+    const grade = v.grade || 0;
     dummy.scale.set(scale, scale, scale);
     for (let w = 0; w < 2; w++) {
       const wz = w === 0 ? halfBase : -halfBase;
       dummy.rotation.set(v.wheelSpin + w * 0.55, rotY + (w === 0 ? v.steer : 0), roll, 'YXZ');
-      dummy.position.set(v.x - halfTrack * cosY + wz * sinY, radius, v.z + halfTrack * sinY + wz * cosY);
+      dummy.position.set(v.x - halfTrack * cosY + wz * sinY, baseY + grade * wz, v.z + halfTrack * sinY + wz * cosY);
       dummy.updateMatrix();
       leftInst.setMatrixAt(i * 2 + w, dummy.matrix);
 
-      dummy.position.set(v.x + halfTrack * cosY + wz * sinY, radius, v.z - halfTrack * sinY + wz * cosY);
+      dummy.position.set(v.x + halfTrack * cosY + wz * sinY, baseY + grade * wz, v.z - halfTrack * sinY + wz * cosY);
       dummy.updateMatrix();
       rightInst.setMatrixAt(i * 2 + w, dummy.matrix);
     }
@@ -1738,14 +1792,17 @@ function createTrafficSystem(scene, sidewalks, obstacles, env = null) {
     const forwardDist = (c.x - c.prevX) * sinY + (c.z - c.prevZ) * cosY;
     const rawStep = forwardDist / spec.wheelRadius;
     c.wheelSpin = (c.wheelSpin + Math.sign(rawStep) * Math.min(Math.abs(rawStep), 0.48)) % (Math.PI * 2);
-    if (hasView && !visible(c.x, c.z, 18)) return;
+    if (hasView && !visible(c.x, c.z, 18, c.y || 0)) return;
 
     const near = Math.hypot(c.x - focusX, c.z - focusZ) < CAR_PROXY_DISTANCE;
     const bodyInst = near ? bodies[c.bodyType].near : bodies[c.bodyType].far;
     const slot = bodyInst.count++;
 
-    dummy.position.set(c.x, 0.0, c.z);
-    dummy.rotation.set(c.pitch, rotY, c.roll, 'YXZ');
+    // Issue #254: the body rides at the road height and pitches
+    // with the grade (nose up on a climb: positive pitch is nose
+    // down in this YXZ frame, so the grade subtracts).
+    dummy.position.set(c.x, c.y || 0, c.z);
+    dummy.rotation.set(c.pitch - Math.atan(c.grade || 0), rotY, c.roll, 'YXZ');
     dummy.scale.set(1, 1, 1);
     dummy.updateMatrix();
     bodyInst.setMatrixAt(slot, dummy.matrix);
@@ -1778,14 +1835,15 @@ function createTrafficSystem(scene, sidewalks, obstacles, env = null) {
     // Soft Under-Car Contact Shadow (AO) stays flat on the asphalt
     const visIdx = visibleCars++;
     dummy.rotation.set(0, rotY, 0, 'YXZ');
-    dummy.position.set(c.x, 0.018, c.z);
+    dummy.position.set(c.x, (c.y || 0) + 0.018, c.z);
     dummy.scale.set(2.22, 1.0, 5.05);
     dummy.updateMatrix();
     carShadowInst.setMatrixAt(visIdx, dummy.matrix);
 
     const dxCam = c.x - camX;
     const dzCam = c.z - camZ;
-    const distSq = dxCam * dxCam + dzCam * dzCam + camY * camY;
+    const dyCam = (c.y || 0) - camY;
+    const distSq = dxCam * dxCam + dzCam * dzCam + dyCam * dyCam;
     if (distSq < MAX_LIGHT_DIST_SQ) {
       const d = Math.sqrt(distSq);
       const forwardDot = dxCam * camFwdX + dzCam * camFwdZ;
@@ -1812,18 +1870,18 @@ function createTrafficSystem(scene, sidewalks, obstacles, env = null) {
     const forwardDist = (b.x - b.prevX) * sinY + (b.z - b.prevZ) * cosY;
     const rawStep = forwardDist / BUS_SPEC.wheelRadius;
     b.wheelSpin = (b.wheelSpin + Math.sign(rawStep) * Math.min(Math.abs(rawStep), 0.48)) % (Math.PI * 2);
-    if (hasView && !visible(b.x, b.z, 22)) return;
+    if (hasView && !visible(b.x, b.z, 22, b.y || 0)) return;
 
     const i = visibleBuses++;
-    dummy.position.set(b.x, 0.018, b.z);
+    dummy.position.set(b.x, (b.y || 0) + 0.018, b.z);
     dummy.rotation.set(0, rotY, 0, 'YXZ');
     dummy.scale.set(2.92, 1.0, 12.1);
     dummy.updateMatrix();
     busShadowInst.setMatrixAt(i, dummy.matrix);
 
     // Lofted Bus Body is defined in ground-relative Y (0.36m skirt to 3.0m roof crown)
-    dummy.position.set(b.x, 0.0, b.z);
-    dummy.rotation.set(b.pitch, rotY, b.roll, 'YXZ');
+    dummy.position.set(b.x, b.y || 0, b.z);
+    dummy.rotation.set(b.pitch - Math.atan(b.grade || 0), rotY, b.roll, 'YXZ');
     dummy.scale.set(1, 1, 1);
     dummy.updateMatrix();
     busBodyInst.setMatrixAt(i, dummy.matrix);
@@ -1832,7 +1890,8 @@ function createTrafficSystem(scene, sidewalks, obstacles, env = null) {
 
     const dxCam = b.x - camX;
     const dzCam = b.z - camZ;
-    const distSq = dxCam * dxCam + dzCam * dzCam + camY * camY;
+    const dyCam = (b.y || 0) - camY;
+    const distSq = dxCam * dxCam + dzCam * dzCam + dyCam * dyCam;
     if (distSq < MAX_LIGHT_DIST_SQ) {
       const d = Math.sqrt(distSq);
       const forwardDot = dxCam * camFwdX + dzCam * camFwdZ;
@@ -1887,8 +1946,8 @@ function createTrafficSystem(scene, sidewalks, obstacles, env = null) {
 
         const baseInt = (v.bus ? HEADLIGHTS.busIntensity : HEADLIGHTS.intensity) * beamScale * fade;
         // Match the body instance, including suspension and impact rotation.
-        dummy.position.set(v.x, 0, v.z);
-        dummy.rotation.set(v.pitch, v.yaw + v.yawOffset, v.roll, 'YXZ');
+        dummy.position.set(v.x, v.y || 0, v.z);
+        dummy.rotation.set(v.pitch - Math.atan(v.grade || 0), v.yaw + v.yawOffset, v.roll, 'YXZ');
         dummy.scale.set(1, 1, 1);
         dummy.updateMatrix();
         for (let side = -1; side <= 1; side += 2) {
@@ -2000,11 +2059,13 @@ function createTrafficSystem(scene, sidewalks, obstacles, env = null) {
     stWalk = walkSignal(elapsed, false);
     focusX = focusPos ? focusPos.x : 0;
     focusZ = focusPos ? focusPos.z : 140;
+    // Issue #254: the focus height, for the 3D near/spawn/retire tests.
+    const focusY = focusPos ? focusPos.y : 0;
     // a jump of the camera (teleport, first frame): everything far away can be placed anywhere around it
     const jump = Math.hypot(focusX - lastFocusX, focusZ - lastFocusZ) > 140;
     lastFocusX = focusX;
     lastFocusZ = focusZ;
-    refreshNear(radii.near);
+    refreshNear(radii.near, focusY);
     updateView(camera);
 
     player.active = Boolean(playerEntity && activeMode !== 'helicopter' && playerEntity.position.y < 2.6);
@@ -2013,6 +2074,7 @@ function createTrafficSystem(scene, sidewalks, obstacles, env = null) {
       const speed = playerEntity.speed || 0;
       player.entity = playerEntity;
       player.x = playerEntity.position.x;
+      player.y = playerEntity.position.y;
       player.z = playerEntity.position.z;
       player.vx = Math.sin(heading) * speed + (playerEntity.vx || 0);
       player.vz = Math.cos(heading) * speed + (playerEntity.vz || 0);
@@ -2028,10 +2090,13 @@ function createTrafficSystem(scene, sidewalks, obstacles, env = null) {
     for (let scanned = 0; scanned < vehicles.length && budget > 0; scanned++) {
       const v = vehicles[vehicleCursor];
       vehicleCursor = (vehicleCursor + 1) % vehicles.length;
-      const d = v.edge ? Math.hypot(v.x - focusX, v.z - focusZ) : Infinity;
+      // Issue #254: retire distance is 3D, so a deck car overhead
+      // does not retire while the player drives under it (v.y is
+      // last frame's height, like v.x/v.z here).
+      const d = v.edge ? Math.hypot(v.x - focusX, (v.y || 0) - focusY, v.z - focusZ) : Infinity;
       if (d <= (jump ? radii.near : radii.retire)) continue;
       budget--;
-      spawnVehicle(v, jump ? 0 : 100, radii.near, !jump, radii.spawnProtect);
+      spawnVehicle(v, jump ? 0 : 100, radii.near, !jump, radii.spawnProtect, focusY);
     }
     buildOccupancy();
     for (const m of bodyMeshes) m.count = 0;
@@ -2051,7 +2116,10 @@ function createTrafficSystem(scene, sidewalks, obstacles, env = null) {
       locate(v);
       knock(v, dt);
       pose(v, dt);
-      if (player.active) collideWithPlayer(v, v.yaw + v.yawOffset, v.bus ? 1.30 : v.isSUV ? 0.92 : 0.86, v.bus ? 5.72 : v.isSUV ? 2.22 : 2.18);
+      // Issue #254: only collide with the player on the same level
+      // — a car on the deck above never shoves the player below it
+      // (relateToPlayer already gates the car-following response).
+      if (player.active && Math.abs((v.y || 0) - playerEntity.position.y) < 3) collideWithPlayer(v, v.yaw + v.yawOffset, v.bus ? 1.30 : v.isSUV ? 0.92 : 0.86, v.bus ? 5.72 : v.isSUV ? 2.22 : 2.18);
       if (v.vx * v.vx + v.vz * v.vz > 0.36) knockOn(v);
 
       if (v.bus) renderBus(v);
