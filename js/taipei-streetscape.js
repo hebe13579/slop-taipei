@@ -594,8 +594,9 @@ export function parkBlossomTone(key, ci) {
 
 // A park polygon whose name carries 廣場 is a paved square (#29), the
 // same predicate taipei-surfaces.js renders by — mirrored here so this
-// module stays dependency-free.
-const isPlazaName = (name) => (name || '').includes('廣場');
+// module stays dependency-free. Issue #289: 松壽廣場 is a lawn park,
+// not a paved square — exempted, mirroring taipei-surfaces.js.
+const isPlazaName = (name) => (name || '').includes('廣場') && name !== '松壽廣場';
 
 export function planParkTrees(geodata, plan, opts = {}) {
   const cap = opts.cap ?? PARK_TREE_CAP;

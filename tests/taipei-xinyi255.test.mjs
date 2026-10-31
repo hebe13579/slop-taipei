@@ -74,7 +74,7 @@ test('the five #255 structures are registered with the reference-pack facts', ()
   // the National Taiwan Museum (#257) landed on main after this PR's
   // base, so 39 + 4 new structures = 43. The four new sites are
   // unchanged (Hall 1, Hyatt, ATT, Bellavita).
-  assert.equal(plan.landmarkTowers.length, 43, '39 + 4 new structures');
+  assert.equal(plan.landmarkTowers.length, 47, '43 + 4 new structures (#289)');
 });
 
 test('A4 keeps its geometry, goes glassier, and carries NO red frame', () => {
@@ -165,11 +165,13 @@ test('far versions: simplified massing, storey silhouette kept, never culled', (
   // version (merged slab + hall + drum + dome); the six #255
   // structures are unchanged.
   assert.deepEqual(withFar, [
-    'att-4-fun', 'bellavita', 'grand-hyatt-taipei',
+    'att-4-fun', 'bellavita', 'cathay-financial-center',
+    'grand-hyatt-taipei', 'nan-shan-xinyi-a21',
     'national-taiwan-museum',
     'shin-kong-mitsukoshi-a4', 'shin-kong-mitsukoshi-a8',
-    'twtc-exhibition-hall-1',
-  ], 'exactly the six #255 structures + the museum carry far versions');
+    'twtc-exhibition-hall-1', 'vieshow-cinemas-xinyi',
+    'walsin-lihwa-building',
+  ], 'exactly the six #255 structures + the museum + the four #289 structures carry far versions');
 });
 
 test('special LOD swap: hysteresis band, sticky inside it, swaps both ways', () => {
@@ -253,8 +255,8 @@ test('plan census: four new sites displace only their own lots', () => {
   // between them; A4/A8 already excluded theirs. Proven by the
   // cross-run in the gate notes (old registry on new code
   // reproduces 68,570 — the delta is the sites only).
-  assert.equal(plan.lots.length, 68538, 'lot count re-pinned for the four new sites');
+  assert.equal(plan.lots.length, 68482, 'lot count re-pinned for the four new sites (#289: 68,538 − 56 site-excluded lots net)');
   // Gate 2026-10-30: re-pinned 42 -> 43, same reason as above — main's
   // registry is 39 after #257 (museum), + 4 new structures.
-  assert.equal(plan.landmarkTowers.length, 43);
+  assert.equal(plan.landmarkTowers.length, 47);
 });

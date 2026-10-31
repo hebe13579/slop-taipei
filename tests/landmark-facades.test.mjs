@@ -84,6 +84,14 @@ const EXPECTED_FACADES = {
   'grand-hyatt-taipei': 'prewar', // pale stone wings, dark-glass centre bay
   'att-4-fun': 'curtain', // dark glass box
   'bellavita': 'prewar', // cream palace stone
+  // Batch 12 (issue #289): the Xinyi four — A21's pale green-glass
+  // cylinder, Cathay's dark bronze-green glass, Walsin's dark glass
+  // curtain over a stone podium; VieShow's red masonry fallback (all
+  // its parts carry flat red overrides — the facade never renders).
+  'nan-shan-xinyi-a21': 'curtain', // pale green-tinted glass tower
+  'cathay-financial-center': 'curtain', // dark bronze-green glass
+  'walsin-lihwa-building': 'curtain', // dark glass curtain tower
+  'vieshow-cinemas-xinyi': 'prewar', // red masonry fallback (flat red parts)
 };
 
 // The only Latin wordmarks a landmark sign may carry — the ones the
@@ -114,6 +122,9 @@ const EXPECTED_SIGNS = {
   'att-4-fun': { text: 'ATT 4 FUN' },
   'bellavita': { text: 'BELLAVITA' },
   'shin-kong-mitsukoshi-a4': { glyphs: 4 },
+  // Issue #289: the VieShow marquee — the big movie-advertisement
+  // board on the south face, a real wordmark the cinema carries.
+  'vieshow-cinemas-xinyi': { text: 'VIESHOW' },
 };
 
 test('every landmark resolves its pinned facade treatment', () => {

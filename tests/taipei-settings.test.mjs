@@ -120,32 +120,32 @@ test('density fine (default): the shipped plan, byte-identical', () => {
   // Gate: hashes measured on the merged tree (the PR-side hashes
   // were measured on its stale pre-#216/pre-#259 base and do not
   // survive — counts compose, hashes do not).
-  assert.equal(implicit.lots, 68538);
-  assert.equal(implicit.hash, '7eeb90b4');
+  assert.equal(implicit.lots, 68482); // re-pinned for #289: the 4 new registry sites exclude 56 lots net (see the fine test)
+  assert.equal(implicit.hash, 'd2df1814'); // re-pinned for #289: measured on the merged tree
   assert.equal(implicit.stats.blocksFine, 2897);
   assert.equal(implicit.stats.lotsFine, 44923);
 });
 
 test('density coarse: the pre-#124 rule (fine classifier never fires)', () => {
   const fp = fingerprint(planTaipeiBuildings(TAIPEI_GEO, { density: 'coarse' }));
-  assert.equal(fp.lots, 36159); // re-pinned for #255: the 4 new registry sites exclude 32 lots at every density (see the fine test)
-  assert.equal(fp.hash, 'dc92eeb2'); // gate: measured on the merged tree
+  assert.equal(fp.lots, 36103); // re-pinned for #289: the 4 new registry sites exclude 56 lots net at every density (see the fine test)
+  assert.equal(fp.hash, 'd242c004'); // re-pinned for #289: measured on the merged tree
   assert.equal(fp.stats.blocksFine, 0);
   assert.equal(fp.stats.lotsFine, 0);
 });
 
 test('density dense: the #124 study draft at ~100k lots', () => {
   const fp = fingerprint(planTaipeiBuildings(TAIPEI_GEO, { density: 'dense' }));
-  assert.equal(fp.lots, 93196); // re-pinned for #255: the 4 new registry sites exclude 32 lots at every density (see the fine test)
-  assert.equal(fp.hash, '3643a8a2'); // gate: measured on the merged tree
+  assert.equal(fp.lots, 93140); // re-pinned for #289: the 4 new registry sites exclude 56 lots net at every density (see the fine test)
+  assert.equal(fp.hash, '5d7cc1e6'); // re-pinned for #289: measured on the merged tree
   assert.equal(fp.stats.blocksFine, 2897, 'dense keeps the fine classifier — only the pitch tightens');
   assert.equal(fp.stats.lotsFine, 69581);
 });
 
 test('density unknown value plans as fine', () => {
   const fp = fingerprint(planTaipeiBuildings(TAIPEI_GEO, { density: 'huge' }));
-  assert.equal(fp.lots, 68538); // re-pinned for #255: the 4 new registry sites exclude 32 lots at every density (see the fine test)
-  assert.equal(fp.hash, '7eeb90b4'); // gate: measured on the merged tree (unknown plans as fine)
+  assert.equal(fp.lots, 68482); // re-pinned for #289: the 4 new registry sites exclude 56 lots net at every density (see the fine test)
+  assert.equal(fp.hash, 'd2df1814'); // re-pinned for #289: measured on the merged tree (unknown plans as fine)
 });
 
 // Source contracts for the UI surface (the browser evidence in the

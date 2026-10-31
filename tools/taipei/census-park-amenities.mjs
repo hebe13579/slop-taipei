@@ -7,7 +7,9 @@ import { TAIPEI_GEO } from '../../js/taipei-geodata.js';
 import { ringArea, parkSizeClass, pointInRing } from '../../js/taipei-streetscape.js';
 
 const NON_CARRIAGEWAY = new Set(['footway', 'path', 'steps', 'pedestrian', 'cycleway', 'corridor', 'elevator', 'crossing', 'platform', 'traffic_island']);
-const isPlazaName = (name) => (name || '').includes('廣場');
+// Issue #289: 松壽廣場 is a lawn park, not a paved square — exempted,
+// mirroring taipei-surfaces.js.
+const isPlazaName = (name) => (name || '').includes('廣場') && name !== '松壽廣場';
 
 const parks = TAIPEI_GEO.parks || [];
 const paths = (TAIPEI_GEO.roads || []).filter((r) => NON_CARRIAGEWAY.has(r.highway));
