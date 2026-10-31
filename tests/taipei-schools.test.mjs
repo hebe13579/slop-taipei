@@ -168,7 +168,7 @@ test('generation is deterministic and the plan counts are pinned', () => {
   const again = planTaipeiBuildings(TAIPEI_GEO);
   assert.equal(JSON.stringify(again.siteStructures.filter((s) => s.school)),
     JSON.stringify(campuses), 'same geodata, same campuses, byte for byte');
-  assert.equal(plan.lots.length, 68570); // the composed plan: 75,389 − 6,819 campus-cleared lots
+  assert.equal(plan.lots.length, 68538); // the composed plan: 75,389 − 6,819 campus-cleared lots − 32 #255 registry-site lots
   assert.equal(plan.stats.blocksSkippedSchool, 193);
   assert.equal(plan.stats.lotsDroppedSchool, 3323);
 });
