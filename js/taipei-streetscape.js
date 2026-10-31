@@ -871,3 +871,257 @@ export function planParkTrees(geodata, plan, opts = {}) {
     stats: { byClass, topParks, rejected, capped, cap, totalCandidates: Object.values(byClass).reduce((s, c) => s + c.candidates, 0), groves: perPark.reduce((s, p) => s + p.groves, 0), heroes, byVariant },
   };
 }
+
+// ---------------------------------------------------------------------
+// Issue #280 — street lamps
+//
+// Cobra-head lamp posts along streets, with the arm/head facing the
+// carriageway (the #216 "face the street" idea, applied to lamps),
+// and warm light pools on the road at night. Placement follows the
+// road graph: ground roadbeds + the elevated-deck digest. Pure
+// functions over geodata — no three.js — so tests and evidence
+// scripts can run them in node; js/taipei-boot.js turns the results
+// into three InstancedMeshes (posts, lens glow, light pools).
+//
+// Reference: the user's night photo on 忠孝東路 (a sidewalk post
+// with a curved arm over the carriageway, warm sodium pool on the
+// road) + the urban road lighting standard (trunk lamps 8-12 m,
+// branch 6-8 m, single arm 1.5-3 m, spacing S ≤ 3-4× pole height,
+// staggered on both sides for medium roads). One type only:
+// an 8 m pole, ~2.8 m arm, staggered sides, 36 m nominal spacing
+// (32-40 m hash jitter) on arterials/freeways/decks, 72 m on wide
+// residential streets. No per-lamp real light anywhere (the boot
+// renders emissive lenses + glow decals, zero dynamic lights).
+//
+// A lamp record is { x, z, hx, hz, rot, poolRot, kind, deckH, armLen }:
+// (x, z) is the post base, (hx, hz) the head/pool centre over the
+// carriageway, rot aims the arm (+Z of the post geometry) at the
+// road, poolRot aligns the pool ellipse with the road direction,
+// kind is 'ground' | 'deck', deckH is the deck-top height (0 on
+// the ground — the boot adds the drape lift).
+
+export const LAMP_POLE_H = 8;
+export const LAMP_HEAD_H = 8.3; // head/lens height above the post base
+export const LAMP_SPACING = 36;
+export const LAMP_RESIDENTIAL_SPACING = 72;
+export const LAMP_CAP = 12000; // 12,870 raw candidates at 36 m — the cap thins ~7% (deterministic stride, like the tree caps)
+export const LAMP_POOL_RX = 4.0; // light-pool ellipse radii (m): across / along the road
+export const LAMP_POOL_RZ = 5.5;
+
+const LAMP_GROUND_HIGHWAYS = new Set(['motorway', 'trunk', 'primary', 'secondary', 'tertiary',
+  'motorway_link', 'trunk_link', 'primary_link', 'secondary_link', 'tertiary_link']);
+const LAMP_RESIDENTIAL_HIGHWAYS = new Set(['residential', 'unclassified']);
+const LAMP_TUNNEL_NAME = /隧道|地下道/;
+
+// Stations along a deck polyline with the authored height profile
+// interpolated by arc length (h is per-vertex, aligned with pts).
+// Returns [{ x, z, dx, dz, nx, nz, h }].
+function walkDeckStations(pts, h, spacing, phase) {
+  const out = [];
+  const verts = pts.length / 2;
+  const hasH = Array.isArray(h) && h.length === verts;
+  let nextAt = phase;
+  let travelled = 0;
+  for (let i = 0; i + 3 < pts.length; i += 2) {
+    const ax = pts[i], az = pts[i + 1], bx = pts[i + 2], bz = pts[i + 3];
+    const dx = bx - ax, dz = bz - az;
+    const len = Math.hypot(dx, dz);
+    if (len < 0.01) { travelled += len; continue; }
+    const ha = hasH ? h[i / 2] : 0, hb = hasH ? h[i / 2 + 1] : 0;
+    while (nextAt <= travelled + len) {
+      const t = (nextAt - travelled) / len;
+      out.push({
+        x: ax + dx * t, z: az + dz * t,
+        dx: dx / len, dz: dz / len, nx: -dz / len, nz: dx / len,
+        h: ha + (hb - ha) * t,
+      });
+      nextAt += spacing;
+    }
+    travelled += len;
+  }
+  return out;
+}
+
+export function planStreetLamps(geodata, plan, opts = {}) {
+  const cap = opts.cap ?? LAMP_CAP;
+  const beds = geodata.roadbeds || [];
+  const decks = (geodata.elevatedRoads?.lines) || [];
+
+  // Lot / park / water / tower-site exclusions, same shapes the
+  // street-tree planner uses (32 m lot grid included — a naive scan
+  // is 21k lots per candidate). Ground posts only: deck posts stand
+  // on the slab above all of this.
+  const lots = plan?.lots || [];
+  const lotGrid = new Map();
+  const lotKey = (cx, cz) => `${cx},${cz}`;
+  lots.forEach((lot, i) => {
+    const r = (lot.rot ? Math.hypot(lot.w, lot.d) / 2 : Math.max(lot.w, lot.d) / 2) + 1;
+    const minCx = Math.floor((lot.x - r) / 32), maxCx = Math.floor((lot.x + r) / 32);
+    const minCz = Math.floor((lot.z - r) / 32), maxCz = Math.floor((lot.z + r) / 32);
+    for (let cx = minCx; cx <= maxCx; cx++) for (let cz = minCz; cz <= maxCz; cz++) {
+      const k = lotKey(cx, cz);
+      if (!lotGrid.has(k)) lotGrid.set(k, []);
+      lotGrid.get(k).push(i);
+    }
+  });
+  const inLot = (x, z) => {
+    const cell = lotGrid.get(lotKey(Math.floor(x / 32), Math.floor(z / 32))) || [];
+    for (const i of cell) {
+      const lot = lots[i];
+      const dx = x - lot.x, dz = z - lot.z;
+      if (Math.abs(dx) <= lot.w / 2 + 0.3 && Math.abs(dz) <= lot.d / 2 + 0.3) return true;
+      if (lot.rot) {
+        const c = Math.cos(lot.rot), sn = Math.sin(lot.rot);
+        if (Math.abs(dx * c + dz * sn) <= lot.w / 2 + 0.3 && Math.abs(-dx * sn + dz * c) <= lot.d / 2 + 0.3) return true;
+      }
+    }
+    return false;
+  };
+  const polys = [];
+  for (const p of geodata.parks || []) polys.push(p.ring);
+  for (const w of geodata.water || []) polys.push(w.ring);
+  const polyBBoxes = polys.map((ring) => {
+    let minX = Infinity, maxX = -Infinity, minZ = Infinity, maxZ = -Infinity;
+    for (let i = 0; i < ring.length; i += 2) {
+      minX = Math.min(minX, ring[i]); maxX = Math.max(maxX, ring[i]);
+      minZ = Math.min(minZ, ring[i + 1]); maxZ = Math.max(maxZ, ring[i + 1]);
+    }
+    return { minX, maxX, minZ, maxZ };
+  });
+  const inParkOrWater = (x, z) => {
+    for (let i = 0; i < polys.length; i++) {
+      const bb = polyBBoxes[i];
+      if (x < bb.minX || x > bb.maxX || z < bb.minZ || z > bb.maxZ) continue;
+      if (pointInRing(x, z, polys[i])) return true;
+    }
+    return false;
+  };
+  const tower = plan?.tower || null;
+  const inTowerSite = (x, z) => {
+    if (!tower) return false;
+    const w = (tower.podium?.w || 76) / 2 + 1, d = (tower.podium?.d || 76) / 2 + 1;
+    return Math.abs(x - tower.x) <= w && Math.abs(z - tower.z) <= d;
+  };
+  const inExclusion = buildExclusionIndex(opts.exclusions);
+
+  const rejected = { junction: 0, carriageway: 0, lot: 0, site: 0, tunnel: 0, width: 0, cap: 0 };
+  const bedGrid = buildSegmentGrid(beds, Math.max(...beds.map((r) => Math.max((r.width || 3) / 2, 0.75))) + 1.5);
+  const wayGrid = buildSegmentGrid(
+    (geodata.roads || []).filter((r) => !NON_CARRIAGEWAY.has(r.highway)),
+    30,
+  );
+
+  // One ground candidate through every exclusion. Returns the lamp
+  // record, or null when rejected.
+  const tryGround = (sx, sz, nx, nz, side, half, bandW, bedIdx, key) => {
+    const postOff = bandW != null ? half + bandW / 2 : half + 1.0;
+    const headOff = Math.max(half - 2, 0.5);
+    const x = sx + nx * side * postOff, z = sz + nz * side * postOff;
+    const hx = sx + nx * side * headOff, hz = sz + nz * side * headOff;
+    if (inExclusion(x, z)) { rejected.junction++; return null; }
+    for (const s of bedGrid.near(x, z)) {
+      if (s.idx === bedIdx) continue;
+      if (distToSegment(x, z, s.ax, s.az, s.bx, s.bz) < s.half + 1.1) { rejected.junction++; return null; }
+    }
+    for (const s of wayGrid.near(x, z)) {
+      if (distToSegment(x, z, s.ax, s.az, s.bx, s.bz) < s.half + 0.35) { rejected.carriageway++; return null; }
+    }
+    if (inLot(x, z)) { rejected.lot++; return null; }
+    if (inTowerSite(x, z) || inParkOrWater(x, z)) { rejected.site++; return null; }
+    return { x, z, hx, hz, rot: Math.atan2(-side * nx, -side * nz), kind: 'ground', deckH: 0, armLen: postOff - headOff };
+  };
+
+  const ground = [];
+  beds.forEach((bed, bedIdx) => {
+    const hw = bed.highway || '';
+    const isArterial = LAMP_GROUND_HIGHWAYS.has(hw);
+    const isResidential = LAMP_RESIDENTIAL_HIGHWAYS.has(hw);
+    if (!isArterial && !isResidential) return;
+    if (bed.name && LAMP_TUNNEL_NAME.test(bed.name)) { rejected.tunnel++; return; }
+    const half = Math.max((bed.width || 3) / 2, 0.75);
+    const minW = isArterial ? 6 : 8;
+    if ((bed.width || 3) < minW) { rejected.width++; return; }
+    const key = bedKey(bed);
+    const spacing = (isArterial ? LAMP_SPACING : LAMP_RESIDENTIAL_SPACING)
+      * (0.9 + hash01(`${key}|spacing`) * 0.2);
+    const phase = hash01(`${key}|phase`) * spacing;
+    const bandW = bed.pedestrianLayout === 'sidewalk' ? sidewalkBandWidth(bed) : null;
+    const stations = walkStations(bed.pts, spacing, phase);
+    stations.forEach((st, si) => {
+      // Staggered sides: consecutive stations stand on opposite
+      // sides of the road, the medium-road arrangement of the
+      // lighting standard.
+      const side = si % 2 === 0 ? 1 : -1;
+      const lamp = tryGround(st.x, st.z, st.nx, st.nz, side, half, bandW, bedIdx, key);
+      if (lamp) ground.push({ ...lamp, poolRot: Math.atan2(st.dx, st.dz), highway: bed.highway });
+    });
+  });
+
+  // Deck lamps: posts stand just inside the slab edge (half - 0.5),
+  // arms reach over the deck carriageway, base height is the
+  // authored deck profile (the boot adds the drape lift, exactly
+  // as buildDeckGeometry does). At-grade deck stretches (max h ≤
+  // 0.5) are skipped — their ground roadbeds carry the lamps.
+  // Junction-cap exclusion applies only near portals (h < 4 m),
+  // where the deck is close enough to the ground to foul one.
+  const deck = [];
+  decks.forEach((line) => {
+    if (!line.pts || line.pts.length < 4) return;
+    if (Math.max(...(line.h || [0])) <= 0.5) return;
+    // Single-lane interchange ramps (4.4 m) take no lamps: a 3 m
+    // cobra arm would reach clear across the ramp, and the real
+    // ramps are lit from parapet mounts the single post geometry
+    // cannot express. The 7 m floor keeps every deck arm ≥ 2.5 m,
+    // so the fixed-arm post geometry stays within 0.5 m of the
+    // planned head on every deck.
+    if ((line.width || 0) < 7) return;
+    const key = `deck|${line.wayId || ''}|${line.name || ''}|${line.pts[0]},${line.pts[1]}`;
+    const spacing = LAMP_SPACING * (0.9 + hash01(`${key}|spacing`) * 0.2);
+    const phase = hash01(`${key}|phase`) * spacing;
+    const half = Math.max((line.width || 7) / 2, 0.75);
+    const postOff = half - 0.5;
+    // Deck arms match the ground arms (~3 m): the head reaches
+    // well over the deck carriageway instead of hovering at the
+    // parapet, so one post geometry serves both kinds.
+    const headOff = Math.max(half - 3.5, 0.5);
+    const stations = walkDeckStations(line.pts, line.h, spacing, phase);
+    stations.forEach((st, si) => {
+      const side = si % 2 === 0 ? 1 : -1;
+      const x = st.x + st.nx * side * postOff, z = st.z + st.nz * side * postOff;
+      if (st.h < 4 && inExclusion(x, z)) { rejected.junction++; return; }
+      deck.push({
+        x, z,
+        hx: st.x + st.nx * side * headOff, hz: st.z + st.nz * side * headOff,
+        rot: Math.atan2(-side * st.nx, -side * st.nz),
+        poolRot: Math.atan2(st.dx, st.dz),
+        kind: 'deck', deckH: st.h, armLen: postOff - headOff, highway: line.highway,
+      });
+    });
+  });
+
+  let lamps = [...ground, ...deck];
+  let capped = false;
+  if (lamps.length > cap) {
+    capped = true;
+    const thin = (list, allowed) => {
+      if (list.length <= allowed) return list;
+      const out = [];
+      for (let j = 0; j < allowed; j++) out.push(list[Math.floor((j * list.length) / allowed)]);
+      return out;
+    };
+    const groundAllowed = Math.floor((cap * ground.length) / lamps.length);
+    const deckKept = thin(deck, cap - groundAllowed);
+    const groundKept = thin(ground, groundAllowed);
+    rejected.cap = lamps.length - cap;
+    lamps = [...groundKept, ...deckKept];
+  }
+
+  return {
+    lamps,
+    stats: {
+      ground: lamps.filter((l) => l.kind === 'ground').length,
+      deck: lamps.filter((l) => l.kind === 'deck').length,
+      rejected, capped, cap,
+    },
+  };
+}

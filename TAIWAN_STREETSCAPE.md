@@ -371,6 +371,33 @@ vehicle heads) exist at some Taipei junctions but are not universal —
   a shelter on wide sidewalks only, road-side 公車停靠區 bay paint
   (white box + characters) on arterials; red line through the stop [OBS].
 
+### c.13 Street lamps 路燈 (issue #280)
+
+- **Form**: single-arm cobra-head post [OBS — user's night photo on
+  忠孝東路]: dark grey-green tapered pole, curved arm reaching over
+  the carriageway, warm sodium/LED head. One type: 8 m pole (the
+  arterial band of the lighting standard: trunk 8–12 m, branch
+  6–8 m), ~3 m arm (standard single-arm 1.5–3 m), head over the
+  outer lane. Park lamps (§c.11 kit, 4.6 m) are a different, smaller
+  type and stay separate.
+- **Placement** (rule-based, from the road graph): staggered sides,
+  36 m nominal spacing (32–40 m hash jitter; standard S ≤ 3–4× pole
+  height) on arterials/freeways (motorway/trunk/primary/secondary/
+  tertiary + links, width ≥ 6 m) and wide residential streets
+  (≥ 8 m, 72 m spacing); elevated decks/freeways included, posts
+  just inside the slab edge riding the authored deck profile.
+  No lamps in tunnels/underpasses （隧道/地下道）, on service roads,
+  or on single-lane interchange ramps (4.4 m — a 3 m arm would reach
+  clear across). Posts keep out of lots, parks, water and junction
+  asphalt, like street trees. Cap 12,000 (deterministic stride
+  thinning, like the tree caps).
+- **Night behaviour**: NO per-lamp real light. Emissive lens glow +
+  warm light-pool decals on the road under each head (additive,
+  radial falloff), both driven by `uInteriorGlow` — invisible by
+  day, a warm pool at night (midnight preset). +3 instanced draw
+  calls, zero dynamic lights. Pools sit at y 0.071 (just over the
+  0.068 markings) on ground roads, deck-top + 0.071 on decks.
+
 ### c.12 Building frontage + roofscape (for the buildings increment)
 
 Generator parameters for `buildings.js` facade/roof passes:
