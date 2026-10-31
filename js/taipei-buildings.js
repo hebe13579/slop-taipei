@@ -1167,6 +1167,32 @@ const LANDMARK_STRUCTURES = [
     // the loop's E-W leg, the lobby podium sits south of the
     // slab, and a low entrance block fronts the forecourt —
     // the U/courtyard read survives, the drives stay clear.
+    // Issue #288 (2026-10-31, user live report: "the north side
+    // is clearly missing entire base and driveway entrance"):
+    // the rework's podium covered only the SOUTH half (dz +12),
+    // so the three wings and the bay (dz -17) started at y0 18
+    // with nothing under them — from Xinyi Rd the tower floated
+    // 18 m up and the north driveway had no entrance. References
+    // (hyatt288-evidence/): OSM way 137077760, footprint
+    // x[-308,-170] z[-297,-213] — the building covers the north
+    // strip at ground level; the Esri satellite (north forecourt
+    // + driveway loop between the wings); the north street photo
+    // (ref-hyatt-exterior-trip.jpg — full-width 5-storey pale
+    // podium + GRAND HYATT wordmark under the wings, forecourt +
+    // driveway in front). Fix: an 18 m north base under each wing
+    // and under the bay, same pale prewar stone, footprints
+    // EXACTLY the wings'/bay's — the loop's north leg runs
+    // between the wings in front of the bay, so no base may cross
+    // it (the #42 test). The driveway entrance is a loggia
+    // recessed into the bay base's north face (25 m wide, 8 m
+    // deep, 7 m tall: stone canopy + two columns + dark-glass
+    // lobby wall), facing the loop's north leg. A projecting
+    // porte-cochere canopy over the loop road itself is NOT
+    // modelled: the #42 test is a 2D footprint check and any
+    // solid mass over the roadbed fails it, however high it sits.
+    // The north wordmark is not modelled either — one sign per
+    // structure and the south entrance keeps it; a second sign
+    // is follow-up work, not this fix.
     id: 'grand-hyatt-taipei', name: 'Grand Hyatt Taipei', nameZh: '台北君悅酒店',
     lat: 25.035310, lon: 121.562638, realHeight: 104, color: 0xd8cfc0,
     site: { w: 136, d: 82, dx: 0, dz: 0 },
@@ -1179,6 +1205,33 @@ const LANDMARK_STRUCTURES = [
       // pool disc raised onto it.
       { type: 'box', w: 112, d: 32, h: 0.5, y0: 18, dx: -3, dz: 12, flat: { color: 0x4a7a3a, roughness: 0.9, metalness: 0.02 } },
       { type: 'cylinder', r: 10, h: 0.6, y0: 18.5, dx: 0, dz: 12, flat: 0x7fa8b8 },
+      // Issue #288: the north base (the wings and the bay used to
+      // start at y0 18 with nothing under them) + the driveway
+      // entrance loggia. The base boxes copy the wings'/bay's
+      // footprints exactly — the loop's north leg runs between
+      // the wings in front of the bay (z ≈ -284), so a
+      // full-width base would cross the roadbed and fail the #42
+      // test; the gap between the wings IS the driveway. The bay
+      // base is split around the loggia: a 25 m wide, 8 m deep,
+      // 7 m tall recess in its north face, stone canopy over it,
+      // two columns at its mouth, dark-glass lobby wall at its
+      // back. The canopy's north edge (z -281) stops at the
+      // loop's south edge — no solid mass over the road.
+      // West base (under the west wing).
+      { type: 'box', w: 30, d: 28, h: 18, dx: -44.6, dz: -17.1 },
+      // East base (under the east wing).
+      { type: 'box', w: 27, d: 28, h: 18, dx: 40.9, dz: -17.1 },
+      // Bay base, split around the entrance loggia: west block,
+      // east block, and the back block behind the porch.
+      { type: 'box', w: 14, d: 16, h: 18, dx: -20.6, dz: -17 },
+      { type: 'box', w: 14, d: 16, h: 18, dx: 18.4, dz: -17 },
+      { type: 'box', w: 25, d: 8, h: 18, dx: -1.1, dz: -13.1 },
+      // Entrance loggia: stone canopy over the porch, two columns
+      // at its mouth, dark-glass lobby wall at its back.
+      { type: 'box', w: 25, d: 8, h: 0.8, y0: 7, dx: -1.1, dz: -21.1, flat: 0xd8cfc0 },
+      { type: 'box', w: 0.8, d: 0.8, h: 7, dx: -12.6, dz: -24.1, flat: 0xd8cfc0 },
+      { type: 'box', w: 0.8, d: 0.8, h: 7, dx: 10.4, dz: -24.1, flat: 0xd8cfc0 },
+      { type: 'box', w: 20, d: 1, h: 7, dx: -1.1, dz: -17.1, flat: { color: 0x232830, roughness: 0.25, metalness: 0.55 } },
       // West wing: lower slab + inset step box (stepped top, 100 m).
       { type: 'box', w: 30, d: 28, h: 64, y0: 18, dx: -44.6, dz: -17.1 },
       { type: 'box', w: 22, d: 20, h: 18, y0: 82, dx: -44.6, dz: -17.1 },
@@ -1208,6 +1261,14 @@ const LANDMARK_STRUCTURES = [
     farParts: [
       { type: 'box', w: 112, d: 32, h: 18, dx: -3, dz: 12 },
       { type: 'box', w: 108, d: 14, h: 8, dx: -6, dz: 35 },
+      // Issue #288: the north base survives into the far version
+      // (all five blocks are storey mass) — the loggia dressing
+      // (canopy, columns, glass) drops, as the bands and pool do.
+      { type: 'box', w: 30, d: 28, h: 18, dx: -44.6, dz: -17.1 },
+      { type: 'box', w: 27, d: 28, h: 18, dx: 40.9, dz: -17.1 },
+      { type: 'box', w: 14, d: 16, h: 18, dx: -20.6, dz: -17 },
+      { type: 'box', w: 14, d: 16, h: 18, dx: 18.4, dz: -17 },
+      { type: 'box', w: 25, d: 8, h: 18, dx: -1.1, dz: -13.1 },
       { type: 'box', w: 30, d: 28, h: 64, y0: 18, dx: -44.6, dz: -17.1 },
       { type: 'box', w: 22, d: 20, h: 18, y0: 82, dx: -44.6, dz: -17.1 },
       { type: 'box', w: 27, d: 28, h: 64, y0: 18, dx: 40.9, dz: -17.1 },
