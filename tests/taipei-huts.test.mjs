@@ -83,9 +83,15 @@ test('hut census on the real plan: selection unchanged, garnish at census', (t) 
   // the rest is the #213/#219/#226 tree changes since the PR base),
   // not the garnish, whose rolls use fresh salts.
   assert.equal(hutLots, 5892, 'hut selection is the pre-#208 census');
-  assert.equal(gable, 2056, 'gable census');
-  assert.equal(patches, 5149, 'patch census');
-  assert.equal(bumps, 1371, 'bump census');
+  // Issue #216: the facing pass moves lots, and the garnish rolls
+  // are seeded from lot position — 2 gable draws, 14 patch draws
+  // and 10 bump draws flip, while the selection (5,892 hut lots)
+  // is unchanged. Proven by cross-run: with { facing: false }
+  // the census returns to exactly 2,056 / 5,149 / 1,371
+  // (facing216b-evidence/proof-huts-off.mjs).
+  assert.equal(gable, 2054, 'gable census');
+  assert.equal(patches, 5135, 'patch census');
+  assert.equal(bumps, 1381, 'bump census');
 });
 
 test('renderer palette mirrors the planner palette', () => {

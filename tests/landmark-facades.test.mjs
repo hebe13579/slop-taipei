@@ -69,6 +69,10 @@ const EXPECTED_FACADES = {
   // overrides); Miramar — the mall's glass slab takes curtain.
   'national-palace-museum': 'prewar',
   'miramar-entertainment-park': 'curtain',
+  // Issue #257: the National Taiwan Museum — pale stone Greek
+  // Revival hall takes the prewar grid (its green dome is a flat
+  // override; the portico columns are flat stone).
+  'national-taiwan-museum': 'prewar',
   // Batch 11 (issue #255): the Xinyi five — Hall 1's green-glass
   // terraces, the Hyatt's pale stone with a dark-glass centre bay
   // (REWORK 2026-10-30: the street photo overrules the satellite's
@@ -99,6 +103,9 @@ const EXPECTED_SIGNS = {
   // Issue #186: the Miramar mall's south-front wordmark band —
   // a real Latin wordmark the building itself carries.
   'miramar-entertainment-park': { text: 'MIRAMAR' },
+  // Issue #257: the museum's frieze band — 7 abstract glyph blocks
+  // for 國立臺灣博物館, as on the real portico.
+  'national-taiwan-museum': { glyphs: 7 },
   // Issue #255: the Xinyi five — real wordmarks (Hyatt entrance,
   // ATT facade, Bellavita Songren face) and abstract glyph bands
   // (Hall 1's 台北世貿 south band, A4's logo band).

@@ -36,6 +36,35 @@ const segFrame = (ax, az, bx, bz) => {
 // two segment normals (a hairpin whose normals cancel keeps the
 // outgoing segment's frame — a safe square-ish joint, counted).
 // The half-width keeps the renderer's historic 0.75 m floor.
+// Issue #132: subdivide a flat [x, z, ...] polyline so no segment
+// exceeds maxSeg metres. Endpoints are preserved EXACTLY (the
+// joint-frame keys in jointFramesFor are endpoint coordinates, so
+// densified roads keep their joints), zero-length segments are
+// dropped, and a polyline already under the cap comes back as an
+// equal-valued copy. The drape's draped ribbons densify to 14 m so
+// a ribbon's straight chords never sag far below the DEM surface
+// they follow (the before-census: 14 m densification takes the
+// >1 m sag class from 31.1 km to 0.0 km).
+export function densifyPts(pts, maxSeg) {
+  const out = [];
+  for (let i = 0; i + 1 < pts.length; i += 2) {
+    const x0 = pts[i], z0 = pts[i + 1];
+    if (!out.length) out.push(x0, z0);
+    const x1 = pts[i + 2], z1 = pts[i + 3];
+    if (x1 === undefined) break;
+    const dx = x1 - x0, dz = z1 - z0;
+    const len = Math.hypot(dx, dz);
+    if (len === 0) continue;
+    const n = Math.max(1, Math.ceil(len / maxSeg));
+    for (let k = 1; k <= n; k++) {
+      const t = k / n;
+      out.push(x0 + dx * t, z0 + dz * t);
+    }
+    // The last pushed vertex is the exact endpoint (t = 1).
+  }
+  return out;
+}
+
 export function ribbonVertexFrames(pts, width) {
   const half = Math.max((width || 3) / 2, 0.75);
   const n = pts.length / 2;

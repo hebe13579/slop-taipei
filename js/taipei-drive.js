@@ -97,15 +97,25 @@ export function aabbCollider(minX, maxX, minZ, maxZ, maxY, minY) {
 
 // ------------------------------------------------------------------
 // The deck surface model + parapet colliders for one elevatedRoads
-// digest. Memoized by digest object: the boot asks twice (surface
-// for controllerOptions, colliders for the ground build) and pays
-// once.
+// digest. Memoized by digest object AND ground function: the boot
+// asks twice (surface for controllerOptions, colliders for the
+// ground build) and pays once per configuration.
 // ------------------------------------------------------------------
 const modelCache = new WeakMap();
+const FLAT_GROUND = () => 0;
 
-export function buildDriveModel(elevated) {
+export function buildDriveModel(elevated, opts = {}) {
   if (!elevated) return { sample: () => 0, parapetColliders: [], stats: { segments: 0, elevatedSegments: 0, cells: 0 } };
-  const hit = modelCache.get(elevated);
+  // Issue #132: groundAt lifts every deck surface by the draped
+  // terrain at the segment ends and makes the sample's ground
+  // candidate the draped height instead of 0 — on draped ground
+  // the caller's hint sits ~40 m up, and a 0 ground candidate
+  // would let any nearby deck surface win the closeness rule.
+  // The ground-bearing test still reads the AUTHORED profile.
+  const groundAt = typeof opts.groundAt === 'function' ? opts.groundAt : FLAT_GROUND;
+  let byGround = modelCache.get(elevated);
+  if (!byGround) { byGround = new Map(); modelCache.set(elevated, byGround); }
+  const hit = byGround.get(groundAt);
   if (hit) return hit;
 
   const depth = elevated.deckDepth ?? 1.8;
@@ -130,12 +140,14 @@ export function buildDriveModel(elevated) {
       if (!(len > 0)) continue;
       // The rendered surface: a segment whose profile stays under
       // LOW_BED_MAX is drawn as the flat low bed; anything higher
-      // is the slab, interpolated. Drive what is drawn.
+      // is the slab, interpolated. Drive what is drawn — the
+      // authored profile plus the draped ground at each end.
       const low = Math.max(hA, hB) < LOW_BED_MAX;
+      const gA = groundAt(ax, az), gB = groundAt(bx, bz);
       const seg = {
         ax, az, ux: dx / len, uz: dz / len, len, half, hA, hB,
-        sA: low ? LOW_BED_H + ASPHALT_LIFT : hA + ASPHALT_LIFT,
-        sB: low ? LOW_BED_H + ASPHALT_LIFT : hB + ASPHALT_LIFT,
+        sA: low ? LOW_BED_H + ASPHALT_LIFT + gA : hA + ASPHALT_LIFT + gA,
+        sB: low ? LOW_BED_H + ASPHALT_LIFT + gB : hB + ASPHALT_LIFT + gB,
       };
       segments++;
       // Register in every cell the corridor (bbox + half width)
@@ -160,7 +172,7 @@ export function buildDriveModel(elevated) {
         // (the mouth trims), not one per whole segment.
         const off = half - PARAPET_T / 2;
         const nx = -seg.uz, nz = seg.ux; // left normal, the renderer's n
-        const hAt = (t) => hA + (hB - hA) * t;
+        const hAt = (t) => hA + (hB - hA) * t + gA + (gB - gA) * t;
         const segTrim = trims.lines[li]?.segments[i];
         for (const [s, list] of [[1, segTrim?.left], [-1, segTrim?.right]]) {
           for (const [t0, t1] of list || [[0, 1]]) {
@@ -168,7 +180,9 @@ export function buildDriveModel(elevated) {
             const tm = (t0 + t1) / 2;
             const mx = ax + (bx - ax) * tm, mz = az + (bz - az) * tm;
             const maxY = Math.max(hAt(t0), hAt(t1)) + PARAPET_H;
-            const minY = Math.max(0, Math.min(hAt(t0), hAt(t1)) - depth);
+            // Issue #132: the slab underside clamps to the draped
+            // ground, never below it (flat: the old max(0, …)).
+            const minY = Math.max(gA + (gB - gA) * tm, Math.min(hAt(t0), hAt(t1)) - depth);
             const pc = obbCollider(
               mx + s * nx * off, mz + s * nz * off,
               PARAPET_T / 2, ((t1 - t0) * len) / 2, seg.uz, seg.ux, maxY, minY);
@@ -188,8 +202,10 @@ export function buildDriveModel(elevated) {
   const sample = (x, z, yHint) => {
     const hint = Number.isFinite(yHint) ? yHint : 0;
     const list = cells.get(cellKey(Math.floor(x / DRIVE_CELL), Math.floor(z / DRIVE_CELL)));
-    if (!list) return 0;
-    let best = 0, bestDist = Math.abs(hint); // the ground is always a candidate
+    // Issue #132: the ground candidate is the draped height, not 0.
+    const ground = groundAt(x, z);
+    if (!list) return ground;
+    let best = ground, bestDist = Math.abs(ground - hint); // the ground is always a candidate
     let gb = null, gbDist = Infinity;
     for (const seg of list) {
       const px = x - seg.ax, pz = z - seg.az;
@@ -215,7 +231,7 @@ export function buildDriveModel(elevated) {
     parapetColliders,
     stats: { segments, elevatedSegments, cells: cells.size, parapetTrimmedM: trims.stats.blockedM },
   };
-  modelCache.set(elevated, model);
+  byGround.set(groundAt, model);
   return model;
 }
 
@@ -229,11 +245,16 @@ export function buildDriveModel(elevated) {
 // plan extents. part.y0 is the part's base: minY, so an elevated
 // part never blocks the ground it bridges.
 // ------------------------------------------------------------------
-export function structureColliders(structures) {
+export function structureColliders(structures, groundAt = null) {
   const out = [];
   for (const s of structures || []) {
+    // Issue #132: a structure the plan lifted (s.lift, from the
+    // drape) carries its collider up with it; without a plan lift,
+    // groundAt at the structure centre is the same value. Flat
+    // structures (no lift, no groundAt) are unchanged.
+    const lift = (s.lift != null ? s.lift : (groundAt ? groundAt(s.x, s.z) : 0)) || 0;
     for (const part of s.parts || []) {
-      const y0 = part.y0 || 0;
+      const y0 = (part.y0 || 0) + lift;
       const cx = s.x + (part.dx || 0), cz = s.z + (part.dz || 0);
       if (part.type === 'box') {
         const hx = part.w / 2, hz = part.d / 2, maxY = y0 + part.h;
@@ -245,7 +266,7 @@ export function structureColliders(structures) {
       } else if (part.type === 'dome') {
         // flip hangs the hemisphere below its base plane (the
         // TPAC sphere): the solid spans y0 - h .. y0.
-        if (part.flip) out.push(aabbCollider(cx - part.rx, cx + part.rx, cz - part.rz, cz + part.rz, y0, Math.max(0, y0 - part.h)));
+        if (part.flip) out.push(aabbCollider(cx - part.rx, cx + part.rx, cz - part.rz, cz + part.rz, y0, Math.max(lift, y0 - part.h)));
         else out.push(aabbCollider(cx - part.rx, cx + part.rx, cz - part.rz, cz + part.rz, y0 + part.h, y0));
       } else if (part.type === 'frustum') {
         out.push(aabbCollider(s.x - part.wB / 2, s.x + part.wB / 2, s.z - part.dB / 2, s.z + part.dB / 2, y0 + part.h, y0));
@@ -308,13 +329,18 @@ const STATION_SPANS = {
   entrance: [0, 2.72],       // the surface pavilion whole
 };
 
-export function stationColliders(stations, depot) {
+export function stationColliders(stations, depot, groundAt = null) {
   const out = [];
+  // Issue #132: stations/depot ride the draped ground at their
+  // centres (the same lift the renderer applies); spans shift
+  // rigidly. Flat (no groundAt) is unchanged.
+  const liftAt = (x, z) => (groundAt ? groundAt(x, z) : 0) || 0;
   const pushStationBox = (st, alongOff, sizeAlong, sizeAcross, minY, maxY) => {
     const cy = Math.cos(st.yaw), sy = Math.sin(st.yaw);
     // local (across 0, along alongOff) -> world, the renderer's W
     const cx = st.x + alongOff * sy, cz = st.z + alongOff * cy;
-    out.push(obbCollider(cx, cz, sizeAcross / 2, sizeAlong / 2, cy, sy, maxY, minY));
+    const lift = liftAt(st.x, st.z);
+    out.push(obbCollider(cx, cz, sizeAcross / 2, sizeAlong / 2, cy, sy, maxY + lift, minY + lift));
   };
   for (const st of stations || []) {
     const fp = mrtStationFootprint(st);
@@ -330,7 +356,8 @@ export function stationColliders(stations, depot) {
   }
   for (const hall of depot?.halls || []) {
     const cy = Math.cos(hall.yaw), sy = Math.sin(hall.yaw);
-    out.push(obbCollider(hall.x, hall.z, hall.wid / 2, hall.len / 2, cy, sy, hall.h, 0));
+    const lift = liftAt(hall.x, hall.z);
+    out.push(obbCollider(hall.x, hall.z, hall.wid / 2, hall.len / 2, cy, sy, hall.h + lift, lift));
   }
   return out;
 }
@@ -338,13 +365,16 @@ export function stationColliders(stations, depot) {
 // Everything taipei-boot adds on top of buildCityBlocks' own lot
 // colliders: deck parapets + registry/site structures + Taipei
 // 101 + MRT stations + the depot. plan is planTaipeiBuildings'
-// output; geo is the tile geodata.
-export function taipeiExtraColliders(geo, plan) {
-  const drive = buildDriveModel(geo.elevatedRoads);
+// output; geo is the tile geodata. opts.groundAt (issue #132)
+// lifts the deck/station colliders onto the draped terrain;
+// structure colliders read the plan's s.lift first.
+export function taipeiExtraColliders(geo, plan, opts = {}) {
+  const groundAt = typeof opts.groundAt === 'function' ? opts.groundAt : null;
+  const drive = buildDriveModel(geo.elevatedRoads, groundAt ? { groundAt } : {});
   return [
     ...drive.parapetColliders,
-    ...structureColliders([...(plan.landmarkTowers || []), ...(plan.siteStructures || [])]),
+    ...structureColliders([...(plan.landmarkTowers || []), ...(plan.siteStructures || [])], groundAt),
     ...taipei101Colliders(plan.tower),
-    ...stationColliders(geo.mrtStations, geo.mrtDepot),
+    ...stationColliders(geo.mrtStations, geo.mrtDepot, groundAt),
   ];
 }

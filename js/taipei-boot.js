@@ -8,10 +8,11 @@ import { buildPaintedBands } from './taipei-painted.js';
 import { buildAirfieldPaint, buildRoadTunnelPortals, roadTrenchSlots } from './taipei-airfield.js';
 import { SURFACE_TONES, surfaceClass, buildMedianStrips, isPlazaPark, isPodiumBlock, podiumCentresOf, memorialPaving, MEMORIAL_GRID_TONE } from './taipei-surfaces.js';
 import { buildRoadMarkings, detectJunctions, DASH_LEN, DASH_GAP, STRIPE_W, STRIPE_PITCH } from './taipei-markings.js';
-import { planJunctionCaps, planRoundabouts, ringPoints, capSurfacePolys, capClipPolys, CAP_Y, ISLAND_Y } from './taipei-junctions.js';
+import { planJunctionCaps, planRoundabouts, ringPoints, capSurfacePolys, capClipPolys, capWaterPolys, CAP_Y, ISLAND_Y } from './taipei-junctions.js';
 import { buildDeckGeometry, groundContactPolys, portalTrenchSlots, diveAdjustedPiers, PIER_W, PIER_D } from './taipei-viaduct.js';
 import { buildDriveModel, taipeiExtraColliders } from './taipei-drive.js';
-import { ribbonsQuads, jointFramesFor } from './taipei-ribbons.js';
+import { ribbonsQuads, jointFramesFor, densifyPts } from './taipei-ribbons.js';
+import { drapeHeight, drapeEnabled, setDrapeEnabled, DRAPE_RECTS, DRAPE_FEATHER, buildDrapePatchGrids } from './taipei-drape.js';
 import { buildMrtStationGeometry, buildMrtDepotGeometry } from './taipei-mrt-stations.js';
 import { buildBridgeGeometry } from './taipei-bridges.js';
 import { skybridgeChainSlices } from './taipei-skybridges.js';
@@ -197,7 +198,7 @@ function deckPartGeometry(part) {
 // underside height the pipeline computed. Placement — 32 m rhythm,
 // twin-carriageway merging, carriageway/lot rejection — all happened
 // in tools/taipei/build-elevated.mjs; this only draws the boxes.
-function buildDeckPierMesh(piers) {
+function buildDeckPierMesh(piers, groundAt = null) {
   if (!piers.length) return null;
   const geo = new THREE.BoxGeometry(PIER_W, 1, PIER_D);
   geo.translate(0, 0.5, 0);
@@ -205,7 +206,10 @@ function buildDeckPierMesh(piers) {
   mesh.name = 'TaipeiDeckPiers';
   const dummy = new THREE.Object3D();
   piers.forEach((p, i) => {
-    dummy.position.set(p.x, 0, p.z);
+    // Issue #132: the pier's base rides the draped ground (its
+    // height is the authored pier height, preserved); without
+    // groundAt it stands at 0 exactly as before.
+    dummy.position.set(p.x, groundAt ? groundAt(p.x, p.z) : 0, p.z);
     dummy.rotation.set(0, p.yaw, 0);
     dummy.scale.set(1, Math.max(p.h, 0.1), 1);
     dummy.updateMatrix();
@@ -242,9 +246,9 @@ function buildTerrainSkinMesh(terrain) {
 // mesh for all station structures. The geometry builder is pure
 // (js/taipei-mrt-stations.js); the defs come from the pipeline
 // (geodata.mrtStations — OSM anchor + track yaw + measured length).
-function buildMrtStationMesh(stations) {
+function buildMrtStationMesh(stations, opts = {}) {
   if (!stations?.length) return null;
-  const g = buildMrtStationGeometry(stations);
+  const g = buildMrtStationGeometry(stations, opts);
   if (!g.triCount) return null;
   const geo = new THREE.BufferGeometry();
   geo.setAttribute('position', new THREE.BufferAttribute(g.positions, 3));
@@ -261,8 +265,8 @@ function buildMrtStationMesh(stations) {
 // for the five crossings' signature structures. The geometry
 // builder is pure (js/taipei-bridges.js); anchors snap onto the
 // drawn deck centrelines in geodata.elevatedRoads at build time.
-function buildBridgeMesh(geo) {
-  const g = buildBridgeGeometry(geo);
+function buildBridgeMesh(geo, opts = {}) {
+  const g = buildBridgeGeometry(geo, opts);
   if (!g.triCount) return null;
   const bgeo = new THREE.BufferGeometry();
   bgeo.setAttribute('position', new THREE.BufferAttribute(g.positions, 3));
@@ -312,9 +316,9 @@ function buildSkybridgeMeshes(geo) {
 
 // Beitou depot (issue #139): the maintenance halls + yard fan as
 // one merged vertex-coloured mesh, same idiom as the stations.
-function buildMrtDepotMesh(depot) {
+function buildMrtDepotMesh(depot, opts = {}) {
   if (!depot) return null;
-  const g = buildMrtDepotGeometry(depot);
+  const g = buildMrtDepotGeometry(depot, opts);
   if (!g.triCount) return null;
   const geo = new THREE.BufferGeometry();
   geo.setAttribute('position', new THREE.BufferAttribute(g.positions, 3));
@@ -345,7 +349,7 @@ function ribbonsGeometry(roads, y, jointFrames = null) {
 // crossing carriageways (issue #25) — lives in js/taipei-painted.js as
 // pure geometry so tests and audits run the exact code drawn here.
 // This converts its quads ([x,z] x4, strip order) to triangle positions.
-function quadsGeometry(quads, y) {
+function quadsPositions(quads, y) {
   const positions = new Float32Array(quads.length * 18);
   let o = 0;
   for (const q of quads) {
@@ -355,10 +359,141 @@ function quadsGeometry(quads, y) {
     ], o);
     o += 18;
   }
+  return positions;
+}
+function quadsGeometry(quads, y) {
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute('position', new THREE.BufferAttribute(quadsPositions(quads, y), 3));
+  geo.computeVertexNormals();
+  return geo;
+}
+
+// ---------------------------------------------------------------------
+// Terrain drape (issue #132): the Beitou + Yuanshan ground follows
+// the baked SRTM DEM (js/taipei-drape.js, one shared height field
+// drapeHeight) instead of staying flat. The kill-switch is the
+// module flag in taipei-drape.js (setDrapeEnabled, driven by the
+// settings `drape` row + ?drape= URL param, default ON): when it
+// is off, drapeHeight is identically 0, drapeGeometry returns its
+// input untouched, and every drape-aware builder below degrades to
+// its flat form — no geodata rebuild, no revert commit.
+// drapeGeometry: post-hoc lift for ground layers whose vertices
+// are dense enough to follow the DEM as-is (blocks, parks, caps,
+// discs, medians, painted bands, stop lines, sidewalk bands).
+// Ribbons and marking strips get their own subdivided builders
+// below — their sparse vertices would chord-sag through the DEM.
+function drapeGeometry(geo) {
+  if (!drapeEnabled()) return geo;
+  const pos = geo.getAttribute('position');
+  if (!pos) return geo;
+  for (let i = 0; i < pos.count; i++) {
+    const h = drapeHeight(pos.getX(i), pos.getZ(i));
+    if (h !== 0) pos.setY(i, pos.getY(i) + h);
+  }
+  pos.needsUpdate = true;
+  geo.computeVertexNormals();
+  return geo;
+}
+// A road touches the drape when its bounding box meets a drape rect
+// grown by the feather band — conservative (a bbox may touch while
+// the road itself does not), which only subdivides a few extra beds.
+function roadTouchesDrape(pts) {
+  let minX = Infinity, maxX = -Infinity, minZ = Infinity, maxZ = -Infinity;
+  for (let i = 0; i + 1 < pts.length; i += 2) {
+    if (pts[i] < minX) minX = pts[i];
+    if (pts[i] > maxX) maxX = pts[i];
+    if (pts[i + 1] < minZ) minZ = pts[i + 1];
+    if (pts[i + 1] > maxZ) maxZ = pts[i + 1];
+  }
+  for (const r of DRAPE_RECTS) {
+    if (maxX >= r.minX - DRAPE_FEATHER && minX <= r.maxX + DRAPE_FEATHER &&
+        maxZ >= r.minZ - DRAPE_FEATHER && minZ <= r.maxZ + DRAPE_FEATHER) return true;
+  }
+  return false;
+}
+// Issue #132: densification cap for draped ribbons (the before-
+// census: 14 m takes the >1 m chord-sag class from 31.1 km to
+// 0.0 km) and the lateral subdivision that keeps a ribbon level
+// across its width on a side slope (3 strips: each corner samples
+// the DEM, so a cross-fall becomes a stepped profile, never a
+// single tilted plane through the ground).
+const DRAPE_DENSIFY_M = 14;
+const DRAPE_LATERAL_STRIPS = 3;
+function drapedQuadsPositions(quads, y) {
+  const S = DRAPE_LATERAL_STRIPS;
+  const positions = new Float32Array(quads.length * S * 18);
+  let o = 0;
+  for (const q of quads) {
+    const [x0, z0, x1, z1, x2, z2, x3, z3] = q;
+    for (let s = 0; s < S; s++) {
+      const t0 = s / S, t1 = (s + 1) / S;
+      const ax = x0 + (x1 - x0) * t0, az = z0 + (z1 - z0) * t0;
+      const bx = x0 + (x1 - x0) * t1, bz = z0 + (z1 - z0) * t1;
+      const cx = x3 + (x2 - x3) * t1, cz = z3 + (z2 - z3) * t1;
+      const dx = x3 + (x2 - x3) * t0, dz = z3 + (z2 - z3) * t0;
+      positions.set([
+        ax, y + drapeHeight(ax, az), az, bx, y + drapeHeight(bx, bz), bz, cx, y + drapeHeight(cx, cz), cz,
+        ax, y + drapeHeight(ax, az), az, cx, y + drapeHeight(cx, cz), cz, dx, y + drapeHeight(dx, dz), dz,
+      ], o);
+      o += 18;
+    }
+  }
+  return positions;
+}
+function drapedRibbonsGeometry(roads, y, jointFrames = null) {
+  const flat = [], draped = [];
+  for (const r of roads) (roadTouchesDrape(r.pts) ? draped : flat).push(r);
+  const parts = [];
+  if (flat.length) parts.push(quadsPositions(ribbonsQuads(flat, jointFrames).quads, y));
+  if (draped.length) {
+    const dens = draped.map((r) => ({ ...r, pts: densifyPts(r.pts, DRAPE_DENSIFY_M) }));
+    parts.push(drapedQuadsPositions(ribbonsQuads(dens, jointFrames).quads, y));
+  }
+  const total = parts.reduce((s, p) => s + p.length, 0);
+  const positions = new Float32Array(total);
+  let o = 0;
+  for (const p of parts) { positions.set(p, o); o += p.length; }
   const geo = new THREE.BufferGeometry();
   geo.setAttribute('position', new THREE.BufferAttribute(positions, 3));
   geo.computeVertexNormals();
   return geo;
+}
+// The drape patch itself (prototype's buildDrapePatchMeshes, over
+// the pure grids in js/taipei-drape.js): one 28 m mesh per region +
+// feather margin at h − 0.02, vertex colours scrub/forest/rock by
+// slope and height, in-water vertices pinned to −0.05 so the flat
+// water (0.03) still wins. Returns [] when the drape is off.
+function buildDrapePatchMeshes(geo) {
+  if (!drapeEnabled()) return [];
+  const grids = buildDrapePatchGrids((geo.water || []).map((w) => w.ring));
+  const meshes = [];
+  const cLow = new THREE.Color(0x77875c), cMid = new THREE.Color(0x46683d), cHigh = new THREE.Color(0x6f7d68), cRock = new THREE.Color(0x8a8578);
+  const col = new THREE.Color();
+  for (const g of grids) {
+    const colors = new Float32Array(g.positions.length);
+    for (let i = 0; i < g.positions.length; i += 3) {
+      const x = g.positions[i], z = g.positions[i + 2];
+      const slope = Math.hypot(
+        drapeHeight(x + g.stepX, z) - drapeHeight(x - g.stepX, z),
+        drapeHeight(x, z + g.stepZ) - drapeHeight(x, z - g.stepZ),
+      ) / (2 * g.stepX);
+      const hgt = Math.max(0, g.positions[i + 1]);
+      if (slope > 0.55) col.copy(cRock);
+      else if (hgt < 18) col.copy(cLow).lerp(cMid, Math.max(0, hgt) / 18);
+      else col.copy(cMid).lerp(cHigh, Math.min(1, (hgt - 18) / 90));
+      colors[i] = col.r; colors[i + 1] = col.g; colors[i + 2] = col.b;
+    }
+    const bgeo = new THREE.BufferGeometry();
+    bgeo.setAttribute('position', new THREE.BufferAttribute(g.positions, 3));
+    bgeo.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+    bgeo.setIndex(new THREE.BufferAttribute(g.indices, 1));
+    bgeo.computeVertexNormals();
+    const mesh = new THREE.Mesh(bgeo, new THREE.MeshStandardNodeMaterial({ vertexColors: true, roughness: 1.0, metalness: 0.0, flatShading: true }));
+    mesh.name = `TaipeiDrapeTerrain-${g.name}`;
+    mesh.receiveShadow = true;
+    meshes.push(mesh);
+  }
+  return meshes;
 }
 
 function paintedGeometries(carriageways, yBand, yEdge, capPolys = null) {
@@ -375,24 +510,47 @@ function paintedGeometries(carriageways, yBand, yEdge, capPolys = null) {
 // evaluated by createTaipeiMarkingMaterial; this only lays out the
 // ribbons. Triangle order mirrors quadsGeometry's strip order so
 // the faces point up exactly like the solid quads they replace.
-function patternGeometry(strips, bands, y) {
-  let verts = 0;
-  for (const s of strips) verts += (s.length - 1) * 6;
+function patternGeometry(strips, bands, y, opts = {}) {
+  // Issue #132: opts.yAt samples the drape per vertex (dash strips
+  // are long, so their segments are subdivided to opts.maxSeg first
+  // — the same 14 m densification as the draped ribbons — and zebra
+  // bands are small single quads whose corners sample directly).
+  // Without yAt the builder is exactly its old self.
+  const yAt = opts.yAt || null;
+  const maxSeg = opts.maxSeg || 0;
+  const segs = [];
+  for (const s of strips) {
+    for (let i = 0; i + 1 < s.length; i++) {
+      const a = s[i], b = s[i + 1];
+      if (!yAt || !maxSeg) { segs.push([a, b]); continue; }
+      const span = Math.max(Math.abs(b.hx - a.hx), Math.abs(b.hz - a.hz), Math.abs(b.lx - a.lx), Math.abs(b.lz - a.lz));
+      const k = Math.max(1, Math.ceil(span / maxSeg));
+      let prev = a;
+      for (let j = 1; j <= k; j++) {
+        const t = j / k;
+        const m = {
+          hx: a.hx + (b.hx - a.hx) * t, hz: a.hz + (b.hz - a.hz) * t,
+          lx: a.lx + (b.lx - a.lx) * t, lz: a.lz + (b.lz - a.lz) * t,
+          along: a.along + (b.along - a.along) * t,
+        };
+        segs.push([prev, m]);
+        prev = m;
+      }
+    }
+  }
+  let verts = segs.length * 6;
   verts += bands.length * 6;
   const positions = new Float32Array(verts * 3);
   const paint = new Float32Array(verts * 3);
   let o = 0, p = 0;
   const tri = (ax, az, aAlong, bx, bz, bAlong, cx, cz, cAlong, period, duty) => {
-    positions.set([ax, y, az, bx, y, bz, cx, y, cz], o); o += 9;
+    positions.set([ax, y + (yAt ? yAt(ax, az) : 0), az, bx, y + (yAt ? yAt(bx, bz) : 0), bz, cx, y + (yAt ? yAt(cx, cz) : 0), cz], o); o += 9;
     paint.set([aAlong, period, duty, bAlong, period, duty, cAlong, period, duty], p); p += 9;
   };
   const dashPeriod = DASH_LEN + DASH_GAP, dashDuty = DASH_LEN / dashPeriod;
-  for (const s of strips) {
-    for (let i = 0; i + 1 < s.length; i++) {
-      const a = s[i], b = s[i + 1];
-      tri(a.hx, a.hz, a.along, b.hx, b.hz, b.along, b.lx, b.lz, b.along, dashPeriod, dashDuty);
-      tri(a.hx, a.hz, a.along, b.lx, b.lz, b.along, a.lx, a.lz, a.along, dashPeriod, dashDuty);
-    }
+  for (const [a, b] of segs) {
+    tri(a.hx, a.hz, a.along, b.hx, b.hz, b.along, b.lx, b.lz, b.along, dashPeriod, dashDuty);
+    tri(a.hx, a.hz, a.along, b.lx, b.lz, b.along, a.lx, a.lz, a.along, dashPeriod, dashDuty);
   }
   const zebraDuty = STRIPE_W / STRIPE_PITCH;
   for (const b of bands) {
@@ -466,7 +624,7 @@ function mergeColouredParts(build) {
   return geo;
 }
 
-function instancedFromGeometry(geo, list, name, baseY = 0) {
+function instancedFromGeometry(geo, list, name, baseY = 0, opts = {}, yAt = null) {
   if (!list.length) return null;
   const mesh = new THREE.InstancedMesh(
     geo,
@@ -474,9 +632,15 @@ function instancedFromGeometry(geo, list, name, baseY = 0) {
     list.length,
   );
   mesh.name = name;
+  // Issue #245: opts.cullDistance caps the chunk-culling distance
+  // scene-culling.js computes for this mesh (park trees only).
+  if (opts.cullDistance != null) mesh.userData.cullDistance = opts.cullDistance;
   const dummy = new THREE.Object3D();
   list.forEach((t, i) => {
-    dummy.position.set(t.x, baseY, t.z);
+    // Issue #132: yAt (the drape height field, or baseY + it for
+    // park furniture) seats each instance on the draped ground;
+    // without it the instance stands at baseY exactly as before.
+    dummy.position.set(t.x, yAt ? yAt(t.x, t.z) : baseY, t.z);
     dummy.rotation.set(0, t.rot || 0, 0);
     dummy.scale.setScalar(t.scale ?? 1);
     dummy.updateMatrix();
@@ -494,8 +658,8 @@ function streetTreeGeometry() {
   });
 }
 
-function buildStreetTreeMesh(trees) {
-  return instancedFromGeometry(streetTreeGeometry(), trees, 'TaipeiStreetTrees', 0);
+function buildStreetTreeMesh(trees, yAt = null) {
+  return instancedFromGeometry(streetTreeGeometry(), trees, 'TaipeiStreetTrees', 0, {}, yAt);
 }
 
 // Issue #222: park-tree canopy variants. Street trees keep the
@@ -543,6 +707,35 @@ function coniferTreeGeometry() {
     addPart(new THREE.ConeGeometry(1.02, 2.0, 7), 0x386b3c, { p: [0, 4.5, 0] });
   });
 }
+
+// Issue #245: blossom canopies — the flowering-tree variant. Same
+// round-canopy silhouette as parkRoundTreeGeometry, flattened a
+// little wider, in one of the three Taipei blossom tones (cherry
+// pink, white, golden-shower gold). One geometry per tone, so each
+// tone stays one InstancedMesh like the other variants.
+const BLOSSOM_TONES = {
+  pink: [0xdf8fb4, 0xeeb4cb, 0xd67ba0],
+  white: [0xf3ede4, 0xffffff, 0xe8ddcf],
+  gold: [0xe3b83c, 0xf0cd6a, 0xd19f2e],
+};
+function blossomTreeGeometry(tone) {
+  const [c0, c1, c2] = BLOSSOM_TONES[tone] || BLOSSOM_TONES.pink;
+  return mergeColouredParts((addPart) => {
+    addPart(new THREE.CylinderGeometry(0.16, 0.23, 2.8, 5), 0x634628, { p: [0, 1.4, 0] });
+    addPart(new THREE.IcosahedronGeometry(1.8, 0), c0, { p: [0, 4.1, 0], s: [1.25, 0.68, 1.25] });
+    addPart(new THREE.IcosahedronGeometry(1.2, 0), c1, { p: [0.65, 5.0, 0.25], s: [1.2, 0.65, 1.2] });
+    addPart(new THREE.IcosahedronGeometry(0.85, 0), c2, { p: [-0.75, 4.7, -0.3], s: [1.2, 0.65, 1.2] });
+  });
+}
+
+// Issue #245: park-tree far LOD. Park trees are small props whose
+// computed chunk-cull distance exceeds CULL_MAX (kept at any
+// distance), so a park reads as green fuzz from 3 km away. Past
+// this distance a tree is a few pixels; the chunk-culling path
+// hides whole chunks, which vanishes grove by grove instead of
+// popping the whole park at once. Street trees and the amenity
+// kit keep their existing culling (no override set).
+export const PARK_TREE_LOD_M = 1200;
 
 // ---------------------------------------------------------------------
 // Park amenity kit (issue #222): the furniture plan from
@@ -639,22 +832,129 @@ function bushGeometry() {
   });
 }
 
-function buildParkAmenityMeshes(amenityPlan) {
+// ---------------------------------------------------------------------
+// Park amenity kit II (issue #246): playgrounds, picnic tables,
+// basketball/tennis courts and 涼亭 pavilions. Same idiom as the
+// #222 kit above — merged coloured parts standing on y=0, one
+// InstancedMesh per kit class at the lawn surface, fronts facing
+// local +Z. Pad sizes are the planner's fixed kit rects
+// (playground 14x11, pavilion 8x8, courts per sport), so the
+// drawn pad is exactly the rect the planner cleared.
+function playgroundGeometry() {
+  return mergeColouredParts((addPart) => {
+    addPart(new THREE.BoxGeometry(14, 0.15, 11), 0xd8c49a, { p: [0, 0.075, 0] }); // sand/rubber pad
+    addPart(new THREE.BoxGeometry(1.4, 1.1, 1.4), 0x2e5fa3, { p: [-3.8, 0.55, -2.2] }); // slide platform
+    addPart(new THREE.BoxGeometry(0.7, 0.08, 3.4), 0xc8402e, { p: [-3.8, 0.62, 0], r: [0.31, 0, 0] }); // slide chute
+    addPart(new THREE.BoxGeometry(0.08, 0.18, 3.4), 0xc8402e, { p: [-4.15, 0.78, 0], r: [0.31, 0, 0] });
+    addPart(new THREE.BoxGeometry(0.08, 0.18, 3.4), 0xc8402e, { p: [-3.45, 0.78, 0], r: [0.31, 0, 0] });
+    addPart(new THREE.BoxGeometry(0.08, 1.4, 0.08), 0xe0a81c, { p: [-4.35, 0.7, -3.05] }); // ladder rails
+    addPart(new THREE.BoxGeometry(0.08, 1.4, 0.08), 0xe0a81c, { p: [-3.25, 0.7, -3.05] });
+    for (const y of [0.35, 0.7, 1.05]) addPart(new THREE.BoxGeometry(1.1, 0.07, 0.07), 0xe0a81c, { p: [-3.8, y, -3.05] });
+    for (const sx of [-1, 1]) for (const sz of [-1, 1]) { // swing A-legs
+      addPart(new THREE.BoxGeometry(0.1, 2.65, 0.1), 0xe0a81c, { p: [2.5 + sx * 1.2, 1.25, sz * 0.4], r: [-sz * 0.31, 0, 0] });
+    }
+    addPart(new THREE.BoxGeometry(3.0, 0.12, 0.12), 0xe0a81c, { p: [2.5, 2.5, 0] }); // swing top bar
+    for (const sx of [2.0, 3.0]) { // two swings
+      addPart(new THREE.BoxGeometry(0.04, 1.3, 0.04), 0x33373b, { p: [sx - 0.25, 1.8, 0] });
+      addPart(new THREE.BoxGeometry(0.04, 1.3, 0.04), 0x33373b, { p: [sx + 0.25, 1.8, 0] });
+      addPart(new THREE.BoxGeometry(0.55, 0.06, 0.25), 0x2e5fa3, { p: [sx, 1.12, 0] });
+    }
+    for (const sx of [-1, 1]) for (const sz of [-1, 1]) { // climb-dome struts
+      addPart(new THREE.BoxGeometry(0.09, 2.0, 0.09), 0x3f7d4e, { p: [0.5 + sx * 0.7, 0.85, 3.2 + sz * 0.7], r: [sz * 0.55, 0, -sx * 0.55] });
+    }
+    addPart(new THREE.IcosahedronGeometry(0.3, 0), 0x3f7d4e, { p: [0.5, 1.9, 3.2] });
+  });
+}
+
+function picnicGeometry() {
+  return mergeColouredParts((addPart) => {
+    addPart(new THREE.BoxGeometry(2.2, 0.08, 1.0), 0x8a6844, { p: [0, 0.75, 0] });
+    addPart(new THREE.BoxGeometry(2.2, 0.07, 0.35), 0x8a6844, { p: [0, 0.45, -0.72] });
+    addPart(new THREE.BoxGeometry(2.2, 0.07, 0.35), 0x8a6844, { p: [0, 0.45, 0.72] });
+    addPart(new THREE.BoxGeometry(0.09, 0.75, 0.9), 0x6b4a2f, { p: [-0.9, 0.375, 0] });
+    addPart(new THREE.BoxGeometry(0.09, 0.75, 0.9), 0x6b4a2f, { p: [0.9, 0.375, 0] });
+    for (const sx of [-1, 1]) for (const sz of [-1, 1]) {
+      addPart(new THREE.BoxGeometry(0.09, 0.45, 0.3), 0x6b4a2f, { p: [sx * 0.9, 0.225, sz * 0.72] });
+    }
+  });
+}
+
+// Court pads reuse the school-grounds acrylics (taipei-buildings.js
+// handcraft: basketball 0x3f6d8e, tennis 0x3f7d6b). Lines are thin
+// white boxes on the pad top; hoops / net posts stand at the ends.
+function basketballCourtGeometry() {
+  return mergeColouredParts((addPart) => {
+    addPart(new THREE.BoxGeometry(30, 0.12, 17), 0x3f6d8e, { p: [0, 0.06, 0] });
+    addPart(new THREE.BoxGeometry(29.7, 0.02, 0.15), 0xf2f2e8, { p: [0, 0.13, -8.35] });
+    addPart(new THREE.BoxGeometry(29.7, 0.02, 0.15), 0xf2f2e8, { p: [0, 0.13, 8.35] });
+    addPart(new THREE.BoxGeometry(0.15, 0.02, 16.7), 0xf2f2e8, { p: [-14.85, 0.13, 0] });
+    addPart(new THREE.BoxGeometry(0.15, 0.02, 16.7), 0xf2f2e8, { p: [14.85, 0.13, 0] });
+    addPart(new THREE.BoxGeometry(0.15, 0.02, 16.7), 0xf2f2e8, { p: [0, 0.13, 0] });
+    addPart(new THREE.TorusGeometry(1.8, 0.07, 6, 24), 0xf2f2e8, { p: [0, 0.13, 0], r: [Math.PI / 2, 0, 0] });
+    addPart(new THREE.BoxGeometry(0.15, 0.02, 4.9), 0xf2f2e8, { p: [-9.2, 0.13, 0] });
+    addPart(new THREE.BoxGeometry(0.15, 0.02, 4.9), 0xf2f2e8, { p: [9.2, 0.13, 0] });
+    for (const sx of [-1, 1]) {
+      addPart(new THREE.CylinderGeometry(0.09, 0.11, 3.9, 6), 0x2f3338, { p: [sx * 14.2, 1.95, 0] });
+      addPart(new THREE.BoxGeometry(1.8, 1.05, 0.06), 0xdfe8ec, { p: [sx * 13.9, 3.6, 0] });
+      addPart(new THREE.TorusGeometry(0.23, 0.03, 6, 12), 0xc8402e, { p: [sx * 13.55, 3.05, 0], r: [Math.PI / 2, 0, 0] });
+    }
+  });
+}
+
+function tennisCourtGeometry() {
+  return mergeColouredParts((addPart) => {
+    addPart(new THREE.BoxGeometry(28, 0.12, 14), 0x3f7d6b, { p: [0, 0.06, 0] });
+    addPart(new THREE.BoxGeometry(27.7, 0.02, 0.15), 0xf2f2e8, { p: [0, 0.13, -6.85] });
+    addPart(new THREE.BoxGeometry(27.7, 0.02, 0.15), 0xf2f2e8, { p: [0, 0.13, 6.85] });
+    addPart(new THREE.BoxGeometry(0.15, 0.02, 13.7), 0xf2f2e8, { p: [-13.85, 0.13, 0] });
+    addPart(new THREE.BoxGeometry(0.15, 0.02, 13.7), 0xf2f2e8, { p: [13.85, 0.13, 0] });
+    addPart(new THREE.BoxGeometry(0.15, 0.02, 13.7), 0xf2f2e8, { p: [-6.4, 0.13, 0] });
+    addPart(new THREE.BoxGeometry(0.15, 0.02, 13.7), 0xf2f2e8, { p: [6.4, 0.13, 0] });
+    addPart(new THREE.BoxGeometry(12.8, 0.02, 0.15), 0xf2f2e8, { p: [0, 0.13, 0] });
+    addPart(new THREE.CylinderGeometry(0.07, 0.07, 1.07, 6), 0x2f3338, { p: [0, 0.535, -7.3] });
+    addPart(new THREE.CylinderGeometry(0.07, 0.07, 1.07, 6), 0x2f3338, { p: [0, 0.535, 7.3] });
+    addPart(new THREE.BoxGeometry(0.06, 0.95, 14.4), 0x2a2c30, { p: [0, 0.55, 0] });
+  });
+}
+
+function pavilionGeometry() {
+  return mergeColouredParts((addPart) => {
+    addPart(new THREE.CylinderGeometry(4.2, 4.5, 0.3, 6), 0x9b9587, { p: [0, 0.15, 0] }); // hexagonal pad
+    for (let k = 0; k < 6; k++) {
+      const a = (k / 6) * Math.PI * 2;
+      addPart(new THREE.CylinderGeometry(0.18, 0.2, 2.6, 6), 0xa83c2a, { p: [Math.cos(a) * 3.4, 1.6, Math.sin(a) * 3.4] });
+    }
+    addPart(new THREE.ConeGeometry(4.8, 1.9, 6), 0x8a4a32, { p: [0, 3.85, 0], r: [0, Math.PI / 6, 0] });
+    addPart(new THREE.CylinderGeometry(0.08, 0.12, 0.5, 6), 0xc9a227, { p: [0, 5.0, 0] });
+  });
+}
+
+function buildParkAmenityMeshes(amenityPlan, yAt = null) {
   const it = amenityPlan.items;
   const meshes = [];
   const add = (mesh) => { if (mesh) meshes.push(mesh); };
-  add(instancedFromGeometry(benchGeometry(), it.bench, 'TaipeiParkBenches', PARK_SURFACE_Y));
-  add(instancedFromGeometry(lampGeometry(), it.lamp, 'TaipeiParkLamps', PARK_SURFACE_Y));
-  add(instancedFromGeometry(binGeometry(), it.bin, 'TaipeiParkBins', PARK_SURFACE_Y));
+  // Issue #132: furniture stands on the park surface (0.04) PLUS
+  // the drape; without yAt it stands at 0.04 exactly as before.
+  const seat = yAt ? (x, z) => PARK_SURFACE_Y + yAt(x, z) : null;
+  add(instancedFromGeometry(benchGeometry(), it.bench, 'TaipeiParkBenches', PARK_SURFACE_Y, {}, seat));
+  add(instancedFromGeometry(lampGeometry(), it.lamp, 'TaipeiParkLamps', PARK_SURFACE_Y, {}, seat));
+  add(instancedFromGeometry(binGeometry(), it.bin, 'TaipeiParkBins', PARK_SURFACE_Y, {}, seat));
   for (let tint = 0; tint < VENDING_TINTS.length; tint++) {
-    add(instancedFromGeometry(vendingGeometry(tint), it.vending.filter((v) => v.tint === tint), `TaipeiParkVending${tint}`, PARK_SURFACE_Y));
+    add(instancedFromGeometry(vendingGeometry(tint), it.vending.filter((v) => v.tint === tint), `TaipeiParkVending${tint}`, PARK_SURFACE_Y, {}, seat));
   }
-  add(instancedFromGeometry(restroomGeometry(), it.restroom, 'TaipeiParkRestrooms', PARK_SURFACE_Y));
+  add(instancedFromGeometry(restroomGeometry(), it.restroom, 'TaipeiParkRestrooms', PARK_SURFACE_Y, {}, seat));
   for (let form = 0; form < 3; form++) {
-    add(instancedFromGeometry(sculptureGeometry(form), it.sculpture.filter((s) => s.form === form), `TaipeiParkSculpture${form}`, PARK_SURFACE_Y));
+    add(instancedFromGeometry(sculptureGeometry(form), it.sculpture.filter((s) => s.form === form), `TaipeiParkSculpture${form}`, PARK_SURFACE_Y, {}, seat));
   }
-  add(instancedFromGeometry(fountainGeometry(), it.fountain, 'TaipeiParkFountains', PARK_SURFACE_Y));
-  add(instancedFromGeometry(bushGeometry(), it.bush, 'TaipeiParkBushes', PARK_SURFACE_Y));
+  add(instancedFromGeometry(fountainGeometry(), it.fountain, 'TaipeiParkFountains', PARK_SURFACE_Y, {}, seat));
+  add(instancedFromGeometry(bushGeometry(), it.bush, 'TaipeiParkBushes', PARK_SURFACE_Y, {}, seat));
+  // Issue #246: playgrounds, picnic tables, courts (one mesh per
+  // sport, like the vending tints above) and pavilions.
+  add(instancedFromGeometry(playgroundGeometry(), it.playground, 'TaipeiParkPlaygrounds', PARK_SURFACE_Y, {}, seat));
+  add(instancedFromGeometry(picnicGeometry(), it.picnic, 'TaipeiParkPicnics', PARK_SURFACE_Y, {}, seat));
+  add(instancedFromGeometry(basketballCourtGeometry(), it.court.filter((c) => c.sport === 'basketball'), 'TaipeiParkBasketballCourts', PARK_SURFACE_Y, {}, seat));
+  add(instancedFromGeometry(tennisCourtGeometry(), it.court.filter((c) => c.sport === 'tennis'), 'TaipeiParkTennisCourts', PARK_SURFACE_Y, {}, seat));
+  add(instancedFromGeometry(pavilionGeometry(), it.pavilion, 'TaipeiParkPavilions', PARK_SURFACE_Y, {}, seat));
   return meshes;
 }
 
@@ -735,7 +1035,7 @@ function signalMastGeometry(armLen) {
   });
 }
 
-function buildSignalMesh(signals) {
+function buildSignalMesh(signals, groundAt = null) {
   if (!signals.length) return null;
   const poleBase = signalPoleGeometry();
   // Merge the per-unit transformed geometries by concatenating
@@ -750,7 +1050,9 @@ function buildSignalMesh(signals) {
   const dummy = new THREE.Object3D();
   signals.forEach((s) => {
     const base = s.kind === 'mast' ? signalMastGeometry(s.armLen || 8) : poleBase;
-    dummy.position.set(s.x, 0, s.z);
+    // Issue #132: the unit's base rides the draped ground; without
+    // groundAt it stands at 0 exactly as before.
+    dummy.position.set(s.x, groundAt ? groundAt(s.x, s.z) : 0, s.z);
     dummy.rotation.set(0, Math.atan2(s.faceX, s.faceZ), 0);
     dummy.updateMatrix();
     const g = base.clone().applyMatrix4(dummy.matrix);
@@ -801,7 +1103,10 @@ export function controllerOptions(tile, env = {}) {
     // Issue #207: the ground model — the flat basin floor, plus
     // the elevated road decks wherever the caller's current
     // height (the hint) puts it on one (js/taipei-drive.js).
-    groundHeight: (x, z, mode, yHint) => buildDriveModel(tile.geodata.elevatedRoads).sample(x, z, yHint),
+    // Issue #132: the drive model is drape-aware — its ground
+    // candidate is the draped height, so agents stand on the
+    // hillsides; with the drape off it is the flat model exactly.
+    groundHeight: (x, z, mode, yHint) => buildDriveModel(tile.geodata.elevatedRoads, { groundAt: drapeHeight }).sample(x, z, yHint),
     speedScale: 2,
     // Helicopter (user request 2026-10-24): ceiling above 600 m — 750
     // clears Taipei 101 (508 m) with margin — and ascend/descend 5×
@@ -934,6 +1239,14 @@ export async function buildTaipeiGround(scene, tile, deps = {}) {
   const group = new THREE.Group();
   group.name = 'TaipeiGround';
 
+  // Issue #132: the terrain drape kill-switch — deps.settings.drape
+  // (resolved by main.js from ?drape= / localStorage / default ON).
+  // When off, drapeHeight is identically 0 and every drape-aware
+  // builder below degrades to its flat form, so the drape can be
+  // turned off live without a geodata rebuild or a revert commit.
+  setDrapeEnabled(deps.settings?.drape !== false);
+  const drapeOn = drapeEnabled();
+
   const progress = createBuildProgress(deps.onProgress);
   let stageNo = 0;
   let stageStart = performance.now();
@@ -999,6 +1312,12 @@ export async function buildTaipeiGround(scene, tile, deps = {}) {
     group.add(terrainMesh);
     console.info(`[taipei-terrain] skin: ${terrainMesh.userData.triCount.toLocaleString('en-US')} tris over ${terrainMesh.userData.grids.map((g) => `${g.box} (max ${g.maxY.toFixed(0)} m)`).join(', ')}`);
   }
+  // Issue #132: the drape patch — the DEM ground the roads and
+  // buildings follow, drawn over the flat land planes and the
+  // visual-only skin (the patch sits above the skin wherever the
+  // drape is at full weight). buildDrapePatchMeshes returns [] when
+  // the drape is off.
+  for (const mesh of buildDrapePatchMeshes(geo)) group.add(mesh);
 
   const addLayer = (geometry, material, name) => {
     const mesh = new THREE.Mesh(geometry, material);
@@ -1040,8 +1359,8 @@ export async function buildTaipeiGround(scene, tile, deps = {}) {
       }
       for (const p of polys) pieces.push(p.flatMap((pt) => pt));
     }
-    if (plainRects.length) addLayer(rectsGeometry(plainRects, y), mat(tone), name);
-    if (pieces.length) addLayer(flatPolygonGeometry(pieces, y), mat(tone), name);
+    if (plainRects.length) addLayer(drapeGeometry(rectsGeometry(plainRects, y)), mat(tone), name);
+    if (pieces.length) addLayer(drapeGeometry(flatPolygonGeometry(pieces, y)), mat(tone), name);
   };
   addBlockLayer(ordinaryBlocks, 0.02, SURFACE_TONES.block, 'TaipeiBlocks');
   if (podiumBlocks.length) addBlockLayer(podiumBlocks, 0.021, SURFACE_TONES.podium, 'TaipeiPodiumBlocks');
@@ -1136,8 +1455,16 @@ export async function buildTaipeiGround(scene, tile, deps = {}) {
   // Parks stay lawn-green; polygons named 廣場 are paved civic squares
   // in reality （市民廣場, 松壽廣場, 世貿廣場…) and render in the plaza
   // paving tone on their own layer (issue #29).
-  addLayer(flatPolygonGeometry(clipRingsToSlots(greenFamily.parks, trenchSlots), 0.04), mat(SURFACE_TONES.park, 0.9), 'TaipeiParks');
-  if (greenFamily.plaza.length) addLayer(flatPolygonGeometry(clipRingsToSlots(greenFamily.plaza, trenchSlots), 0.041), mat(SURFACE_TONES.plaza, 0.95), 'TaipeiPlazas');
+  // Issue #132: when the drape is on, park/plaza rings are
+  // densified to the 28 m patch resolution before triangulation,
+  // so the lawn facets follow the DEM instead of chording across
+  // whole hillsides (the after-census: 6 m worst edge sag on long
+  // rings without it). Render-time only — the planner and the
+  // green-family consumption keep the authored rings. When the
+  // drape is off the rings pass through untouched.
+  const drapeRings = (rings) => drapeOn ? rings.map((r) => densifyPts(r, DRAPE_DENSIFY_M * 2)) : rings;
+  addLayer(drapeGeometry(flatPolygonGeometry(drapeRings(clipRingsToSlots(greenFamily.parks, trenchSlots)), 0.04)), mat(SURFACE_TONES.park, 0.9), 'TaipeiParks');
+  if (greenFamily.plaza.length) addLayer(drapeGeometry(flatPolygonGeometry(drapeRings(clipRingsToSlots(greenFamily.plaza, trenchSlots)), 0.041)), mat(SURFACE_TONES.plaza, 0.95), 'TaipeiPlazas');
   // CKS Memorial grounds (issue #98 follow-up): Liberty Square, its
   // forecourt, the Boulevard of Homage strip and the terrace apron
   // are paved stone inside the lawn-green memorial park — flat plaza
@@ -1158,6 +1485,10 @@ export async function buildTaipeiGround(scene, tile, deps = {}) {
   // Issue #173: continuation-joint frames over the whole carriageway
   // set, shared by the band layer and the per-class layers below.
   const carriagewayJoints = jointFramesFor(carriageways);
+  // Issue #132: road ribbons follow the drape when it is on
+  // (densified + laterally subdivided, per-corner DEM sampling);
+  // when it is off they are the plain ribbons exactly as before.
+  const ribbons = (roads, y, joints) => drapeOn ? drapedRibbonsGeometry(roads, y, joints) : ribbonsGeometry(roads, y, joints);
   // Street-section bands at 0.045: below the paths layer (0.05) so park
   // and campus paths still read over a band, above parks (0.04) so a
   // riverside boulevard's sidewalk isn't swallowed by the park fill.
@@ -1169,11 +1500,11 @@ export async function buildTaipeiGround(scene, tile, deps = {}) {
   const widened = (layout) => carriageways
     .filter((r) => r.pedestrianLayout === layout)
     .map((r) => ({ pts: r.pts, width: (r.width || 3) + BAND_EXTRA[layout] * 2 }));
-  addLayer(ribbonsGeometry(widened('arcade'), 0.045, carriagewayJoints), mat(0x8e8672), 'TaipeiArcadeBands');
+  addLayer(ribbons(widened('arcade'), 0.045, carriagewayJoints), mat(0x8e8672), 'TaipeiArcadeBands');
   const sidewalkBands = buildSidewalkBands(carriageways, 0.045);
-  addLayer(positionsGeometry(sidewalkBands.positions), mat(0xb5b0a4), 'TaipeiSidewalkBands');
+  addLayer(drapeGeometry(positionsGeometry(sidewalkBands.positions)), mat(0xb5b0a4), 'TaipeiSidewalkBands');
   console.info(`[taipei-sidewalks] ${sidewalkBands.quadCount} band quads, ${(sidewalkBands.totalBandLength / 1000).toFixed(1)} km of sidewalk band (both edges, junction-trimmed)`);
-  addLayer(ribbonsGeometry(geo.roads.filter((r) => NON_CARRIAGEWAY.has(r.highway)), 0.05), mat(0xa9a294, 0.95), 'TaipeiPaths');
+  addLayer(ribbons(geo.roads.filter((r) => NON_CARRIAGEWAY.has(r.highway)), 0.05), mat(0xa9a294, 0.95), 'TaipeiPaths');
   // Carriageways in per-class surface tones (issue #29): one merged
   // layer per class — weathered cool decks, the unchanged arterial
   // asphalt, a hair lighter collectors, pale concrete lanes — instead
@@ -1185,10 +1516,10 @@ export async function buildTaipeiGround(scene, tile, deps = {}) {
   // deck is exactly what it was when the deck was a boulevard.
   const byClass = { deck: [], arterial: [], collector: [], lane: [] };
   for (const r of carriageways) if (!r.deck) byClass[surfaceClass(r)].push(r);
-  addLayer(ribbonsGeometry(byClass.deck, 0.06, carriagewayJoints), mat(SURFACE_TONES.deck, 0.9), 'TaipeiRoadsDeck');
-  addLayer(ribbonsGeometry(byClass.arterial, 0.06, carriagewayJoints), mat(SURFACE_TONES.arterial, 0.9), 'TaipeiRoads');
-  addLayer(ribbonsGeometry(byClass.collector, 0.06, carriagewayJoints), mat(SURFACE_TONES.collector, 0.9), 'TaipeiRoadsCollector');
-  addLayer(ribbonsGeometry(byClass.lane, 0.06, carriagewayJoints), mat(SURFACE_TONES.lane, 0.9), 'TaipeiRoadsLane');
+  addLayer(ribbons(byClass.deck, 0.06, carriagewayJoints), mat(SURFACE_TONES.deck, 0.9), 'TaipeiRoadsDeck');
+  addLayer(ribbons(byClass.arterial, 0.06, carriagewayJoints), mat(SURFACE_TONES.arterial, 0.9), 'TaipeiRoads');
+  addLayer(ribbons(byClass.collector, 0.06, carriagewayJoints), mat(SURFACE_TONES.collector, 0.9), 'TaipeiRoadsCollector');
+  addLayer(ribbons(byClass.lane, 0.06, carriagewayJoints), mat(SURFACE_TONES.lane, 0.9), 'TaipeiRoadsLane');
   await completeStage('roads', `${carriageways.length} roadbeds, ${sidewalkBands.quadCount} sidewalk band quads`);
   // Junction caps (issues #66/#75/#145, js/taipei-junctions.js):
   // one paved polygon per detected junction at 0.061, in per-vertex
@@ -1211,7 +1542,13 @@ export async function buildTaipeiGround(scene, tile, deps = {}) {
   // builder (which used to detect its own copy).
   const junctions = detectJunctions(carriageways);
   const roundabouts = planRoundabouts(carriageways, junctions);
-  const caps = planJunctionCaps(carriageways, junctions, roundabouts, capClipPolys(geo));
+  // POC (#214, flag-gated via deps.poc — off by default the boot is
+  // byte-identical to main): waterClip cuts creek-water spill from
+  // caps (R1), cornerClamp seats diagonal hull corners on the kerb
+  // (G2), divided feeds the G1 zebra POC in buildRoadMarkings.
+  const poc = deps.poc || {};
+  const caps = planJunctionCaps(carriageways, junctions, roundabouts, capClipPolys(geo),
+    poc.waterClip ? capWaterPolys(geo) : null, { cornerClamp: !!poc.cornerClamp });
   const capPolys = [
     ...caps.flatMap((c) => capSurfacePolys(c)),
     ...roundabouts.flatMap((s) => [s.disc, ...s.aprons]).map((c) => ringPoints(c.ring)),
@@ -1219,7 +1556,7 @@ export async function buildTaipeiGround(scene, tile, deps = {}) {
   const capMaterial = new THREE.MeshStandardNodeMaterial({ vertexColors: true, roughness: 0.9, metalness: 0.0 });
   // Issue #171: a cap whose ring was cut by the green clip
   // renders its remaining ring pieces in the same fan layer.
-  addLayer(capFanGeometry([...caps, ...caps.flatMap((c) => c.pieces || [])], CAP_Y), capMaterial, 'TaipeiJunctionCaps');
+  addLayer(drapeGeometry(capFanGeometry([...caps, ...caps.flatMap((c) => c.pieces || [])], CAP_Y)), capMaterial, 'TaipeiJunctionCaps');
   // Issue #163: the fitted caps' arm extension strips render as
   // their own fan layer half a millimetre UNDER the rings — the
   // strips overlap the box ring and each other by design (seam
@@ -1227,18 +1564,18 @@ export async function buildTaipeiGround(scene, tile, deps = {}) {
   // 0.5 mm step (the stack's own discipline: caps sit 1 mm over
   // the carriageways) keeps those overlaps from z-fighting.
   const capExtras = caps.flatMap((c) => c.extras || []);
-  if (capExtras.length) addLayer(capFanGeometry(capExtras, CAP_Y - 0.0005), capMaterial, 'TaipeiJunctionCapExtensions');
+  if (capExtras.length) addLayer(drapeGeometry(capFanGeometry(capExtras, CAP_Y - 0.0005)), capMaterial, 'TaipeiJunctionCapExtensions');
   const discsByClass = { deck: [], arterial: [], collector: [], lane: [] };
   for (const s of roundabouts) {
     discsByClass[s.disc.cls].push(s.disc.ring);
     for (const ap of s.aprons) discsByClass[s.disc.cls].push(ap.ring);
   }
   for (const cls of Object.keys(discsByClass))
-    if (discsByClass[cls].length) addLayer(flatPolygonGeometry(discsByClass[cls], CAP_Y), mat(SURFACE_TONES[cls], 0.9), `TaipeiJunctionCaps-${cls}`);
+    if (discsByClass[cls].length) addLayer(drapeGeometry(flatPolygonGeometry(discsByClass[cls], CAP_Y)), mat(SURFACE_TONES[cls], 0.9), `TaipeiJunctionCaps-${cls}`);
   const islandsByKind = { planted: [], plaza: [] };
   for (const s of roundabouts) islandsByKind[s.island.kind].push(s.island.ring);
-  if (islandsByKind.planted.length) addLayer(flatPolygonGeometry(islandsByKind.planted, ISLAND_Y), mat(SURFACE_TONES.park, 0.9), 'TaipeiRoundaboutIslands-planted');
-  if (islandsByKind.plaza.length) addLayer(flatPolygonGeometry(islandsByKind.plaza, ISLAND_Y), mat(SURFACE_TONES.plaza, 0.9), 'TaipeiRoundaboutIslands-plaza');
+  if (islandsByKind.planted.length) addLayer(drapeGeometry(flatPolygonGeometry(islandsByKind.planted, ISLAND_Y)), mat(SURFACE_TONES.park, 0.9), 'TaipeiRoundaboutIslands-planted');
+  if (islandsByKind.plaza.length) addLayer(drapeGeometry(flatPolygonGeometry(islandsByKind.plaza, ISLAND_Y)), mat(SURFACE_TONES.plaza, 0.9), 'TaipeiRoundaboutIslands-plaza');
   console.info(`[taipei-junctions] ${caps.length} junction caps over ${junctions.length} detected junctions (${caps.reduce((s, c) => s + c.area, 0).toLocaleString('en-US')} m² of junction box paved + ${capExtras.length} arm extension strips, ${caps.reduce((s, c) => s + (c.extraArea || 0), 0).toLocaleString('en-US')} m², at fitted caps); ${caps.filter((c) => c.kind === 'box').length} box / ${caps.filter((c) => c.kind === 'fitted').length} fitted; roundabouts handcrafted: ${roundabouts.map((s) => `${s.id} disc r=${s.discR}${s.islandR ? ` island r=${s.islandR}` : ' capsule island'} (${s.claimedJunctions.length} junctions claimed${s.aprons.length ? `, ${s.aprons.length} entry aprons` : ''})`).join(', ')}`);
   await completeStage('junctions', `${caps.length} caps + ${roundabouts.length} roundabouts over ${junctions.length} junctions`);
   // Boulevard medians (issue #29): a strip along the centreline of
@@ -1248,8 +1585,8 @@ export async function buildTaipeiGround(scene, tile, deps = {}) {
   // junctions like the painted bands, so no divider crosses a
   // junction box. Built by js/taipei-surfaces.js.
   const medians = buildMedianStrips(carriageways, capPolys);
-  addLayer(quadsGeometry(medians.plain, 0.062), mat(SURFACE_TONES.medianPlain, 0.95), 'TaipeiMediansPlain');
-  addLayer(quadsGeometry(medians.planted, 0.062), mat(SURFACE_TONES.medianPlanted, 0.95), 'TaipeiMediansPlanted');
+  addLayer(drapeGeometry(quadsGeometry(medians.plain, 0.062)), mat(SURFACE_TONES.medianPlain, 0.95), 'TaipeiMediansPlain');
+  addLayer(drapeGeometry(quadsGeometry(medians.planted, 0.062)), mat(SURFACE_TONES.medianPlanted, 0.95), 'TaipeiMediansPlanted');
   console.info(`[taipei-surfaces] medians: ${medians.stats.plantedBeds} planted beds / ${medians.stats.plantedKm.toFixed(1)} km, ${medians.stats.plainBeds} plain beds / ${medians.stats.plainKm.toFixed(1)} km (${medians.stats.excludedUnderpass} underpass/tunnel beds excluded, ${medians.stats.deckBedsSkipped} deck beds suppressed #167); roads by class: deck ${byClass.deck.length}, arterial ${byClass.arterial.length}, collector ${byClass.collector.length}, lane ${byClass.lane.length}`);
   // Painted walkways (§c.3): a single green band per roadbed on its
   // hashed side in the spec colour, white edge lines a hair above it.
@@ -1257,37 +1594,53 @@ export async function buildTaipeiGround(scene, tile, deps = {}) {
   // clips every band at junctions so no green crosses a carriageway
   // (issue #25).
   const painted = paintedGeometries(carriageways, 0.065, 0.066, capPolys);
-  addLayer(painted.band, mat(0x1e9e57, 0.9), 'TaipeiPaintedStripes');
-  addLayer(painted.edges, mat(0xf2f2f2, 0.9), 'TaipeiPaintedStripeEdges');
+  addLayer(drapeGeometry(painted.band), mat(0x1e9e57, 0.9), 'TaipeiPaintedStripes');
+  addLayer(drapeGeometry(painted.edges), mat(0xf2f2f2, 0.9), 'TaipeiPaintedStripeEdges');
   await completeStage('medians', `${medians.stats.plantedBeds + medians.stats.plainBeds} median beds, painted walkways clipped at ${capPolys.length} junction caps`);
   // Road detail (issue #45, js/taipei-markings.js): dashed white lane
   // dividers between same-direction lanes (never on a median, broken
-  // at junctions), zebra crosswalks + stop lines at signalized
-  // junctions, and one STATIC signal unit per signalized approach —
+  // at junctions), yellow centre lines on two-way beds (issue #249:
+  // double solid yellow wide, single dashed yellow narrow), zebra
+  // crosswalks + stop lines at signalized junctions, and one STATIC
+  // signal unit per signalized approach —
   // pole + horizontal 3-lamp head with unlit lenses and a static lit
   // red pedestrian panel. No phase cycle yet, and traffic does not
   // obey them; scooter waiting boxes are out of scope (user cut).
   const markingsStart = performance.now();
   const markings = buildRoadMarkings(carriageways, medians, caps, junctions,
-    [...(geo.parks || []), ...(geo.green || [])].map((g) => ringPoints(g.ring))); // reuses the strips built above as dash occluders; greens feed the #173 roundabout wedge occluders
+    [...(geo.parks || []), ...(geo.green || [])].map((g) => ringPoints(g.ring)), { dividedPoc: !!poc.divided }); // reuses the strips built above as dash occluders; greens feed the #173 roundabout wedge occluders
   // Dashes and zebra stripes render as shader patterns over plain
   // ribbons/bands (issue #90 — the plan in taipei-markings.js is
   // unchanged; only the baking moved into the fragment shader).
   // Stop lines are single solid quads, not periodic, and keep the
   // solid path.
   addLayer(
-    patternGeometry(markings.dashStrips, markings.bands, 0.068),
+    // Issue #132: dash strips subdivide to 14 m and sample the
+    // drape per vertex when the drape is on; flat when it is off.
+    patternGeometry(markings.dashStrips, markings.bands, 0.068, drapeOn ? { yAt: drapeHeight, maxSeg: DRAPE_DENSIFY_M } : {}),
     createTaipeiMarkingMaterial(),
     'TaipeiRoadMarkings'
   );
   addLayer(
-    quadsGeometry(markings.stopLines, 0.068),
+    drapeGeometry(quadsGeometry(markings.stopLines, 0.068)),
     mat(0xf2f2f2, 0.9),
     'TaipeiRoadStopLines'
   );
-  const signalMesh = buildSignalMesh(markings.signals);
+  // Centre lines (issue #249): double solid yellow on wide two-way
+  // beds, single dashed yellow on narrower two-way beds — solid
+  // quads in marking yellow, at the same markings Y as the white
+  // paint (the two never overlap in plan: the centre line is
+  // occluded by the same caps / furniture as the dividers).
+  if (markings.centerQuads.length) {
+    addLayer(
+      quadsGeometry(markings.centerQuads, 0.068),
+      mat(0xf2c200, 0.9),
+      'TaipeiRoadCenterLines'
+    );
+  }
+  const signalMesh = buildSignalMesh(markings.signals, drapeHeight);
   if (signalMesh) group.add(signalMesh);
-  console.info(`[taipei-markings] ${markings.stats.dividerKm.toFixed(1)} km of lane dividers on ${markings.stats.dividerBeds} beds; ${markings.stats.signalized} signalized junctions, ${markings.stats.crosswalks} crosswalks, ${markings.stats.stopLines} stop lines, ${markings.stats.signalUnits} static signal units (${markings.stats.signalMast} mast-arm / ${markings.stats.signalPole} corner-pole, ${markings.stats.clearanceUnresolved} unresolved corners) planned in ${Math.round(performance.now() - markingsStart)}ms`);
+  console.info(`[taipei-markings] ${markings.stats.dividerKm.toFixed(1)} km of lane dividers on ${markings.stats.dividerBeds} beds; ${markings.stats.centerDoubleKm.toFixed(1)} km double-yellow + ${markings.stats.centerDashKm.toFixed(1)} km dashed-yellow centre lines on ${markings.stats.centerBeds} beds; ${markings.stats.signalized} signalized junctions, ${markings.stats.crosswalks} crosswalks, ${markings.stats.stopLines} stop lines, ${markings.stats.signalUnits} static signal units (${markings.stats.signalMast} mast-arm / ${markings.stats.signalPole} corner-pole, ${markings.stats.clearanceUnresolved} unresolved corners) planned in ${Math.round(performance.now() - markingsStart)}ms`);
   await completeStage('markings', `${markings.stats.crosswalks} crosswalks, ${markings.stats.signalUnits} signal units`);
 
   // Elevated highway decks (issue #61, js/taipei-viaduct.js): the
@@ -1301,12 +1654,12 @@ export async function buildTaipeiGround(scene, tile, deps = {}) {
   // as they did when the corridors rendered as ground boulevards.
   if (geo.elevatedRoads?.lines?.length) {
     const decksStart = performance.now();
-    const deckGeo = buildDeckGeometry(geo.elevatedRoads);
+    const deckGeo = buildDeckGeometry(geo.elevatedRoads, { groundAt: drapeHeight });
     const concrete = addLayer(deckPartGeometry(deckGeo.concrete), mat(0x98958a, 0.95), 'TaipeiDecks');
     concrete.castShadow = true;
     const deckTop = addLayer(deckPartGeometry(deckGeo.asphalt), mat(SURFACE_TONES.deck, 0.9), 'TaipeiDeckAsphalt');
     deckTop.castShadow = true;
-    const pierMesh = buildDeckPierMesh(geo.elevatedRoads.piers || []);
+    const pierMesh = buildDeckPierMesh(geo.elevatedRoads.piers || [], drapeHeight);
     if (pierMesh) group.add(pierMesh);
     console.info(`[taipei-decks] ${deckGeo.lineCount} deck lines (${geo.elevatedRoads.stats?.lineKm ?? '?'} km), ${deckGeo.pierCount} piers, ${deckGeo.triCount.toLocaleString('en-US')} triangles in ${Math.round(performance.now() - decksStart)}ms`);
   }
@@ -1329,7 +1682,7 @@ export async function buildTaipeiGround(scene, tile, deps = {}) {
   // far chains past DESPAWN_FAR_M.
   let skybridgeGroup = null;
   if (geo.mrtDecks?.lines?.length) {
-    const mrtGeo = buildDeckGeometry(geo.mrtDecks, { tracks: true });
+    const mrtGeo = buildDeckGeometry(geo.mrtDecks, { tracks: true, groundAt: drapeHeight });
     const mrtConcrete = addLayer(deckPartGeometry(mrtGeo.concrete), mat(0x98958a, 0.95), 'TaipeiMrtDecks');
     mrtConcrete.castShadow = true;
     if (mrtGeo.ballast.positions.length) {
@@ -1359,13 +1712,13 @@ export async function buildTaipeiGround(scene, tile, deps = {}) {
     // Issue #196: piers under the re-profiled dive ramps are
     // clamped to the lowered deck underside (the records in
     // geodata keep their digest heights).
-    const mrtPiers = buildDeckPierMesh(diveAdjustedPiers(geo.mrtDecks));
+    const mrtPiers = buildDeckPierMesh(diveAdjustedPiers(geo.mrtDecks), drapeHeight);
     if (mrtPiers) { mrtPiers.name = 'TaipeiMrtDeckPiers'; group.add(mrtPiers); }
-    const stationMesh = buildMrtStationMesh(geo.mrtStations || []);
+    const stationMesh = buildMrtStationMesh(geo.mrtStations || [], { groundAt: drapeHeight });
     if (stationMesh) group.add(stationMesh);
-    const depotMesh = buildMrtDepotMesh(geo.mrtDepot);
+    const depotMesh = buildMrtDepotMesh(geo.mrtDepot, { groundAt: drapeHeight });
     if (depotMesh) group.add(depotMesh);
-    const bridgeMesh = buildBridgeMesh(geo);
+    const bridgeMesh = buildBridgeMesh(geo, { groundAt: drapeHeight });
     if (bridgeMesh) group.add(bridgeMesh);
     skybridgeGroup = buildSkybridgeMeshes(geo);
     if (skybridgeGroup) group.add(skybridgeGroup);
@@ -1420,9 +1773,9 @@ export async function buildTaipeiGround(scene, tile, deps = {}) {
     specials: deps.settings?.specials !== false,
   };
   const buildingsStart = performance.now();
-  let plan = planTaipeiBuildings(geo, { density: bootSettings.density });
+  let plan = planTaipeiBuildings(geo, { density: bootSettings.density, groundAt: drapeHeight });
   let cityBlocks = deps.buildCityBlocks
-    ? deps.buildCityBlocks(scene, taipeiCityBlocksOptions(geo, plan))
+    ? deps.buildCityBlocks(scene, taipeiCityBlocksOptions(geo, plan, { groundAt: drapeHeight }))
     : null;
   // Issue #57: the landmark builders take the TSL facade factories
   // injected (taipei-buildings.js stays import-free for the node
@@ -1437,7 +1790,11 @@ export async function buildTaipeiGround(scene, tile, deps = {}) {
     specialGroups.push(g);
   };
   addSpecial(createTaipei101(THREE, plan, landmarkFactories));
-  addSpecial(createTaipeiLandmarkTowers(THREE, plan, landmarkFactories));
+  // Issue #257: the landmark group carries the specials LOD
+  // entries (userData.specialLod); the per-frame facade update
+  // below swaps far specials to their simplified massing.
+  const landmarkTowersGroup = createTaipeiLandmarkTowers(THREE, plan, landmarkFactories);
+  addSpecial(landmarkTowersGroup);
   // Songshan Airport site structures (issue #135): the terminal
   // complex, rendered with the landmark massing path but kept
   // off the registry (no pins/search) — see
@@ -1489,29 +1846,48 @@ export async function buildTaipeiGround(scene, tile, deps = {}) {
   // keep out of the lots), so it is a closure the density switch
   // below can re-run against a fresh plan.
   const buildTrees = (forPlan) => {
+    // Issue #246: amenity dressing is planned BEFORE the trees
+    // so the PARK tree planner can exclude the kit pads through
+    // the same exclusions channel — 69 park trunks stood inside
+    // pads (51 in courts) before this ordering, because the pads
+    // are far larger than the #222 furniture footprints. Street
+    // trees keep the plain exclusions: they plant on road bands
+    // outside the pads, and the street collect is linear over
+    // ~80k stations, so it must not pay the 485-ring scan.
+    const amenityStart = performance.now();
+    const amenityPlan = planParkAmenities(geo, forPlan, { exclusions: treeExclusions });
+    const padExclusions = amenityPlan.pads || [];
+    const treeAndPadExclusions = [...treeExclusions, ...padExclusions];
     const street = planStreetTrees(geo, forPlan, { exclusions: treeExclusions });
-    const park = planParkTrees(geo, forPlan, { exclusions: treeExclusions });
+    const park = planParkTrees(geo, forPlan, { exclusions: treeAndPadExclusions });
     const meshes = [];
-    const streetMesh = buildStreetTreeMesh(street.trees);
+    const streetMesh = buildStreetTreeMesh(street.trees, drapeHeight);
     if (streetMesh) meshes.push(streetMesh);
     // Issue #222: park trees render per canopy variant (the street
-    // mesh above keeps the original single look).
-    const parkByVariant = { banyan: [], palm: [], conifer: [], round: [] };
-    for (const t of park.trees) (parkByVariant[t.variant] || parkByVariant.round).push(t);
+    // mesh above keeps the original single look). Issue #245 adds
+    // the blossom variant (one mesh per tone) and the far LOD: every
+    // park-tree mesh carries the cull-distance cap, so the
+    // chunk-culling path hides groves past PARK_TREE_LOD_M.
+    const parkByVariant = { banyan: [], palm: [], conifer: [], round: [], blossomPink: [], blossomWhite: [], blossomGold: [] };
+    for (const t of park.trees) {
+      if (t.variant === 'blossom') (parkByVariant[`blossom${t.tone === 'white' ? 'White' : t.tone === 'gold' ? 'Gold' : 'Pink'}`] || parkByVariant.blossomPink).push(t);
+      else (parkByVariant[t.variant] || parkByVariant.round).push(t);
+    }
     for (const mesh of [
-      instancedFromGeometry(banyanTreeGeometry(), parkByVariant.banyan, 'TaipeiParkBanyanTrees', 0),
-      instancedFromGeometry(palmTreeGeometry(), parkByVariant.palm, 'TaipeiParkPalmTrees', 0),
-      instancedFromGeometry(coniferTreeGeometry(), parkByVariant.conifer, 'TaipeiParkConiferTrees', 0),
-      instancedFromGeometry(parkRoundTreeGeometry(), parkByVariant.round, 'TaipeiParkRoundTrees', 0),
+      instancedFromGeometry(banyanTreeGeometry(), parkByVariant.banyan, 'TaipeiParkBanyanTrees', 0, { cullDistance: PARK_TREE_LOD_M }, drapeHeight),
+      instancedFromGeometry(palmTreeGeometry(), parkByVariant.palm, 'TaipeiParkPalmTrees', 0, { cullDistance: PARK_TREE_LOD_M }, drapeHeight),
+      instancedFromGeometry(coniferTreeGeometry(), parkByVariant.conifer, 'TaipeiParkConiferTrees', 0, { cullDistance: PARK_TREE_LOD_M }, drapeHeight),
+      instancedFromGeometry(parkRoundTreeGeometry(), parkByVariant.round, 'TaipeiParkRoundTrees', 0, { cullDistance: PARK_TREE_LOD_M }, drapeHeight),
+      instancedFromGeometry(blossomTreeGeometry('pink'), parkByVariant.blossomPink, 'TaipeiParkBlossomPinkTrees', 0, { cullDistance: PARK_TREE_LOD_M }, drapeHeight),
+      instancedFromGeometry(blossomTreeGeometry('white'), parkByVariant.blossomWhite, 'TaipeiParkBlossomWhiteTrees', 0, { cullDistance: PARK_TREE_LOD_M }, drapeHeight),
+      instancedFromGeometry(blossomTreeGeometry('gold'), parkByVariant.blossomGold, 'TaipeiParkBlossomGoldTrees', 0, { cullDistance: PARK_TREE_LOD_M }, drapeHeight),
     ]) if (mesh) meshes.push(mesh);
     // Issue #222: park amenity dressing — same exclusions as the
     // trees, planned after the building plan so furniture keeps
     // out of lots and landmark sites; one InstancedMesh per kit
     // class, built inside this stage (the stage list is a pinned
     // contract; park greenery + furniture is the one stage).
-    const amenityStart = performance.now();
-    const amenityPlan = planParkAmenities(geo, forPlan, { exclusions: treeExclusions });
-    for (const mesh of buildParkAmenityMeshes(amenityPlan)) meshes.push(mesh);
+    for (const mesh of buildParkAmenityMeshes(amenityPlan, drapeHeight)) meshes.push(mesh);
     const amenityTotal = Object.values(amenityPlan.items).reduce((s, v) => s + v.length, 0);
     console.info(`[taipei-parks] ${amenityTotal} amenity items (${Object.entries(amenityPlan.items).map(([k, v]) => `${k} ${v.length}`).join(', ')}) in ${amenityPlan.stats.parksDressed} parks (${amenityPlan.stats.parksPathless} pathless parks get trees only) planned in ${Math.round(performance.now() - amenityStart)}ms`);
     return { street, park, amenityPlan, amenityTotal, parkByVariant, meshes };
@@ -1558,12 +1934,23 @@ export async function buildTaipeiGround(scene, tile, deps = {}) {
       if (preset !== 'coarse' && preset !== 'fine' && preset !== 'dense') return null;
       if (preset === bootSettings.density) return { density: preset, lots: plan.lots.length, ms: 0 };
       const t0 = performance.now();
+      // Issue #245: chunk-aware teardown. setupSceneCulling replaces
+      // a chunked mesh in the group with its chunks (same name,
+      // shared geometry); removing only the recorded mesh would leak
+      // the chunks and leave stale trees standing after a switch.
+      // Remove every group child carrying a torn-down mesh's name —
+      // the trees stage is the only producer of those names — then
+      // dispose the recorded meshes themselves.
+      const tornDown = new Set(trees.meshes.map((m) => m.name));
+      for (const child of [...group.children]) {
+        if (tornDown.has(child.name)) { group.remove(child); disposeBuilt(child); }
+      }
       for (const mesh of trees.meshes) { group.remove(mesh); disposeBuilt(mesh); }
       if (cityBlocks) { scene.remove(cityBlocks.group); disposeBuilt(cityBlocks.group); }
       bootSettings.density = preset;
-      plan = planTaipeiBuildings(geo, { density: preset });
+      plan = planTaipeiBuildings(geo, { density: preset, groundAt: drapeHeight });
       cityBlocks = deps.buildCityBlocks
-        ? deps.buildCityBlocks(scene, taipeiCityBlocksOptions(geo, plan))
+        ? deps.buildCityBlocks(scene, taipeiCityBlocksOptions(geo, plan, { groundAt: drapeHeight }))
         : null;
       syncAllBlocks();
       trees = buildTrees(plan);
@@ -1591,7 +1978,7 @@ export async function buildTaipeiGround(scene, tile, deps = {}) {
     // collider set beside cityBlocks' own lot colliders — deck
     // parapets, registry/site structures, Taipei 101, MRT
     // stations and the depot (js/taipei-drive.js).
-    colliders: taipeiExtraColliders(geo, plan),
+    colliders: taipeiExtraColliders(geo, plan, { groundAt: drapeHeight }),
     highwayLanes: [],
     allBlocks: [],
     update: null,

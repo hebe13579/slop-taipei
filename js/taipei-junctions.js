@@ -412,7 +412,7 @@ function finishSite(s, roadbeds, junctions) {
 // construction for every junction; this function IS the box the
 // #75 audit spec (mirrored in tests/taipei-junctions.test.mjs)
 // measures coverage against.
-function overlapRing(j) {
+function overlapRing(j, opts = {}) {
   const arms = [...j.arms].sort((a, b) => Math.atan2(a.dirZ, a.dirX) - Math.atan2(b.dirZ, b.dirX));
   const lineOf = (a) => ({ a, px: j.x + a.dirX * a.crossHalf, pz: j.z + a.dirZ * a.crossHalf, nx: -a.dirZ, nz: a.dirX });
   const lines = arms.map(lineOf);
@@ -559,6 +559,121 @@ function overlapRing(j) {
   // at fragment clusters it can sit outside the cross-section
   // hull (all arms to one side), so pin it explicitly.
   pts.push([j.x, j.z]);
+  // POC (#214) G2 corner clamp - flag-gated via opts.cornerClamp.
+  // Two precise, self-scoping rules (no tile-wide reshaping):
+  // (1) A MAIN corner (cross-line x cross-line) that lies outside
+  // BOTH strips is replaced by the kerb corner: the intersection
+  // of the two strips' OUTER edges, which sits on both kerbs by
+  // construction. At right angles the main corner already sits
+  // inside a strip, so this rule only ever fires at diagonal
+  // crossings. The poking main corner itself is clamped
+  // laterally onto the nearer pair arm's edge (its crossHalf
+  // station), so the hull runs segment-end -> kerb-corner ->
+  // segment-end along the kerb.
+  // (2) MOUTH-segment endpoints (major/signalized junctions) are
+  // clamped laterally onto their own arm's kerb (the +1 m
+  // BOX_MARGIN_M removed) ONLY where their arm meets a diagonal
+  // neighbour - at right angles the margin is the standing
+  // furniture-reach shape and the mouth reads as a uniform
+  // frame. Segment ends, edge corners and the centre pin are
+  // covered by their own arm and are never touched.
+  if (opts.cornerClamp) {
+    const frameOf = (a, p) => {
+      const dx = p[0] - j.x, dz = p[1] - j.z;
+      return { along: dx * a.dirX + dz * a.dirZ, lat: dx * -a.dirZ + dz * a.dirX };
+    };
+    const coveredBy = (p) => arms.some((a) => {
+      const f = frameOf(a, p);
+      return f.along >= -5 && f.along <= a.crossHalf + 40 && Math.abs(f.lat) <= a.width / 2 + 0.25;
+    });
+    // Diagonal participation per arm: an adjacent gap (sorted
+    // order, smaller angle) outside [75, 105] degrees.
+    const gapDeg = (i) => {
+      const A = arms[i], B = arms[(i + 1) % arms.length];
+      let gap = Math.atan2(B.dirZ, B.dirX) - Math.atan2(A.dirZ, A.dirX);
+      if (gap <= 0) gap += Math.PI * 2;
+      return (Math.min(gap, Math.PI * 2 - gap) * 180) / Math.PI;
+    };
+    const diagArm = arms.map((_, i) => {
+      const g1 = gapDeg(i), g2 = gapDeg((i + arms.length - 1) % arms.length);
+      return g1 < 75 || g1 > 105 || g2 < 75 || g2 > 105;
+    });
+    // (1) Kerb corners for pairs whose kept main corner pokes.
+    for (let i = 0; i < lines.length; i++) {
+      const A = lines[i], B = lines[(i + 1) % lines.length];
+      let gap = Math.atan2(B.a.dirZ, B.a.dirX) - Math.atan2(A.a.dirZ, A.a.dirX);
+      if (gap <= 0) gap += Math.PI * 2;
+      if (gap < (35 * Math.PI) / 180 || gap > (170 * Math.PI) / 180) continue;
+      const det = A.nx * B.nz - A.nz * B.nx;
+      if (Math.abs(det) < 1e-6) continue;
+      const t = ((B.px - A.px) * B.nz - (B.pz - A.pz) * B.nx) / det;
+      const p = [A.px + A.nx * t, A.pz + A.nz * t];
+      const sA = (p[0] - j.x) * A.nx + (p[1] - j.z) * A.nz;
+      const sB = (p[0] - j.x) * B.nx + (p[1] - j.z) * B.nz;
+      if (Math.abs(sA) > A.a.width / 2 + MAIN_CORNER_STRIP_TOL_M ||
+          Math.abs(sB) > B.a.width / 2 + MAIN_CORNER_STRIP_TOL_M ||
+          !sane(p, A, B, gap)) continue;
+      if (coveredBy(p)) continue;
+      const hA = A.a.width / 2, hB = B.a.width / 2;
+      const sides = [
+        [{ px: A.px + A.nx * hA, pz: A.pz + A.nz * hA, dx: A.a.dirX, dz: A.a.dirZ },
+         { px: B.px - B.nx * hB, pz: B.pz - B.nz * hB, dx: B.a.dirX, dz: B.a.dirZ }],
+        [{ px: A.px - A.nx * hA, pz: A.pz - A.nz * hA, dx: A.a.dirX, dz: A.a.dirZ },
+         { px: B.px + B.nx * hB, pz: B.pz + B.nz * hB, dx: B.a.dirX, dz: B.a.dirZ }],
+      ];
+      for (const [e1, e2] of sides) {
+        const d = e1.dx * e2.dz - e1.dz * e2.dx;
+        if (Math.abs(d) < 1e-6) continue;
+        const tt = ((e2.px - e1.px) * e2.dz - (e2.pz - e1.pz) * e2.dx) / d;
+        const q = [e1.px + e1.dx * tt, e1.pz + e1.dz * tt];
+        if (Math.hypot(q[0] - j.x, q[1] - j.z) > maxR + 45) continue;
+        if (!local(q, A, B, gap)) continue;
+        pts.push(q);
+      }
+    }
+    // (2) Lateral clamp of poking main corners and diagonal mouth ends.
+    for (let i = 0; i < pts.length; i++) {
+      const p = pts[i];
+      if (Math.hypot(p[0] - j.x, p[1] - j.z) < 0.05) continue; // centre pin
+      if (coveredBy(p)) continue;
+      // Main corner? On both arms' cross lines at once.
+      let pair = null;
+      for (let a = 0; a < arms.length && !pair; a++) {
+        for (let b = a + 1; b < arms.length; b++) {
+          const fa = frameOf(arms[a], p), fb = frameOf(arms[b], p);
+          if (Math.abs(fa.along - arms[a].crossHalf) < 0.1 && Math.abs(fb.along - arms[b].crossHalf) < 0.1) { pair = [a, b]; break; }
+        }
+      }
+      if (pair) {
+        const [a, b] = pair;
+        const fa = frameOf(arms[a], p), fb = frameOf(arms[b], p);
+        const exA = Math.abs(fa.lat) - arms[a].width / 2, exB = Math.abs(fb.lat) - arms[b].width / 2;
+        const useA = exA <= exB;
+        const arm = useA ? arms[a] : arms[b], f = useA ? fa : fb;
+        const nx = -arm.dirZ, nz = arm.dirX;
+        const target = (arm.width / 2) * Math.sign(f.lat || 1);
+        pts[i] = [p[0] + nx * (target - f.lat), p[1] + nz * (target - f.lat)];
+        continue;
+      }
+      // Mouth end? On its own arm at (reach, +(w/2+1)).
+      let mouthIdx = -1;
+      for (let a = 0; a < arms.length; a++) {
+        const f = frameOf(arms[a], p);
+        if (f.along > arms[a].crossHalf + 0.5 && f.along <= arms[a].crossHalf + 21 &&
+            Math.abs(Math.abs(f.lat) - (arms[a].width / 2 + BOX_MARGIN_M)) < 0.05) { mouthIdx = a; break; }
+      }
+      if (mouthIdx >= 0 && diagArm[mouthIdx]) {
+        const arm = arms[mouthIdx], f = frameOf(arm, p);
+        const nx = -arm.dirZ, nz = arm.dirX;
+        const target = (arm.width / 2) * Math.sign(f.lat || 1);
+        pts[i] = [p[0] + nx * (target - f.lat), p[1] + nz * (target - f.lat)];
+      }
+      // Any other uncovered point is left as collected: the only
+      // collected kinds are segment ends, edge corners, main
+      // corners, mouth ends and the centre pin, and the first
+      // two are covered by construction.
+    }
+  }
   return convexHull(pts);
 }
 
@@ -827,6 +942,16 @@ export function armExtension(j, a, roadbeds, kerbCtx = null) {
 // polygons a cap may not pave over: the green landuse layer,
 // the park polygons and the Tamsui riverside band. Returned as
 // point arrays in this module's shape.
+//
+// POC (#214, branch issue-214-poc-water-clip — proof only, NOT
+// for tile-wide ship without the gate): creek water polygons
+// (derived polygon-uncovered waterways and 溪-named water) join
+// the clip set. The per-junction corridor erosion below already
+// subtracts every arm's carriageway ribbon + corridor rectangle
+// from each clip polygon before cutting, so the cap keeps the
+// part that lies on the bridge deck and loses only the spill
+// onto open water. Rivers (河) stay out of this POC: their
+// crossings are wide bridge decks, a different class.
 export function capClipPolys(geodata) {
   const out = [];
   const seen = new Set();
@@ -845,6 +970,22 @@ export function capClipPolys(geodata) {
   for (const g of geodata.green || []) push(g.ring);
   for (const g of geodata.parks || []) push(g.ring);
   for (const g of (geodata.riverside && geodata.riverside.polys) || []) push(g.ring);
+  return out;
+}
+
+// POC (#214): the creek-water polygons for the separate water
+// clip in planJunctionCaps — derived (polygon-uncovered)
+// waterways and 溪-named water. Rivers (河) excluded: their
+// crossings are wide bridge decks, a different class.
+export function capWaterPolys(geodata) {
+  const out = [];
+  for (const w of geodata.water || []) {
+    if (!(w.derived || (w.name && w.name.includes('溪')))) continue;
+    if (!w.ring || w.ring.length < 6) continue;
+    const pts = [];
+    for (let i = 0; i + 1 < w.ring.length; i += 2) pts.push([w.ring[i], w.ring[i + 1]]);
+    if (pts.length >= 3) out.push(pts);
+  }
   return out;
 }
 
@@ -1406,10 +1547,11 @@ function kerbStopStrip(pts, ownBedIdx, ctx) {
 // incursion — the WEB defect is asphalt BEYOND the corridors
 // (16,210 m² before, 0 after). `radius` stays the unclipped
 // hull's design envelope.
-export function planJunctionCaps(roadbeds, junctions, sitesIn = null, clipPolysIn = null) {
+export function planJunctionCaps(roadbeds, junctions, sitesIn = null, clipPolysIn = null, waterPolysIn = null, opts = {}) {
   const sites = sitesIn || planRoundabouts(roadbeds, junctions);
   const claimed = new Set(sites.flatMap((s) => s.claimedJunctions));
   const clip = clipPolysIn && clipPolysIn.length ? { polys: clipPolysIn, grid: buildPolyGrid(clipPolysIn) } : null;
+  const wclip = waterPolysIn && waterPolysIn.length ? { polys: waterPolysIn, grid: buildPolyGrid(waterPolysIn) } : null;
   // Ground ribbons near each junction serve two #171 rules: the
   // TONGUE kerb stop (foreign carriageways a strip crosses) and
   // the green clip's corridor erosion. Deck beds are excluded —
@@ -1448,7 +1590,7 @@ export function planJunctionCaps(roadbeds, junctions, sitesIn = null, clipPolysI
     if (!j.arms || j.arms.length < 2) return;
     if (claimed.has(ji)) return;
     const kind = isMajorJunction(j) ? 'box' : 'fitted';
-    const hull = overlapRing(j);
+    const hull = overlapRing(j, opts);
     if (hull.length < 3) return;
     const area = polyArea(hull);
     if (!(area > 1)) return;
@@ -1501,6 +1643,30 @@ export function planJunctionCaps(roadbeds, junctions, sitesIn = null, clipPolysI
           for (const piece of subtractPolys(overlap, corr)) if (polyArea(piece) > 0.01) effClips.push(piece);
         }
         if (!effClips.length) effClips = null;
+      }
+    }
+    // POC (#214) water clip: creek water joins the cut set, but
+    // eroded by the ACTUAL carriageway ribbons near the junction
+    // (nearRibbons — every bed, not just this junction's arms),
+    // not by the fat corridor rectangles the green clip uses.
+    // What survives the erosion is cap surface over open water
+    // with no carriageway on it — the spill. The bridge deck
+    // itself (cap ∩ water ∩ ribbon) is preserved by construction.
+    if (wclip) {
+      const bb = bboxOfPts(hull);
+      const wIdx = new Set();
+      for (let gx = Math.floor(bb[0] / 100); gx <= Math.floor(bb[2] / 100); gx++)
+        for (let gz = Math.floor(bb[1] / 100); gz <= Math.floor(bb[3] / 100); gz++)
+          for (const wi of wclip.grid.get(`${gx},${gz}`) || []) wIdx.add(wi);
+      if (wIdx.size) {
+        const near = nearRibbons(j, radius + 25);
+        const effWater = [];
+        for (const wi of wIdx) {
+          const overlap = clipByConvexPoly(wclip.polys[wi], hull);
+          if (overlap.length < 3) continue;
+          for (const piece of subtractPolys(overlap, near.polys)) if (polyArea(piece) > 0.01) effWater.push(piece);
+        }
+        if (effWater.length) effClips = effClips ? [...effClips, ...effWater] : effWater;
       }
     }
     // Ring surface: unclipped (the pre-#171 path, byte-identical)

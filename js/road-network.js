@@ -25,6 +25,54 @@ const LANE_CLEAR = 1.2; // half width each lane keeps free of obstacles
 const CROSSWALK = 2.5; // depth between an intersection box and its stop lines
 const SHORE_MARGIN = 6;
 
+// Issue #254: heights on centreline edges. JOIN_TOL is the level-join
+// rule: two edges (or two arms) join at a node only when their
+// heights there agree within it — a deck at 15 m and a street at 0 m
+// sharing a 2D node never join; a ramp foot at 0 m and a deck at
+// 15 m join their own ends. HEIGHT_SAMPLE_STEP is the resampling
+// spacing of a link profile onto each straight run.
+const JOIN_TOL = 0.6;
+const HEIGHT_SAMPLE_STEP = 8;
+
+// Height at arc position s along a link profile { s, h } (linear
+// interpolation, clamped to the ends).
+function heightAtProfile(heights, s) {
+  const ss = heights.s;
+  const hh = heights.h;
+  if (s <= ss[0]) return hh[0];
+  if (s >= ss[ss.length - 1]) return hh[hh.length - 1];
+  let lo = 0;
+  let hi = ss.length - 1;
+  while (hi - lo > 1) {
+    const mid = (lo + hi) >> 1;
+    if (ss[mid] <= s) lo = mid;
+    else hi = mid;
+  }
+  const f = (s - ss[lo]) / (ss[hi] - ss[lo] || 1);
+  return hh[lo] + (hh[hi] - hh[lo]) * f;
+}
+
+// Height at full-span position sFull along an edge (0 at its from
+// node, span at its to node). Placed positions shift by the
+// stop-line setback: call with s + e.yOff. Flat edges (no yProf)
+// are 0, as before.
+function edgeHeightAt(e, sFull) {
+  const p = e.yProf;
+  if (!p) return 0;
+  const t = Math.max(0, Math.min(p.length - 1, (sFull || 0) / (e.yStep || 1)));
+  const k = Math.floor(t);
+  const f = t - k;
+  return k + 1 < p.length ? p[k] + (p[k + 1] - p[k]) * f : p[p.length - 1];
+}
+
+// Height of an arm at its node: its out edge's start, else its in
+// edge's end (both are the node height when the arm is one road).
+function armHeight(a) {
+  if (a.out) return a.out.y0 || 0;
+  if (a.in) return a.in.y1 || 0;
+  return 0;
+}
+
 // env (issue #210 experiment): an injected environment replaces the Manhattan data sources —
 // { roadGraph, avenues, streets, medians, onLand } — so the generic machinery below (centreline
 // streets, directed edges, movements, largest strongly connected set, arms & groups) can run on
@@ -308,7 +356,7 @@ function buildRoadNetwork(sidewalks, obstacles, env = null) {
     }
     // Links the grid already carries: most of their length runs along an avenue (north-south) or a cross street
     const links = [];
-    for (const [a, b, ni, w, lanes, dir, inner] of RG.links) {
+    for (const [a, b, ni, w, lanes, dir, inner, heights] of RG.links) {
       const pts = [pos[a]];
       for (let k = 0; k < inner.length; k += 2) pts.push({ x: inner[k], z: inner[k + 1] });
       pts.push(pos[b]);
@@ -319,7 +367,11 @@ function buildRoadNetwork(sidewalks, obstacles, env = null) {
         if ((Math.abs(dz) > 0.94 && aveAt(x, z, 1.5)) || (Math.abs(dx) > 0.94 && pieceAt(x, z, 1.5, false))) hit++;
       });
       if (n && hit > n * 0.5) continue;
-      links.push({ a, b, name: RG.names[ni], w, lanes, dir, pts, len });
+      // Issue #254: the 8th tuple element is the link's height
+      // profile ({ s, h } along the polyline), present only for
+      // deck/ramp links. Grid sources have 7-tuples: heights is
+      // undefined and every height below stays 0, as before.
+      links.push({ a, b, name: RG.names[ni], w, lanes, dir, pts, len, heights: heights || null });
     }
     // Junctions a few metres apart (divided roads, offset corners) are one: collapse links under 14 m
     const parent = pos.map((_, i) => i);
@@ -411,8 +463,17 @@ function buildRoadNetwork(sidewalks, obstacles, env = null) {
       const B = junction(find(l.b));
       if (A === B) continue;
       const pts = [{ x: A.x, z: A.z }, ...l.pts.slice(1, -1), { x: B.x, z: B.z }];
+      // Issue #254: arc positions along the ORIGINAL link polyline
+      // (l.pts, unmerged ends) — the profile's s coordinates live
+      // there. Station indices are l.pts indices: A is 0, each bend
+      // station is its own k, B is the last.
+      const arc = [0];
+      for (let k = 1; k < l.pts.length; k++) {
+        arc.push(arc[k - 1] + Math.hypot(l.pts[k].x - l.pts[k - 1].x, l.pts[k].z - l.pts[k - 1].z));
+      }
       // stations along it: the ends and every bend over 12° at least 15 m from the last station and from the far end
       const stations = [A];
+      const sIdx = [0];
       let last = pts[0];
       let rest = l.len;
       for (let k = 1; k < pts.length - 1; k++) {
@@ -426,11 +487,18 @@ function buildRoadNetwork(sidewalks, obstacles, env = null) {
         const s = { x: p1.x, z: p1.z, hx: 0, hz: 0, signal: false, in: [], out: [], general: true, shape: true };
         nodes.push(s);
         stations.push(s);
+        sIdx.push(k);
         last = p1;
       }
       stations.push(B);
+      sIdx.push(l.pts.length - 1);
       const lanes = lanesOf(l);
-      for (let k = 0; k + 1 < stations.length; k++) runs.push({ from: stations[k], to: stations[k + 1], ...lanes });
+      for (let k = 0; k + 1 < stations.length; k++) {
+        runs.push({
+          from: stations[k], to: stations[k + 1], ...lanes,
+          heights: l.heights, hArc0: arc[sIdx[k]], hArc1: arc[sIdx[k + 1]],
+        });
+      }
     }
     console.info(`[roads] centreline streets: ${links.length} links not on the grid, ${runs.length} straight runs`);
     return runs;
@@ -486,7 +554,7 @@ function buildRoadNetwork(sidewalks, obstacles, env = null) {
     }
     return true;
   };
-  function addEdgeGeneral(from, to, axis, lanes, half, divided) {
+  function addEdgeGeneral(from, to, axis, lanes, half, divided, run = null, flip = false) {
     const x0 = from.x;
     const z0 = from.z;
     const span = Math.hypot(to.x - x0, to.z - z0);
@@ -495,7 +563,28 @@ function buildRoadNetwork(sidewalks, obstacles, env = null) {
     const dz = (to.z - z0) / span;
     const open = lanes.filter((o) => laneOpen(x0, z0, dx, dz, span, o));
     if (!open.length) return;
-    edges.push({ from, to, axis, x0, z0, dx, dz, rx: -dz, rz: dx, span, half, lanes: open.sort((p, q) => p - q), moves: [], general: true, cand: lanes, divided: !!divided });
+    const edge = { from, to, axis, x0, z0, dx, dz, rx: -dz, rz: dx, span, half, lanes: open.sort((p, q) => p - q), moves: [], general: true, cand: lanes, divided: !!divided };
+    // Issue #254: heights. Resample the link profile over this
+    // run's stretch (endpoints + every <= 8 m), mapped
+    // proportionally from the link-polyline arc onto the straight
+    // chord: the profile spans the FULL span, y0/y1 are the node
+    // heights at its ends, and yOff (the stop-line setback, set by
+    // place()) shifts placed positions onto it. No profile: all
+    // heights stay 0 and the edge behaves exactly as before.
+    if (run && run.heights) {
+      const arc0 = flip ? run.hArc1 : run.hArc0;
+      const arc1 = flip ? run.hArc0 : run.hArc1;
+      const n = Math.max(1, Math.ceil(span / HEIGHT_SAMPLE_STEP));
+      const yProf = new Float32Array(n + 1);
+      for (let i = 0; i <= n; i++) {
+        yProf[i] = heightAtProfile(run.heights, arc0 + (i / n) * (arc1 - arc0));
+      }
+      edge.yProf = yProf;
+      edge.yStep = span / n;
+      edge.y0 = yProf[0];
+      edge.y1 = yProf[n];
+    }
+    edges.push(edge);
   }
   // A divided road drawn as two one-way roadways between the same two junctions (most of the Bowery) runs both ways
   // along one centreline here: each way keeps to the right of it, as on a two-way street, and the road is as wide as
@@ -524,8 +613,8 @@ function buildRoadNetwork(sidewalks, obstacles, env = null) {
     if (r.half >= 7.25) r.axis = o.axis = 'ave'; // as wide as a major road (see lanesOf)
   }
   for (const r of genRuns) {
-    if (r.fwd.length) addEdgeGeneral(r.from, r.to, r.axis, r.fwd, r.half, r.divided);
-    if (r.back.length) addEdgeGeneral(r.to, r.from, r.axis, r.back, r.half, r.divided);
+    if (r.fwd.length) addEdgeGeneral(r.from, r.to, r.axis, r.fwd, r.half, r.divided, r, false);
+    if (r.back.length) addEdgeGeneral(r.to, r.from, r.axis, r.back, r.half, r.divided, r, true);
   }
   // Two edges from one node to the same next one (a service road whose ends were drawn onto its main road's junctions)
   // would drive through each other: keep the grid's, else the one with the most lanes
@@ -647,6 +736,10 @@ function buildRoadNetwork(sidewalks, obstacles, env = null) {
         if (q.role !== 'out') continue;
         const r = at.find((p) => p.role === 'in' && p.e.from === q.e.to);
         if (!r) continue;
+        // Issue #254: the two ways share an arm only at the same
+        // height — a deck roadway and a street under it are two
+        // roads, not one two-way street.
+        if (Math.abs((q.e.y0 || 0) - (r.e.y1 || 0)) > JOIN_TOL) continue;
         const a = newArm(q.order < r.order ? q : r);
         join(a, q);
         join(a, r);
@@ -657,7 +750,7 @@ function buildRoadNetwork(sidewalks, obstacles, env = null) {
         if (q.role !== 'out' || armed(q)) continue;
         for (const r of at) {
           const d = q.ux * r.ux + q.uz * r.uz;
-          if (r.role === 'in' && !armed(r) && d > 0.94) pairs.push([d, q, r]);
+          if (r.role === 'in' && !armed(r) && d > 0.94 && Math.abs((q.e.y0 || 0) - (r.e.y1 || 0)) <= JOIN_TOL) pairs.push([d, q, r]);
         }
       }
       pairs.sort((p, q) => q[0] - p[0]);
@@ -671,9 +764,10 @@ function buildRoadNetwork(sidewalks, obstacles, env = null) {
       for (const q of at) if (!armed(q)) join(newArm(q), q);
       n.arms.sort((a, b) => a.order - b.order);
       // an arm within 20° of an earlier one (where roads merge or fork) crosses the other roads as one with it (its
-      // lead), as wide as the widest of them
+      // lead), as wide as the widest of them — issue #254: only at the same height, so a deck arm never leads a
+      // street arm under it
       for (const a of n.arms) {
-        a.lead = n.arms.find((b) => b.lead === b && b.ux * a.ux + b.uz * a.uz > 0.94) || a;
+        a.lead = n.arms.find((b) => b.lead === b && b.ux * a.ux + b.uz * a.uz > 0.94 && Math.abs(armHeight(a) - armHeight(b)) <= JOIN_TOL) || a;
         a.lead.wide = Math.max(a.lead === a ? 0 : a.lead.wide, a.half);
       }
     }
@@ -761,6 +855,7 @@ function buildRoadNetwork(sidewalks, obstacles, env = null) {
     e.sx = e.x0 + e.dx * b0;
     e.sz = e.z0 + e.dz * b0;
     e.len = e.span - b0 - b1;
+    e.yOff = b0; // issue #254: placed positions shift onto the full-span profile by this
   }
   for (const e of edges) place(e);
   const placed = edges; // (see 7.)
@@ -834,6 +929,14 @@ function buildRoadNetwork(sidewalks, obstacles, env = null) {
     const n = e.lanes.length;
     for (const f of e.to.out) {
       if (f.to === e.from || e.dx * f.dx + e.dz * f.dz < -0.5) continue;
+      // Issue #254, the level-join rule: a move joins two edges at
+      // this node only when their heights there agree — the end of
+      // e and the start of f are the same node, so a ground edge
+      // (0 m) never turns onto a deck edge (15 m) through a node
+      // the 2D merge made one, and a ramp joins the street at its
+      // foot and the deck at its top. Flat edges have no heights
+      // (y0/y1 undefined): they join as before.
+      if (Math.abs((e.y1 || 0) - (f.y0 || 0)) > JOIN_TOL) continue;
       const cross = e.dx * f.dz - e.dz * f.dx;
       e.moves.push({ to: f, turn: cross > 0.5 ? 'R' : cross < -0.5 ? 'L' : 'S', cross, out: new Array(n).fill(-1) });
     }
@@ -896,7 +999,10 @@ function buildRoadNetwork(sidewalks, obstacles, env = null) {
     for (let i = 0; i < arms.length; i++) {
       for (let j = i + 1; j < arms.length; j++) {
         const d = arms[i].ux * arms[j].ux + arms[i].uz * arms[j].uz;
-        if (d < -0.82) pairs.push([d + 0.02 * Math.abs(arms[i].half - arms[j].half), arms[i], arms[j]]);
+        // Issue #254: opposite arms pair into one road only at the
+        // same height, so a deck and the street under it never share
+        // an intersection box or a right-of-way group.
+        if (d < -0.82 && Math.abs(armHeight(arms[i]) - armHeight(arms[j])) <= JOIN_TOL) pairs.push([d + 0.02 * Math.abs(arms[i].half - arms[j].half), arms[i], arms[j]]);
       }
     }
     pairs.sort((p, q) => p[0] - q[0]);
@@ -951,6 +1057,11 @@ function buildRoadNetwork(sidewalks, obstacles, env = null) {
     const cars = e.lanes.map((o) => [e.sx + e.dx * (e.len - HALF_CAR) + e.rx * o, e.sz + e.dz * (e.len - HALF_CAR) + e.rz * o]);
     for (const o of inOf.get(n)) {
       if (o === e || o.inArm.group === e.inArm.group) continue;
+      // Issue #254: a waiting car blocks cross traffic only on its
+      // own level — both arrive at n, so their end heights are the
+      // node heights. A deck road over the junction neither blocks
+      // nor is blocked by the street under it.
+      if (Math.abs((o.y1 || 0) - (e.y1 || 0)) > JOIN_TOL) continue;
       for (const m of o.moves) {
         for (let i = 0; i < o.lanes.length; i++) {
           if (m.out[i] < 0) continue;
@@ -1182,6 +1293,11 @@ function makeCurve(e, i, f, j) {
   const z0 = e.sz + e.dz * e.len + e.rz * e.lanes[i];
   const x3 = f.sx + f.rx * f.lanes[j];
   const z3 = f.sz + f.rz * f.lanes[j];
+  // Issue #254: the curve climbs or falls with the road — its ends
+  // are the trimmed ends of e and f, so their heights come from the
+  // full-span profiles at the stop-line setbacks. Flat edges read 0.
+  const y0 = edgeHeightAt(e, e.len + (e.yOff || 0));
+  const y1 = edgeHeightAt(f, f.yOff || 0);
   const cross = e.dx * f.dz - e.dz * f.dx;
   let k0;
   let k3;
@@ -1194,6 +1310,7 @@ function makeCurve(e, i, f, j) {
   }
   const c = {
     x0, z0, x3, z3,
+    y0, y1,
     x1: x0 + e.dx * k0, z1: z0 + e.dz * k0,
     x2: x3 - f.dx * k3, z2: z3 - f.dz * k3,
     lut: new Float32Array(17),
@@ -1230,6 +1347,10 @@ function curvePoint(c, s, out) {
   const u = 1 - t;
   out.x = u * u * u * c.x0 + 3 * u * u * t * c.x1 + 3 * u * t * t * c.x2 + t * t * t * c.x3;
   out.z = u * u * u * c.z0 + 3 * u * u * t * c.z1 + 3 * u * t * t * c.z2 + t * t * t * c.z3;
+  // Issue #254: height interpolates linearly with the same parameter
+  // (flat curves have y0 === y1 === 0, as before; callers that never
+  // read out.y are unaffected).
+  out.y = (c.y0 || 0) + ((c.y1 || 0) - (c.y0 || 0)) * t;
   const dx = 3 * u * u * (c.x1 - c.x0) + 6 * u * t * (c.x2 - c.x1) + 3 * t * t * (c.x3 - c.x2);
   const dz = 3 * u * u * (c.z1 - c.z0) + 6 * u * t * (c.z2 - c.z1) + 3 * t * t * (c.z3 - c.z2);
   const l = Math.hypot(dx, dz) || 1;

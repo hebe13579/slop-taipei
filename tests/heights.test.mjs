@@ -385,8 +385,19 @@ test('fallback byte-stability: untouched lots keep their procedural heights exac
   const key = (l) => `${l.x}|${l.z}|${l.w}|${l.d}`;
   const bareByKey = new Map(bare.lots.map((l) => [key(l), l]));
   const missing = plan.lots.filter((l) => !bareByKey.has(key(l)));
-  assert.equal(missing.length, 44957, 'plan-only lots: the #124 fine lots plus height-sensitive coarse placements (46,462 before issue #221: 1,503 fine lots on skipped campus blocks and 2 of the height-moved coarse placements stood on campus land)');
-  assert.equal(missing.length - plan.stats.lotsFine, 34, 'of which 36 are coarse placements moved by real heights (the guideway flip among them)');
+  // Issue #216: the facing pass turns lots toward the road they
+  // front, and the turn outcome is neighbour-sensitive, so 31
+  // lots' geometry keys stop matching between the regimes (a
+  // lot turns in one regime and holds or shrinks differently
+  // in the other, where its neighbours differ) — 44,957 ->
+  // 44,988, of which 31 are facing-moved and the same 34 are
+  // height-moved. Proven by cross-run: with { facing: false }
+  // in BOTH regimes the count returns to exactly 44,957 and
+  // the residue to 34, with zero shared-key height mismatches
+  // (facing216b-evidence/proof-heights-off.mjs). No height
+  // changed: the shared-key loop below still passes.
+  assert.equal(missing.length, 44988, 'plan-only lots: the #124 fine lots plus height-sensitive coarse placements (46,462 before issue #221: 1,503 fine lots on skipped campus blocks and 2 of the height-moved coarse placements stood on campus land; issue #216: plus 31 facing-moved keys)');
+  assert.equal(missing.length - plan.stats.lotsFine, 65, 'of which 34 are coarse placements moved by real heights (the guideway flip among them) and 31 are facing-moved keys whose turn outcome differs between the regimes');
   let procChecked = 0;
   for (const a of plan.lots) {
     const b = bareByKey.get(key(a));
@@ -396,7 +407,7 @@ test('fallback byte-stability: untouched lots keep their procedural heights exac
       procChecked++;
     }
   }
-  assert.equal(procChecked, 5645); // the proc census, re-pinned with it for issues #134 + #139; +2 for #144 (the face-statistic flips, see the census diff), +4 for #135 (the field re-pool flips, see the census diff), -1 for #146 (one of the two Wenhu dive drops is a proc lot), +3 for #165 (the D3-parcel field re-pool flips, see the census diff); issue #255: −17 net — 21 counted proc lots removed, 4 kept lots enter the shared-key set (lot-by-lot diff on this tree); issue #124: 4,204 — the census covers the regime-shared lots only (25,271 common keys); the fine lots have no bare counterpart to be checked against; issue #166: 4,153 — the shared keys drop to 25,203 as the five sites remove their coarse lots from both regimes and the field re-pool flips 17 shared lots out of proc's neighbours (see the census diff); issue #186: 6,637 — the strip's coarse keys join both regimes (see the composition note above); issue #226: 6,658 — the creek re-draws put 21 more shared keys in proc (see the composition note above); issue #213: 6,571 — the loop clearing removes 87 shared proc keys (see the composition note above); issue #219: 6,712 — the blocked donors' fall-throughs land 141 more shared-key lots on proc, and their procedural draws check byte-identical against the bare regime like any other proc lot; issue #221: 5,662 — campus clearing removes 1,050 shared proc keys
+  assert.equal(procChecked, 5642); // the proc census, re-pinned with it for issues #134 + #139; +2 for #144 (the face-statistic flips, see the census diff), +4 for #135 (the field re-pool flips, see the census diff), -1 for #146 (one of the two Wenhu dive drops is a proc lot), +3 for #165 (the D3-parcel field re-pool flips, see the census diff); issue #255: −17 net — 21 counted proc lots removed, 4 kept lots enter the shared-key set (lot-by-lot diff on this tree); issue #124: 4,204 — the census covers the regime-shared lots only (25,271 common keys); the fine lots have no bare counterpart to be checked against; issue #166: 4,153 — the shared keys drop to 25,203 as the five sites remove their coarse lots from both regimes and the field re-pool flips 17 shared lots out of proc's neighbours (see the census diff); issue #186: 6,637 — the strip's coarse keys join both regimes (see the composition note above); issue #226: 6,658 — the creek re-draws put 21 more shared keys in proc (see the composition note above); issue #213: 6,571 — the loop clearing removes 87 shared proc keys (see the composition note above); issue #219: 6,712 — the blocked donors' fall-throughs land 141 more shared-key lots on proc, and their procedural draws check byte-identical against the bare regime like any other proc lot; issue #221: 5,662 — campus clearing removes 1,050 shared proc keys; issue #216: 5,659 — 3 of the 31 facing-moved keys were proc-labelled shared keys, so the census loses exactly those 3 (proven by the facing:false cross-run, which returns 5,662 with zero mismatches); issue #255 (gate, merged tree): 5,642 — the PR-side 5,645 was measured on its stale pre-#216 base; the composed value is main's 5,659 − 17 for #255, measured on the merged tree with zero height mismatches
   assert.ok(bare.lots.every((l) => l.hSrc === 'proc'), 'no layer, no labels but proc');
 });
 
