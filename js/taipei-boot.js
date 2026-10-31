@@ -12,7 +12,7 @@ import { planJunctionCaps, planRoundabouts, ringPoints, capSurfacePolys, capClip
 import { buildDeckGeometry, groundContactPolys, portalTrenchSlots, diveAdjustedPiers, PIER_W, PIER_D } from './taipei-viaduct.js';
 import { buildDriveModel, taipeiExtraColliders } from './taipei-drive.js';
 import { ribbonsQuads, jointFramesFor, densifyPts } from './taipei-ribbons.js';
-import { drapeHeight, drapeEnabled, setDrapeEnabled, DRAPE_RECTS, DRAPE_FEATHER, buildDrapePatchGrids } from './taipei-drape.js';
+import { drapeHeight, drapeEnabled, setDrapeEnabled, DRAPE_RECTS, DRAPE_FEATHER, buildAdaptiveDrapeGround } from './taipei-drape.js';
 import { buildMrtStationGeometry, buildMrtDepotGeometry } from './taipei-mrt-stations.js';
 import { buildBridgeGeometry } from './taipei-bridges.js';
 import { buildSkybridgeGeometry } from './taipei-skybridges.js';
@@ -364,10 +364,17 @@ function quadsGeometry(quads, y) {
 // input untouched, and every drape-aware builder below degrades to
 // its flat form — no geodata rebuild, no revert commit.
 // drapeGeometry: post-hoc lift for ground layers whose vertices
-// are dense enough to follow the DEM as-is (blocks, parks, caps,
-// discs, medians, painted bands, stop lines, sidewalk bands).
-// Ribbons and marking strips get their own subdivided builders
-// below — their sparse vertices would chord-sag through the DEM.
+// are dense enough to follow the DEM as-is (parks, caps, discs,
+// medians, painted bands, stop lines, sidewalk bands). Ribbons and
+// marking strips get their own subdivided builders below — their
+// sparse vertices would chord-sag through the DEM.
+// The LAND-BLOCK layer is NOT lifted here anymore (issue #285):
+// its rects have vertices only at the corners, so drapeGeometry
+// chorded straight across the DEM and buried roads, buildings and
+// signs by up to +1.20 m. Inside the drape footprint the block
+// layer is the adaptive ground (buildAdaptiveDrapeGroundMeshes,
+// js/taipei-drape.js buildAdaptiveDrapeGround), and the flat block
+// rects are cut back to outside the footprint in addBlockLayer.
 function drapeGeometry(geo) {
   if (!drapeEnabled()) return geo;
   const pos = geo.getAttribute('position');
@@ -444,42 +451,39 @@ function drapedRibbonsGeometry(roads, y, jointFrames = null) {
   geo.computeVertexNormals();
   return geo;
 }
-// The drape patch itself (prototype's buildDrapePatchMeshes, over
-// the pure grids in js/taipei-drape.js): one 28 m mesh per region +
-// feather margin at h − 0.02, vertex colours scrub/forest/rock by
-// slope and height, in-water vertices pinned to −0.05 so the flat
-// water (0.03) still wins. Returns [] when the drape is off.
-function buildDrapePatchMeshes(geo) {
-  if (!drapeEnabled()) return [];
-  const grids = buildDrapePatchGrids((geo.water || []).map((w) => w.ring));
+// The adaptive drape ground (issue #285): ONE triangulation over
+// the drape footprint (each rect + feather) that replaces BOTH the
+// flat land-block layer and the 28 m drape patch inside the
+// footprint — the block layer's corner-only rects chorded up to
+// +1.20 m above the roads and buried them, and the patch chorded
+// up to +1.76 m. The builder (js/taipei-drape.js
+// buildAdaptiveDrapeGround, pure) returns the pale block surface
+// (DEM + 0.02, gentle ground) and the vertex-coloured terrain
+// surface (DEM - 0.02, steep ground) as non-indexed triangle
+// positions; this wraps them in meshes. The block mesh is named
+// TaipeiBlocks and is MERGED with the flat block layer outside the
+// footprint by the caller (addBlockLayer), so there is exactly one
+// TaipeiBlocks mesh. The terrain meshes keep the old patch names
+// (TaipeiDrapeTerrain-<region>). Returns null when the drape is
+// off (kill-switch: the flat block layer then covers the whole
+// city, exactly as before #132).
+function buildAdaptiveDrapeGroundMeshes(geo) {
+  if (!drapeEnabled()) return null;
+  const roads = (geo.roadbeds || []).map((b) => b.pts).filter((p) => p && p.length >= 4);
+  const out = buildAdaptiveDrapeGround((geo.water || []).map((w) => w.ring), { roads });
   const meshes = [];
-  const cLow = new THREE.Color(0x77875c), cMid = new THREE.Color(0x46683d), cHigh = new THREE.Color(0x6f7d68), cRock = new THREE.Color(0x8a8578);
-  const col = new THREE.Color();
-  for (const g of grids) {
-    const colors = new Float32Array(g.positions.length);
-    for (let i = 0; i < g.positions.length; i += 3) {
-      const x = g.positions[i], z = g.positions[i + 2];
-      const slope = Math.hypot(
-        drapeHeight(x + g.stepX, z) - drapeHeight(x - g.stepX, z),
-        drapeHeight(x, z + g.stepZ) - drapeHeight(x, z - g.stepZ),
-      ) / (2 * g.stepX);
-      const hgt = Math.max(0, g.positions[i + 1]);
-      if (slope > 0.55) col.copy(cRock);
-      else if (hgt < 18) col.copy(cLow).lerp(cMid, Math.max(0, hgt) / 18);
-      else col.copy(cMid).lerp(cHigh, Math.min(1, (hgt - 18) / 90));
-      colors[i] = col.r; colors[i + 1] = col.g; colors[i + 2] = col.b;
-    }
+  for (const p of out.patch) {
     const bgeo = new THREE.BufferGeometry();
-    bgeo.setAttribute('position', new THREE.BufferAttribute(g.positions, 3));
-    bgeo.setAttribute('color', new THREE.BufferAttribute(colors, 3));
-    bgeo.setIndex(new THREE.BufferAttribute(g.indices, 1));
+    bgeo.setAttribute('position', new THREE.BufferAttribute(p.positions, 3));
+    bgeo.setAttribute('color', new THREE.BufferAttribute(p.colors, 3));
     bgeo.computeVertexNormals();
     const mesh = new THREE.Mesh(bgeo, new THREE.MeshStandardNodeMaterial({ vertexColors: true, roughness: 1.0, metalness: 0.0, flatShading: true }));
-    mesh.name = `TaipeiDrapeTerrain-${g.name}`;
+    mesh.name = `TaipeiDrapeTerrain-${p.name}`;
     mesh.receiveShadow = true;
     meshes.push(mesh);
   }
-  return meshes;
+  console.info(`[taipei-drape] adaptive ground: ${out.stats.totalTris.toLocaleString('en-US')} tris (${out.stats.blockTris.toLocaleString('en-US')} block + ${out.stats.patchTris.toLocaleString('en-US')} terrain), ${out.stats.splits.toLocaleString('en-US')} splits, max depth ${out.stats.maxDepth}, max residual over ${out.stats.maxResidualOver.toFixed(3)} m / under ${out.stats.maxResidualUnder.toFixed(3)} m, ${out.stats.refinedCells.toLocaleString('en-US')} refined / ${out.stats.coarseCells.toLocaleString('en-US')} coarse cells`);
+  return { blockPositions: out.block, patchMeshes: meshes };
 }
 
 function paintedGeometries(carriageways, yBand, yEdge, capPolys = null) {
@@ -1298,12 +1302,14 @@ export async function buildTaipeiGround(scene, tile, deps = {}) {
     group.add(terrainMesh);
     console.info(`[taipei-terrain] skin: ${terrainMesh.userData.triCount.toLocaleString('en-US')} tris over ${terrainMesh.userData.grids.map((g) => `${g.box} (max ${g.maxY.toFixed(0)} m)`).join(', ')}`);
   }
-  // Issue #132: the drape patch — the DEM ground the roads and
-  // buildings follow, drawn over the flat land planes and the
-  // visual-only skin (the patch sits above the skin wherever the
-  // drape is at full weight). buildDrapePatchMeshes returns [] when
-  // the drape is off.
-  for (const mesh of buildDrapePatchMeshes(geo)) group.add(mesh);
+  // Issue #285: the adaptive drape ground replaces the flat block
+  // layer AND the old 28 m drape patch inside the footprint — the
+  // block rects chorded up to +1.20 m above the roads there. The
+  // patch meshes keep the old names (TaipeiDrapeTerrain-<region>).
+  // When the drape is off the adaptive ground is null and the flat
+  // block layer covers the whole city, exactly as before.
+  const adaptiveGround = buildAdaptiveDrapeGroundMeshes(geo);
+  if (adaptiveGround) for (const mesh of adaptiveGround.patchMeshes) group.add(mesh);
 
   const addLayer = (geometry, material, name) => {
     const mesh = new THREE.Mesh(geometry, material);
@@ -1331,22 +1337,57 @@ export async function buildTaipeiGround(scene, tile, deps = {}) {
   for (const b of groundBlocks) (isPodiumBlock(b, centres) ? podiumBlocks : ordinaryBlocks).push(b);
   // Issue #196: a block rect a trench slot crosses is replaced by
   // the rect-minus-slot polygons at the same height and tone.
+  // Issue #285: when the drape is on, a block rect the drape
+  // footprint crosses is likewise cut back to outside the footprint
+  // — the adaptive ground owns the footprint interior, and the flat
+  // rects would double-draw (and chord-bury) it. When the drape is
+  // off there is no adaptive ground and the flat rects cover the
+  // whole city, exactly as before.
+  const drapeFootprintQuads = drapeEnabled()
+    ? DRAPE_RECTS.map((r) => [[r.minX - DRAPE_FEATHER, r.minZ - DRAPE_FEATHER], [r.maxX + DRAPE_FEATHER, r.minZ - DRAPE_FEATHER], [r.maxX + DRAPE_FEATHER, r.maxZ + DRAPE_FEATHER], [r.minX - DRAPE_FEATHER, r.maxZ + DRAPE_FEATHER]])
+    : [];
   const addBlockLayer = (blocks, y, tone, name) => {
     const plainRects = [], pieces = [];
     for (const b of blocks) {
       const { minX, maxX, minZ, maxZ } = b.bbox;
       const rectPts = [[minX, minZ], [maxX, minZ], [maxX, maxZ], [minX, maxZ]];
-      if (!trenchSlots.some((s) => quadIntersectsPts(s, rectPts))) { plainRects.push(b); continue; }
+      if (!trenchSlots.some((s) => quadIntersectsPts(s, rectPts)) && !drapeFootprintQuads.some((s) => quadIntersectsPts(s, rectPts))) { plainRects.push(b); continue; }
       let polys = [rectPts];
-      for (const s of trenchSlots) {
+      for (const s of [...trenchSlots, ...drapeFootprintQuads]) {
         const next = [];
         for (const p of polys) { if (quadIntersectsPts(s, p)) next.push(...subtractQuad(p, s)); else next.push(p); }
         polys = next;
       }
       for (const p of polys) pieces.push(p.flatMap((pt) => pt));
     }
-    if (plainRects.length) addLayer(drapeGeometry(rectsGeometry(plainRects, y)), mat(tone), name);
-    if (pieces.length) addLayer(drapeGeometry(flatPolygonGeometry(pieces, y)), mat(tone), name);
+    // The adaptive block triangles (already at DEM + 0.02, never
+    // re-lifted) merge into the one TaipeiBlocks mesh with the flat
+    // rects outside the footprint. The podium layer never meets the
+    // footprint (101 / City Hall are far outside it), so it takes no
+    // adaptive part.
+    const extra = (name === 'TaipeiBlocks' && adaptiveGround) ? adaptiveGround.blockPositions : null;
+    const geos = [];
+    if (plainRects.length) geos.push(drapeGeometry(rectsGeometry(plainRects, y)));
+    if (pieces.length) geos.push(drapeGeometry(flatPolygonGeometry(pieces, y)));
+    if (extra && extra.length) {
+      const extraGeo = new THREE.BufferGeometry();
+      extraGeo.setAttribute('position', new THREE.BufferAttribute(extra, 3));
+      geos.push(extraGeo);
+    }
+    if (!geos.length) return;
+    let merged;
+    if (geos.length === 1) { merged = geos[0]; merged.computeVertexNormals(); }
+    else {
+      let total = 0;
+      const arrays = geos.map((g) => { const a = g.getAttribute('position').array; total += a.length; return a; });
+      const positions = new Float32Array(total);
+      let o = 0;
+      for (const a of arrays) { positions.set(a, o); o += a.length; }
+      merged = new THREE.BufferGeometry();
+      merged.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+      merged.computeVertexNormals();
+    }
+    addLayer(merged, mat(tone), name);
   };
   addBlockLayer(ordinaryBlocks, 0.02, SURFACE_TONES.block, 'TaipeiBlocks');
   if (podiumBlocks.length) addBlockLayer(podiumBlocks, 0.021, SURFACE_TONES.podium, 'TaipeiPodiumBlocks');
