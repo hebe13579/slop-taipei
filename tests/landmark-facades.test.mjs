@@ -51,8 +51,8 @@ const EXPECTED_FACADES = {
   // stone cladding take the prewar grid.
   'four-seasons-hotel-taipei': 'curtain', // blue-grey hotel glass
   'farglory-financial-center': 'prewar', // salmon-pink stone shaft
-  'shin-kong-mitsukoshi-a4': 'prewar', // grey stone cladding
-  'shin-kong-mitsukoshi-a8': 'prewar', // beige stone cladding
+  'shin-kong-mitsukoshi-a4': 'curtain', // pale glass-and-girder hall (#255: was stone)
+  'shin-kong-mitsukoshi-a8': 'curtain', // dark glass behind the red frame (#255: was stone)
   'shin-kong-mitsukoshi-a9': 'prewar', // light stone cladding
   'shin-kong-mitsukoshi-a11': 'prewar', // cream stone cladding
   // Batch 9 (issue #166): the Tianmu/Beitou five — department
@@ -73,6 +73,17 @@ const EXPECTED_FACADES = {
   // Revival hall takes the prewar grid (its green dome is a flat
   // override; the portico columns are flat stone).
   'national-taiwan-museum': 'prewar',
+  // Batch 11 (issue #255): the Xinyi five — Hall 1's green-glass
+  // terraces, the Hyatt's pale stone with a dark-glass centre bay
+  // (REWORK 2026-10-30: the street photo overrules the satellite's
+  // bronze read), ATT's dark glass and Bellavita's cream stone;
+  // A4/A8 move from stone to curtain (the #255 correction: A4 is
+  // glass-and-girders, A8's red exoskeleton hangs on a dark-glass
+  // hall).
+  'twtc-exhibition-hall-1': 'curtain', // green-tinted showground glass
+  'grand-hyatt-taipei': 'prewar', // pale stone wings, dark-glass centre bay
+  'att-4-fun': 'curtain', // dark glass box
+  'bellavita': 'prewar', // cream palace stone
 };
 
 // The only Latin wordmarks a landmark sign may carry — the ones the
@@ -95,6 +106,14 @@ const EXPECTED_SIGNS = {
   // Issue #257: the museum's frieze band — 7 abstract glyph blocks
   // for 國立臺灣博物館, as on the real portico.
   'national-taiwan-museum': { glyphs: 7 },
+  // Issue #255: the Xinyi five — real wordmarks (Hyatt entrance,
+  // ATT facade, Bellavita Songren face) and abstract glyph bands
+  // (Hall 1's 台北世貿 south band, A4's logo band).
+  'twtc-exhibition-hall-1': { glyphs: 6 },
+  'grand-hyatt-taipei': { text: 'GRAND HYATT' },
+  'att-4-fun': { text: 'ATT 4 FUN' },
+  'bellavita': { text: 'BELLAVITA' },
+  'shin-kong-mitsukoshi-a4': { glyphs: 4 },
 };
 
 test('every landmark resolves its pinned facade treatment', () => {
