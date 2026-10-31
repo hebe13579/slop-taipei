@@ -656,6 +656,32 @@ body.hud-minimized .icon-show {
   color: var(--text-3);
 }
 
+/* Issue #281: the traffic sliders — a full-width range input with a
+   live value chip (reuses .set-state) and the preset ticks as a
+   datalist. The label column stacks like the other rows. */
+.pop-slider {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 6px;
+  padding: 8px 10px;
+  border-radius: 9px;
+  text-align: left;
+}
+
+.pop-slider input[type='range'] {
+  width: 100%;
+  margin: 2px 0 0;
+  accent-color: var(--text);
+  cursor: pointer;
+}
+
+.pop-slider[disabled],
+.pop-slider input[type='range'][disabled] {
+  opacity: 0.45;
+  pointer-events: none;
+}
+
 /* ------------------------------------------------------------------------------------------------------------------
    Bottom left: NYC street-name signs over the GPS radar
    ------------------------------------------------------------------------------------------------------------------ */

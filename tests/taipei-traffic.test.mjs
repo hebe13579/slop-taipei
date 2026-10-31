@@ -132,7 +132,12 @@ test('flag parsing: default off, pool sizes clamp', () => {
   assert.equal(trafficCountFromSearch('?traffic=on'), 200);
   assert.equal(trafficCountFromSearch('?traffic=60'), 60);
   assert.equal(trafficCountFromSearch('?traffic=5'), 10);
-  assert.equal(trafficCountFromSearch('?traffic=9999'), 400);
+  // Re-pinned for issue #281: the heaviness slider runs 0–800, so
+  // the flag's ceiling moves with it (400 was the old Heavy max).
+  // The flag addresses the same pool size the slider controls.
+  assert.equal(trafficCountFromSearch('?traffic=800'), 800);
+  assert.equal(trafficCountFromSearch('?traffic=500'), 500);
+  assert.equal(trafficCountFromSearch('?traffic=9999'), 800);
 });
 
 test('env: no grid, no signals source, pedestrians off, bus scaling, spawn radius', () => {

@@ -19,7 +19,7 @@ import { LightingSystem } from './lighting.js';
 import { NYCMapSystem } from './nyc-map.js';
 import { setupSceneCulling, updateSceneCulling } from './scene-culling.js';
 import { CityAudioSystem } from './audio-system.js';
-import { resolveSettings, readStoredSettings, persistSettings, graphicsConfig, applyGraphicsSettings, initSettingsPanel, trafficConfig, TRAFFIC_DENSITY_COUNTS, isMobileDevice } from './settings.js';
+import { resolveSettings, readStoredSettings, persistSettings, graphicsConfig, applyGraphicsSettings, initSettingsPanel, trafficConfig, isMobileDevice } from './settings.js';
 import { setFarFadeEnabled } from './tsl-materials.js';
 
 // js/main.js
@@ -248,21 +248,15 @@ async function initApp() {
 
   // The gear must show the EFFECTIVE initial state: the legacy
   // ?traffic= flag wins over the stored setting, so map its count
-  // onto the nearest density preset and sync the in-memory field
+  // directly onto the heaviness slider and sync the in-memory field
   // (not storage — the flag must not stick after it leaves the URL)
-  // before the panel first reflects it. Issue #266: Off is a
-  // density option, so the sync targets trafficDensity.
+  // before the panel first reflects it. Issue #281: the slider is
+  // continuous, so there is no nearest-preset rounding any more —
+  // a ?traffic=150 boot shows 150 on the slider.
   if (isTaipei) {
     const search = new URLSearchParams(window.location.search);
     if (search.has('traffic')) {
-      const legacyCount = taipeiTraffic.trafficCountFromSearch(window.location.search);
-      let nearest = 'off';
-      let nearestGap = Infinity;
-      for (const preset of ['light', 'normal', 'heavy']) {
-        const gap = Math.abs(TRAFFIC_DENSITY_COUNTS[preset] - legacyCount);
-        if (gap < nearestGap) { nearest = preset; nearestGap = gap; }
-      }
-      settings.trafficDensity = legacyCount > 0 ? nearest : 'off';
+      settings.trafficCars = taipeiTraffic.trafficCountFromSearch(window.location.search);
     }
   }
   const initialTraffic = isTaipei ? trafficConfig(settings) : { enabled: false, carCount: 0, trafficRadius: 0 };

@@ -202,34 +202,28 @@
       <span class="pop-sub">Roads &amp; buildings follow the real terrain · off restores flat ground · reloads</span>
     </button>
     <div class="pop-title">Traffic <span id="set-traffic-status" class="set-status"></span></div>
-    <button class="pop-item tp-btn" type="button" data-setting-trafficdensity="off">
-      <span class="pop-name">Traffic off</span>
-      <span class="pop-sub">No cars · default</span>
-    </button>
-    <button class="pop-item tp-btn" type="button" data-setting-trafficdensity="light">
-      <span class="pop-name">Light traffic</span>
-      <span class="pop-sub">60 cars</span>
-    </button>
-    <button class="pop-item tp-btn" type="button" data-setting-trafficdensity="normal">
-      <span class="pop-name">Normal traffic</span>
-      <span class="pop-sub">200 cars</span>
-    </button>
-    <button class="pop-item tp-btn" type="button" data-setting-trafficdensity="heavy">
-      <span class="pop-name">Heavy traffic</span>
-      <span class="pop-sub">400 cars</span>
-    </button>
-    <button class="pop-item tp-btn" type="button" data-setting-trafficrange="near">
-      <span class="pop-name">Traffic nearby</span>
-      <span class="pop-sub">Cars within 200 m of you</span>
-    </button>
-    <button class="pop-item tp-btn" type="button" data-setting-trafficrange="normal">
-      <span class="pop-name">Traffic around you</span>
-      <span class="pop-sub">Cars within 380 m · default</span>
-    </button>
-    <button class="pop-item tp-btn" type="button" data-setting-trafficrange="far">
-      <span class="pop-name">Traffic far out</span>
-      <span class="pop-sub">Cars within 600 m</span>
-    </button>
+    <label class="pop-slider" for="set-traffic-cars">
+      <span class="pop-name">Traffic heaviness <span class="set-state" id="set-traffic-cars-value">Off</span></span>
+      <span class="pop-sub">0–800 cars · Off 0 · Light 60 · Normal 200 · Heavy 400 · drag, release to apply</span>
+      <input id="set-traffic-cars" type="range" min="0" max="800" step="1" value="0" list="set-traffic-cars-ticks" aria-label="Traffic heaviness in cars">
+      <datalist id="set-traffic-cars-ticks">
+        <option value="0" label="Off"></option>
+        <option value="60" label="Light"></option>
+        <option value="200" label="Normal"></option>
+        <option value="400" label="Heavy"></option>
+        <option value="800" label="Max"></option>
+      </datalist>
+    </label>
+    <label class="pop-slider" for="set-traffic-radius">
+      <span class="pop-name">Car render distance <span class="set-state" id="set-traffic-radius-value">380 m</span></span>
+      <span class="pop-sub">200–600 m · Nearby 200 · Around 380 · Far 600 · drag, release to apply</span>
+      <input id="set-traffic-radius" type="range" min="200" max="600" step="1" value="380" list="set-traffic-radius-ticks" aria-label="Car render distance in metres">
+      <datalist id="set-traffic-radius-ticks">
+        <option value="200" label="Nearby"></option>
+        <option value="380" label="Around"></option>
+        <option value="600" label="Far"></option>
+      </datalist>
+    </label>
   </div>
 
   <!-- Teleport Destinations (native popover: light-dismiss & Esc) -->

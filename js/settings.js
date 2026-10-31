@@ -23,14 +23,17 @@
 //               the flat y=0 build with no geodata rebuild (the
 //               kill-switch). Applied at boot, so a change reloads
 //               the page.
-//   traffic   — (Taipei; issues #210/#252/#266) the traffic density
-//               preset (Off / Light / Normal / Heavy) and spawn-range
-//               preset. Off IS a density option — there is no separate
-//               switch. Applied live by js/main.js (build/destroy/
-//               rebuild the traffic system — no reload). Default Off.
+//   traffic   — (Taipei; issues #210/#252/#266/#281) the traffic
+//               heaviness slider (0–800 cars, 0 = Off) and the car
+//               render-distance slider (200–600 m). Applied live by
+//               js/main.js (build/destroy/rebuild the traffic
+//               system — no reload). Default Off (0 cars).
 //               The legacy ?traffic= flag still works (see
 //               js/taipei-traffic.js) and wins for the boot it is
-//               given on.
+//               given on. Old stored/URL preset spellings
+//               (trafficDensity: light/normal/heavy, trafficRange:
+//               near/normal/far, trafficEnabled) still resolve onto
+//               the sliders, so a saved preset is never lost.
 //
 // Resolution order per field: URL param > phone force (issue #268:
 // phones always start Coarse + Low, overriding stored settings, so a
@@ -50,13 +53,32 @@ export const FAR_DETAIL_PRESETS = ['fade', 'full'];
 export const TRAFFIC_DENSITY_PRESETS = ['off', 'light', 'normal', 'heavy'];
 export const TRAFFIC_RANGE_PRESETS = ['near', 'normal', 'far'];
 // Pool sizes: 'normal' is the upstream NYC pool size the #210 experiment
-// measured with; 'heavy' is the ?traffic= clamp ceiling; 'off' builds
-// nothing (0 cars) — it is how traffic stays off.
+// measured with; 'heavy' was the ?traffic= clamp ceiling before #281;
+// 'off' builds nothing (0 cars) — it is how traffic stays off.
 export const TRAFFIC_DENSITY_COUNTS = Object.freeze({ off: 0, light: 60, normal: 200, heavy: 400 });
 // Spawn-range radii in metres: 'normal' is the historical 380 m retire
 // radius js/traffic.js always used; 'near' keeps cars close, 'far'
 // spreads them out (with the frame cost that implies).
 export const TRAFFIC_RANGE_METERS = Object.freeze({ near: 200, normal: 380, far: 600 });
+// Issue #281: the sliders. Heaviness is a continuous 0–800 cars —
+// twice the old Heavy maximum of 400 — with tick marks at the old
+// presets (0 = Off, 60 = Light, 200 = Normal, 400 = Heavy) so an
+// existing setting maps onto the slider. Render distance is a
+// continuous 200–600 m with ticks at the old presets.
+export const TRAFFIC_CARS_MIN = 0;
+export const TRAFFIC_CARS_MAX = 800;
+export const TRAFFIC_CARS_TICKS = Object.freeze([0, 60, 200, 400, 800]);
+export const TRAFFIC_RADIUS_MIN_M = 200;
+export const TRAFFIC_RADIUS_MAX_M = 600;
+export const TRAFFIC_RADIUS_TICKS = Object.freeze([200, 380, 600]);
+// A slider drag fires input events continuously; the world rebuilds
+// at most once per settled value — the apply is debounced while the
+// user drags and runs at once on release (see initSettingsPanel).
+export const TRAFFIC_SLIDER_DEBOUNCE_MS = 250;
+// On release the slider snaps to a preset tick when it lands this
+// close, so the old presets stay one flick away.
+export const TRAFFIC_SLIDER_SNAP_CARS = 12;
+export const TRAFFIC_SLIDER_SNAP_M = 12;
 
 export const DEFAULT_SETTINGS = Object.freeze({
   specials: true,
@@ -64,8 +86,8 @@ export const DEFAULT_SETTINGS = Object.freeze({
   graphics: 'medium',
   farDetail: 'fade',
   drape: true,
-  trafficDensity: 'off',
-  trafficRange: 'normal',
+  trafficCars: 0,
+  trafficRadiusM: 380,
 });
 
 // Issue #268: is this a phone? Pure and unit-tested — main.js passes
@@ -95,18 +117,47 @@ const validGraphics = (v) => (GRAPHICS_PRESETS.includes(v) ? v : null);
 const validFarDetail = (v) => (FAR_DETAIL_PRESETS.includes(v) ? v : null);
 const validTrafficDensity = (v) => (TRAFFIC_DENSITY_PRESETS.includes(v) ? v : null);
 const validTrafficRange = (v) => (TRAFFIC_RANGE_PRESETS.includes(v) ? v : null);
+// Issue #281: clamp a slider value to its span, or null when it is
+// not a number at all (absent / unparsable — the caller keeps the
+// value from the lower-precedence layer instead of clamping junk).
+const clampTrafficCars = (v) => {
+  if (typeof v !== 'number' || !Number.isFinite(v)) return null;
+  return Math.max(TRAFFIC_CARS_MIN, Math.min(TRAFFIC_CARS_MAX, Math.round(v)));
+};
+const clampTrafficRadiusM = (v) => {
+  if (typeof v !== 'number' || !Number.isFinite(v)) return null;
+  return Math.max(TRAFFIC_RADIUS_MIN_M, Math.min(TRAFFIC_RADIUS_MAX_M, Math.round(v)));
+};
+// A URLSearchParams value as a finite number, or null when the param
+// is absent, empty, or unparsable.
+const numParam = (v) => {
+  if (v === null || v === '') return null;
+  const n = Number(v);
+  return Number.isFinite(n) ? n : null;
+};
+// Nearest preset tick within the snap window, else the value itself.
+const snapToTick = (value, ticks, window) => {
+  let best = value;
+  let bestGap = Infinity;
+  for (const t of ticks) {
+    const gap = Math.abs(t - value);
+    if (gap < bestGap) { best = t; bestGap = gap; }
+  }
+  return bestGap <= window ? best : value;
+};
 
 // The effective traffic configuration for a resolved settings object:
-// pool size + spawn radius, from the presets. `enabled` is derived —
-// density 'off' means no traffic. main.js uses this for every
+// pool size + spawn radius, from the slider values. `enabled` is
+// derived — 0 cars means no traffic. main.js uses this for every
 // build/rebuild so the gear, the URL, and storage can never disagree
-// about what "normal" means.
+// about what a slider position means.
 export function trafficConfig(settings) {
-  const density = validTrafficDensity(settings.trafficDensity) || 'off';
+  const carCount = clampTrafficCars(settings?.trafficCars) ?? TRAFFIC_CARS_MIN;
+  const trafficRadius = clampTrafficRadiusM(settings?.trafficRadiusM) ?? TRAFFIC_RANGE_METERS.normal;
   return {
-    enabled: density !== 'off',
-    carCount: TRAFFIC_DENSITY_COUNTS[density],
-    trafficRadius: TRAFFIC_RANGE_METERS[settings.trafficRange] ?? TRAFFIC_RANGE_METERS.normal,
+    enabled: carCount > 0,
+    carCount,
+    trafficRadius,
   };
 }
 
@@ -134,18 +185,26 @@ export function resolveSettings({ search = '', stored = null, isMobile = false }
     if (g) out.graphics = g;
     const f = validFarDetail(s.farDetail);
     if (f) out.farDetail = f;
-    // Issue #266: Off is a density option now. Old stored settings
-    // carry trafficEnabled instead of (or beside) a density: a stored
-    // density wins; otherwise trafficEnabled false -> 'off',
-    // true -> 'normal'.
-    const td = validTrafficDensity(s.trafficDensity);
-    if (td) out.trafficDensity = td;
+    // Issue #281: the sliders are numeric now. A stored number wins;
+    // otherwise an old stored preset maps onto its count/radius, and
+    // a pre-#266 trafficEnabled maps onto Normal (200) / Off (0).
+    // Stored trafficDensity still wins over trafficEnabled.
+    const stc = clampTrafficCars(s.trafficCars);
+    if (stc !== null) out.trafficCars = stc;
     else {
-      const te = parseBool(s.trafficEnabled);
-      if (te !== null) out.trafficDensity = te ? 'normal' : 'off';
+      const td = validTrafficDensity(s.trafficDensity);
+      if (td) out.trafficCars = TRAFFIC_DENSITY_COUNTS[td];
+      else {
+        const te = parseBool(s.trafficEnabled);
+        if (te !== null) out.trafficCars = te ? TRAFFIC_DENSITY_COUNTS.normal : 0;
+      }
     }
-    const tr = validTrafficRange(s.trafficRange);
-    if (tr) out.trafficRange = tr;
+    const str = clampTrafficRadiusM(s.trafficRadiusM);
+    if (str !== null) out.trafficRadiusM = str;
+    else {
+      const tr = validTrafficRange(s.trafficRange);
+      if (tr) out.trafficRadiusM = TRAFFIC_RANGE_METERS[tr];
+    }
     const dr = parseBool(s.drape);
     if (dr !== null) out.drape = dr;
   }
@@ -168,16 +227,25 @@ export function resolveSettings({ search = '', stored = null, isMobile = false }
   if (g) out.graphics = g;
   const f = validFarDetail(q.get('farDetail'));
   if (f) out.farDetail = f;
-  // Issue #266: the legacy trafficEnabled URL param maps onto the
-  // density, and only when no trafficDensity param is given.
-  const td = validTrafficDensity(q.get('trafficDensity'));
-  if (td) out.trafficDensity = td;
-  else if (q.has('trafficEnabled')) {
-    const te = parseBool(q.get('trafficEnabled'));
-    if (te !== null) out.trafficDensity = te ? 'normal' : 'off';
+  // Issue #281: the numeric slider params win; the old preset params
+  // map onto the sliders, and trafficEnabled maps onto them only when
+  // no trafficCars / trafficDensity param is given.
+  const qtc = clampTrafficCars(numParam(q.get('trafficCars')));
+  if (qtc !== null) out.trafficCars = qtc;
+  else {
+    const td = validTrafficDensity(q.get('trafficDensity'));
+    if (td) out.trafficCars = TRAFFIC_DENSITY_COUNTS[td];
+    else if (q.has('trafficEnabled')) {
+      const te = parseBool(q.get('trafficEnabled'));
+      if (te !== null) out.trafficCars = te ? TRAFFIC_DENSITY_COUNTS.normal : 0;
+    }
   }
-  const tr = validTrafficRange(q.get('trafficRange'));
-  if (tr) out.trafficRange = tr;
+  const qtr = clampTrafficRadiusM(numParam(q.get('trafficRadiusM')));
+  if (qtr !== null) out.trafficRadiusM = qtr;
+  else {
+    const tr = validTrafficRange(q.get('trafficRange'));
+    if (tr) out.trafficRadiusM = TRAFFIC_RANGE_METERS[tr];
+  }
   if (q.has('drape')) {
     const dr = parseBool(q.get('drape'));
     if (dr !== null) out.drape = dr;
@@ -201,8 +269,8 @@ export function persistSettings(storage, settings) {
       density: settings.density,
       graphics: settings.graphics,
       farDetail: settings.farDetail,
-      trafficDensity: settings.trafficDensity,
-      trafficRange: settings.trafficRange,
+      trafficCars: settings.trafficCars,
+      trafficRadiusM: settings.trafficRadiusM,
       drape: settings.drape,
     }));
     return true;
@@ -270,15 +338,19 @@ export function initSettingsPanel({ settings, taipeiSettings = null, onGraphics 
   const graphicsBtns = [...pop.querySelectorAll('[data-setting-graphics]')];
   const farDetailBtns = [...pop.querySelectorAll('[data-setting-fardetail]')];
   const trafficStatus = d.getElementById('set-traffic-status');
-  const trafficDensityBtns = [...pop.querySelectorAll('[data-setting-trafficdensity]')];
-  const trafficRangeBtns = [...pop.querySelectorAll('[data-setting-trafficrange]')];
+  const trafficCarsSlider = d.getElementById('set-traffic-cars');
+  const trafficCarsValue = d.getElementById('set-traffic-cars-value');
+  const trafficRadiusSlider = d.getElementById('set-traffic-radius');
+  const trafficRadiusValue = d.getElementById('set-traffic-radius-value');
 
   const reflect = () => {
     for (const b of densityBtns) b.classList.toggle('active', b.dataset.settingDensity === settings.density);
     for (const b of graphicsBtns) b.classList.toggle('active', b.dataset.settingGraphics === settings.graphics);
     for (const b of farDetailBtns) b.classList.toggle('active', b.dataset.settingFardetail === settings.farDetail);
-    for (const b of trafficDensityBtns) b.classList.toggle('active', b.dataset.settingTrafficdensity === settings.trafficDensity);
-    for (const b of trafficRangeBtns) b.classList.toggle('active', b.dataset.settingTrafficrange === settings.trafficRange);
+    if (trafficCarsSlider) trafficCarsSlider.value = String(settings.trafficCars);
+    if (trafficCarsValue) trafficCarsValue.textContent = settings.trafficCars === 0 ? 'Off' : `${settings.trafficCars} cars`;
+    if (trafficRadiusSlider) trafficRadiusSlider.value = String(settings.trafficRadiusM);
+    if (trafficRadiusValue) trafficRadiusValue.textContent = `${settings.trafficRadiusM} m`;
     if (specialsBtn) {
       specialsBtn.setAttribute('aria-pressed', settings.specials ? 'true' : 'false');
       if (specialsState) specialsState.textContent = settings.specials ? 'On' : 'Off';
@@ -294,30 +366,35 @@ export function initSettingsPanel({ settings, taipeiSettings = null, onGraphics 
   };
 
   if (!taipeiSettings) {
-    for (const b of [...densityBtns, ...farDetailBtns, ...trafficDensityBtns, ...trafficRangeBtns, specialsBtn, drapeBtn].filter(Boolean)) {
+    for (const b of [...densityBtns, ...farDetailBtns, specialsBtn, drapeBtn].filter(Boolean)) {
       b.disabled = true;
       b.title = 'Taipei mode only';
     }
+    for (const s of [trafficCarsSlider, trafficRadiusSlider].filter(Boolean)) {
+      s.disabled = true;
+      s.title = 'Taipei mode only';
+    }
   }
 
-  // Issue #266: Off is a density option, so the traffic controls are
-  // preset buttons only — no separate switch. A tap updates the
-  // setting at once (the gear reflects it immediately) and schedules
-  // at most ONE deferred apply: the pending run reads the CURRENT
-  // settings when it executes, so rapid taps (Light -> Off -> Light)
-  // collapse into one build ending at the last tap, instead of each
-  // tap queuing a build that captured the state at click time (the
-  // old switch swallowed the second tap of a rapid pair — both runs
-  // applied the same direction). The build is synchronous CPU work:
-  // paint the busy state first, then build on the next frame (same
-  // idiom as the density row).
+  // Issue #281: the traffic controls are sliders now — heaviness
+  // 0–800 cars (0 = Off) and render distance 200–600 m. The #266
+  // rule still holds: a change commits the setting at once (the gear
+  // reflects it immediately) and schedules at most ONE deferred
+  // apply, which reads the CURRENT settings when it executes. A
+  // slider drag fires input events continuously, so the apply is
+  // debounced while dragging — it fires once, ~250 ms after the
+  // last input — and runs at once on release (change). Never one
+  // rebuild per tick. On release the value snaps to a preset tick
+  // when it lands within the snap window, so Light / Normal / Heavy
+  // (and Nearby / Around / Far) stay one flick away.
   if (taipeiSettings) {
     let trafficApplyQueued = false;
-    let trafficApplied = { trafficDensity: settings.trafficDensity, trafficRange: settings.trafficRange };
+    let trafficApplied = { trafficCars: settings.trafficCars, trafficRadiusM: settings.trafficRadiusM };
+    let trafficDebounce = null;
     const scheduleTrafficApply = () => {
       if (trafficApplyQueued) return;
       trafficApplyQueued = true;
-      if (trafficStatus) trafficStatus.textContent = trafficApplied.trafficDensity !== 'off' ? 'rebuilding…' : 'building…';
+      if (trafficStatus) trafficStatus.textContent = trafficApplied.trafficCars !== 0 ? 'rebuilding…' : 'building…';
       const run = () => {
         trafficApplyQueued = false;
         const apply = (cfg) => {
@@ -325,7 +402,7 @@ export function initSettingsPanel({ settings, taipeiSettings = null, onGraphics 
           catch (err) { console.error('[settings] traffic change failed', err); return false; }
         };
         if (apply(trafficConfig(settings))) {
-          trafficApplied = { trafficDensity: settings.trafficDensity, trafficRange: settings.trafficRange };
+          trafficApplied = { trafficCars: settings.trafficCars, trafficRadiusM: settings.trafficRadiusM };
           if (trafficStatus) trafficStatus.textContent = '';
         } else {
           // The build failed after main.js destroyed the old system:
@@ -334,11 +411,11 @@ export function initSettingsPanel({ settings, taipeiSettings = null, onGraphics 
           // fall back to Off (destroy-only, cannot throw the build).
           const lastGood = { ...settings, ...trafficApplied };
           if (apply(trafficConfig(lastGood))) {
-            settings.trafficDensity = trafficApplied.trafficDensity;
-            settings.trafficRange = trafficApplied.trafficRange;
+            settings.trafficCars = trafficApplied.trafficCars;
+            settings.trafficRadiusM = trafficApplied.trafficRadiusM;
           } else {
-            settings.trafficDensity = 'off';
-            settings.trafficRange = trafficApplied.trafficRange;
+            settings.trafficCars = 0;
+            settings.trafficRadiusM = trafficApplied.trafficRadiusM;
             apply(trafficConfig(settings));
           }
           if (trafficStatus) trafficStatus.textContent = 'change failed — kept previous state';
@@ -349,22 +426,41 @@ export function initSettingsPanel({ settings, taipeiSettings = null, onGraphics 
       if (typeof requestAnimationFrame === 'function') requestAnimationFrame(() => setTimeout(run, 0));
       else setTimeout(run, 0);
     };
-    for (const b of trafficDensityBtns) {
-      b.addEventListener('click', () => {
-        const preset = b.dataset.settingTrafficdensity;
-        if (preset === settings.trafficDensity) return;
-        settings.trafficDensity = preset;
+    const scheduleDebouncedTrafficApply = () => {
+      if (trafficDebounce !== null) clearTimeout(trafficDebounce);
+      trafficDebounce = setTimeout(() => { trafficDebounce = null; scheduleTrafficApply(); }, TRAFFIC_SLIDER_DEBOUNCE_MS);
+    };
+    const settledDiffers = () => settings.trafficCars !== trafficApplied.trafficCars || settings.trafficRadiusM !== trafficApplied.trafficRadiusM;
+    const releaseTrafficApply = () => {
+      if (trafficDebounce !== null) { clearTimeout(trafficDebounce); trafficDebounce = null; }
+      if (settledDiffers()) scheduleTrafficApply();
+    };
+    if (trafficCarsSlider) {
+      trafficCarsSlider.addEventListener('input', () => {
+        const v = clampTrafficCars(Number(trafficCarsSlider.value)) ?? 0;
+        if (v === settings.trafficCars) return;
+        settings.trafficCars = v;
         reflect();
-        scheduleTrafficApply();
+        scheduleDebouncedTrafficApply();
+      });
+      trafficCarsSlider.addEventListener('change', () => {
+        settings.trafficCars = snapToTick(settings.trafficCars, TRAFFIC_CARS_TICKS, TRAFFIC_SLIDER_SNAP_CARS);
+        reflect();
+        releaseTrafficApply();
       });
     }
-    for (const b of trafficRangeBtns) {
-      b.addEventListener('click', () => {
-        const preset = b.dataset.settingTrafficrange;
-        if (preset === settings.trafficRange) return;
-        settings.trafficRange = preset;
+    if (trafficRadiusSlider) {
+      trafficRadiusSlider.addEventListener('input', () => {
+        const v = clampTrafficRadiusM(Number(trafficRadiusSlider.value)) ?? TRAFFIC_RANGE_METERS.normal;
+        if (v === settings.trafficRadiusM) return;
+        settings.trafficRadiusM = v;
         reflect();
-        scheduleTrafficApply();
+        scheduleDebouncedTrafficApply();
+      });
+      trafficRadiusSlider.addEventListener('change', () => {
+        settings.trafficRadiusM = snapToTick(settings.trafficRadiusM, TRAFFIC_RADIUS_TICKS, TRAFFIC_SLIDER_SNAP_M);
+        reflect();
+        releaseTrafficApply();
       });
     }
   }
