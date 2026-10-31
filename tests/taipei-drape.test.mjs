@@ -9,7 +9,9 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { TAIPEI_GEO } from '../js/taipei-geodata.js';
-import { drapeHeight, drapeDem, drapeWeight, drapeEnabled, setDrapeEnabled, buildDrapePatchGrids, DRAPE_FEATHER } from '../js/taipei-drape.js';
+import { drapeHeight, drapeDem, drapeWeight, drapeEnabled, setDrapeEnabled, buildDrapePatchGrids, buildAdaptiveDrapeGround, buildDrapeRefineMask, drapeTerrainColor, DRAPE_GROUND_TOL_M, DRAPE_GROUND_MAX_DEPTH, DRAPE_RECTS, DRAPE_FEATHER } from '../js/taipei-drape.js';
+import { portalTrenchSlots } from '../js/taipei-viaduct.js';
+import { roadTrenchSlots } from '../js/taipei-airfield.js';
 import { buildDeckGeometry, LOW_BED_H, PARAPET_H } from '../js/taipei-viaduct.js';
 import { buildBridgeGeometry } from '../js/taipei-bridges.js';
 import { buildDriveModel } from '../js/taipei-drive.js';
@@ -259,6 +261,177 @@ test('patch grids: two grids at h-0.02, water pins at -0.05, valid indices', () 
     }
   }
   assert.ok(pinned > 0, 'no water-pinned vertices found');
+});
+
+// --- adaptive drape ground (issue #285) ----------------------------------
+// The flat block layer chorded up to +1.20 m above the roads (S3) and
+// the 28 m patch up to +1.76 m; the adaptive ground replaces both
+// inside the footprint. The builder is pure (js/taipei-drape.js);
+// the boot wraps it in meshes (js/taipei-boot.js
+// buildAdaptiveDrapeGroundMeshes) and cuts the flat block rects back
+// to outside the footprint.
+
+test('adaptive ground: refine mask marks near-road cells only', () => {
+  const mask = buildDrapeRefineMask([[0, 0, 100, 0]]);
+  assert.equal(mask.needsRefine(0, 0), true);
+  assert.equal(mask.needsRefine(50, 0), true);
+  assert.equal(mask.needsRefine(90, 0), true);
+  assert.equal(mask.needsRefine(140, 0), true);
+  assert.equal(mask.needsRefine(300, 0), false);
+  assert.equal(mask.needsRefine(500, 0), false);
+  assert.equal(mask.needsRefine(0, 500), false);
+  assert.equal(buildDrapeRefineMask([]).needsRefine(0, 0), false);
+});
+
+test('adaptive ground: colour rule matches the patch THREE colours', () => {
+  // Linear-sRGB values of the patch hexes, computed independently
+  // (Python sRGB transfer function) — this pins the conversion
+  // drapeTerrainColor must reproduce, not the formula itself.
+  const close = (got, want) => { for (let i = 0; i < 3; i++) assert.ok(Math.abs(got[i] - want[i]) < 1e-5, `${got} vs ${want}`); };
+  close(drapeTerrainColor(0.6, 10), [0.254152, 0.234551, 0.187821]); // rock, steep
+  close(drapeTerrainColor(0, 0), [0.184475, 0.242281, 0.107023]); // low, h = 0
+  close(drapeTerrainColor(0, 18), [0.061246, 0.138432, 0.046665]); // mid, h = 18
+  close(drapeTerrainColor(0, 108), [0.158961, 0.205079, 0.138432]); // high, h = 108
+  // Lerp structure: halfway between low and mid at h = 9.
+  const mid = drapeTerrainColor(0, 9);
+  close(mid, [0.122861, 0.190357, 0.076844]);
+});
+
+// The real-tile adaptive ground, built once and shared by the
+// seating tests below (the build takes a few seconds; the plan
+// below it takes minutes, as the rest of this file already does).
+const adaptiveRoads = (TAIPEI_GEO.roadbeds || []).map((b) => b.pts).filter((p) => p && p.length >= 4);
+const adaptiveGround = buildAdaptiveDrapeGround((TAIPEI_GEO.water || []).map((w) => w.ring), { roads: adaptiveRoads });
+
+test('adaptive ground: stats pin the build (counts, depth, residual)', () => {
+  const s = adaptiveGround.stats;
+  assert.equal(s.blockTris + s.patchTris, s.totalTris);
+  // Each split turns one quad (2 tris) into four (8 tris): +6.
+  assert.equal(s.totalTris, 2 * (s.refinedCells + s.coarseCells) + 6 * s.splits);
+  assert.ok(s.totalTris > 100000 && s.totalTris < 1000000, `totalTris ${s.totalTris}`);
+  assert.ok(s.maxDepth <= DRAPE_GROUND_MAX_DEPTH, `maxDepth ${s.maxDepth}`);
+  assert.ok(s.maxResidualOver <= 0.1, `maxResidualOver ${s.maxResidualOver}`);
+  assert.ok(s.maxResidualUnder <= 0.15, `maxResidualUnder ${s.maxResidualUnder}`);
+  assert.ok(s.refinedCells > 20000 && s.coarseCells > 1000);
+  assert.ok(s.blockTris > s.patchTris, 'most of the ground is the pale block tone');
+});
+
+// Spatial hash over the adaptive triangle soup for point lookups.
+function adaptiveGroundAt(x, z) {
+  const CELL = 50;
+  const key = (cx, cz) => cx + ',' + cz;
+  if (!adaptiveGroundAt.hash) {
+    const hash = new Map();
+    const add = (arr, base, kind) => {
+      const xs = [arr[base], arr[base + 3], arr[base + 6]], zs = [arr[base + 2], arr[base + 5], arr[base + 8]];
+      for (let cx = Math.floor(Math.min(...xs) / CELL); cx <= Math.floor(Math.max(...xs) / CELL); cx++) {
+        for (let cz = Math.floor(Math.min(...zs) / CELL); cz <= Math.floor(Math.max(...zs) / CELL); cz++) {
+          const k = key(cx, cz);
+          if (!hash.has(k)) hash.set(k, []);
+          hash.get(k).push([arr, base, kind]);
+        }
+      }
+    };
+    for (let b = 0; b < adaptiveGround.block.length; b += 9) add(adaptiveGround.block, b, 'block');
+    for (const p of adaptiveGround.patch) for (let b = 0; b < p.positions.length; b += 9) add(p.positions, b, 'patch');
+    adaptiveGroundAt.hash = hash;
+  }
+  const list = adaptiveGroundAt.hash.get(key(Math.floor(x / CELL), Math.floor(z / CELL)));
+  if (!list) return null;
+  let best = null;
+  for (const [arr, b, kind] of list) {
+    const x0 = arr[b], y0 = arr[b + 1], z0 = arr[b + 2];
+    const x1 = arr[b + 3], y1 = arr[b + 4], z1 = arr[b + 5];
+    const x2 = arr[b + 6], y2 = arr[b + 7], z2 = arr[b + 8];
+    const d = (z1 - z2) * (x0 - x2) + (x2 - x1) * (z0 - z2);
+    if (Math.abs(d) < 1e-9) continue;
+    const w0 = ((z1 - z2) * (x - x2) + (x2 - x1) * (z - z2)) / d;
+    const w1 = ((z2 - z0) * (x - x2) + (x0 - x2) * (z - z2)) / d;
+    const w2 = 1 - w0 - w1;
+    if (w0 < -1e-6 || w1 < -1e-6 || w2 < -1e-6) continue;
+    const y = w0 * y0 + w1 * y1 + w2 * y2;
+    if (!best || y > best.y) best = { y, kind };
+  }
+  return best;
+}
+
+test('adaptive ground: no road is covered (mesh below the ribbon)', () => {
+  // Every 5 m along every roadbed inside the footprint: the topmost
+  // ground surface must sit below the road ribbon (DEM + 0.06).
+  // The pre-fix mesh covered 24 km of road by up to +0.77 m.
+  let sampled = 0, maxOver = -Infinity, worst = null;
+  for (const pts of adaptiveRoads) {
+    for (let i = 0; i + 3 < pts.length; i += 2) {
+      const x0 = pts[i], z0 = pts[i + 1], x1 = pts[i + 2], z1 = pts[i + 3];
+      const len = Math.hypot(x1 - x0, z1 - z0), n = Math.max(1, Math.ceil(len / 5));
+      for (let k = 0; k <= n; k++) {
+        const x = x0 + (x1 - x0) * k / n, z = z0 + (z1 - z0) * k / n;
+        const h = drapeHeight(x, z);
+        if (h <= 0) continue;
+        sampled++;
+        const m = adaptiveGroundAt(x, z);
+        assert.ok(m, `no ground mesh at road point (${x}, ${z})`);
+        const over = m.y - (h + 0.06);
+        if (over > maxOver) { maxOver = over; worst = [x, z]; }
+        assert.ok(over <= 0, `road covered by ${over.toFixed(3)} m at (${x.toFixed(1)}, ${z.toFixed(1)})`);
+      }
+    }
+  }
+  assert.ok(sampled > 50000, `sampled ${sampled}`);
+  assert.ok(maxOver <= 0 && maxOver > -0.1, `maxOver ${maxOver} at ${worst}`);
+});
+
+test('adaptive ground: sample points seat within tolerance', () => {
+  // The probe's points: S1 崇仰一路 (drape 17.83), S3 前港街26巷
+  // (drape 1.42, the +1.20 m burial), S2 圓山大飯店 approach. The
+  // topmost surface must be within the tolerance of the DEM and
+  // below the ribbon. S4 （信義路五段） is the flat control: it sits
+  // outside the footprint, so the adaptive ground has no mesh there
+  // (the flat block layer covers it) and the DEM is 0.
+  for (const [name, x, z] of [
+    ['S1', -5429.7, -10223.35], ['S2', -3905, -5013],
+    ['S3', -4320, -5692.9],
+  ]) {
+    const h = drapeHeight(x, z);
+    const m = adaptiveGroundAt(x, z);
+    assert.ok(m, `${name}: no ground mesh at (${x}, ${z})`);
+    assert.ok(Math.abs(m.y - h) <= 0.1, `${name}: top ${m.y} vs DEM ${h}`);
+    assert.ok(m.y <= h + 0.06, `${name}: top ${m.y} above ribbon ${h + 0.06}`);
+  }
+  assert.equal(drapeHeight(-47, 68), 0, 'S4 flat control must have no drape');
+  assert.equal(adaptiveGroundAt(-47, 68), null, 'S4 is outside the footprint');
+});
+
+test('adaptive ground: kill-switch makes it flat', () => {
+  try {
+    setDrapeEnabled(false);
+    const flat = buildAdaptiveDrapeGround((TAIPEI_GEO.water || []).map((w) => w.ring), { roads: adaptiveRoads });
+    for (let i = 1; i < flat.block.length; i += 3) assert.ok(Math.abs(flat.block[i] - 0.02) < 1e-6, `block y ${flat.block[i]}`);
+    for (const p of flat.patch) for (let i = 1; i < p.positions.length; i += 3) assert.ok(Math.abs(p.positions[i] + 0.02) < 1e-6, `patch y ${p.positions[i]}`);
+  } finally {
+    setDrapeEnabled(true);
+  }
+});
+
+test('adaptive ground: no trench slot touches the drape footprint', () => {
+  // The boot cuts the flat block rects back to outside the footprint;
+  // a trench slot inside the footprint would be cut twice (and the
+  // adaptive ground does not know about trenches). All five slots
+  // sit far outside both rects + feather.
+  const slots = [
+    ...portalTrenchSlots(TAIPEI_GEO.mrtDecks || { lines: [] }),
+    ...roadTrenchSlots(TAIPEI_GEO.airfield),
+  ];
+  assert.ok(slots.length > 0, 'no trench slots found');
+  for (const s of slots) {
+    const xs = s.map((p) => p[0]), zs = s.map((p) => p[1]);
+    const minX = Math.min(...xs), maxX = Math.max(...xs), minZ = Math.min(...zs), maxZ = Math.max(...zs);
+    for (const r of DRAPE_RECTS) {
+      const overlaps = maxX >= r.minX - DRAPE_FEATHER && minX <= r.maxX + DRAPE_FEATHER
+        && maxZ >= r.minZ - DRAPE_FEATHER && minZ <= r.maxZ + DRAPE_FEATHER;
+      assert.ok(!overlaps, `trench slot [${minX}, ${minZ}]-[${maxX}, ${maxZ}] touches ${r.name}`);
+    }
+  }
 });
 
 // --- settings ------------------------------------------------------------------
