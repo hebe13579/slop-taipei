@@ -713,9 +713,21 @@ test('landmark batch 3: two-slab Cathay rebuild, W, Songshan, Eslite, Arena', ()
   assert.ok(cathay, 'cathay landmark registered');
   const podium = cathay.parts.find((p) => p.type === 'cylinder');
   assert.ok(podium && podium.rz < podium.r, 'podium is the curved-front ellipse');
-  const slabs = cathay.parts.filter((p) => p.type === 'box');
+  // Issue #283 (2026-10-30): the slab count takes the tall boxes
+  // only — the setback crown caps are boxes too (the renderer
+  // centres frustums on the pin, so a frustum cap would render
+  // over the pin instead of its offset slab).
+  const slabs = cathay.parts.filter((p) => p.type === 'box' && p.h > 100);
   assert.equal(slabs.length, 2, 'two combined slabs, no staircase crown');
-  const tops = slabs.map(partTop).sort((a, b) => b - a);
+  // Issue #283 (2026-10-30): each slab now carries a setback
+  // box crown cap — the box shortens by the cap height, so a
+  // slab's top is its cap's top, not the box's. The massing intent
+  // is unchanged: two slabs, main at 212, secondary one step below.
+  const slabTops = slabs.map((s) => {
+    const cap = cathay.parts.find((p) => p.type === 'box' && (p.y0 || 0) === partTop(s));
+    return cap ? partTop(cap) : partTop(s);
+  }).sort((a, b) => b - a);
+  const tops = slabTops;
   assert.equal(tops[0], 212, 'main slab tops out at the published 212 m');
   assert.ok(tops[1] < tops[0] && tops[1] > 180, 'secondary slab is one clean step below');
   const [west, east] = slabs.slice().sort((a, b) => (a.dx || 0) - (b.dx || 0));
@@ -726,8 +738,17 @@ test('landmark batch 3: two-slab Cathay rebuild, W, Songshan, Eslite, Arena', ()
   const w = byId('w-taipei');
   assert.ok(w, 'w taipei registered');
   assert.equal(w.parts.filter((p) => p.type === 'box' && !p.y0).length, 3, 'podium massed as three blocks around the station court');
-  const tower = w.parts.find((p) => p.y0 === 17);
-  assert.ok(tower && partTop(tower) === 151, 'tower rises from the podium to 151 m');
+  // Issue #283 (2026-10-30): the tower box now tops at 143 under a
+  // setback box crown cap that tops at 151 — the tower still
+  // rises from the podium to the published 151 m. The find takes
+  // the tall box (the #283 fin strips also sit at y0 17). The cap
+  // is a box, not a frustum: the renderer centres frustums on the
+  // landmark pin, so a frustum cap would render over the pin
+  // instead of the tower (and fail the #42 overlap audit).
+  const tower = w.parts.find((p) => p.y0 === 17 && p.type === 'box' && p.h > 100);
+  assert.ok(tower, 'tower rises from the east podium block');
+  const wCap = w.parts.find((p) => p.type === 'box' && (p.y0 || 0) === partTop(tower));
+  assert.ok(wCap && partTop(wCap) === 151, 'tower + crown cap top out at 151 m');
   const eastPodium = w.parts.find((p) => !p.y0 && p.dx === tower.dx);
   assert.ok(eastPodium, 'tower stands on the east podium block');
 
@@ -735,7 +756,10 @@ test('landmark batch 3: two-slab Cathay rebuild, W, Songshan, Eslite, Arena', ()
   // chimney as the tallest part.
   const park = byId('songshan-cultural-park');
   assert.ok(park, 'songshan park registered');
-  const chimney = park.parts.find((p) => p.type === 'cylinder');
+  // Issue #283 (2026-10-30): the west portico added small cylinders
+  // (columns, top 4 m) before the chimney in the parts list, so the
+  // chimney is the TALLEST cylinder now, not the first one.
+  const chimney = park.parts.filter((p) => p.type === 'cylinder').sort((a, b) => partTop(b) - partTop(a))[0];
   assert.ok(chimney && partTop(chimney) === 30, 'chimney is the tallest part at 30 m');
   assert.ok(park.parts.filter((p) => p.type === 'box').length >= 2, 'factory hall and boiler room both massed');
   assert.ok(park.parts.some((p) => p.type === 'ridge'), 'hall carries its ridge roof');

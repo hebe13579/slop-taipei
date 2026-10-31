@@ -160,16 +160,20 @@ test('far versions: simplified massing, storey silhouette kept, never culled', (
     assert.ok(farTop <= nearTop, `${s.id}: far massing never exceeds the near silhouette`);
   }
   const withFar = plan.landmarkTowers.filter((s) => s.farParts).map((s) => s.id).sort();
-  // Gate 2026-10-30: + national-taiwan-museum — it landed on main
-  // (#275) after this PR's base and carries its own designed far
-  // version (merged slab + hall + drum + dome); the six #255
-  // structures are unchanged.
+  // Issue #283 (2026-10-30): the 16 reworked live Xinyi specials
+  // now carry farParts too, so the far-version checks cover them.
   assert.deepEqual(withFar, [
-    'att-4-fun', 'bellavita', 'grand-hyatt-taipei',
-    'national-taiwan-museum',
+    'att-4-fun', 'bellavita', 'cathay-landmark', 'eslite-spectrum-songyan',
+    'farglory-financial-center', 'four-seasons-hotel-taipei',
+    'fubon-xinyi-a25', 'grand-hyatt-taipei',
+    'national-taiwan-museum', 'shin-kong-mitsukoshi-a11',
     'shin-kong-mitsukoshi-a4', 'shin-kong-mitsukoshi-a8',
-    'twtc-exhibition-hall-1',
-  ], 'exactly the six #255 structures + the museum carry far versions');
+    'shin-kong-mitsukoshi-a9', 'songshan-cultural-park',
+    'taipei-city-hall', 'taipei-dome', 'taipei-nan-shan-plaza',
+    'tao-zhu-yin-yuan', 'the-sky-taipei',
+    'twtc-exhibition-hall-1', 'twtc-international-trade-building',
+    'uni-president-international-tower', 'w-taipei',
+  ], 'exactly the six #255 structures + the museum + the sixteen #283 reworks carry far versions');
 });
 
 test('special LOD swap: hysteresis band, sticky inside it, swaps both ways', () => {

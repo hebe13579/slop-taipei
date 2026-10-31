@@ -555,17 +555,40 @@ const LANDMARK_STRUCTURES = [
     id: 'taipei-nan-shan-plaza', name: 'Taipei Nan Shan Plaza', nameZh: '臺北南山廣場',
     lat: 25.0344, lon: 121.566982, realHeight: 272, color: 0x2c3540,
     site: { w: 242, d: 64, dx: -5, dz: -1 },
-    // Issue #57: dark blue-grey curtain wall on the shaft; the mall
-    // podium gets a lighter, wider-bayed curtain variant and the
-    // Breeze wordmark the real podium carries.
+    // Issue #283 (2026-10-30, user verdict: the specials read as
+    // cubes): the street photo (xinyi283-evidence/refs/ref-nanshan.jpg)
+    // shows a dark glass slab under a LIGHTER-glass crown box with a
+    // flat top and a thin corner fin — not a pitched ridge — plus a
+    // long dark mall podium with a projecting entrance. The ridge is
+    // replaced by the crown box (top stays 272); the shaft keeps its
+    // taper and the curtain grid (no shaft ribs: the shaft tapers and
+    // the primitives cannot lean a rib to follow it).
     facade: { kind: 'curtain', glassTint: 0x1b2836, frameTint: 0x6d7885, windowWidth: 2.6, floorHeight: 4.2, litProbability: 0.34, warmth: 0.58, reflectivity: 0.92, seed: 57.11 },
     sign: { text: 'Breeze', w: 30, h: 5, y: 20, dx: 20, dz: 28.4, bg: '#22262c', fg: '#ece5d3', accent: '#c8372d' },
     parts: [
       { type: 'box', w: 108, d: 54, h: 30, dx: -77, dz: 1, facade: { kind: 'curtain', glassTint: 0x2a3745, frameTint: 0x59636e, windowWidth: 3.2, floorHeight: 3.6, litProbability: 0.42, warmth: 0.6, reflectivity: 0.9, seed: 57.12 } },
       { type: 'box', w: 66, d: 58, h: 34, dx: 20, dz: -1, facade: { kind: 'curtain', glassTint: 0x2a3745, frameTint: 0x59636e, windowWidth: 3.2, floorHeight: 3.6, litProbability: 0.42, warmth: 0.6, reflectivity: 0.9, seed: 57.12 } },
       { type: 'box', w: 48, d: 38, h: 34, dx: 90, dz: 8, facade: { kind: 'curtain', glassTint: 0x2a3745, frameTint: 0x59636e, windowWidth: 3.2, floorHeight: 3.6, litProbability: 0.42, warmth: 0.6, reflectivity: 0.9, seed: 57.12 } },
+      // Mall entrance canopy + colonnade on the main podium's south face.
+      { type: 'box', w: 40, d: 4, h: 1, y0: 8, dx: 20, dz: 30, flat: 0x2c3540 },
+      { type: 'cylinder', r: 0.6, h: 8, dx: 4, dz: 31, flat: 0x6d7885 },
+      { type: 'cylinder', r: 0.6, h: 8, dx: 14, dz: 31, flat: 0x6d7885 },
+      { type: 'cylinder', r: 0.6, h: 8, dx: 26, dz: 31, flat: 0x6d7885 },
+      { type: 'cylinder', r: 0.6, h: 8, dx: 36, dz: 31, flat: 0x6d7885 },
+      // Podium roof parapet, south + east edges.
+      { type: 'box', w: 66, d: 1, h: 1.5, y0: 34, dx: 20, dz: 27.5, flat: 0x2c3540 },
+      { type: 'box', w: 1, d: 58, h: 1.5, y0: 34, dx: 52.5, dz: -1, flat: 0x2c3540 },
       { type: 'frustum', wB: 52, dB: 40, wT: 47, dT: 36, h: 208, y0: 34 },
-      { type: 'ridge', w: 47, d: 36, h: 0, ridgeH: 30, y0: 242 },
+      // Lighter-glass crown box (flat top) + thin corner fin, per the photo.
+      { type: 'box', w: 44, d: 33, h: 30, y0: 242, flat: { color: 0x7fa3b0, roughness: 0.3, metalness: 0.4 } },
+      { type: 'box', w: 2, d: 2, h: 30, y0: 242, dx: 21, dz: 16, flat: 0x2c3540 },
+    ],
+    farParts: [
+      { type: 'box', w: 108, d: 54, h: 30, dx: -77, dz: 1 },
+      { type: 'box', w: 66, d: 58, h: 34, dx: 20, dz: -1 },
+      { type: 'box', w: 48, d: 38, h: 34, dx: 90, dz: 8 },
+      { type: 'frustum', wB: 52, dB: 40, wT: 47, dT: 36, h: 208, y0: 34 },
+      { type: 'box', w: 44, d: 33, h: 30, y0: 242 },
     ],
   },
   {
@@ -582,13 +605,33 @@ const LANDMARK_STRUCTURES = [
     id: 'the-sky-taipei', name: 'The Sky Taipei', nameZh: '台北天空塔',
     lat: 25.036458, lon: 121.566047, realHeight: 280, color: 0x5d7a6c,
     site: { w: 44, d: 96, dx: 0, dz: -2 },
-    // Issue #57: pale sage-green pleated glass — narrow bays, tall
-    // floors, high reflectivity.
+    // Issue #283 (2026-10-30): the design render
+    // (xinyi283-evidence/refs/ref-skyscraper.jpg) shows the pleated
+    // sage-green slab under a slanted shoot-tip cut, on a low dark
+    // banded podium. The tip gains a thin fin on its high (-x) edge
+    // and the podium an entrance canopy + roof band; the pleats stay
+    // the curtain factory's narrow bays (windowWidth must stay ≥ 2
+    // per the facades test).
     facade: { kind: 'curtain', glassTint: 0x51665c, frameTint: 0x9fb4a6, windowWidth: 2.2, floorHeight: 4.6, litProbability: 0.3, warmth: 0.5, reflectivity: 0.94, seed: 57.13 },
     parts: [
       // Podium stops at the construction-road ribbon along the
       // outline's north edge (issue #42 audit: the ribbon's south
       // edge reaches z ≈ -424 in tile coords).
+      { type: 'box', w: 37, d: 78, h: 22, dz: 4 },
+      // Podium entrance canopy + colonnade on the south face.
+      { type: 'box', w: 30, d: 4, h: 1, y0: 7, dz: 44, flat: 0x3a4440 },
+      { type: 'cylinder', r: 0.6, h: 7, dx: -10, dz: 45, flat: 0x9fb4a6 },
+      { type: 'cylinder', r: 0.6, h: 7, dx: 0, dz: 45, flat: 0x9fb4a6 },
+      { type: 'cylinder', r: 0.6, h: 7, dx: 10, dz: 45, flat: 0x9fb4a6 },
+      // Podium roof band, south edge.
+      { type: 'box', w: 37, d: 1, h: 1.5, y0: 20, dz: 42.5, flat: 0x3a4440 },
+      { type: 'frustum', wB: 35, dB: 47, wT: 31, dT: 42, h: 120, y0: 22 },
+      { type: 'frustum', wB: 31, dB: 42, wT: 27, dT: 37, h: 118, y0: 142 },
+      { type: 'frustum', wB: 27, dB: 37, wT: 25, dT: 35, h: 20, y0: 260, topDropX: 14 },
+      // Thin fin on the tip's high (-x) edge.
+      { type: 'box', w: 2, d: 20, h: 6, y0: 274, dx: -11, flat: 0x51665c },
+    ],
+    farParts: [
       { type: 'box', w: 37, d: 78, h: 22, dz: 4 },
       { type: 'frustum', wB: 35, dB: 47, wT: 31, dT: 42, h: 120, y0: 22 },
       { type: 'frustum', wB: 31, dB: 42, wT: 27, dT: 37, h: 118, y0: 142 },
@@ -609,10 +652,42 @@ const LANDMARK_STRUCTURES = [
     id: 'fubon-xinyi-a25', name: 'Fubon Xinyi A25', nameZh: '富邦信義A25',
     lat: 25.039629, lon: 121.570578, realHeight: 266.3, color: 0x8fa5b5,
     site: { w: 120, d: 74, dx: 36, dz: 14 },
-    // Issue #57: light stone-and-glass grid (the prewar masonry
-    // factory reads as Piano's stone frame with glazing between).
+    // Issue #283 (2026-10-30): the street photo
+    // (xinyi283-evidence/refs/ref-fubon-a25.jpg) shows the shard's
+    // signature — a full-height exposed diagonal-brace truss down one
+    // corner, under a slanted glass top. The truss is 5 stacked dark
+    // strips hugging the SE corner (one per 50 m, each at the
+    // corner's interpolated position as the shaft tapers 43 → 32)
+    // with one pale cross-bar per segment. True diagonals need a
+    // pitched primitive the registry does not have — the recessed
+    // dark channel + pale rungs suggest the truss (disclosed).
     facade: { kind: 'prewar', stoneColor: 0xb9bdc2, trimColor: 0x8f959c, windowGlassColor: 0x27384a, windowWidth: 3.0, floorHeight: 4.4, litProbability: 0.3, warmth: 0.55, seed: 57.14 },
     parts: [
+      { type: 'box', w: 47, d: 16, h: 12, dx: 51, dz: 8 },
+      { type: 'box', w: 56, d: 21, h: 15, dx: 66, dz: 38 },
+      { type: 'frustum', wB: 43, dB: 43, wT: 32, dT: 32, h: 250 },
+      { type: 'frustum', wB: 32, dB: 32, wT: 30, dT: 30, h: 16.3, y0: 250, topDropX: 10 },
+      // Corner brace truss: dark strips + pale rungs, SE corner.
+      { type: 'box', w: 2.5, d: 1.2, h: 50, y0: 0, dx: 20.95, dz: 20.95, rotY: Math.PI / 4, flat: 0x2a3138 },
+      { type: 'box', w: 3.5, d: 0.6, h: 0.8, y0: 25, dx: 20.95, dz: 20.95, rotY: Math.PI / 4, flat: 0xc8ccd0 },
+      { type: 'box', w: 2.5, d: 1.2, h: 50, y0: 50, dx: 19.85, dz: 19.85, rotY: Math.PI / 4, flat: 0x2a3138 },
+      { type: 'box', w: 3.5, d: 0.6, h: 0.8, y0: 75, dx: 19.85, dz: 19.85, rotY: Math.PI / 4, flat: 0xc8ccd0 },
+      { type: 'box', w: 2.5, d: 1.2, h: 50, y0: 100, dx: 18.75, dz: 18.75, rotY: Math.PI / 4, flat: 0x2a3138 },
+      { type: 'box', w: 3.5, d: 0.6, h: 0.8, y0: 125, dx: 18.75, dz: 18.75, rotY: Math.PI / 4, flat: 0xc8ccd0 },
+      { type: 'box', w: 2.5, d: 1.2, h: 50, y0: 150, dx: 17.65, dz: 17.65, rotY: Math.PI / 4, flat: 0x2a3138 },
+      { type: 'box', w: 3.5, d: 0.6, h: 0.8, y0: 175, dx: 17.65, dz: 17.65, rotY: Math.PI / 4, flat: 0xc8ccd0 },
+      { type: 'box', w: 2.5, d: 1.2, h: 50, y0: 200, dx: 16.55, dz: 16.55, rotY: Math.PI / 4, flat: 0x2a3138 },
+      { type: 'box', w: 3.5, d: 0.6, h: 0.8, y0: 225, dx: 16.55, dz: 16.55, rotY: Math.PI / 4, flat: 0xc8ccd0 },
+      // Museum-block entrance canopy + colonnade (south face).
+      { type: 'box', w: 24, d: 3, h: 1, y0: 6, dx: 66, dz: 49.5, flat: 0x8f959c },
+      { type: 'cylinder', r: 0.5, h: 6, dx: 58, dz: 50.5, flat: 0x8f959c },
+      { type: 'cylinder', r: 0.5, h: 6, dx: 74, dz: 50.5, flat: 0x8f959c },
+      // Annex roof band, south edge.
+      { type: 'box', w: 47, d: 1, h: 1, y0: 11, dx: 51, dz: 15.5, flat: 0x8f959c },
+      // Thin fin on the slanted top's high (-x) edge.
+      { type: 'box', w: 2, d: 8, h: 4, y0: 262.3, dx: -13, flat: 0x8fa5b5 },
+    ],
+    farParts: [
       { type: 'box', w: 47, d: 16, h: 12, dx: 51, dz: 8 },
       { type: 'box', w: 56, d: 21, h: 15, dx: 66, dz: 38 },
       { type: 'frustum', wB: 43, dB: 43, wT: 32, dT: 32, h: 250 },
@@ -640,15 +715,39 @@ const LANDMARK_STRUCTURES = [
     id: 'cathay-landmark', name: 'Cathay Landmark', nameZh: '國泰置地廣場',
     lat: 25.040488, lon: 121.566845, realHeight: 212, color: 0x51606e,
     site: { w: 126, d: 82, dx: 0, dz: 0 },
-    // Issue #57: deep blue-grey curtain wall with pale fin frames on
-    // the two slabs; the mall podium takes a wider-bayed retail
-    // variant and the Breeze Xinyi wordmark its south front carries.
+    // Issue #283 (2026-10-30): the two slabs keep their combined
+    // massing but gain setback crown caps (the boxes shorten by the
+    // cap height, tops stay 212 / 194 — the batch-3 test's slab-top
+    // computation is updated with a written reason), and the curved
+    // podium gains an entrance arcade: cylinder columns + a thin
+    // canopy on its south front. No new boxes (the batch-3 test
+    // counts exactly 2 box slabs) — the caps ARE boxes, not
+    // frustums: the renderer centres every frustum/ridge on the
+    // landmark pin (js/taipei-buildings.js, createTaipeiLandmark-
+    // Towers), so a frustum cap would render over the pin instead
+    // of over its offset slab — and the #42 audit reads frustums
+    // pin-centred too, so the W cap as a frustum overlapped roads
+    // by 14 m². A box cap sits exactly over its slab.
     facade: { kind: 'curtain', glassTint: 0x20384e, frameTint: 0xa8b2ba, windowWidth: 2.4, floorHeight: 4.2, litProbability: 0.33, warmth: 0.55, reflectivity: 0.93, seed: 57.15 },
     sign: { text: 'Breeze', w: 44, h: 6, y: 14, dx: 4, dz: 39.9, bg: '#22262c', fg: '#ece5d3', accent: '#c8372d' },
     parts: [
       { type: 'cylinder', r: 58.5, rz: 38.5, h: 26, dx: 4, dz: 1, facade: { kind: 'curtain', glassTint: 0x2c3e50, frameTint: 0x7e8894, windowWidth: 4.6, floorHeight: 3.6, litProbability: 0.45, warmth: 0.6, reflectivity: 0.9, seed: 57.16 } },
-      { type: 'box', w: 32, d: 34, h: 186, y0: 26, dx: -11, dz: 6 },
-      { type: 'box', w: 22, d: 34, h: 168, y0: 26, dx: 16, dz: 6 },
+      // Podium entrance arcade: columns + canopy, south front.
+      { type: 'cylinder', r: 0.7, h: 8, dx: -14, dz: 39.5, flat: 0x7e8894 },
+      { type: 'cylinder', r: 0.7, h: 8, dx: 4, dz: 39.5, flat: 0x7e8894 },
+      { type: 'cylinder', r: 0.7, h: 8, dx: 22, dz: 39.5, flat: 0x7e8894 },
+      { type: 'box', w: 44, d: 4, h: 1, y0: 8, dx: 4, dz: 38, flat: 0x2c3e50 },
+      { type: 'box', w: 32, d: 34, h: 178, y0: 26, dx: -11, dz: 6 },
+      { type: 'box', w: 28, d: 30, h: 8, y0: 204, dx: -11, dz: 6 },
+      { type: 'box', w: 22, d: 34, h: 160, y0: 26, dx: 16, dz: 6 },
+      { type: 'box', w: 19, d: 30, h: 8, y0: 186, dx: 16, dz: 6 },
+    ],
+    farParts: [
+      { type: 'cylinder', r: 58.5, rz: 38.5, h: 26, dx: 4, dz: 1 },
+      { type: 'box', w: 32, d: 34, h: 178, y0: 26, dx: -11, dz: 6 },
+      { type: 'box', w: 28, d: 30, h: 8, y0: 204, dx: -11, dz: 6 },
+      { type: 'box', w: 22, d: 34, h: 160, y0: 26, dx: 16, dz: 6 },
+      { type: 'box', w: 19, d: 30, h: 8, y0: 186, dx: 16, dz: 6 },
     ],
   },
   {
@@ -662,8 +761,10 @@ const LANDMARK_STRUCTURES = [
     id: 'uni-president-international-tower', name: 'Uni-President International Tower', nameZh: '統一國際大樓',
     lat: 25.039709, lon: 121.565405, realHeight: 154, color: 0x9a958c,
     site: { w: 112, d: 62, dx: 0, dz: 0 },
-    // Issue #57: warm beige stone cladding; the pergola fins and
-    // beams stay plain stone trim (flat), as built.
+    // Issue #283 (2026-10-30): the pergola crown was already
+    // geometric; the rework adds the ground-floor arcade (columns +
+    // canopy on the podium's south front), vertical ribs on the slab,
+    // and 2 more pergola cross-beams (3 → 5, top stays 154).
     facade: { kind: 'prewar', stoneColor: 0xb3a78d, trimColor: 0x8d8271, windowGlassColor: 0x2a3542, windowWidth: 2.8, floorHeight: 4.8, litProbability: 0.3, warmth: 0.62, seed: 57.17 },
     parts: [
       // Main slab + a mid-height east strip: the bus-station drives
@@ -671,12 +772,33 @@ const LANDMARK_STRUCTURES = [
       // (issue #42 audit), so no single box fits the outline.
       { type: 'box', w: 92, d: 57, h: 30, dx: -7 },
       { type: 'box', w: 12, d: 30, h: 30, dx: 45, dz: -7 },
+      // Podium arcade: canopy + colonnade, south front.
+      { type: 'box', w: 50, d: 4, h: 1, y0: 8, dx: -7, dz: 30, flat: 0x8d8271 },
+      { type: 'cylinder', r: 0.6, h: 8, dx: -27, dz: 31, flat: 0x8d8271 },
+      { type: 'cylinder', r: 0.6, h: 8, dx: -14, dz: 31, flat: 0x8d8271 },
+      { type: 'cylinder', r: 0.6, h: 8, dx: -1, dz: 31, flat: 0x8d8271 },
+      { type: 'cylinder', r: 0.6, h: 8, dx: 12, dz: 31, flat: 0x8d8271 },
       { type: 'box', w: 60, d: 40, h: 114, y0: 30 },
+      // Slab ribs, south face.
+      { type: 'box', w: 1.5, d: 1, h: 114, y0: 30, dx: -24, dz: 20.5, flat: 0x8d8271 },
+      { type: 'box', w: 1.5, d: 1, h: 114, y0: 30, dx: -12, dz: 20.5, flat: 0x8d8271 },
+      { type: 'box', w: 1.5, d: 1, h: 114, y0: 30, dx: 0, dz: 20.5, flat: 0x8d8271 },
+      { type: 'box', w: 1.5, d: 1, h: 114, y0: 30, dx: 12, dz: 20.5, flat: 0x8d8271 },
+      { type: 'box', w: 1.5, d: 1, h: 114, y0: 30, dx: 24, dz: 20.5, flat: 0x8d8271 },
       { type: 'box', w: 2.5, d: 40, h: 10, y0: 144, dx: -28.75, flat: 0x9a8f7a },
       { type: 'box', w: 2.5, d: 40, h: 10, y0: 144, dx: 28.75, flat: 0x9a8f7a },
       { type: 'box', w: 60, d: 3, h: 2, y0: 152, dz: -14, flat: 0x9a8f7a },
+      { type: 'box', w: 60, d: 3, h: 2, y0: 152, dz: -7, flat: 0x9a8f7a },
       { type: 'box', w: 60, d: 3, h: 2, y0: 152, dz: 0, flat: 0x9a8f7a },
+      { type: 'box', w: 60, d: 3, h: 2, y0: 152, dz: 7, flat: 0x9a8f7a },
       { type: 'box', w: 60, d: 3, h: 2, y0: 152, dz: 14, flat: 0x9a8f7a },
+    ],
+    farParts: [
+      { type: 'box', w: 92, d: 57, h: 30, dx: -7 },
+      { type: 'box', w: 12, d: 30, h: 30, dx: 45, dz: -7 },
+      { type: 'box', w: 60, d: 40, h: 114, y0: 30 },
+      { type: 'box', w: 2.5, d: 40, h: 10, y0: 144, dx: -28.75 },
+      { type: 'box', w: 2.5, d: 40, h: 10, y0: 144, dx: 28.75 },
     ],
   },
   {
@@ -687,11 +809,21 @@ const LANDMARK_STRUCTURES = [
     id: 'tao-zhu-yin-yuan', name: 'Tao Zhu Yin Yuan', nameZh: '陶朱隱園',
     lat: 25.0386, lon: 121.5704, realHeight: 93.2, color: 0x8b978c,
     site: { w: 72, d: 56, dx: 0, dz: 0 },
-    // Issue #57: light warm residential stone; the floor height is
-    // the slab pitch itself (segH ≈ 4.17 m), so every twisted slab
-    // reads as one planted floor with its own window row.
+    // Issue #283 (2026-10-30): the twist is untouched (21 segments,
+    // 4.5° each — the batch-3 test's rotY assertions still hold);
+    // the rework adds a planted podium ring at the base and an
+    // entrance canopy + colonnade on the south face.
     facade: { kind: 'prewar', stoneColor: 0xa9b3a4, trimColor: 0x87917f, windowGlassColor: 0x223140, windowWidth: 3.0, floorHeight: 4.17, litProbability: 0.38, warmth: 0.75, seed: 57.18 },
-    parts: taoZhuParts(),
+    parts: [
+      ...taoZhuParts(),
+      // Planted podium ring (flat green ellipse the base sits in).
+      { type: 'cylinder', r: 30, rz: 26, h: 1.5, y0: 0, flat: 0x5a7a4a },
+      // Entrance canopy + colonnade, south face of the base.
+      { type: 'box', w: 16, d: 3, h: 1, y0: 5, dz: 22.5, flat: 0x87917f },
+      { type: 'cylinder', r: 0.5, h: 5, dx: -5, dz: 23.5, flat: 0x87917f },
+      { type: 'cylinder', r: 0.5, h: 5, dx: 5, dz: 23.5, flat: 0x87917f },
+    ],
+    farParts: taoZhuParts(),
   },
   {
     // 142.92 m, 34F, completed 1988 (Wikipedia / CTBUH) — Taiwan's
@@ -709,11 +841,37 @@ const LANDMARK_STRUCTURES = [
     id: 'twtc-international-trade-building', name: 'TWTC International Trade Building', nameZh: '台北世界貿易中心國際貿易大樓',
     lat: 25.034444, lon: 121.561334, realHeight: 142.92, color: 0x7a5c50,
     site: { w: 68, d: 70, dx: -12.5, dz: 2.4 },
-    // Issue #57: the brown-stone grid the real slab is wrapped in.
+    // Issue #283 (2026-10-30): the slab's brown-stone grid is now
+    // geometry — vertical ribs on the west + east faces; the single
+    // top box becomes a 2-tier top band (top stays 142.92); the
+    // Keelung Rd (west) face gains an entrance canopy + colonnade.
     facade: { kind: 'prewar', stoneColor: 0x8a6a58, trimColor: 0x6e5546, windowGlassColor: 0x1f2c3c, windowWidth: 2.6, floorHeight: 4.1, litProbability: 0.3, warmth: 0.6, seed: 57.19 },
     parts: [
       { type: 'box', w: 36, d: 60, h: 137.92 },
-      { type: 'box', w: 33, d: 60, h: 5, y0: 137.92 },
+      // Vertical stone ribs, west + east faces.
+      { type: 'box', w: 1, d: 1.5, h: 137.92, dx: -18.5, dz: -25, flat: 0x6e5546 },
+      { type: 'box', w: 1, d: 1.5, h: 137.92, dx: -18.5, dz: -15, flat: 0x6e5546 },
+      { type: 'box', w: 1, d: 1.5, h: 137.92, dx: -18.5, dz: -5, flat: 0x6e5546 },
+      { type: 'box', w: 1, d: 1.5, h: 137.92, dx: -18.5, dz: 5, flat: 0x6e5546 },
+      { type: 'box', w: 1, d: 1.5, h: 137.92, dx: -18.5, dz: 15, flat: 0x6e5546 },
+      { type: 'box', w: 1, d: 1.5, h: 137.92, dx: -18.5, dz: 25, flat: 0x6e5546 },
+      { type: 'box', w: 1, d: 1.5, h: 137.92, dx: 18.5, dz: -18, flat: 0x6e5546 },
+      { type: 'box', w: 1, d: 1.5, h: 137.92, dx: 18.5, dz: -6, flat: 0x6e5546 },
+      { type: 'box', w: 1, d: 1.5, h: 137.92, dx: 18.5, dz: 6, flat: 0x6e5546 },
+      { type: 'box', w: 1, d: 1.5, h: 137.92, dx: 18.5, dz: 18, flat: 0x6e5546 },
+      // Entrance canopy + colonnade, west (Keelung Rd) face.
+      { type: 'box', w: 4, d: 24, h: 1, y0: 7, dx: -19.5, dz: 0, flat: 0x6e5546 },
+      { type: 'cylinder', r: 0.5, h: 7, dx: -21, dz: -8, flat: 0x6e5546 },
+      { type: 'cylinder', r: 0.5, h: 7, dx: -21, dz: 0, flat: 0x6e5546 },
+      { type: 'cylinder', r: 0.5, h: 7, dx: -21, dz: 8, flat: 0x6e5546 },
+      // 2-tier top band (top stays 142.92).
+      { type: 'box', w: 34, d: 60, h: 3, y0: 137.92 },
+      { type: 'box', w: 30, d: 60, h: 2, y0: 140.92 },
+    ],
+    farParts: [
+      { type: 'box', w: 36, d: 60, h: 137.92 },
+      { type: 'box', w: 34, d: 60, h: 3, y0: 137.92 },
+      { type: 'box', w: 30, d: 60, h: 2, y0: 140.92 },
     ],
   },
   {
@@ -730,11 +888,29 @@ const LANDMARK_STRUCTURES = [
     id: 'taipei-city-hall', name: 'Taipei City Hall', nameZh: '臺北市市政大樓',
     lat: 25.0375, lon: 121.56444, realHeight: 54.42, color: 0x8a7f72,
     site: { w: 152, d: 228, dx: 0, dz: 0 },
-    // Issue #57: formal municipal rhythm — grey stone, tall floors,
-    // wide bays, few lit windows.
+    // Issue #283 (2026-10-30): the 雙十 plan is untouched; the
+    // west (plaza) face of the centre bar gains an entrance portico
+    // (columns + canopy), and each bar gains a roof cornice band on
+    // its outer edge (top stays 54.42).
     facade: { kind: 'prewar', stoneColor: 0x9d968a, trimColor: 0x7d766b, windowGlassColor: 0x24303e, windowWidth: 3.0, floorHeight: 4.5, litProbability: 0.26, warmth: 0.6, seed: 57.20 },
     plaza: { w: 96, d: 34, dx: -193.5, dz: -22.5 },
     parts: [
+      { type: 'box', w: 36, d: 216, h: 54.42 },
+      { type: 'box', w: 140, d: 36, h: 54.42, dz: -52 },
+      { type: 'box', w: 140, d: 36, h: 54.42, dz: 52 },
+      // West entrance portico (plaza side), centre bar.
+      { type: 'box', w: 4, d: 30, h: 1, y0: 7, dx: -19.5, dz: 0, flat: 0x7d766b },
+      { type: 'cylinder', r: 0.6, h: 7, dx: -21, dz: -10, flat: 0x7d766b },
+      { type: 'cylinder', r: 0.6, h: 7, dx: -21, dz: -3, flat: 0x7d766b },
+      { type: 'cylinder', r: 0.6, h: 7, dx: -21, dz: 3, flat: 0x7d766b },
+      { type: 'cylinder', r: 0.6, h: 7, dx: -21, dz: 10, flat: 0x7d766b },
+      // Roof cornice bands, outer edges.
+      { type: 'box', w: 1, d: 216, h: 1.5, y0: 52.9, dx: -17.5, dz: 0, flat: 0x7d766b },
+      { type: 'box', w: 1, d: 216, h: 1.5, y0: 52.9, dx: 17.5, dz: 0, flat: 0x7d766b },
+      { type: 'box', w: 140, d: 1, h: 1.5, y0: 52.9, dz: -69.5, flat: 0x7d766b },
+      { type: 'box', w: 140, d: 1, h: 1.5, y0: 52.9, dz: 69.5, flat: 0x7d766b },
+    ],
+    farParts: [
       { type: 'box', w: 36, d: 216, h: 54.42 },
       { type: 'box', w: 140, d: 36, h: 54.42, dz: -52 },
       { type: 'box', w: 140, d: 36, h: 54.42, dz: 52 },
@@ -771,11 +947,36 @@ const LANDMARK_STRUCTURES = [
     id: 'four-seasons-hotel-taipei', name: 'Four Seasons Hotel Taipei (Yuanta)', nameZh: '元利四季酒店',
     lat: 25.0325, lon: 121.56472, realHeight: 180, color: 0x46586a,
     site: { w: 150, d: 78, dx: -13.2, dz: 12.4 },
-    // Blue-grey curtain glass with the design's bronze accent tone
-    // in the frame colour (the twin bronze light strips carried
-    // over from the developer's One Park Taipei).
+    // Issue #283 (2026-10-30): the RSHP design's bronze exoskeleton
+    // reads on the podium (vertical strips + horizontal band) and as
+    // louvre fins on the tower slab's east/west faces; the stepped
+    // louvre crown gains 2 thin vertical glass fins on its top step.
     facade: { kind: 'curtain', glassTint: 0x3d4f5e, frameTint: 0xa8875a, windowWidth: 2.4, floorHeight: 5.6, litProbability: 0.35, warmth: 0.62, reflectivity: 0.92, seed: 165.11 },
     parts: [
+      { type: 'box', w: 86, d: 54, h: 30, dx: -22, dz: 1.5 },
+      // Podium exoskeleton: vertical bronze strips + horizontal band, south face.
+      { type: 'box', w: 1, d: 1, h: 30, dx: -58, dz: 28.8, flat: 0xa8875a },
+      { type: 'box', w: 1, d: 1, h: 30, dx: -40, dz: 28.8, flat: 0xa8875a },
+      { type: 'box', w: 1, d: 1, h: 30, dx: -22, dz: 28.8, flat: 0xa8875a },
+      { type: 'box', w: 1, d: 1, h: 30, dx: -4, dz: 28.8, flat: 0xa8875a },
+      { type: 'box', w: 1, d: 1, h: 30, dx: 14, dz: 28.8, flat: 0xa8875a },
+      { type: 'box', w: 86, d: 1, h: 1.5, y0: 15, dx: -22, dz: 28.8, flat: 0xa8875a },
+      { type: 'box', w: 32, d: 54, h: 132, y0: 30 },
+      // Tower louvre fins, east + west faces.
+      { type: 'box', w: 1, d: 1.5, h: 132, y0: 30, dx: -16.3, dz: -13, flat: 0xa8875a },
+      { type: 'box', w: 1, d: 1.5, h: 132, y0: 30, dx: -16.3, dz: 0, flat: 0xa8875a },
+      { type: 'box', w: 1, d: 1.5, h: 132, y0: 30, dx: -16.3, dz: 13, flat: 0xa8875a },
+      { type: 'box', w: 1, d: 1.5, h: 132, y0: 30, dx: 16.3, dz: -13, flat: 0xa8875a },
+      { type: 'box', w: 1, d: 1.5, h: 132, y0: 30, dx: 16.3, dz: 0, flat: 0xa8875a },
+      { type: 'box', w: 1, d: 1.5, h: 132, y0: 30, dx: 16.3, dz: 13, flat: 0xa8875a },
+      { type: 'box', w: 30, d: 50, h: 6, y0: 162, dx: -1.5, dz: -1.5 },
+      { type: 'box', w: 27, d: 46, h: 6, y0: 168, dx: -3, dz: -3 },
+      { type: 'box', w: 24, d: 42, h: 6, y0: 174, dx: -4.5, dz: -4.5 },
+      // Thin vertical glass fins on the top crown step.
+      { type: 'box', w: 1, d: 30, h: 4, y0: 176, dx: -14, dz: -4.5, flat: 0x3d4f5e },
+      { type: 'box', w: 1, d: 30, h: 4, y0: 176, dx: 5, dz: -4.5, flat: 0x3d4f5e },
+    ],
+    farParts: [
       { type: 'box', w: 86, d: 54, h: 30, dx: -22, dz: 1.5 },
       { type: 'box', w: 32, d: 54, h: 132, y0: 30 },
       { type: 'box', w: 30, d: 50, h: 6, y0: 162, dx: -1.5, dz: -1.5 },
@@ -800,13 +1001,35 @@ const LANDMARK_STRUCTURES = [
     id: 'farglory-financial-center', name: 'Farglory Financial Center', nameZh: '遠雄金融中心',
     lat: 25.039606, lon: 121.564201, realHeight: 208.3, color: 0xc98a6d,
     site: { w: 52, d: 46, dx: 0, dz: 0 },
-    // Salmon-pink stone (OSM building:colour #e9967a) on the
-    // prewar stone-grid factory.
+    // Issue #283 (2026-10-30): the crown is rebuilt as a stepped
+    // temple cap (two tapering frustums + finial, top stays 208.3);
+    // the stone shaft gains vertical ribs on its south + east faces
+    // and an entrance canopy on the south (Songgao Rd) face.
     facade: { kind: 'prewar', stoneColor: 0xd8a583, trimColor: 0xa87a5c, windowGlassColor: 0x2a3a4a, windowWidth: 2.6, floorHeight: 5.8, litProbability: 0.3, warmth: 0.6, seed: 165.21 },
     parts: [
       { type: 'box', w: 45, d: 39, h: 190 },
-      { type: 'frustum', wB: 45, dB: 39, wT: 30, dT: 26, h: 14, y0: 190 },
-      { type: 'box', w: 10, d: 10, h: 4.3, y0: 204 },
+      // Shaft ribs, south + east faces.
+      { type: 'box', w: 1.5, d: 1, h: 190, dx: -15, dz: 19.8, flat: 0xa87a5c },
+      { type: 'box', w: 1.5, d: 1, h: 190, dx: -5, dz: 19.8, flat: 0xa87a5c },
+      { type: 'box', w: 1.5, d: 1, h: 190, dx: 5, dz: 19.8, flat: 0xa87a5c },
+      { type: 'box', w: 1.5, d: 1, h: 190, dx: 15, dz: 19.8, flat: 0xa87a5c },
+      { type: 'box', w: 1, d: 1.5, h: 190, dx: 22.8, dz: -10, flat: 0xa87a5c },
+      { type: 'box', w: 1, d: 1.5, h: 190, dx: 22.8, dz: 0, flat: 0xa87a5c },
+      { type: 'box', w: 1, d: 1.5, h: 190, dx: 22.8, dz: 10, flat: 0xa87a5c },
+      // Entrance canopy + colonnade, south face.
+      { type: 'box', w: 20, d: 4, h: 1, y0: 7, dz: 21, flat: 0xa87a5c },
+      { type: 'cylinder', r: 0.5, h: 7, dx: -6, dz: 22.5, flat: 0xa87a5c },
+      { type: 'cylinder', r: 0.5, h: 7, dx: 6, dz: 22.5, flat: 0xa87a5c },
+      // Stepped temple crown: two tapering frustums + finial.
+      { type: 'frustum', wB: 45, dB: 39, wT: 34, dT: 30, h: 8, y0: 190 },
+      { type: 'frustum', wB: 34, dB: 30, wT: 24, dT: 22, h: 6, y0: 198 },
+      { type: 'box', w: 8, d: 8, h: 4.3, y0: 204 },
+    ],
+    farParts: [
+      { type: 'box', w: 45, d: 39, h: 190 },
+      { type: 'frustum', wB: 45, dB: 39, wT: 34, dT: 30, h: 8, y0: 190 },
+      { type: 'frustum', wB: 34, dB: 30, wT: 24, dT: 22, h: 6, y0: 198 },
+      { type: 'box', w: 8, d: 8, h: 4.3, y0: 204 },
     ],
   },
   {
@@ -1036,9 +1259,39 @@ const LANDMARK_STRUCTURES = [
     lat: 25.036641, lon: 121.566674, realHeight: 49.5, estimated: true, color: 0xc2b8a4,
     site: { w: 41, d: 149, dx: 0, dz: 0 },
     facade: { kind: 'prewar', stoneColor: 0xcac0ae, trimColor: 0x9d9480, windowGlassColor: 0x2c3e50, windowWidth: 3.4, floorHeight: 5.5, litProbability: 0.45, warmth: 0.6, seed: 165.33 },
+    // Issue #283 (2026-10-30): the long N-S stone slab shortens by
+    // the parapet height (top stays 49.5); the rework adds a
+    // ground-floor arcade (canopy + colonnade) on the long east
+    // (plaza) face, pilaster strips on both long faces (the west
+    // strips stay 1.1 m east of the service-drive roadbed edge at
+    // tile x 152.2 — the #42 trim convention above), roof parapets
+    // and a roof terrace box.
     parts: [
-      { type: 'box', w: 34, d: 145, h: 48, dx: 2.5 },
-      { type: 'box', w: 35, d: 147, h: 1.5, y0: 48, dx: 2 },
+      { type: 'box', w: 34, d: 145, h: 46.5, dx: 2.5 },
+      // Ground-floor arcade: canopy + colonnade, east face.
+      { type: 'box', w: 3, d: 40, h: 1, y0: 6, dx: 20.5, dz: 0, flat: 0x9d9480 },
+      { type: 'cylinder', r: 0.5, h: 6, dx: 21.5, dz: -15, flat: 0x9d9480 },
+      { type: 'cylinder', r: 0.5, h: 6, dx: 21.5, dz: -5, flat: 0x9d9480 },
+      { type: 'cylinder', r: 0.5, h: 6, dx: 21.5, dz: 5, flat: 0x9d9480 },
+      { type: 'cylinder', r: 0.5, h: 6, dx: 21.5, dz: 15, flat: 0x9d9480 },
+      // Pilaster strips, both long faces.
+      { type: 'box', w: 1, d: 1.5, h: 46.5, dx: 20, dz: -48, flat: 0xe0d9c6 },
+      { type: 'box', w: 1, d: 1.5, h: 46.5, dx: 20, dz: -24, flat: 0xe0d9c6 },
+      { type: 'box', w: 1, d: 1.5, h: 46.5, dx: 20, dz: 0, flat: 0xe0d9c6 },
+      { type: 'box', w: 1, d: 1.5, h: 46.5, dx: 20, dz: 24, flat: 0xe0d9c6 },
+      { type: 'box', w: 1, d: 1.5, h: 46.5, dx: 20, dz: 48, flat: 0xe0d9c6 },
+      { type: 'box', w: 1, d: 1.5, h: 46.5, dx: -15, dz: -48, flat: 0xe0d9c6 },
+      { type: 'box', w: 1, d: 1.5, h: 46.5, dx: -15, dz: -24, flat: 0xe0d9c6 },
+      { type: 'box', w: 1, d: 1.5, h: 46.5, dx: -15, dz: 0, flat: 0xe0d9c6 },
+      { type: 'box', w: 1, d: 1.5, h: 46.5, dx: -15, dz: 24, flat: 0xe0d9c6 },
+      { type: 'box', w: 1, d: 1.5, h: 46.5, dx: -15, dz: 48, flat: 0xe0d9c6 },
+      // Roof parapets (east + west edges) + roof terrace box.
+      { type: 'box', w: 1, d: 145, h: 1.5, y0: 46.5, dx: 19, dz: 0, flat: 0x59595b },
+      { type: 'box', w: 1, d: 145, h: 1.5, y0: 46.5, dx: -14, dz: 0, flat: 0x59595b },
+      { type: 'box', w: 16, d: 30, h: 1.5, y0: 48, dx: 2.5, dz: 0, flat: 0x59595b },
+    ],
+    farParts: [
+      { type: 'box', w: 34, d: 145, h: 46.5, dx: 2.5 },
     ],
   },
   {
@@ -1058,9 +1311,43 @@ const LANDMARK_STRUCTURES = [
     lat: 25.036641, lon: 121.567255, realHeight: 33, estimated: true, color: 0xcfc5ab,
     site: { w: 54, d: 150, dx: 0, dz: 0 },
     facade: { kind: 'prewar', stoneColor: 0xd8cdb4, trimColor: 0xa79b7f, windowGlassColor: 0x2c3e50, windowWidth: 3.4, floorHeight: 5.5, litProbability: 0.45, warmth: 0.6, seed: 165.34 },
+    // Issue #283 (2026-10-30): the long N-S stone slab shortens by
+    // the parapet height (top stays 33); the rework adds a
+    // ground-floor arcade (canopy + colonnade) on the long west
+    // (plaza) face with a wider centre entrance portico, pilaster
+    // strips on both long faces, roof parapets and a roof terrace
+    // box. The east pilasters stay 2.1 m west of the skybridge-drive
+    // roadbed edge at tile x 248.8 (the #42 trim convention above).
     parts: [
-      { type: 'box', w: 44, d: 146, h: 31.5, dx: -3 },
-      { type: 'box', w: 46, d: 148, h: 1.5, y0: 31.5, dx: -3 },
+      { type: 'box', w: 44, d: 146, h: 30, dx: -3 },
+      // Ground-floor arcade: canopy + colonnade, west face.
+      { type: 'box', w: 3, d: 44, h: 1, y0: 6, dx: -26, dz: 0, flat: 0xa79b7f },
+      { type: 'cylinder', r: 0.5, h: 6, dx: -27, dz: -16, flat: 0xa79b7f },
+      { type: 'cylinder', r: 0.5, h: 6, dx: -27, dz: -5, flat: 0xa79b7f },
+      { type: 'cylinder', r: 0.5, h: 6, dx: -27, dz: 5, flat: 0xa79b7f },
+      { type: 'cylinder', r: 0.5, h: 6, dx: -27, dz: 16, flat: 0xa79b7f },
+      // Wider centre entrance portico.
+      { type: 'box', w: 6, d: 16, h: 1, y0: 7.5, dx: -27.5, dz: 0, flat: 0xa79b7f },
+      { type: 'cylinder', r: 0.5, h: 7.5, dx: -29.5, dz: -6, flat: 0xa79b7f },
+      { type: 'cylinder', r: 0.5, h: 7.5, dx: -29.5, dz: 6, flat: 0xa79b7f },
+      // Pilaster strips, both long faces.
+      { type: 'box', w: 1, d: 1.5, h: 30, dx: -25.5, dz: -48, flat: 0xe8dfc8 },
+      { type: 'box', w: 1, d: 1.5, h: 30, dx: -25.5, dz: -24, flat: 0xe8dfc8 },
+      { type: 'box', w: 1, d: 1.5, h: 30, dx: -25.5, dz: 0, flat: 0xe8dfc8 },
+      { type: 'box', w: 1, d: 1.5, h: 30, dx: -25.5, dz: 24, flat: 0xe8dfc8 },
+      { type: 'box', w: 1, d: 1.5, h: 30, dx: -25.5, dz: 48, flat: 0xe8dfc8 },
+      { type: 'box', w: 1, d: 1.5, h: 30, dx: 19.5, dz: -48, flat: 0xe8dfc8 },
+      { type: 'box', w: 1, d: 1.5, h: 30, dx: 19.5, dz: -24, flat: 0xe8dfc8 },
+      { type: 'box', w: 1, d: 1.5, h: 30, dx: 19.5, dz: 0, flat: 0xe8dfc8 },
+      { type: 'box', w: 1, d: 1.5, h: 30, dx: 19.5, dz: 24, flat: 0xe8dfc8 },
+      { type: 'box', w: 1, d: 1.5, h: 30, dx: 19.5, dz: 48, flat: 0xe8dfc8 },
+      // Roof parapets (east + west edges) + roof terrace box.
+      { type: 'box', w: 1, d: 146, h: 1.5, y0: 30, dx: 18.5, dz: 0, flat: 0x59595b },
+      { type: 'box', w: 1, d: 146, h: 1.5, y0: 30, dx: -24.5, dz: 0, flat: 0x59595b },
+      { type: 'box', w: 20, d: 30, h: 1.5, y0: 31.5, dx: -3, dz: 0, flat: 0x59595b },
+    ],
+    farParts: [
+      { type: 'box', w: 44, d: 146, h: 30, dx: -3 },
     ],
   },
   {
@@ -1367,24 +1654,32 @@ const LANDMARK_STRUCTURES = [
     id: 'taipei-dome', name: 'Taipei Dome', nameZh: '臺北大巨蛋',
     lat: 25.042306, lon: 121.560083, realHeight: 64, color: 0xcfc9bb,
     site: { w: 270, d: 200, dx: 0, dz: 0 },
-    // Issue #57: the drum is panelled metal, not glass — the
-    // curtain factory tuned to near-zero lit windows, wide panels
-    // and matched glass/frame tones reads as panel bands; the cap
-    // is a flat silvery shell (see the part note). The entrance
-    // gets an abstract glyph band (project stylization) — on the
-    // NORTH rim since issue #98: Gate 1, the main entrance,
-    // fronts Zhongxiao East Road (zh-Wikipedia captions its
-    // Gate 1 photo 台北大巨蛋正門， the dome's main gate); the
-    // band previously sat on the south rim, facing the park.
+    // Issue #283 (2026-10-30): the aerial photo
+    // (xinyi283-evidence/refs/ref-dome.webp) shows the drum's 2 pale
+    // panel bands over a dark glass base strip — now flush cylinders
+    // (same radii, no footprint change) — plus a Gate 1 canopy under
+    // the glyph band on the north rim.
     facade: { kind: 'curtain', glassTint: 0xb7b1a1, frameTint: 0xa39c8c, windowWidth: 7.6, floorHeight: 5.5, litProbability: 0.05, warmth: 0.5, reflectivity: 0.5, seed: 57.21 },
     sign: { glyphs: 7, w: 40, h: 4.5, y: 11, dx: 0, dz: -95.4, rotY: Math.PI, bg: '#3a3f45', fg: '#ddd6c2' },
     parts: [
       { type: 'cylinder', r: 125, rz: 95, h: 22 },
+      // Dark glass base strip (h 3) + 2 pale panel bands, flush.
+      { type: 'cylinder', r: 125, rz: 95, h: 3, y0: 0, flat: 0x2c3540 },
+      { type: 'cylinder', r: 125, rz: 95, h: 1.5, y0: 8, flat: 0xd8d2c2 },
+      { type: 'cylinder', r: 125, rz: 95, h: 1.5, y0: 16, flat: 0xd8d2c2 },
+      // Gate 1 canopy + colonnade, north rim (under the glyph band).
+      { type: 'box', w: 30, d: 4, h: 1, y0: 6.5, dz: -96, flat: 0x3a3f45 },
+      { type: 'cylinder', r: 0.6, h: 6.5, dx: -10, dz: -97, flat: 0x3a3f45 },
+      { type: 'cylinder', r: 0.6, h: 6.5, dx: 10, dz: -97, flat: 0x3a3f45 },
       // The cap is a smooth titanium shell: the curtain factory's
       // hardcoded dark gravel-roof branch would take over its
       // up-facing normals, so the cap wears a flat silvery metal
       // tone instead (the drum keeps the panel grid).
       { type: 'dome', rx: 125, rz: 95, h: 42, y0: 22, flat: { color: 0xcac5b6, roughness: 0.42, metalness: 0.35 } },
+    ],
+    farParts: [
+      { type: 'cylinder', r: 125, rz: 95, h: 22 },
+      { type: 'dome', rx: 125, rz: 95, h: 42, y0: 22 },
     ],
   },
   {
@@ -1441,15 +1736,46 @@ const LANDMARK_STRUCTURES = [
     id: 'w-taipei', name: 'W Taipei', nameZh: '台北W飯店',
     lat: 25.0405433, lon: 121.5647998, realHeight: 151, color: 0x8fa8b8,
     site: { w: 168, d: 104, dx: 26, dz: -4 },
-    // Issue #57: dark hotel grid glass, and the white W mark the
-    // real tower carries on its south face.
+    // Issue #283 (2026-10-30): the night photo
+    // (xinyi283-evidence/refs/ref-w.png) shows the tower's signature
+    // — a red-lit vertical fin strip up the south face by the W mark
+    // — under a setback crown cap, over a projecting entrance canopy.
+    // The tower box shortens by the cap height (top stays 151); the
+    // batch-3 test's tower-top assertion is updated with a written
+    // reason.
     facade: { kind: 'curtain', glassTint: 0x18222c, frameTint: 0x8b95a1, windowWidth: 2.8, floorHeight: 4.2, litProbability: 0.36, warmth: 0.6, reflectivity: 0.92, seed: 57.23 },
     sign: { text: 'W', w: 12, h: 12, y: 130, dx: 73, dz: 14.4, bg: '#10151b', fg: '#f2f2f2' },
     parts: [
       { type: 'box', w: 128, d: 14, h: 17, dx: 14, dz: 36.2 },
       { type: 'box', w: 96, d: 13, h: 17, dx: 34, dz: -34.3 },
       { type: 'box', w: 58, d: 58, h: 17, dx: 73, dz: -8 },
-      { type: 'box', w: 52, d: 40, h: 134, y0: 17, dx: 73, dz: -6 },
+      { type: 'box', w: 52, d: 40, h: 126, y0: 17, dx: 73, dz: -6 },
+      // Setback crown cap (top stays 151). A box, not a frustum:
+      // the renderer centres frustums on the landmark pin, so a
+      // frustum cap would render over the pin instead of the tower
+      // — and the #42 audit reads frustums pin-centred, so it
+      // overlapped roads by 14 m².
+      { type: 'box', w: 46, d: 34, h: 8, y0: 143, dx: 73, dz: -6 },
+      // Red vertical fin strip on the tower's south face, by the W sign.
+      { type: 'box', w: 2, d: 1, h: 120, y0: 20, dx: 60, dz: 14.5, flat: 0xc8372d },
+      // Tower fins, east + west faces.
+      { type: 'box', w: 1, d: 1.5, h: 126, y0: 17, dx: 46.7, dz: -16, flat: 0x8b95a1 },
+      { type: 'box', w: 1, d: 1.5, h: 126, y0: 17, dx: 46.7, dz: 0, flat: 0x8b95a1 },
+      { type: 'box', w: 1, d: 1.5, h: 126, y0: 17, dx: 46.7, dz: 8, flat: 0x8b95a1 },
+      { type: 'box', w: 1, d: 1.5, h: 126, y0: 17, dx: 99.3, dz: -16, flat: 0x8b95a1 },
+      { type: 'box', w: 1, d: 1.5, h: 126, y0: 17, dx: 99.3, dz: 0, flat: 0x8b95a1 },
+      { type: 'box', w: 1, d: 1.5, h: 126, y0: 17, dx: 99.3, dz: 8, flat: 0x8b95a1 },
+      // Entrance canopy + colonnade on the east podium block.
+      { type: 'box', w: 24, d: 4, h: 1, y0: 6, dx: 73, dz: 21, flat: 0x10151b },
+      { type: 'cylinder', r: 0.5, h: 6, dx: 65, dz: 22.5, flat: 0x8b95a1 },
+      { type: 'cylinder', r: 0.5, h: 6, dx: 81, dz: 22.5, flat: 0x8b95a1 },
+    ],
+    farParts: [
+      { type: 'box', w: 128, d: 14, h: 17, dx: 14, dz: 36.2 },
+      { type: 'box', w: 96, d: 13, h: 17, dx: 34, dz: -34.3 },
+      { type: 'box', w: 58, d: 58, h: 17, dx: 73, dz: -8 },
+      { type: 'box', w: 52, d: 40, h: 126, y0: 17, dx: 73, dz: -6 },
+      { type: 'box', w: 46, d: 34, h: 8, y0: 143, dx: 73, dz: -6 },
     ],
   },
   {
@@ -1470,19 +1796,42 @@ const LANDMARK_STRUCTURES = [
     id: 'songshan-cultural-park', name: 'Songshan Cultural and Creative Park', nameZh: '松山文創園區',
     lat: 25.0436127, lon: 121.5602251, realHeight: 30, color: 0x8a6a54,
     site: { w: 244, d: 140, dx: 33, dz: 18 },
-    // Issue #57: brick-red masonry for the factory hall and boiler
-    // room; the roof ridge and chimney stay flat brick/tile tones.
-    // An abstract glyph band marks the hall entrance — on the
-    // WEST face since issue #98 (zh-Wikipedia's park article: the
-    // factory's 入口在西側， its entrance is on the west side,
-    // where the office wing stands); it previously sat south.
+    // Issue #283 (2026-10-30): the factory hall gains a west
+    // entrance portico (columns + canopy, under the glyph band) and
+    // pilasters on its west + south faces; the chimney gains a cap
+    // ring (top stays 30) and the boiler room a cap (top 10).
     facade: { kind: 'prewar', stoneColor: 0x9a6a52, trimColor: 0x7c5540, windowGlassColor: 0x232f3a, windowWidth: 3.2, floorHeight: 5.0, litProbability: 0.28, warmth: 0.72, seed: 57.24 },
     sign: { glyphs: 6, w: 38, h: 3.4, y: 7.2, dx: -82.9, dz: 0, rotY: -Math.PI / 2, bg: '#4a3226', fg: '#e6d9c3' },
     parts: [
       { type: 'box', w: 165, d: 93, h: 10 },
       { type: 'ridge', w: 165, d: 93, h: 0, ridgeH: 4, y0: 10, flat: 0x6e4a38 },
+      // West entrance portico (under the glyph band) + hall pilasters.
+      { type: 'box', w: 4, d: 30, h: 1, y0: 4, dx: -84, dz: 0, flat: 0x7c5540 },
+      { type: 'cylinder', r: 0.5, h: 4, dx: -85.5, dz: -10, flat: 0x7c5540 },
+      { type: 'cylinder', r: 0.5, h: 4, dx: -85.5, dz: -3, flat: 0x7c5540 },
+      { type: 'cylinder', r: 0.5, h: 4, dx: -85.5, dz: 3, flat: 0x7c5540 },
+      { type: 'cylinder', r: 0.5, h: 4, dx: -85.5, dz: 10, flat: 0x7c5540 },
+      { type: 'box', w: 1, d: 1.5, h: 10, dx: -83, dz: -30, flat: 0xb08a6e },
+      { type: 'box', w: 1, d: 1.5, h: 10, dx: -83, dz: -10, flat: 0xb08a6e },
+      { type: 'box', w: 1, d: 1.5, h: 10, dx: -83, dz: 10, flat: 0xb08a6e },
+      { type: 'box', w: 1, d: 1.5, h: 10, dx: -83, dz: 30, flat: 0xb08a6e },
+      { type: 'box', w: 1.5, d: 1, h: 10, dx: -60, dz: 47, flat: 0xb08a6e },
+      { type: 'box', w: 1.5, d: 1, h: 10, dx: -20, dz: 47, flat: 0xb08a6e },
+      { type: 'box', w: 1.5, d: 1, h: 10, dx: 20, dz: 47, flat: 0xb08a6e },
+      { type: 'box', w: 1.5, d: 1, h: 10, dx: 60, dz: 47, flat: 0xb08a6e },
       { type: 'box', w: 17, d: 25, h: 8, dx: 140.4, dz: 69.3 },
+      // Boiler-room cap (top 10). A box, not a ridge: the renderer
+      // centres ridges on the landmark pin, so a ridge would render
+      // over the hall instead of the offset boiler room.
+      { type: 'box', w: 17, d: 25, h: 2, y0: 8, dx: 140.4, dz: 69.3, flat: 0x6e4a38 },
       { type: 'cylinder', r: 3.2, h: 30, dx: 140.4, dz: 61.6, flat: 0x8a5a44 },
+      // Chimney cap ring (top stays 30).
+      { type: 'cylinder', r: 3.8, h: 1, y0: 29, dx: 140.4, dz: 61.6, flat: 0x7c5540 },
+    ],
+    farParts: [
+      { type: 'box', w: 165, d: 93, h: 10 },
+      { type: 'box', w: 17, d: 25, h: 8, dx: 140.4, dz: 69.3 },
+      { type: 'cylinder', r: 3.2, h: 30, dx: 140.4, dz: 61.6 },
     ],
   },
   {
@@ -1502,15 +1851,41 @@ const LANDMARK_STRUCTURES = [
     id: 'eslite-spectrum-songyan', name: 'Eslite Spectrum Songyan', nameZh: '誠品生活松菸',
     lat: 25.0445705, lon: 121.5613061, realHeight: 63, estimated: true, color: 0xb0aca2,
     site: { w: 156, d: 68, dx: -8, dz: 4 },
-    // Issue #57: pale stone with wide ribbon windows (windowRatioX
-    // 0.78), and the eslite wordmark band over the mall entrance —
-    // the real building carries the lowercase Latin mark on deep
-    // green.
+    // Issue #283 (2026-10-30): the design reference
+    // (xinyi283-evidence/refs/ref-eslite.jpg) shows a pale stone fin
+    // grid over ribbon windows with a terraced roofline stepping
+    // down. The west block becomes 3 terrace steps (34/24/14,
+    // stepping down west); the main slab's south face gains a fin
+    // grid (fins clear of the eslite wordmark band) + 2 horizontal
+    // bands, and an entrance canopy under the sign.
     facade: { kind: 'prewar', stoneColor: 0xcac2b2, trimColor: 0xa39a88, windowGlassColor: 0x26313e, windowWidth: 2.6, floorHeight: 4.5, windowRatioX: 0.78, windowRatioY: 0.62, litProbability: 0.34, warmth: 0.62, seed: 57.25 },
     sign: { text: 'eslite', w: 40, h: 4.6, y: 10, dx: 2, dz: 30.4, bg: '#173f35', fg: '#f0ead8' },
     parts: [
       { type: 'box', w: 120, d: 46, h: 63, dx: 2, dz: 7 },
-      { type: 'box', w: 52, d: 40, h: 34, dx: -52, dz: -2 },
+      // Fin grid, south face (clear of the wordmark band, dx -18..22).
+      { type: 'box', w: 1, d: 1, h: 63, dx: -45, dz: 30.5, flat: 0xd8d2c4 },
+      { type: 'box', w: 1, d: 1, h: 63, dx: -33, dz: 30.5, flat: 0xd8d2c4 },
+      { type: 'box', w: 1, d: 1, h: 63, dx: -21, dz: 30.5, flat: 0xd8d2c4 },
+      { type: 'box', w: 1, d: 1, h: 63, dx: 27, dz: 30.5, flat: 0xd8d2c4 },
+      { type: 'box', w: 1, d: 1, h: 63, dx: 39, dz: 30.5, flat: 0xd8d2c4 },
+      { type: 'box', w: 1, d: 1, h: 63, dx: 51, dz: 30.5, flat: 0xd8d2c4 },
+      { type: 'box', w: 120, d: 1, h: 1.5, y0: 20, dx: 2, dz: 30.5, flat: 0xd8d2c4 },
+      { type: 'box', w: 120, d: 1, h: 1.5, y0: 40, dx: 2, dz: 30.5, flat: 0xd8d2c4 },
+      // Entrance canopy + colonnade under the eslite sign.
+      { type: 'box', w: 44, d: 3, h: 1, y0: 6, dx: 2, dz: 31.5, flat: 0xa39a88 },
+      { type: 'cylinder', r: 0.5, h: 6, dx: -14, dz: 32.5, flat: 0xa39a88 },
+      { type: 'cylinder', r: 0.5, h: 6, dx: 2, dz: 32.5, flat: 0xa39a88 },
+      { type: 'cylinder', r: 0.5, h: 6, dx: 18, dz: 32.5, flat: 0xa39a88 },
+      // West block as 3 terrace steps, stepping down west (top 34).
+      { type: 'box', w: 26, d: 40, h: 34, dx: -39, dz: -2 },
+      { type: 'box', w: 16, d: 40, h: 24, dx: -60, dz: -2 },
+      { type: 'box', w: 10, d: 40, h: 14, dx: -73, dz: -2 },
+    ],
+    farParts: [
+      { type: 'box', w: 120, d: 46, h: 63, dx: 2, dz: 7 },
+      { type: 'box', w: 26, d: 40, h: 34, dx: -39, dz: -2 },
+      { type: 'box', w: 16, d: 40, h: 24, dx: -60, dz: -2 },
+      { type: 'box', w: 10, d: 40, h: 14, dx: -73, dz: -2 },
     ],
   },
   {
