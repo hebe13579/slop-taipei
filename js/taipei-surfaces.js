@@ -326,9 +326,13 @@ export function buildMedianStrips(roadbeds, capPolys = null, { minorCrossBreaks 
 // Plaza paving + podium blocks (renderer splits, no data changes).
 
 // A park polygon whose name carries 廣場 is a paved civic square in
-// reality （市民廣場/松壽廣場/世貿廣場…), not a lawn — it renders in
-// the plaza paving tone. Real parks (no 廣場 in the name) stay green.
-export const isPlazaPark = (park) => (park?.name || '').includes('廣場');
+// reality （市民廣場/世貿廣場…), not a lawn — it renders in the plaza
+// paving tone. Real parks (no 廣場 in the name) stay green.
+// Issue #289: 松壽廣場 is the exception — it is a lawn park with big
+// trees (松壽廣場公園, 松智路15號; the satellite shows dense canopy
+// across the whole polygon), not a paved square, so it renders as
+// lawn and takes park trees like any other park.
+export const isPlazaPark = (park) => (park?.name || '').includes('廣場') && park?.name !== '松壽廣場';
 
 // Blocks containing a landmark centre wear the podium paving tone.
 // The centres are the geodata landmark entries for Taipei 101 and

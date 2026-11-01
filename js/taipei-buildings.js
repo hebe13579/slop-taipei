@@ -1389,6 +1389,202 @@ const LANDMARK_STRUCTURES = [
     ],
   },
   {
+    // Issue #289: Nan Shan Xinyi A21 Green Ring Tower （南山A21綠環塔),
+    // on the former TWTC Hall 3 site — under construction (started
+    // 2024-04-18, completion expected 2028; 43 floors, office +
+    // dining), modelled COMPLETED, the Four Seasons (#135) precedent:
+    // the designed form is what the tile shows. 232.7 m (EN Wikipedia
+    // 232.6 m). Design (archasia render,
+    // xinyi289-evidence/ref-a21-render.webp): a cylindrical glass
+    // tower with a ring-shaped open-air platform band at ~62% height,
+    // a green disc roof, a flared podium base, and a small circular
+    // green-roofed annex at the south foot.
+    // OSM carries no building/construction way for the site (Hall 3
+    // demolished; the PBF has no parcel), so the plate is
+    // design-derived, stated honestly: the pin is the published
+    // coordinate (25.0356, 121.5647), tile (-30.3, -288.0); the site
+    // rect takes the whole block bounded by 松壽路 (N), 市府路 (W),
+    // 松智路 (E) and the 101 mall (S) — the satellite shows the
+    // excavated pit spanning roughly x -139..+47, z -322..-233.
+    // The tower mass is shifted 5 m south of the pin (dz 5 on every
+    // part): centred on the pin, the ring band's north edge (z -316)
+    // would cross the 松壽路 roadbed (south edge ≈ -314) — the
+    // overlap test audits parts, not pins, and the published
+    // coordinate carries ~11 m of precision, so the shift keeps the
+    // mass inside the plot and clear of the road.
+    id: 'nan-shan-xinyi-a21', name: 'Nan Shan Xinyi A21 Green Ring Tower', nameZh: '南山A21綠環塔',
+    lat: 25.0356, lon: 121.5647, realHeight: 232.7, color: 0x7fa8a0,
+    site: { w: 184, d: 88, dx: -20, dz: 16 },
+    // Issue #57: pale green-tinted curtain glass, light frame.
+    facade: { kind: 'curtain', glassTint: 0x5d8a80, frameTint: 0xa8b8b0, windowWidth: 2.6, floorHeight: 4.2, litProbability: 0.32, warmth: 0.5, reflectivity: 0.9, seed: 289.11 },
+    parts: [
+      // Flared podium base, elliptical in plan (the tower is a
+      // cylinder); its north edge (z -307) stays clear of the
+      // 松壽路 roadbed (south edge ≈ -314).
+      { type: 'cylinder', r: 27, rz: 24, h: 7, dz: 5 },
+      // Glass shaft, 225 m over the podium.
+      { type: 'cylinder', r: 26, h: 225, y0: 7, dz: 5 },
+      // Ring-shaped open-air platform band at ~62% height, planted
+      // green, stepping 2 m out from the shaft; north edge z -311,
+      // 3 m clear of the 松壽路 roadbed.
+      { type: 'cylinder', r: 28, h: 4, y0: 140, dz: 5, flat: { color: 0x4a7c59, roughness: 0.9, metalness: 0.0 } },
+      // Green disc roof: the published 232.7 m is the disc's top.
+      { type: 'cylinder', r: 26, h: 0.7, y0: 232, dz: 5, flat: { color: 0x4a7c59, roughness: 0.9, metalness: 0.0 } },
+      // Circular annex at the south foot, green roof.
+      { type: 'cylinder', r: 11, h: 5, dx: -10, dz: 47 },
+      { type: 'dome', rx: 11, rz: 11, h: 2, y0: 5, dx: -10, dz: 47, flat: { color: 0x4a7c59, roughness: 0.9, metalness: 0.0 } },
+    ],
+    farParts: [
+      { type: 'cylinder', r: 27, rz: 24, h: 7, dz: 5 },
+      { type: 'cylinder', r: 26, h: 225, y0: 7, dz: 5 },
+      { type: 'cylinder', r: 28, h: 4, y0: 140, dz: 5, flat: { color: 0x4a7c59, roughness: 0.9, metalness: 0.0 } },
+      { type: 'cylinder', r: 26, h: 0.7, y0: 232, dz: 5, flat: { color: 0x4a7c59, roughness: 0.9, metalness: 0.0 } },
+      { type: 'cylinder', r: 11, h: 5, dx: -10, dz: 47 },
+    ],
+  },
+  {
+    // Issue #289: Cathay Financial Center （國泰金融中心 / 國泰金融會議廳),
+    // 松仁路7號 — the hall itself is the 1F conference venue at
+    // 松仁路9號; the building modelled is the 26-storey, 105 m tower
+    // (completed 2002, architect Tokutoshi Torii). NOT Cathay Landmark
+    // 國泰置地廣場 (registry line 640) — a different building.
+    // Position/footprint from the OSM outline (way 309155290,
+    // 67.0 × 117.5 m, tile (420.4, -577.7)): a wide north block
+    // (x 387..454, z -636..-593) stepping narrower toward the south
+    // (west edge 387 → 391.5 → 392.6 → 395.4 → 398.3; south edge
+    // z ≈ -519). Satellite (xinyi289-evidence/crop-cathay.jpg): an
+    // octagonal dome (~24 m across, pale, circular skylight) at the
+    // north end of the roof, dark bronze-green glass mid-section, a
+    // green roof garden on the south podium; the entrance photo
+    // (ref-cathay.jpg) shows the dark glass tower + big curved
+    // entrance canopy + giant gold-coin sculptures at the 松仁路
+    // (west) entrance plaza — the canopy is modelled, the coins are
+    // sculpture, not massing.
+    id: 'cathay-financial-center', name: 'Cathay Financial Center', nameZh: '國泰金融中心',
+    lat: 25.038205, lon: 121.569169, realHeight: 105, color: 0x2e4a3a,
+    site: { w: 76, d: 122, dx: -2, dz: 0 },
+    // Issue #57: dark bronze-green curtain glass.
+    facade: { kind: 'curtain', glassTint: 0x2e4a3a, frameTint: 0x8a7a5a, windowWidth: 3.0, floorHeight: 3.8, litProbability: 0.3, warmth: 0.55, reflectivity: 0.88, seed: 289.12 },
+    parts: [
+      // Main tower slab on the north block (26F × ~3.8 m).
+      { type: 'box', w: 64, d: 42, h: 99, dz: -37 },
+      // Octagonal dome at the north end of the roof (the satellite's
+      // pale dome with a circular skylight); its top is the published
+      // 105 m.
+      { type: 'dome', rx: 12, rz: 12, h: 6, y0: 99, dz: -44, flat: { color: 0xd8d2c4, roughness: 0.6, metalness: 0.1 } },
+      // Stepped south podium: mid wing, then the narrower south wing.
+      { type: 'box', w: 50, d: 36, h: 12, dz: 2 },
+      { type: 'box', w: 44, d: 32, h: 8, dz: 34 },
+      // Green roof garden on the south podium.
+      { type: 'box', w: 44, d: 32, h: 0.5, y0: 8, dz: 34, flat: { color: 0x4a7c59, roughness: 0.9, metalness: 0.0 } },
+      // Curved entrance canopy, proud of the west (松仁路) face.
+      { type: 'box', w: 4, d: 20, h: 1, y0: 6, dx: -34, dz: -26, flat: { color: 0xd8d2c4, roughness: 0.6, metalness: 0.1 } },
+    ],
+    farParts: [
+      { type: 'box', w: 64, d: 42, h: 99, dz: -37 },
+      { type: 'dome', rx: 12, rz: 12, h: 6, y0: 99, dz: -44, flat: { color: 0xd8d2c4, roughness: 0.6, metalness: 0.1 } },
+      { type: 'box', w: 50, d: 36, h: 12, dz: 2 },
+      { type: 'box', w: 44, d: 32, h: 8, dz: 34 },
+    ],
+  },
+  {
+    // Issue #289: Walsin Lihwa Building （華新麗華大廈), 松智路1號,
+    // A6 plot — 134.6 m, 27 floors, completed 2009 (Wikipedia; one
+    // EIA filing gives 125.66 m, the registry carries the published
+    // 134.6 m). Position/footprint from the OSM outline (way
+    // 228938182, 51.4 × 59.7 m, tile (112.6, -628.1)): an
+    // essentially axis-aligned rect with small jogs/notches. Photo
+    // (xinyi289-evidence/ref-walsin.jpg): a dark glass curtain tower
+    // with strong horizontal banding, a stepped/notched crown with a
+    // dark cap, over a pale stone-clad podium base. 松智路9巷 runs
+    // along the parcel's south edge (z -543) and up its east side
+    // (x 145–148); the plate is trimmed west of it.
+    id: 'walsin-lihwa-building', name: 'Walsin Lihwa Building', nameZh: '華新麗華大廈',
+    lat: 25.038659, lon: 121.566116, realHeight: 134.6, color: 0x2c3540,
+    site: { w: 56, d: 64, dx: 0, dz: 0 },
+    // Issue #57: dark curtain glass, pale stone podium.
+    facade: { kind: 'curtain', glassTint: 0x1b2836, frameTint: 0x6d7885, windowWidth: 3.2, floorHeight: 3.6, litProbability: 0.32, warmth: 0.55, reflectivity: 0.9, seed: 289.13 },
+    parts: [
+      // Pale stone-clad podium base.
+      { type: 'box', w: 49, d: 57, h: 10, facade: { kind: 'prewar', stoneColor: 0xd8d2c4, trimColor: 0xb5a888, windowGlassColor: 0x2c3e50, windowWidth: 3.0, floorHeight: 4.0, litProbability: 0.3, warmth: 0.6, seed: 289.14 } },
+      // Dark glass shaft, 112 m over the podium.
+      { type: 'box', w: 46, d: 54, h: 112, y0: 10 },
+      // Strong horizontal banding: thin pale band courses at three
+      // heights, 0.3 m proud of the shaft.
+      { type: 'box', w: 46.6, d: 54.6, h: 0.4, y0: 40, flat: 0xb5a888 },
+      { type: 'box', w: 46.6, d: 54.6, h: 0.4, y0: 75, flat: 0xb5a888 },
+      { type: 'box', w: 46.6, d: 54.6, h: 0.4, y0: 110, flat: 0xb5a888 },
+      // Stepped/notched crown: two steps + a dark cap; the cap's top
+      // is the published 134.6 m.
+      { type: 'box', w: 40, d: 48, h: 6, y0: 122 },
+      { type: 'box', w: 32, d: 40, h: 4, y0: 128 },
+      { type: 'box', w: 28, d: 36, h: 2.6, y0: 132, flat: 0x1e242c },
+    ],
+    farParts: [
+      { type: 'box', w: 49, d: 57, h: 10, facade: { kind: 'prewar', stoneColor: 0xd8d2c4, trimColor: 0xb5a888, windowGlassColor: 0x2c3e50, windowWidth: 3.0, floorHeight: 4.0, litProbability: 0.3, warmth: 0.6, seed: 289.14 } },
+      { type: 'box', w: 46, d: 54, h: 112, y0: 10 },
+      { type: 'box', w: 40, d: 48, h: 6, y0: 122 },
+      { type: 'box', w: 28, d: 36, h: 2.6, y0: 132, flat: 0x1e242c },
+    ],
+  },
+  {
+    // Issue #289: Taipei Vie Show Cinemas Xinyi （台北信義威秀影城),
+    // 松壽路20號, A16/A17 plots — opened 1998-01-24 as Warner Village
+    // （華納威秀）, Taiwan's first cinema named 影城; 15 halls, 2,681
+    // seats, incl. 4DX. Two blocks in an H-shape around a central
+    // courtyard, connected by a 2F skybridge (char.tw). West (A16)
+    // block = 3 floors (halls 1–11 on 3F; 1F shops, 2F ticket office
+    // / food court); east (A17) block = 2 floors (halls 12–18 on 2F;
+    // 1F shops). The signature is the bright-red building masses
+    // around the courtyard ("信義威秀中庭空間，鮮紅色建築主體，反而是
+    // 大眾對它的主要印象" — char.tw), with movie publicity boards in
+    // the courtyard and the main entry from the side courtyard /
+    // skybridge to the 2F ticket office. Heights ESTIMATED (flagged):
+    // west 20 m (5+6+9), east 14 m (5+9).
+    // Position/footprint: the east block is OSM way 269773066
+    // (48.2 × 84.9 m, tile (226.7, -253.5)) — OSM names it "新光三越
+    // 台北信義新天地 A9", but it is the VieShow building, not A9
+    // (the A9 registry comment already records this). The west block
+    // has no OSM building outline; its plate comes from parcel way
+    // 555866070 (A16, 40.8 × 95.0 m, tile (164.8, -259.3)), trimmed
+    // east of 松壽路16巷 and the service-drive stub at z -233 (the
+    // #42 trim convention). A11's skybridge toward VieShow across
+    // Songshou Rd is NOT modelled (it would cross the roadbed).
+    id: 'vieshow-cinemas-xinyi', name: 'Vie Show Cinemas Taipei Hsin Yi', nameZh: '台北信義威秀影城',
+    lat: 25.035336, lon: 121.566960, realHeight: 20, estimated: true, color: 0xa82318,
+    site: { w: 112, d: 100, dx: 0, dz: 0 },
+    // Issue #57: red masonry fallback — every part below carries its
+    // own flat override (the bright-red masses are the signature), so
+    // this treatment never renders; it is pinned here so the structure
+    // resolves a facade treatment like every other landmark.
+    facade: { kind: 'prewar', stoneColor: 0xa82318, trimColor: 0x7e1a12, windowGlassColor: 0x2c3e50, windowWidth: 3.0, floorHeight: 4.0, litProbability: 0.35, warmth: 0.6, seed: 289.15 },
+    // The big movie-advertisement board on the south face (toward
+    // the 101 mall): the cinema's marquee — VIESHOW in bright yellow
+    // on near-black, red accent.
+    sign: { text: 'VIESHOW', w: 24, h: 7, y: 12, dx: -31.4, dz: 46.5, bg: '#14100e', fg: '#ffd23e', accent: '#d21f1f' },
+    parts: [
+      // West (A16) block, 3 floors, bright red.
+      { type: 'box', w: 36, d: 92, h: 20, dx: -31.4, flat: { color: 0xa82318, roughness: 0.85, metalness: 0.05 } },
+      // East (A17) block, 2 floors, bright red.
+      { type: 'box', w: 46, d: 83, h: 14, dx: 29.1, dz: 6, flat: { color: 0xa82318, roughness: 0.85, metalness: 0.05 } },
+      // 2F skybridge across the courtyard, joining the blocks at the
+      // ticket-office level (roof way 1339263105: x 184.5..200,
+      // z -272.2..-267.3).
+      { type: 'box', w: 20, d: 5, h: 4, y0: 7, dx: -3.6, dz: -10.2, flat: { color: 0x8c1d14, roughness: 0.85, metalness: 0.05 } },
+      // Dark shopfront band at ground level, west block south face.
+      { type: 'box', w: 36, d: 0.4, h: 5, y0: 0.5, dx: -31.4, dz: 46.2, flat: 0x1e1a14 },
+      // Movie-poster board on the courtyard face of the west block
+      // (the publicity boards in the courtyard), clear of the
+      // skybridge.
+      { type: 'box', w: 0.3, d: 20, h: 8, y0: 6, dx: -13.2, dz: 12, flat: 0xf5e6c8 },
+    ],
+    farParts: [
+      { type: 'box', w: 36, d: 92, h: 20, dx: -31.4, flat: { color: 0xa82318, roughness: 0.85, metalness: 0.05 } },
+      { type: 'box', w: 46, d: 83, h: 14, dx: 29.1, dz: 6, flat: { color: 0xa82318, roughness: 0.85, metalness: 0.05 } },
+      { type: 'box', w: 20, d: 5, h: 4, y0: 7, dx: -3.6, dz: -10.2, flat: { color: 0x8c1d14, roughness: 0.85, metalness: 0.05 } },
+    ],
+  },
+  {
     // 64 m above ground, built 2023 (Wikipedia / Farglory). The
     // great shallow dome over an elliptical drum — the signature is
     // the dome itself. The published structural height, 74.5 m,
