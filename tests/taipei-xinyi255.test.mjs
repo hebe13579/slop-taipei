@@ -77,6 +77,29 @@ test('the five #255 structures are registered with the reference-pack facts', ()
   assert.equal(plan.landmarkTowers.length, 43, '39 + 4 new structures');
 });
 
+test('Grand Hyatt south porte-cochere has columns + canopy as geometry (#294)', () => {
+  const hyatt = byId.get('grand-hyatt-taipei');
+  assert.ok(hyatt);
+  // 13 rework parts + 10 porte-cochere parts (canopy, glass wall, 8 columns).
+  assert.equal(hyatt.parts.length, 23, 'canopy + glass wall + 8 columns on top of the #255 rework');
+  const canopy = hyatt.parts.find((p) => p.type === 'box' && p.w === 76 && p.d === 10 && p.y0 === 7);
+  assert.ok(canopy, 'pale-stone canopy slab projects 10 m south of the entrance face');
+  assert.equal(canopy.dx, -6, 'canopy centred on the entrance block');
+  assert.equal(canopy.dz, 47, 'canopy spans the face (dz 42) to 10 m out (dz 52)');
+  assert.equal(canopy.h, 0.8, 'canopy clears the sign (sign spans y 3.5..6.5)');
+  const glass = hyatt.parts.find((p) => p.type === 'box' && p.w === 70 && p.d === 1 && p.h === 7);
+  assert.ok(glass, 'dark-glass lobby wall recessed behind the columns');
+  const columns = hyatt.parts.filter((p) => p.type === 'box' && p.w === 1.5 && p.d === 1.5 && p.h === 7 && p.dz === 51);
+  assert.equal(columns.length, 8, 'eight stone columns under the canopy south edge');
+  const dxs = columns.map((p) => p.dx).sort((a, b) => a - b);
+  assert.deepEqual(dxs, [-39.25, -29.75, -20.25, -10.75, -1.25, 8.25, 17.75, 27.25],
+    '9.5 m column spacing, half-bay offset so a gap — not a column — stands on the sign axis (dx -6)');
+  assert.ok(hyatt.sign && hyatt.sign.text === 'GRAND HYATT' && hyatt.sign.y === 5,
+    'entrance wordmark untouched, still on the face below the canopy');
+  assert.equal(hyatt.farParts.length, 8, 'far version keeps the bare block (ATT colonnade precedent: near-only detail)');
+  assert.equal(Math.max(...hyatt.parts.map((p) => (p.y0 || 0) + p.h)), 104, 'top stays 104 m');
+});
+
 test('A4 keeps its geometry, goes glassier, and carries NO red frame', () => {
   const a4 = byId.get('shin-kong-mitsukoshi-a4');
   assert.ok(a4);
