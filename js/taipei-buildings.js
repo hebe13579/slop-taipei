@@ -1175,6 +1175,39 @@ const LANDMARK_STRUCTURES = [
     parts: [
       { type: 'box', w: 112, d: 32, h: 18, dx: -3, dz: 12 },
       { type: 'box', w: 108, d: 14, h: 8, dx: -6, dz: 35 },
+      // Issue #294 (user: "detail the south entrance too"): the
+      // south porte-cochere was a plain 8 m block. The street
+      // photo (hyatt294-evidence/ref-south-portecochere-tabi.jpg)
+      // shows the real form: a colonnade of massive square
+      // stone-clad columns carrying the podium overhang, with
+      // the dark-glass lobby wall recessed behind them and the
+      // GRAND HYATT wordmark on the face above the opening.
+      // Modelled the same way (ATT colonnade precedent): a
+      // pale-stone canopy slab at y0 7 — just above the sign
+      // (sign spans y 3.5..6.5, so the slab clears it by 0.5 m)
+      // — projecting 10 m south of the face, 8 stone columns
+      // 1.5 x 1.5 x 7 at 9.5 m spacing under its south edge,
+      // and a dark-glass lobby wall on the face behind them.
+      // The grid is offset by half a bay (4.75 m) so a 9.5 m
+      // gap — not a column — stands on the sign's axis (dx -6):
+      // the wordmark reads clean from the approach, as in the
+      // photo (the first build put the centre column squarely
+      // over the sign's middle from the on-axis view).
+      // Footprint x -282.4..-206.4, z -213.9..-203.9: 0 lots
+      // under it (hyatt294-lots.mjs) and the nearest roadbed
+      // south is ~197 m away, so the overlap test is unaffected.
+      // Near-only detail (ATT precedent): the far version keeps
+      // the bare 8 m block, like ATT's colonnade.
+      { type: 'box', w: 76, d: 10, h: 0.8, y0: 7, dx: -6, dz: 47, flat: 0xd8cfc0 },
+      { type: 'box', w: 70, d: 1, h: 7, dx: -6, dz: 42, flat: { color: 0x232830, roughness: 0.25, metalness: 0.55 } },
+      { type: 'box', w: 1.5, d: 1.5, h: 7, dx: -39.25, dz: 51, flat: 0xd8cfc0 },
+      { type: 'box', w: 1.5, d: 1.5, h: 7, dx: -29.75, dz: 51, flat: 0xd8cfc0 },
+      { type: 'box', w: 1.5, d: 1.5, h: 7, dx: -20.25, dz: 51, flat: 0xd8cfc0 },
+      { type: 'box', w: 1.5, d: 1.5, h: 7, dx: -10.75, dz: 51, flat: 0xd8cfc0 },
+      { type: 'box', w: 1.5, d: 1.5, h: 7, dx: -1.25, dz: 51, flat: 0xd8cfc0 },
+      { type: 'box', w: 1.5, d: 1.5, h: 7, dx: 8.25, dz: 51, flat: 0xd8cfc0 },
+      { type: 'box', w: 1.5, d: 1.5, h: 7, dx: 17.75, dz: 51, flat: 0xd8cfc0 },
+      { type: 'box', w: 1.5, d: 1.5, h: 7, dx: 27.25, dz: 51, flat: 0xd8cfc0 },
       // Planted podium roof (the green hedge line in the photo) +
       // pool disc raised onto it.
       { type: 'box', w: 112, d: 32, h: 0.5, y0: 18, dx: -3, dz: 12, flat: { color: 0x4a7a3a, roughness: 0.9, metalness: 0.02 } },

@@ -82,7 +82,13 @@ test('hut census on the real plan: selection unchanged, garnish at census', (t) 
   // (#221 campus clearing: schools-off on this tree gives 6,571;
   // the rest is the #213/#219/#226 tree changes since the PR base),
   // not the garnish, whose rolls use fresh salts.
-  assert.equal(hutLots, 5892, 'hut selection is the pre-#208 census');
+  // Re-pinned at the #289 gate: 5,891 hut lots, 1,380 bumps.
+  // Exactly one hut lot is lost — (243.7, -229.3), removed by the
+  // VieShow site rect (the lot stood inside it; the merged-tree
+  // census proves main/base 5,892 vs merged/PR-head 5,891 with
+  // that single centre lost and none gained). The lot carried a
+  // bump too, hence 1,381 -> 1,380. Gable/patches unchanged.
+  assert.equal(hutLots, 5891, 'hut selection is the pre-#208 census');
   // Issue #216: the facing pass moves lots, and the garnish rolls
   // are seeded from lot position — 2 gable draws, 14 patch draws
   // and 10 bump draws flip, while the selection (5,892 hut lots)
@@ -91,7 +97,7 @@ test('hut census on the real plan: selection unchanged, garnish at census', (t) 
   // (facing216b-evidence/proof-huts-off.mjs).
   assert.equal(gable, 2054, 'gable census');
   assert.equal(patches, 5135, 'patch census');
-  assert.equal(bumps, 1381, 'bump census');
+  assert.equal(bumps, 1380, 'bump census');
 });
 
 test('renderer palette mirrors the planner palette', () => {
