@@ -146,9 +146,10 @@ test('facing census: turns land, the #185 pull and heights are untouched', () =>
   const off = planTaipeiBuildings(TAIPEI_GEO, { facing: false });
   // The pass turns lots and holds the rest; it never adds, drops,
   // or re-heights a lot. Baseline (pass disabled) on this tree:
-  // 68,570 lots, pull 2929 / flush 76 / heldNoBed 5801 /
-  // heldBlocked 3343.
-  assert.equal(plan.lots.length, 68570);
+  // 68,538 lots, pull 2926 / flush 76 / heldNoBed 5792 /
+  // heldBlocked 3339. (Issue #255 gate: the 68,570 absolute pin is
+  // gone — the count is pinned by the settings test, and the
+  // invariant this test owns is the line below, plan == off.)
   assert.equal(off.lots.length, plan.lots.length);
   assert.equal(plan.stats.lotsFrontagePulled, off.stats.lotsFrontagePulled);
   assert.equal(plan.stats.lotsFrontageFlush, off.stats.lotsFrontageFlush);
@@ -171,18 +172,23 @@ test('facing census: turns land, the #185 pull and heights are untouched', () =>
   // population: packed rows on diagonal corridors, where a
   // rectangle cannot turn without overlapping its neighbours —
   // that population is the #217 non-rectangular-footprint work.
-  assert.deepEqual(plan.stats.lotsFacingTurned, 3106);
+  // Issue #255 gate: the 4 new registry sites exclude 32 lots —
+  // 5 of them turned (all partial), 18 held, 9 outside the facing
+  // population — proven lot-by-lot against pristine main
+  // (xinyi255-gate-evidence/diff265.mjs); no kept lot changed
+  // turned/held status (turned is exactly main 3,106 − 5).
+  assert.deepEqual(plan.stats.lotsFacingTurned, 3101);
   assert.deepEqual(plan.stats.lotsFacingTurnedFull, 1677);
-  assert.deepEqual(plan.stats.lotsFacingTurnedPartial, 1429);
-  assert.deepEqual(plan.stats.lotsFacingHeld, 19865);
-  assert.deepEqual(plan.stats.lotsFacingHeldNoFace, 8180);
-  assert.deepEqual(plan.stats.lotsFacingHeldSmallTurn, 7309);
+  assert.deepEqual(plan.stats.lotsFacingTurnedPartial, 1424);
+  assert.deepEqual(plan.stats.lotsFacingHeld, 19847);
+  assert.deepEqual(plan.stats.lotsFacingHeldNoFace, 8174);
+  assert.deepEqual(plan.stats.lotsFacingHeldSmallTurn, 7301);
   assert.deepEqual(plan.stats.lotsFacingHeldFacade, 764);
-  assert.deepEqual(plan.stats.lotsFacingHeldClear, 3595);
+  assert.deepEqual(plan.stats.lotsFacingHeldClear, 3591);
   assert.deepEqual(plan.stats.lotsFacingHeldAlignedMain, 17);
   const { sample, buckets } = censusMismatch(plan.lots);
-  assert.equal(sample, 17441);
-  assert.deepEqual(buckets, { '0-2': 9262, '2-5': 2997, '5-10': 2022, '10-20': 1191, '20-45': 1969 });
+  assert.equal(sample, 17438);
+  assert.deepEqual(buckets, { '0-2': 9260, '2-5': 2997, '5-10': 2021, '10-20': 1191, '20-45': 1969 });
 });
 
 function lotCorners(cx, cz, w, d, c, s) {

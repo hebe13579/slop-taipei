@@ -105,7 +105,7 @@ test('the planner clears the loops — and only the loops move', () => {
   // #186/#226, and the derivation on merged inputs accepts
   // the same 62 components at 131,508 m2 vs 131,512 m2 (a
   // 4 m2 boundary shift from the #226 creek narrowing).
-  assert.equal(plan.lots.length, 68570, 'plan lot count with the loop exclusion live (75,389 before issue #221; the #221 merge gate re-pin — campus clearing removes 6,819 lots, loop counters 58/363 reproduce as re-pinned above)');
+  assert.equal(plan.lots.length, 68538, 'plan lot count with the loop exclusion live (75,389 before issue #221; the #221 merge gate re-pin — campus clearing removes 6,819 lots, loop counters 58/363 reproduce as re-pinned above; the #255 re-pin — 4 new registry sites exclude 32 lots: 17 TWTC Hall 1, 4 Grand Hyatt, 7 ATT 4 FUN, 4 Bellavita, counted on the pre-#255 plan)');
   assert.equal(plan.stats.blocksSkippedAirfield, 45, 'airfield exclusion unmoved (#134)');
   assert.equal(plan.stats.lotsDroppedAirfield, 222, 'airfield exclusion unmoved (#134)');
   let inside = 0;

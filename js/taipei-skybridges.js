@@ -228,3 +228,40 @@ export function buildSkybridgeGeometry(geo) {
     triCount: pos.length / 9, chains, supports, maxY,
   };
 }
+
+// Issue #255: per-chain slices of the merged geometry, for the
+// far despawn — one mesh per chain, toggled by distance to the
+// chain's own centreline centroid. The builder above emits the
+// chains' triangles in chain order (each chain's triCount is
+// recorded), and the arrays are non-indexed (9 floats per
+// triangle), so a chain's slice is a contiguous range — no
+// geometry is rebuilt, and the tri total is exactly the merged
+// total. Boot wraps each slice in a mesh and stashes despawn
+// entries (see updateDespawnGroup in js/taipei-buildings.js);
+// the pure builder and its census are untouched.
+export function skybridgeChainSlices(geo) {
+  const g = buildSkybridgeGeometry(geo);
+  const segs = geo?.skybridges || [];
+  const slices = [];
+  let triStart = 0;
+  for (let i = 0; i < g.chains.length; i++) {
+    const triCount = g.chains[i].triCount;
+    const v0 = triStart * 9, v1 = (triStart + triCount) * 9;
+    const seg = segs[i];
+    let cx = 0, cz = 0, n = 0;
+    if (seg) {
+      for (let k = 0; k + 1 < seg.pts.length; k += 2) { cx += seg.pts[k]; cz += seg.pts[k + 1]; n++; }
+    }
+    slices.push({
+      positions: g.positions.slice(v0, v1),
+      normals: g.normals.slice(v0, v1),
+      colors: g.colors.slice(v0, v1),
+      triCount,
+      lenM: g.chains[i].lenM,
+      cx: n ? cx / n : 0,
+      cz: n ? cz / n : 0,
+    });
+    triStart += triCount;
+  }
+  return { slices, triCount: g.triCount, chains: g.chains, supports: g.supports, maxY: g.maxY };
+}

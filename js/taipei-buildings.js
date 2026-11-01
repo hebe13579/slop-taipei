@@ -828,15 +828,104 @@ const LANDMARK_STRUCTURES = [
     // arcades over them), so the slab is two boxes east of
     // x 130.7: the main mass plus a narrower north strip — the
     // #42 audit's trim convention, as on the batch-1 podiums.
+    // Issue #255: the red steel frame the user photographed is
+    // A8's, NOT A4's — proven by the Esri/OSM overlay
+    // (xinyi255-evidence/esri-xinyi-overlaid.jpg: the red
+    // pergola sits inside A8's outline) and by the photo's
+    // viewpoint (Xiangti Ave facing south, Breeze Songgao on
+    // the left). A4 keeps its pale treatment, made glassier:
+    // the Xinyi Place halls are "giant, very long low-rise
+    // structures of gleaming glass and exposed steel girders
+    // that have the look of a small fleet of cruise liners"
+    // (taiwaneverything.cc / travelintaiwan.net, Apr 2025).
+    // Geometry unchanged (it already matches OSM way
+    // 274647897's rect); the logo band is new.
     id: 'shin-kong-mitsukoshi-a4', name: 'Shin Kong Mitsukoshi Xinyi Place A4', nameZh: '新光三越信義新天地A4館',
     lat: 25.039673, lon: 121.566652, realHeight: 33, estimated: true, color: 0xb0aa9e,
     site: { w: 86, d: 68, dx: 0, dz: 0 },
-    facade: { kind: 'prewar', stoneColor: 0xb5b0a6, trimColor: 0x8f8a80, windowGlassColor: 0x2c3e50, windowWidth: 3.4, floorHeight: 5.5, litProbability: 0.45, warmth: 0.6, seed: 165.31 },
+    facade: { kind: 'curtain', glassTint: 0xa8b8bc, frameTint: 0x8f8a80, windowWidth: 4.6, floorHeight: 5.5, litProbability: 0.45, warmth: 0.6, reflectivity: 0.5, seed: 165.31 },
+    sign: { glyphs: 4, w: 26, h: 3, y: 24, dx: 0, dz: 33.6, bg: '#3a3f45', fg: '#ddd6c2' },
+    // REWORK (2026-10-30, user verdict: the specials read as
+    // cubes): the hall front in the reference photo
+    // (xinyi255-rework-evidence/ref-a4.jpg) is open terraces,
+    // not a closed glass box — dark steel columns, glowing
+    // vertical lantern strips, red awnings, a steel pergola rim.
+    // The south face gets 3 terrace ledges (proud 1 m, the site
+    // edge allows no more), 8 steel columns, 4 lantern strips,
+    // 8 red awnings and the roof rim. The awning red is 0xc23a2e,
+    // NOT A8's 0xb02a1e (the test pins zero A8-red on A4).
+    // farParts mirrors every near part (the test pins
+    // farParts.length == parts.length for A4).
     parts: [
       { type: 'box', w: 74, d: 57, h: 31.5, dx: 1, dz: 4.5 },
       { type: 'box', w: 74, d: 9, h: 31.5, dx: 4, dz: -27.5 },
       { type: 'box', w: 74, d: 57, h: 1.5, y0: 31.5, dx: 1, dz: 4.5 },
       { type: 'box', w: 74, d: 9, h: 1.5, y0: 31.5, dx: 4, dz: -27.5 },
+      // Terrace ledges on the south face (proud 1 m, site edge).
+      { type: 'box', w: 74, d: 3, h: 1, y0: 10, dx: 1, dz: 32.5, flat: 0x1c1f22 },
+      { type: 'box', w: 74, d: 3, h: 1, y0: 20, dx: 1, dz: 32.5, flat: 0x1c1f22 },
+      { type: 'box', w: 74, d: 3, h: 1, y0: 28, dx: 1, dz: 32.5, flat: 0x1c1f22 },
+      // Exposed dark steel columns on the south face.
+      { type: 'box', w: 0.8, d: 0.8, h: 30, dx: -31, dz: 33.5, flat: 0x1c1f22 },
+      { type: 'box', w: 0.8, d: 0.8, h: 30, dx: -22, dz: 33.5, flat: 0x1c1f22 },
+      { type: 'box', w: 0.8, d: 0.8, h: 30, dx: -13, dz: 33.5, flat: 0x1c1f22 },
+      { type: 'box', w: 0.8, d: 0.8, h: 30, dx: -4, dz: 33.5, flat: 0x1c1f22 },
+      { type: 'box', w: 0.8, d: 0.8, h: 30, dx: 5, dz: 33.5, flat: 0x1c1f22 },
+      { type: 'box', w: 0.8, d: 0.8, h: 30, dx: 14, dz: 33.5, flat: 0x1c1f22 },
+      { type: 'box', w: 0.8, d: 0.8, h: 30, dx: 23, dz: 33.5, flat: 0x1c1f22 },
+      { type: 'box', w: 0.8, d: 0.8, h: 30, dx: 32, dz: 33.5, flat: 0x1c1f22 },
+      // Glowing vertical lantern strips between the columns.
+      { type: 'box', w: 0.8, d: 0.3, h: 20, y0: 8, dx: -26.5, dz: 33.4, flat: 0xe8d9a0 },
+      { type: 'box', w: 0.8, d: 0.3, h: 20, y0: 8, dx: -8.5, dz: 33.4, flat: 0xe8d9a0 },
+      { type: 'box', w: 0.8, d: 0.3, h: 20, y0: 8, dx: 9.5, dz: 33.4, flat: 0xe8d9a0 },
+      { type: 'box', w: 0.8, d: 0.3, h: 20, y0: 8, dx: 27.5, dz: 33.4, flat: 0xe8d9a0 },
+      // Red awnings over the terrace fronts (two levels).
+      { type: 'box', w: 6, d: 2, h: 0.3, y0: 12, dx: -27, dz: 33, flat: 0xc23a2e },
+      { type: 'box', w: 6, d: 2, h: 0.3, y0: 12, dx: -9, dz: 33, flat: 0xc23a2e },
+      { type: 'box', w: 6, d: 2, h: 0.3, y0: 12, dx: 9, dz: 33, flat: 0xc23a2e },
+      { type: 'box', w: 6, d: 2, h: 0.3, y0: 12, dx: 27, dz: 33, flat: 0xc23a2e },
+      { type: 'box', w: 6, d: 2, h: 0.3, y0: 22, dx: -27, dz: 33, flat: 0xc23a2e },
+      { type: 'box', w: 6, d: 2, h: 0.3, y0: 22, dx: -9, dz: 33, flat: 0xc23a2e },
+      { type: 'box', w: 6, d: 2, h: 0.3, y0: 22, dx: 9, dz: 33, flat: 0xc23a2e },
+      { type: 'box', w: 6, d: 2, h: 0.3, y0: 22, dx: 27, dz: 33, flat: 0xc23a2e },
+      // Dark steel pergola rim on the roof edge.
+      { type: 'box', w: 74, d: 1, h: 1, y0: 31.5, dx: 1, dz: 33.5, flat: 0x1c1f22 },
+      { type: 'box', w: 74, d: 1, h: 1, y0: 31.5, dx: 4, dz: -32.5, flat: 0x1c1f22 },
+      { type: 'box', w: 1, d: 57, h: 1, y0: 31.5, dx: -36.5, dz: 4.5, flat: 0x1c1f22 },
+      { type: 'box', w: 1, d: 57, h: 1, y0: 31.5, dx: 38.5, dz: 4.5, flat: 0x1c1f22 },
+    ],
+    farParts: [
+      { type: 'box', w: 74, d: 57, h: 31.5, dx: 1, dz: 4.5 },
+      { type: 'box', w: 74, d: 9, h: 31.5, dx: 4, dz: -27.5 },
+      { type: 'box', w: 74, d: 57, h: 1.5, y0: 31.5, dx: 1, dz: 4.5 },
+      { type: 'box', w: 74, d: 9, h: 1.5, y0: 31.5, dx: 4, dz: -27.5 },
+      { type: 'box', w: 74, d: 3, h: 1, y0: 10, dx: 1, dz: 32.5, flat: 0x1c1f22 },
+      { type: 'box', w: 74, d: 3, h: 1, y0: 20, dx: 1, dz: 32.5, flat: 0x1c1f22 },
+      { type: 'box', w: 74, d: 3, h: 1, y0: 28, dx: 1, dz: 32.5, flat: 0x1c1f22 },
+      { type: 'box', w: 0.8, d: 0.8, h: 30, dx: -31, dz: 33.5, flat: 0x1c1f22 },
+      { type: 'box', w: 0.8, d: 0.8, h: 30, dx: -22, dz: 33.5, flat: 0x1c1f22 },
+      { type: 'box', w: 0.8, d: 0.8, h: 30, dx: -13, dz: 33.5, flat: 0x1c1f22 },
+      { type: 'box', w: 0.8, d: 0.8, h: 30, dx: -4, dz: 33.5, flat: 0x1c1f22 },
+      { type: 'box', w: 0.8, d: 0.8, h: 30, dx: 5, dz: 33.5, flat: 0x1c1f22 },
+      { type: 'box', w: 0.8, d: 0.8, h: 30, dx: 14, dz: 33.5, flat: 0x1c1f22 },
+      { type: 'box', w: 0.8, d: 0.8, h: 30, dx: 23, dz: 33.5, flat: 0x1c1f22 },
+      { type: 'box', w: 0.8, d: 0.8, h: 30, dx: 32, dz: 33.5, flat: 0x1c1f22 },
+      { type: 'box', w: 0.8, d: 0.3, h: 20, y0: 8, dx: -26.5, dz: 33.4, flat: 0xe8d9a0 },
+      { type: 'box', w: 0.8, d: 0.3, h: 20, y0: 8, dx: -8.5, dz: 33.4, flat: 0xe8d9a0 },
+      { type: 'box', w: 0.8, d: 0.3, h: 20, y0: 8, dx: 9.5, dz: 33.4, flat: 0xe8d9a0 },
+      { type: 'box', w: 0.8, d: 0.3, h: 20, y0: 8, dx: 27.5, dz: 33.4, flat: 0xe8d9a0 },
+      { type: 'box', w: 6, d: 2, h: 0.3, y0: 12, dx: -27, dz: 33, flat: 0xc23a2e },
+      { type: 'box', w: 6, d: 2, h: 0.3, y0: 12, dx: -9, dz: 33, flat: 0xc23a2e },
+      { type: 'box', w: 6, d: 2, h: 0.3, y0: 12, dx: 9, dz: 33, flat: 0xc23a2e },
+      { type: 'box', w: 6, d: 2, h: 0.3, y0: 12, dx: 27, dz: 33, flat: 0xc23a2e },
+      { type: 'box', w: 6, d: 2, h: 0.3, y0: 22, dx: -27, dz: 33, flat: 0xc23a2e },
+      { type: 'box', w: 6, d: 2, h: 0.3, y0: 22, dx: -9, dz: 33, flat: 0xc23a2e },
+      { type: 'box', w: 6, d: 2, h: 0.3, y0: 22, dx: 9, dz: 33, flat: 0xc23a2e },
+      { type: 'box', w: 6, d: 2, h: 0.3, y0: 22, dx: 27, dz: 33, flat: 0xc23a2e },
+      { type: 'box', w: 74, d: 1, h: 1, y0: 31.5, dx: 1, dz: 33.5, flat: 0x1c1f22 },
+      { type: 'box', w: 74, d: 1, h: 1, y0: 31.5, dx: 4, dz: -32.5, flat: 0x1c1f22 },
+      { type: 'box', w: 1, d: 57, h: 1, y0: 31.5, dx: -36.5, dz: 4.5, flat: 0x1c1f22 },
+      { type: 'box', w: 1, d: 57, h: 1, y0: 31.5, dx: 38.5, dz: 4.5, flat: 0x1c1f22 },
     ],
   },
   {
@@ -846,13 +935,87 @@ const LANDMARK_STRUCTURES = [
     // axis-aligned at tile (181.4, -585.0); plate trimmed ~1 m a
     // side. Height ESTIMATED (flagged): 7 floors above ground
     // (zh-Wikipedia) x 5.5 m = 38.5 m.
+    // Issue #255 (correction): THE RED STEEL FRAME IS A8'S. The
+    // user's Street View photo (Songren Rd, 101 behind) shows the
+    // building wrapped in a red/orange-red exposed-steel
+    // exoskeleton — diagonal bracing, red columns and beams over
+    // dark glass. The Esri/OSM overlay proves it is A8: the red
+    // rectangular pergola + the blue/white circular rooftop
+    // feature sit inside OSM way 274647896 (A8), whose OSM
+    // colour tag is itself #FF0000. The photo's viewpoint
+    // (Xiangti Ave facing south, Breeze Songgao on the left)
+    // puts A8 on the right. The #165 entry's pale prewar slab
+    // is therefore corrected: dark glass curtain with pale
+    // frame bands + the red exoskeleton (corner + face columns,
+    // horizontal band courses, roof pergola grid) + the rooftop
+    // disc. Massing, site and height unchanged; the frame parts
+    // stay inside the existing slab's plan except the two band
+    // courses, trimmed flush on the WEST face (the #42 audit
+    // caught a 0.25 m² clip on the service drive there) and
+    // proud 0.7 m on the east. The roofline tops at 38.5 m
+    // exactly: the cap thins to a 0.3 m lip at 37.3 m and the
+    // red pergola rises 1.2 m above it. The frame drops out of the far version
+    // (sub-pixel past 700 m) — the slab stays visible.
     id: 'shin-kong-mitsukoshi-a8', name: 'Shin Kong Mitsukoshi Xinyi Place A8', nameZh: '新光三越信義新天地A8館',
     lat: 25.038272, lon: 121.5668, realHeight: 38.5, estimated: true, color: 0xb5ab97,
     site: { w: 53, d: 151, dx: 0, dz: 0 },
-    facade: { kind: 'prewar', stoneColor: 0xbfb49e, trimColor: 0x968d78, windowGlassColor: 0x2c3e50, windowWidth: 3.4, floorHeight: 5.5, litProbability: 0.45, warmth: 0.6, seed: 165.32 },
+    facade: { kind: 'curtain', glassTint: 0x39434a, frameTint: 0xd8d5cc, windowWidth: 3.4, floorHeight: 5.5, litProbability: 0.45, warmth: 0.6, reflectivity: 0.5, seed: 165.32 },
+    // REWORK (2026-10-30, user verdict: the specials read as
+    // cubes): the user's Street View photo shows the A8 face as
+    // horizontal PALE-STONE / dark-glass banding with a dark red
+    // ground floor and a tall red vertical sign band with gold
+    // characters — the PR's all-dark-glass plate + red frame
+    // missed the stone rhythm. Three pale stone band courses
+    // (y0 6/18/30) interleave with the existing red bands
+    // (12/24); a dark-red base band wraps the ground floor; and
+    // one roof-pergola cross-beam (dz 0) is replaced by a tall
+    // red sign band on the east face, so the 0xb02a1e count
+    // stays 23 (14 columns + 2 red bands + 6 pergola beams +
+    // 1 sign band) and every red part stays thin (min dim ≤ 1.2).
     parts: [
       { type: 'box', w: 49, d: 147, h: 37 },
-      { type: 'box', w: 49, d: 149, h: 1.5, y0: 37 },
+      { type: 'box', w: 49, d: 149, h: 0.3, y0: 37 },
+      // Red exoskeleton: corner columns + long-face columns.
+      { type: 'box', w: 1.2, d: 1.2, h: 37.3, dx: -23.5, dz: -72, flat: 0xb02a1e },
+      { type: 'box', w: 1.2, d: 1.2, h: 37.3, dx: 23.5, dz: -72, flat: 0xb02a1e },
+      { type: 'box', w: 1.2, d: 1.2, h: 37.3, dx: -23.5, dz: 72, flat: 0xb02a1e },
+      { type: 'box', w: 1.2, d: 1.2, h: 37.3, dx: 23.5, dz: 72, flat: 0xb02a1e },
+      { type: 'box', w: 1, d: 1, h: 37.3, dx: -24.5, dz: -48, flat: 0xb02a1e },
+      { type: 'box', w: 1, d: 1, h: 37.3, dx: 24.5, dz: -48, flat: 0xb02a1e },
+      { type: 'box', w: 1, d: 1, h: 37.3, dx: -24.5, dz: -24, flat: 0xb02a1e },
+      { type: 'box', w: 1, d: 1, h: 37.3, dx: 24.5, dz: -24, flat: 0xb02a1e },
+      { type: 'box', w: 1, d: 1, h: 37.3, dx: -24.5, dz: 0, flat: 0xb02a1e },
+      { type: 'box', w: 1, d: 1, h: 37.3, dx: 24.5, dz: 0, flat: 0xb02a1e },
+      { type: 'box', w: 1, d: 1, h: 37.3, dx: -24.5, dz: 24, flat: 0xb02a1e },
+      { type: 'box', w: 1, d: 1, h: 37.3, dx: 24.5, dz: 24, flat: 0xb02a1e },
+      { type: 'box', w: 1, d: 1, h: 37.3, dx: -24.5, dz: 48, flat: 0xb02a1e },
+      { type: 'box', w: 1, d: 1, h: 37.3, dx: 24.5, dz: 48, flat: 0xb02a1e },
+      // Horizontal band courses, proud of the facade.
+      { type: 'box', w: 49.6, d: 148.5, h: 0.8, y0: 12, dx: 0.4, flat: 0xb02a1e },
+      { type: 'box', w: 49.6, d: 148.5, h: 0.8, y0: 24, dx: 0.4, flat: 0xb02a1e },
+      // Pale stone band courses (the photo's stone rhythm).
+      { type: 'box', w: 49.6, d: 148.5, h: 0.8, y0: 6, dx: 0.4, flat: 0xd8d5cc },
+      { type: 'box', w: 49.6, d: 148.5, h: 0.8, y0: 18, dx: 0.4, flat: 0xd8d5cc },
+      { type: 'box', w: 49.6, d: 148.5, h: 0.8, y0: 30, dx: 0.4, flat: 0xd8d5cc },
+      // Dark-red ground-floor base band (the photo's dark red base).
+      { type: 'box', w: 49.6, d: 148.5, h: 2, y0: 0, dx: 0.4, flat: 0x5a1a14 },
+      // Roof pergola grid (one E-W cross-beam replaced by the
+      // vertical sign band below — red count stays 23).
+      { type: 'box', w: 1, d: 149, h: 1.2, y0: 37.3, dx: -23.5, flat: 0xb02a1e },
+      { type: 'box', w: 1, d: 149, h: 1.2, y0: 37.3, dx: 23.5, flat: 0xb02a1e },
+      { type: 'box', w: 49, d: 1, h: 1.2, y0: 37.3, dz: -72, flat: 0xb02a1e },
+      { type: 'box', w: 49, d: 1, h: 1.2, y0: 37.3, dz: -36, flat: 0xb02a1e },
+      { type: 'box', w: 49, d: 1, h: 1.2, y0: 37.3, dz: 36, flat: 0xb02a1e },
+      { type: 'box', w: 49, d: 1, h: 1.2, y0: 37.3, dz: 72, flat: 0xb02a1e },
+      // Tall red vertical sign band on the east face (the photo's
+      // red sign band with gold characters).
+      { type: 'box', w: 0.8, d: 3, h: 30, y0: 4, dx: 24.8, dz: 0, flat: 0xb02a1e },
+      // Rooftop disc (the blue/white circular feature on satellite).
+      { type: 'cylinder', r: 8, h: 1, y0: 37.3, dz: 40, flat: 0xa8c8d8 },
+    ],
+    farParts: [
+      { type: 'box', w: 49, d: 147, h: 37 },
+      { type: 'box', w: 49, d: 149, h: 0.3, y0: 37 },
     ],
   },
   {
@@ -898,6 +1061,298 @@ const LANDMARK_STRUCTURES = [
     parts: [
       { type: 'box', w: 44, d: 146, h: 31.5, dx: -3 },
       { type: 'box', w: 46, d: 148, h: 1.5, y0: 31.5, dx: -3 },
+    ],
+  },
+  {
+    // Issue #255: TWTC Exhibition Hall 1 （台北世貿一館 / 展覽大樓）,
+    // No. 5, Hsin-Yi Rd Sec 5 (opened 1986) — the four-in-one
+    // TWTC complex's exhibition hall (EN Wikipedia). 7 floors,
+    // 159,329 m²; no published height: height ESTIMATED (flagged)
+    // 38 m — a tall showground floor + 6 upper floors. OSM way
+    // 137077752's stepped outline wraps the International Trade
+    // Building's east and south sides (see the #255 satellite
+    // overlay); the plate below is the main mass only, trimmed
+    // inside the outline, and the SW terrace lobe is a separate
+    // wing so no part reaches the tower's plate. The base is
+    // split north/south: the north half's east face is pulled
+    // to x -190, where the outline jogs west (the #42 audit
+    // caught a roadbed clip at the full-width face). The signature
+    // is the stepped ziggurat of green-tinted glass terraces
+    // under the big dark-green glazed pyramid at the centre
+    // (Esri z19 stitch, xinyi255-evidence/esri-twtc-overlaid.jpg).
+    // The pyramid frustum is centred on the entry (the frustum
+    // audit + renderer both centre it on the structure), so the
+    // entry's lat/lon IS the pyramid centre, tile (-262, -112).
+    id: 'twtc-exhibition-hall-1', name: 'TWTC Exhibition Hall 1', nameZh: '台北世貿一館',
+    lat: 25.034011, lon: 121.562404, realHeight: 38, estimated: true, color: 0x5a7a68,
+    site: { w: 212, d: 200, dx: -18, dz: -3 },
+    facade: { kind: 'curtain', glassTint: 0x3e6b57, frameTint: 0x7d8a7a, windowWidth: 6.0, floorHeight: 5.5, litProbability: 0.3, warmth: 0.5, reflectivity: 0.65, seed: 255.11 },
+    sign: { glyphs: 6, w: 34, h: 3.4, y: 7, dx: 0, dz: 86.5, bg: '#3a3f45', fg: '#ddd6c2' },
+    // REWORK (2026-10-30, user verdict: the specials read as
+    // cubes): the stepped ziggurat is right, but the curtain
+    // factory paints every up-facing terrace top dark gravel,
+    // so the terraces read grey, not green glass. Two
+    // green-glass deck slabs cover the exposed terrace rings
+    // (mid-box top at y0 22, upper-box top at y0 30 — the
+    // pyramid and upper box rise through them). The base strip
+    // is south-face only: the east face carries the #42
+    // roadbed-clip line (pulled to tile x -190), so no proud
+    // strip may cross it. The far version needs no change: far
+    // boxes render flat in the structure colour (green), never
+    // through the curtain factory, so no gravel roof shows far.
+    parts: [
+      { type: 'box', w: 158, d: 88, h: 12, dx: -7, dz: 42 },
+      { type: 'box', w: 162, d: 88, h: 12, dx: -5, dz: -46 },
+      { type: 'box', w: 36, d: 44, h: 12, dx: -66, dz: -78 },
+      { type: 'box', w: 150, d: 158, h: 10, y0: 12, dx: -2, dz: -2 },
+      { type: 'box', w: 128, d: 136, h: 8, y0: 22, dx: -2, dz: -2 },
+      { type: 'frustum', wB: 76, dB: 76, wT: 10, dT: 10, h: 8, y0: 30, flat: { color: 0x1c4536, roughness: 0.35, metalness: 0.3 } },
+      // Green-glass terrace deck slabs (the grey-gravel fix).
+      { type: 'box', w: 150, d: 158, h: 0.5, y0: 22, dx: -2, dz: -2, flat: { color: 0x3e6b57, roughness: 0.15, metalness: 0.4 } },
+      { type: 'box', w: 128, d: 136, h: 0.5, y0: 30, dx: -2, dz: -2, flat: { color: 0x3e6b57, roughness: 0.15, metalness: 0.4 } },
+      // Green-glass base strip on the south (entrance) face.
+      { type: 'box', w: 158, d: 1, h: 1.5, y0: 0, dx: -7, dz: 86.5, flat: { color: 0x3e6b57, roughness: 0.15, metalness: 0.4 } },
+    ],
+    farParts: [
+      { type: 'box', w: 158, d: 88, h: 12, dx: -7, dz: 42 },
+      { type: 'box', w: 162, d: 88, h: 12, dx: -5, dz: -46 },
+      { type: 'box', w: 36, d: 44, h: 12, dx: -66, dz: -78 },
+      { type: 'box', w: 150, d: 158, h: 10, y0: 12, dx: -2, dz: -2 },
+      { type: 'box', w: 128, d: 136, h: 8, y0: 22, dx: -2, dz: -2 },
+      { type: 'frustum', wB: 76, dB: 76, wT: 10, dT: 10, h: 8, y0: 30, flat: { color: 0x1c4536, roughness: 0.35, metalness: 0.3 } },
+    ],
+  },
+  {
+    // Issue #255: Grand Hyatt Taipei （台北君悅酒店）, No. 2,
+    // Songshou Rd (opened Sept 1990, architect Haigo T. H. Shen,
+    // 853 rooms — EN Wikipedia / Hyatt). Height CONFLICT, resolved
+    // for the published figure: EN Wikipedia 104 m / 27 stories
+    // vs OSM way 137077760 height=85 / levels=25 — adopted 104 m
+    // (27 floors x ~3.8 m fits it). OSM's #F5DEB3 wheat colour
+    // is wrong against the satellite: the tower reads as a
+    // brown-bronze gridded curtain wall. Massing: a three-sided
+    // courtyard block (nickkembel.com: "shaped like a three-sided
+    // courtyard home … looking down on a swimming pool on the
+    // rooftop of the five-story lobby") — 18 m podium, three
+    // 86 m wings around the pool court open to the south
+    // (Songshou Rd entrance), octagonal terracotta roof feature
+    // on the north wing (satellite). Entrance wordmark only: no
+    // rooftop sign could be verified, so none is modelled.
+    // Issue #255: Grand Hyatt Taipei （台北君悅酒店）, No. 2,
+    // Songshou Rd (opened Sept 1990, architect Haigo T. H. Shen,
+    // 853 rooms — EN Wikipedia / Hyatt). Height CONFLICT, resolved
+    // for the published figure: EN Wikipedia 104 m / 27 stories
+    // vs OSM way 137077760 height=85 / levels=25 — adopted 104 m
+    // (27 floors x ~3.8 m fits the published figure); OSM value
+    // noted as superseded.
+    // REWORK (2026-10-30, user verdict: the specials read as
+    // cubes): the PR's three dark-bronze slabs contradict the
+    // street photo (xinyi255-rework-evidence/ref-hyatt-twtc.jpg,
+    // Wikimedia) — the real hotel is PALE STONE wings + podium
+    // with a dark curved-glass centre bay, stepped wing tops, a
+    // planted podium roof and a GRAND HYATT rooftop sign. The
+    // satellite top-down read (brown-bronze) does not survive the
+    // street view, so the facade goes curtain -> prewar (pale
+    // stone, dark windows) and the colour follows for the far
+    // version. The U opens south toward Songshou Rd: the centre
+    // bay is recessed 9 m behind the wing faces, the wings step
+    // (lower slab + inset step box, tops still 100 m), the
+    // octagonal roof feature is a terracotta frustum pavilion
+    // (top 104 m), and the pool disc rides on the planted roof.
+    // Massing shaped around the complex's 5 m service loop (the
+    // #42 audit: the full-rect podium crossed the loop's south
+    // and east legs). The slab segments top at 100 m and the
+    // octagonal roof feature rises 4 m to the published 104 m.
+    // The tower slab is three segments split by
+    // the loop's E-W leg, the lobby podium sits south of the
+    // slab, and a low entrance block fronts the forecourt —
+    // the U/courtyard read survives, the drives stay clear.
+    id: 'grand-hyatt-taipei', name: 'Grand Hyatt Taipei', nameZh: '台北君悅酒店',
+    lat: 25.035310, lon: 121.562638, realHeight: 104, color: 0xd8cfc0,
+    site: { w: 136, d: 82, dx: 0, dz: 0 },
+    facade: { kind: 'prewar', stoneColor: 0xd8cfc0, trimColor: 0xa89a80, windowGlassColor: 0x2c3a48, windowWidth: 3.2, floorHeight: 3.8, litProbability: 0.35, warmth: 0.6, seed: 255.12 },
+    sign: { text: 'GRAND HYATT', w: 30, h: 3, y: 5, dx: -6, dz: 42.6, bg: '#3a2e20', fg: '#e8dcc0' },
+    parts: [
+      { type: 'box', w: 112, d: 32, h: 18, dx: -3, dz: 12 },
+      { type: 'box', w: 108, d: 14, h: 8, dx: -6, dz: 35 },
+      // Planted podium roof (the green hedge line in the photo) +
+      // pool disc raised onto it.
+      { type: 'box', w: 112, d: 32, h: 0.5, y0: 18, dx: -3, dz: 12, flat: { color: 0x4a7a3a, roughness: 0.9, metalness: 0.02 } },
+      { type: 'cylinder', r: 10, h: 0.6, y0: 18.5, dx: 0, dz: 12, flat: 0x7fa8b8 },
+      // West wing: lower slab + inset step box (stepped top, 100 m).
+      { type: 'box', w: 30, d: 28, h: 64, y0: 18, dx: -44.6, dz: -17.1 },
+      { type: 'box', w: 22, d: 20, h: 18, y0: 82, dx: -44.6, dz: -17.1 },
+      // East wing: same step.
+      { type: 'box', w: 27, d: 28, h: 64, y0: 18, dx: 40.9, dz: -17.1 },
+      { type: 'box', w: 19, d: 20, h: 18, y0: 82, dx: 40.9, dz: -17.1 },
+      // Centre bay: recessed dark glass (the concave bay in the
+      // photo, faked as a deep recess — no curved part exists),
+      // with pale floor bands across it. The bands are 2 m tall:
+      // at street level in the midday sun (NW sun, south faces in
+      // shadow) 1 m bands vanished and the bay read as a black
+      // void (probe-hyatt-south / probe-hyatt-close); the 2 m
+      // bands give the bay its floor rhythm from the south.
+      // Gate 2026-10-30: the bay sits at dz -17, NOT -20 — at -20
+      // its north face crossed the 5 m service loop's roadbed
+      // (the #42 test failed, 90 m2); -17 clears the loop's south
+      // edge by ~0.9 m, as the old slab did. The bands stay flush
+      // with the bay's south face (dz -9.5).
+      { type: 'box', w: 53, d: 16, h: 82, y0: 18, dx: -1.1, dz: -17, flat: { color: 0x232830, roughness: 0.25, metalness: 0.55 } },
+      { type: 'box', w: 53, d: 1, h: 2, y0: 38, dx: -1.1, dz: -9.5, flat: 0xe8dcc0 },
+      { type: 'box', w: 53, d: 1, h: 2, y0: 58, dx: -1.1, dz: -9.5, flat: 0xe8dcc0 },
+      { type: 'box', w: 53, d: 1, h: 2, y0: 78, dx: -1.1, dz: -9.5, flat: 0xe8dcc0 },
+      // Octagonal terracotta roof feature as a frustum pavilion
+      // (was a flat cylinder disc — read as a floating plate).
+      { type: 'frustum', wB: 24, dB: 24, wT: 16, dT: 16, h: 4, y0: 100, dx: -1, dz: -10, flat: 0xc98a6b },
+    ],
+    farParts: [
+      { type: 'box', w: 112, d: 32, h: 18, dx: -3, dz: 12 },
+      { type: 'box', w: 108, d: 14, h: 8, dx: -6, dz: 35 },
+      { type: 'box', w: 30, d: 28, h: 64, y0: 18, dx: -44.6, dz: -17.1 },
+      { type: 'box', w: 22, d: 20, h: 18, y0: 82, dx: -44.6, dz: -17.1 },
+      { type: 'box', w: 27, d: 28, h: 64, y0: 18, dx: 40.9, dz: -17.1 },
+      { type: 'box', w: 19, d: 20, h: 18, y0: 82, dx: 40.9, dz: -17.1 },
+      { type: 'box', w: 53, d: 16, h: 82, y0: 18, dx: -1.1, dz: -17, flat: { color: 0x232830, roughness: 0.25, metalness: 0.55 } },
+      { type: 'frustum', wB: 24, dB: 24, wT: 16, dT: 16, h: 4, y0: 100, dx: -1, dz: -10, flat: 0xc98a6b },
+    ],
+  },
+  {
+    // Issue #255: ATT 4 FUN, No. 12, Songshou Rd (opened 29 Aug
+    // 2011, architect Kris Yao — EN/zh Wikipedia): the 2010
+    // refit of New York New York (opened Mar 2000, American
+    // modern style). Floor counts CONFLICT: EN Wikipedia 10
+    // above / 3 below vs the zh-Wikipedia table's 11 above / 1
+    // below (B2–B3 parking) — adopted 11 x 4.2 m = 46 m
+    // ESTIMATED (flagged). OSM way 234589397, dark grey
+    // (#696969): a dark-glass curtain box, setback top floor,
+    // roof terraces, the 'ATT 4 FUN' facade wordmark. NO red
+    // steel frame — the red frame in the user's photo is A8's
+    // (see the A8 entry + xinyi255-evidence/REFERENCE_PACK.md).
+    // REWORK (2026-10-30, user verdict: the specials read as
+    // cubes): the night photo (xinyi255-rework-evidence/ref-att.jpg)
+    // shows the slab is only half the building — its signature is
+    // the SLOPED VISOR CROWN (a wide angled roof cap, high on the
+    // west, dropping to the east, with the LED edge glowing
+    // magenta/green along it) over an open lit GROUND COLONNADE
+    // and a red ATT block at the corner. The crown is a frustum
+    // with topDropX 3 (the +x edge drops; the east roof box sits
+    // lower, on the dropped side); the LED edge is a thin purple
+    // strip at the crown foot; the colonnade is 8 dark columns +
+    // a canopy slab on the south face; the red block is the
+    // ground-level brand block. Top stays 46 m (west roof box).
+    id: 'att-4-fun', name: 'ATT 4 FUN', nameZh: 'ATT 4 FUN',
+    lat: 25.035328, lon: 121.566041, realHeight: 46, estimated: true, color: 0x696969,
+    site: { w: 54, d: 88, dx: 0, dz: 0 },
+    facade: { kind: 'curtain', glassTint: 0x2e3438, frameTint: 0x1c1f22, windowWidth: 4.2, floorHeight: 4.2, litProbability: 0.5, warmth: 0.5, reflectivity: 0.6, seed: 255.13 },
+    sign: { text: 'ATT 4 FUN', w: 26, h: 4, y: 30, dx: 0, dz: 42.6, bg: '#101114', fg: '#f2f2f2', accent: '#c8372d' },
+    parts: [
+      { type: 'box', w: 50, d: 84, h: 39 },
+      // Sloped visor crown (was a flat setback box).
+      { type: 'frustum', wB: 50, dB: 84, wT: 44, dT: 60, h: 5, y0: 39, topDropX: 3 },
+      // LED crown edge (the magenta/green glow in the night photo).
+      { type: 'box', w: 51, d: 85, h: 0.6, y0: 39, flat: { color: 0x7a2a68, roughness: 0.4, metalness: 0.3 } },
+      // Roof boxes re-seated on the sloped crown (west high, east low).
+      // The west box is taller so the silhouette still tops at 46 m.
+      { type: 'box', w: 20, d: 14, h: 3.5, y0: 42.5, dx: -10, dz: -12 },
+      { type: 'box', w: 14, d: 10, h: 2, y0: 41, dx: 12, dz: 6 },
+      // Ground colonnade: 8 dark columns + canopy slab (south face).
+      { type: 'box', w: 52, d: 4, h: 0.8, y0: 6, dz: 42, flat: 0x1c1f22 },
+      { type: 'box', w: 0.8, d: 0.8, h: 6, dx: -21, dz: 42.5, flat: 0x1c1f22 },
+      { type: 'box', w: 0.8, d: 0.8, h: 6, dx: -15, dz: 42.5, flat: 0x1c1f22 },
+      { type: 'box', w: 0.8, d: 0.8, h: 6, dx: -9, dz: 42.5, flat: 0x1c1f22 },
+      { type: 'box', w: 0.8, d: 0.8, h: 6, dx: -3, dz: 42.5, flat: 0x1c1f22 },
+      { type: 'box', w: 0.8, d: 0.8, h: 6, dx: 3, dz: 42.5, flat: 0x1c1f22 },
+      { type: 'box', w: 0.8, d: 0.8, h: 6, dx: 9, dz: 42.5, flat: 0x1c1f22 },
+      { type: 'box', w: 0.8, d: 0.8, h: 6, dx: 15, dz: 42.5, flat: 0x1c1f22 },
+      { type: 'box', w: 0.8, d: 0.8, h: 6, dx: 21, dz: 42.5, flat: 0x1c1f22 },
+      // Red brand block at the SE corner (ground level).
+      { type: 'box', w: 6, d: 3, h: 4, dx: 20, dz: 42, flat: 0xc8372d },
+    ],
+    farParts: [
+      { type: 'box', w: 50, d: 84, h: 39 },
+      { type: 'frustum', wB: 50, dB: 84, wT: 44, dT: 60, h: 5, y0: 39, topDropX: 3 },
+    ],
+  },
+  {
+    // REWORK (2026-10-30, user verdict: the specials read as
+    // cubes): the night photo (xinyi255-rework-evidence/ref-bellavita.jpg)
+    // shows the palace is all facade rhythm, not a flat beige
+    // box — a ground-floor ARCADE of round arches with lit
+    // shopfronts, tall stone PILASTERS with arched windows
+    // between them, and a tall curved GLASS BAY at the corner.
+    // True arches are not in the part vocabulary, so the arcade
+    // reads as pier rhythm: a dark shopfront band + projecting
+    // stone piers + lintel on the west (Songren Rd) and south
+    // faces, tall pilasters above, and the SW corner pavilion
+    // replaced by a curved glass cylinder bay. The dome is
+    // flatter (h 6 -> 4, it read as a balloon) and deeper glass,
+    // on a stone curb ring. Tops stay 42 m (pavilions).
+    // Issue #255: Bellavita （寶麗廣塲）, No. 28, Songren Rd
+    // (opened 21 Sept 2009, 9 floors above / 4 below, 49,593 m²,
+    // architects P&T Group & Chu-Yuan Lee — EN Wikipedia).
+    // European palace style with an atrium fountain + palms;
+    // height ESTIMATED (flagged) 42 m (9 floors x ~4.5 m +
+    // corner pavilions). OSM way 274646859: the satellite shows
+    // the cream palace block, the central OVAL glass skylight
+    // dome and the patterned roof borders (see
+    // esri-xinyi-overlaid.jpg). NOT the Taichung "La Bella
+    // Vita" residential tower that shares search results.
+    id: 'bellavita', name: 'Bellavita', nameZh: '寶麗廣塲',
+    lat: 25.039680, lon: 121.567725, realHeight: 42, estimated: true, color: 0xddd3b8,
+    site: { w: 100, d: 68, dx: 0, dz: 0 },
+    facade: { kind: 'prewar', stoneColor: 0xddd3b8, trimColor: 0xb5a888, windowGlassColor: 0x3a4a52, windowWidth: 3.0, floorHeight: 4.5, litProbability: 0.4, warmth: 0.7, seed: 255.14 },
+    sign: { text: 'BELLAVITA', w: 34, h: 3.6, y: 12, dx: -48.6, dz: 0, rotY: -Math.PI / 2, bg: '#2e2a20', fg: '#e8d9a8' },
+    parts: [
+      { type: 'box', w: 96, d: 64, h: 36 },
+      { type: 'box', w: 98, d: 66, h: 2, y0: 36 },
+      { type: 'box', w: 14, d: 14, h: 42, dx: -40, dz: -24 },
+      { type: 'box', w: 14, d: 14, h: 42, dx: 40, dz: -24 },
+      { type: 'box', w: 14, d: 14, h: 42, dx: 40, dz: 24 },
+      // SW corner pavilion -> curved glass bay (the arched glass
+      // corner in the photo; the other three pavilions stay).
+      { type: 'cylinder', r: 8, h: 36, dx: -40, dz: 24, flat: { color: 0x3a4a52, roughness: 0.12, metalness: 0.5 } },
+      { type: 'cylinder', r: 8.5, h: 1, y0: 36, dx: -40, dz: 24, flat: 0xb5a888 },
+      // Ground-floor arcade, west face (Songren Rd): dark
+      // shopfront band + stone piers + lintel.
+      { type: 'box', w: 0.3, d: 64, h: 6, y0: 0.5, dx: -48.1, flat: 0x1e1a14 },
+      { type: 'box', w: 1.2, d: 1.2, h: 7, y0: 0, dx: -48.6, dz: -24, flat: 0xd8c49a },
+      { type: 'box', w: 1.2, d: 1.2, h: 7, y0: 0, dx: -48.6, dz: -12, flat: 0xd8c49a },
+      { type: 'box', w: 1.2, d: 1.2, h: 7, y0: 0, dx: -48.6, dz: 0, flat: 0xd8c49a },
+      { type: 'box', w: 1.2, d: 1.2, h: 7, y0: 0, dx: -48.6, dz: 12, flat: 0xd8c49a },
+      { type: 'box', w: 1.2, d: 1.2, h: 7, y0: 0, dx: -48.6, dz: 24, flat: 0xd8c49a },
+      { type: 'box', w: 1.2, d: 66, h: 1, y0: 7, dx: -48.6, flat: 0xd8c49a },
+      // Ground-floor arcade, south face: same rhythm.
+      { type: 'box', w: 96, d: 0.3, h: 6, y0: 0.5, dz: 32.1, flat: 0x1e1a14 },
+      { type: 'box', w: 1.2, d: 1.2, h: 7, y0: 0, dx: -36, dz: 32.6, flat: 0xd8c49a },
+      { type: 'box', w: 1.2, d: 1.2, h: 7, y0: 0, dx: -18, dz: 32.6, flat: 0xd8c49a },
+      { type: 'box', w: 1.2, d: 1.2, h: 7, y0: 0, dx: 0, dz: 32.6, flat: 0xd8c49a },
+      { type: 'box', w: 1.2, d: 1.2, h: 7, y0: 0, dx: 18, dz: 32.6, flat: 0xd8c49a },
+      { type: 'box', w: 1.2, d: 1.2, h: 7, y0: 0, dx: 36, dz: 32.6, flat: 0xd8c49a },
+      { type: 'box', w: 98, d: 1.2, h: 1, y0: 7, dz: 32.6, flat: 0xd8c49a },
+      // Tall stone pilasters, west face (between the arched
+      // windows in the photo).
+      { type: 'box', w: 1.5, d: 1.5, h: 26, y0: 8, dx: -48.6, dz: -18, flat: 0xd8c49a },
+      { type: 'box', w: 1.5, d: 1.5, h: 26, y0: 8, dx: -48.6, dz: -6, flat: 0xd8c49a },
+      { type: 'box', w: 1.5, d: 1.5, h: 26, y0: 8, dx: -48.6, dz: 6, flat: 0xd8c49a },
+      { type: 'box', w: 1.5, d: 1.5, h: 26, y0: 8, dx: -48.6, dz: 18, flat: 0xd8c49a },
+      // Tall stone pilasters, south face.
+      { type: 'box', w: 1.5, d: 1.5, h: 26, y0: 8, dx: -27, dz: 32.6, flat: 0xd8c49a },
+      { type: 'box', w: 1.5, d: 1.5, h: 26, y0: 8, dx: -9, dz: 32.6, flat: 0xd8c49a },
+      { type: 'box', w: 1.5, d: 1.5, h: 26, y0: 8, dx: 9, dz: 32.6, flat: 0xd8c49a },
+      { type: 'box', w: 1.5, d: 1.5, h: 26, y0: 8, dx: 27, dz: 32.6, flat: 0xd8c49a },
+      // Oval glass skylight dome: flatter + deeper glass, on a
+      // stone curb ring (was a pale balloon).
+      { type: 'cylinder', r: 27, rz: 18, h: 1, y0: 36, flat: 0xb5a888 },
+      { type: 'dome', rx: 26, rz: 17, h: 4, y0: 36, flat: { color: 0x7fa8a0, roughness: 0.15, metalness: 0.5 } },
+    ],
+    farParts: [
+      { type: 'box', w: 96, d: 64, h: 36 },
+      { type: 'box', w: 98, d: 66, h: 2, y0: 36 },
+      { type: 'box', w: 14, d: 14, h: 42, dx: -40, dz: -24 },
+      { type: 'box', w: 14, d: 14, h: 42, dx: 40, dz: -24 },
+      { type: 'box', w: 14, d: 14, h: 42, dx: 40, dz: 24 },
+      { type: 'cylinder', r: 8, h: 36, dx: -40, dz: 24, flat: { color: 0x3a4a52, roughness: 0.12, metalness: 0.5 } },
+      { type: 'dome', rx: 26, rz: 17, h: 4, y0: 36, flat: { color: 0x7fa8a0, roughness: 0.15, metalness: 0.5 } },
     ],
   },
   {
@@ -1403,24 +1858,24 @@ const LANDMARK_STRUCTURES = [
       // wall yields where that modelled bed crosses it. The
       // road-overlap audit covers these parts like any other —
       // they must stay at 0.000 m².
-      { type: 'box', w: 142.9, d: 0.8, h: 3, dx: -385.1, dz: -305.1, rotY: 1.8592, flat: 0xe9e4d4 },
-      { type: 'box', w: 142.9, d: 1.7, h: 0.55, y0: 3, dx: -385.1, dz: -305.1, rotY: 1.8592, flat: 0x2c4a7c },
-      { type: 'box', w: 157.5, d: 0.8, h: 3, dx: -438.7, dz: -124.6, rotY: 1.8592, flat: 0xe9e4d4 },
-      { type: 'box', w: 157.5, d: 1.7, h: 0.55, y0: 3, dx: -438.7, dz: -124.6, rotY: 1.8592, flat: 0x2c4a7c },
-      { type: 'box', w: 260.5, d: 0.8, h: 3, dx: -342.4, dz: 20.4, rotY: 0.4872, flat: 0xe9e4d4 },
-      { type: 'box', w: 260.5, d: 1.7, h: 0.55, y0: 3, dx: -342.4, dz: 20.4, rotY: 0.4872, flat: 0x2c4a7c },
-      { type: 'box', w: 138.7, d: 0.8, h: 3, dx: -151.9, dz: 121.4, rotY: 0.4872, flat: 0xe9e4d4 },
-      { type: 'box', w: 138.7, d: 1.7, h: 0.55, y0: 3, dx: -151.9, dz: 121.4, rotY: 0.4872, flat: 0x2c4a7c },
-      { type: 'box', w: 171.8, d: 0.8, h: 3, dx: -0.6, dz: 201.5, rotY: 0.4872, flat: 0xe9e4d4 },
-      { type: 'box', w: 171.8, d: 1.7, h: 0.55, y0: 3, dx: -0.6, dz: 201.5, rotY: 0.4872, flat: 0x2c4a7c },
-      { type: 'box', w: 336.7, d: 0.8, h: 3, dx: 164.3, dz: 91.6, rotY: -1.0704, flat: 0xe9e4d4 },
-      { type: 'box', w: 336.7, d: 1.7, h: 0.55, y0: 3, dx: 164.3, dz: 91.6, rotY: -1.0704, flat: 0x2c4a7c },
-      { type: 'box', w: 176.3, d: 0.8, h: 3, dx: 164.4, dz: -104.8, rotY: -2.6617, flat: 0xe9e4d4 },
-      { type: 'box', w: 176.3, d: 1.7, h: 0.55, y0: 3, dx: 164.4, dz: -104.8, rotY: -2.6617, flat: 0x2c4a7c },
-      { type: 'box', w: 138.2, d: 0.8, h: 3, dx: 10.7, dz: -184.8, rotY: -2.6617, flat: 0xe9e4d4 },
-      { type: 'box', w: 138.2, d: 1.7, h: 0.55, y0: 3, dx: 10.7, dz: -184.8, rotY: -2.6617, flat: 0x2c4a7c },
-      { type: 'box', w: 330.3, d: 0.8, h: 3, dx: -211.3, dz: -300.3, rotY: -2.6617, flat: 0xe9e4d4 },
-      { type: 'box', w: 330.3, d: 1.7, h: 0.55, y0: 3, dx: -211.3, dz: -300.3, rotY: -2.6617, flat: 0x2c4a7c },
+      { type: 'box', w: 142.9, d: 0.8, h: 3, dx: -385.1, dz: -305.1, rotY: 1.8592, flat: 0xe9e4d4, despawnFar: true },
+      { type: 'box', w: 142.9, d: 1.7, h: 0.55, y0: 3, dx: -385.1, dz: -305.1, rotY: 1.8592, flat: 0x2c4a7c, despawnFar: true },
+      { type: 'box', w: 157.5, d: 0.8, h: 3, dx: -438.7, dz: -124.6, rotY: 1.8592, flat: 0xe9e4d4, despawnFar: true },
+      { type: 'box', w: 157.5, d: 1.7, h: 0.55, y0: 3, dx: -438.7, dz: -124.6, rotY: 1.8592, flat: 0x2c4a7c, despawnFar: true },
+      { type: 'box', w: 260.5, d: 0.8, h: 3, dx: -342.4, dz: 20.4, rotY: 0.4872, flat: 0xe9e4d4, despawnFar: true },
+      { type: 'box', w: 260.5, d: 1.7, h: 0.55, y0: 3, dx: -342.4, dz: 20.4, rotY: 0.4872, flat: 0x2c4a7c, despawnFar: true },
+      { type: 'box', w: 138.7, d: 0.8, h: 3, dx: -151.9, dz: 121.4, rotY: 0.4872, flat: 0xe9e4d4, despawnFar: true },
+      { type: 'box', w: 138.7, d: 1.7, h: 0.55, y0: 3, dx: -151.9, dz: 121.4, rotY: 0.4872, flat: 0x2c4a7c, despawnFar: true },
+      { type: 'box', w: 171.8, d: 0.8, h: 3, dx: -0.6, dz: 201.5, rotY: 0.4872, flat: 0xe9e4d4, despawnFar: true },
+      { type: 'box', w: 171.8, d: 1.7, h: 0.55, y0: 3, dx: -0.6, dz: 201.5, rotY: 0.4872, flat: 0x2c4a7c, despawnFar: true },
+      { type: 'box', w: 336.7, d: 0.8, h: 3, dx: 164.3, dz: 91.6, rotY: -1.0704, flat: 0xe9e4d4, despawnFar: true },
+      { type: 'box', w: 336.7, d: 1.7, h: 0.55, y0: 3, dx: 164.3, dz: 91.6, rotY: -1.0704, flat: 0x2c4a7c, despawnFar: true },
+      { type: 'box', w: 176.3, d: 0.8, h: 3, dx: 164.4, dz: -104.8, rotY: -2.6617, flat: 0xe9e4d4, despawnFar: true },
+      { type: 'box', w: 176.3, d: 1.7, h: 0.55, y0: 3, dx: 164.4, dz: -104.8, rotY: -2.6617, flat: 0x2c4a7c, despawnFar: true },
+      { type: 'box', w: 138.2, d: 0.8, h: 3, dx: 10.7, dz: -184.8, rotY: -2.6617, flat: 0xe9e4d4, despawnFar: true },
+      { type: 'box', w: 138.2, d: 1.7, h: 0.55, y0: 3, dx: 10.7, dz: -184.8, rotY: -2.6617, flat: 0x2c4a7c, despawnFar: true },
+      { type: 'box', w: 330.3, d: 0.8, h: 3, dx: -211.3, dz: -300.3, rotY: -2.6617, flat: 0xe9e4d4, despawnFar: true },
+      { type: 'box', w: 330.3, d: 1.7, h: 0.55, y0: 3, dx: -211.3, dz: -300.3, rotY: -2.6617, flat: 0x2c4a7c, despawnFar: true },
       // Issue #138: the Liberty Square Arch at the west
       // wall's gate gap (published 30 m tall x 80 m wide,
       // five bays / six pillars, blue tile roofs — zh-
@@ -2410,6 +2865,10 @@ function resolveLandmark(def, originLatLon) {
     parts: def.parts,
     // Issue #257: simplified far massing for the LOD swap (null
     // for entries without one).
+    // Issue #255: the simplified far massing (farParts), pure
+    // registry data like parts — the builder swaps to it past
+    // the LOD distance. Structures without farParts render
+    // their full parts at every distance, as before.
     farParts: def.farParts || null,
     // Issue #57: the structure's facade treatment + optional sign,
     // pure registry data (the builders turn them into materials).
@@ -6504,6 +6963,41 @@ function mergePartGeometries(THREE, geometries) {
   return merged;
 }
 
+// Issue #255: far despawn for fence-like site structures (the
+// CKS Memorial Hall perimeter wall runs) and the Xinyi
+// skybridges. A 3 m wall run at the despawn distance spans
+// ~1–2 px — measured from frames, see
+// xinyi255-evidence/MEASUREMENT.md. Hysteresis band, the #244
+// pattern: hide past FAR, show again inside NEAR.
+export const DESPAWN_FAR_M = 1500;
+export const DESPAWN_NEAR_M = 1300;
+
+// Per-frame far despawn. `entries` carry the toggled object, its
+// plan position and its current state — pure visibility flags,
+// no geometry work per frame. Shared by the CKS fence runs
+// (taipei-buildings.js, stashed on the landmark group) and the
+// skybridge chains (taipei-skybridges.js, stashed on the
+// skybridge group); the two updaters below are thin wrappers
+// over this core so both stay testable with fake objects.
+export function updateDespawnEntries(entries, camX, camZ) {
+  for (const e of entries) {
+    const dx = e.x - camX, dz = e.z - camZ;
+    const d2 = dx * dx + dz * dz;
+    if (e.shown && d2 > DESPAWN_FAR_M * DESPAWN_FAR_M) {
+      e.shown = false;
+      e.mesh.visible = false;
+    } else if (!e.shown && d2 < DESPAWN_NEAR_M * DESPAWN_NEAR_M) {
+      e.shown = true;
+      e.mesh.visible = true;
+    }
+  }
+}
+
+export function updateDespawnGroup(group, camX, camZ) {
+  const entries = group && group.userData ? group.userData.despawn : null;
+  if (entries && entries.length) updateDespawnEntries(entries, camX, camZ);
+}
+
 // Per-frame far swap for school campuses. `entries` is the array the
 // builder stashes on the group (see createTaipeiLandmarkTowers); each
 // entry carries its near/far tree groups, its plan position and its
@@ -6529,7 +7023,7 @@ export function updateSchoolLodGroup(group, camX, camZ) {
   if (entries && entries.length) updateSchoolLod(entries, camX, camZ);
 }
 
-// Issue #257: the same 700/600 m swap for registry specials with
+// Issues #255/#257: the same 700/600 m swap for registry specials with
 // farParts — the entry's near subgroup (full detail) hides past
 // SCHOOL_LOD_FAR_M and its far subgroup (simplified massing)
 // shows; the massing itself never despawns, only simplifies.
@@ -6651,6 +7145,7 @@ export function createTaipeiLandmarkTowers(THREE, plan, factories) {
   const farDomeGeo = new THREE.SphereGeometry(1, SCHOOL_LOD_FAR_DOME_WIDTH_SEGMENTS, SCHOOL_LOD_FAR_DOME_HEIGHT_SEGMENTS, 0, Math.PI * 2, 0, Math.PI / 2);
   const lodEntries = [];
   const specialLodEntries = [];
+  const despawnEntries = [];
   for (const s of plan.landmarkTowers) {
     const mat = landmarkFacadeMaterial(THREE, factories, s.facade, s.color, false);
     const soupMat = landmarkFacadeMaterial(THREE, factories, s.facade, s.color, true);
@@ -6679,6 +7174,13 @@ export function createTaipeiLandmarkTowers(THREE, plan, factories) {
     // plinth, shaft, roof and (for schools) the instanced trees
     // all move together. Unlifted structures sit at grade 0.
     if (s.lift) sub.position.y = s.lift;
+    // Issue #255: fence-like parts (despawnFar) leave the merged
+    // path — one group per run (parts sharing a centre + rotY),
+    // toggled whole by the despawn updater. Their geometry is
+    // unchanged (same constructors, same transforms); only the
+    // delivery differs, and runs are never merged across runs
+    // so each run despawns on its own distance.
+    const fenceRuns = new Map();
     // Issue #244: bucket mergeable parts per material object, and
     // divert school trees into per-campus instanced meshes. Meshes
     // are still built exactly as before (same constructors, same
@@ -6759,6 +7261,15 @@ export function createTaipeiLandmarkTowers(THREE, plan, factories) {
         mesh = g;
       }
       if (!mesh) continue;
+      if (part.despawnFar) {
+        mesh.castShadow = true;
+        mesh.receiveShadow = true;
+        const key = `${part.dx || 0}|${part.dz || 0}|${part.rotY || 0}`;
+        let run = fenceRuns.get(key);
+        if (!run) fenceRuns.set(key, (run = { meshes: [], x: s.x + (part.dx || 0), z: s.z + (part.dz || 0) }));
+        run.meshes.push(mesh);
+        continue;
+      }
       mesh.castShadow = true;
       mesh.receiveShadow = true;
       if (treeBuckets && (isTreeTrunk(part) || isTreeCanopy(part))) {
@@ -6826,8 +7337,18 @@ export function createTaipeiLandmarkTowers(THREE, plan, factories) {
     }
     const signMesh = landmarkSignMesh(THREE, s);
     if (signMesh) sub.add(signMesh);
+    if (fenceRuns.size) {
+      let runIndex = 0;
+      for (const run of fenceRuns.values()) {
+        const runGroup = new THREE.Group();
+        runGroup.name = `${s.id}-fence-${runIndex++}`;
+        for (const m of run.meshes) runGroup.add(m);
+        group.add(runGroup);
+        despawnEntries.push({ mesh: runGroup, x: run.x, z: run.z, shown: true });
+      }
+    }
     if (s.farParts && s.farParts.length) {
-      // Issue #257: simplified far massing — flat materials only,
+      // Issues #255/#257: simplified far massing — flat materials only,
       // no sign, no thin members. The near subgroup hides past
       // the LOD distance and this one shows; the structure
       // itself stays visible (the #240 rule for specials).
@@ -6883,5 +7404,6 @@ export function createTaipeiLandmarkTowers(THREE, plan, factories) {
   }
   group.userData.schoolLod = lodEntries;
   group.userData.specialLod = specialLodEntries;
+  group.userData.despawn = despawnEntries;
   return group;
 }
