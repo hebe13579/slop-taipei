@@ -45,7 +45,8 @@ import { ASPHALT_LIFT } from './taipei-viaduct.js'; // three-free geometry const
 // The switch: the settings gear (issue #218 rows, #252) — on/off, density preset,
 // spawn-range preset — resolved by js/settings.js (URL > stored > default off).
 // The legacy ?traffic= flag still works: ?traffic=1 (pool of 200, the upstream NYC size)
-// or ?traffic=<n> (pool of n, clamped 10..400). Absent/0/off = no traffic system at all,
+// or ?traffic=<n> (pool of n, clamped 10..800 — the #281 slider maximum).
+// Absent/0/off = no traffic system at all,
 // the pre-#210 stub — boot behaviour is byte-identical with the flag off.
 
 const DRIVABLE = new Set([
@@ -507,7 +508,7 @@ export function taipeiTrafficEnv(carCount, opts = {}) {
 }
 
 // ?traffic absent / 0 / off -> 0 (no traffic). 1 / on / true -> 200 (upstream pool size).
-// A number clamps to 10..400.
+// A number clamps to 10..800 (issue #281: the slider maximum is the flag's ceiling now).
 export function trafficCountFromSearch(search) {
   const v = new URLSearchParams(search || '').get('traffic');
   if (v === null) return 0;
@@ -515,5 +516,5 @@ export function trafficCountFromSearch(search) {
   if (t === '' || t === '1' || t === 'on' || t === 'true') return 200;
   const n = Number(t);
   if (!isFinite(n) || n <= 0) return 0;
-  return Math.max(10, Math.min(400, Math.round(n)));
+  return Math.max(10, Math.min(800, Math.round(n)));
 }
