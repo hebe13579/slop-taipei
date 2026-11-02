@@ -293,7 +293,10 @@ test('settings wiring: main.js resolves + passes settings, boot exposes the runt
   assert.match(mainSource, /resolveSettings\(\{/);
   assert.match(mainSource, /initSettingsPanel\(\{/);
   assert.match(mainSource, /settings: \{ density: settings\.density, specials: settings\.specials, drape: settings\.drape \}/);
-  assert.match(bootSource, /planTaipeiBuildings\(geo, \{ density: bootSettings\.density, groundAt: drapeHeight \}\)/);
+  // Sandbox (?sandbox=): the boot also passes opts.bounds (the sandbox
+  // box; SANDBOX_BOX is null without the param, so the call is the
+  // pre-sandbox call exactly — the bounds filter is a no-op then).
+  assert.match(bootSource, /planTaipeiBuildings\(geo, \{ density: bootSettings\.density, groundAt: drapeHeight, bounds: SANDBOX_BOX \|\| undefined \}\)/);
   assert.match(bootSource, /setDensity\(preset\)/);
   assert.match(bootSource, /setSpecialsVisible\(visible\)/);
   assert.match(bootSource, /taipeiSettings,/);
