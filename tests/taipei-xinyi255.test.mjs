@@ -80,8 +80,12 @@ test('the five #255 structures are registered with the reference-pack facts', ()
 test('Grand Hyatt south porte-cochere has columns + canopy as geometry (#294)', () => {
   const hyatt = byId.get('grand-hyatt-taipei');
   assert.ok(hyatt);
-  // 13 rework parts + 10 porte-cochere parts (canopy, glass wall, 8 columns).
-  assert.equal(hyatt.parts.length, 23, 'canopy + glass wall + 8 columns on top of the #255 rework');
+  // 13 rework parts + 10 porte-cochere parts (canopy, glass wall, 8 columns)
+  // + 9 north-base + loggia parts (#291: 5 base blocks, canopy, 2 columns,
+  // glass wall). Re-pinned 23 -> 32 at the #291 re-gate (2026-11-01):
+  // the #294 geometry assertions below are unchanged — only the count
+  // moved, by the PR's own 9 parts.
+  assert.equal(hyatt.parts.length, 32, 'canopy + glass wall + 8 columns on top of the #255 rework');
   const canopy = hyatt.parts.find((p) => p.type === 'box' && p.w === 76 && p.d === 10 && p.y0 === 7);
   assert.ok(canopy, 'pale-stone canopy slab projects 10 m south of the entrance face');
   assert.equal(canopy.dx, -6, 'canopy centred on the entrance block');
@@ -96,7 +100,10 @@ test('Grand Hyatt south porte-cochere has columns + canopy as geometry (#294)', 
     '9.5 m column spacing, half-bay offset so a gap — not a column — stands on the sign axis (dx -6)');
   assert.ok(hyatt.sign && hyatt.sign.text === 'GRAND HYATT' && hyatt.sign.y === 5,
     'entrance wordmark untouched, still on the face below the canopy');
-  assert.equal(hyatt.farParts.length, 8, 'far version keeps the bare block (ATT colonnade precedent: near-only detail)');
+  // Re-pinned 8 -> 13 at the #291 re-gate (2026-11-01): the 5 north-base
+  // blocks are storey mass and survive into the far version; the loggia
+  // dressing (canopy, columns, glass) drops, as the bands and pool do.
+  assert.equal(hyatt.farParts.length, 13, 'far version keeps the bare block (ATT colonnade precedent: near-only detail)');
   assert.equal(Math.max(...hyatt.parts.map((p) => (p.y0 || 0) + p.h)), 104, 'top stays 104 m');
 });
 
