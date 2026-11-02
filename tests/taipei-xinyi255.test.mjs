@@ -74,7 +74,37 @@ test('the five #255 structures are registered with the reference-pack facts', ()
   // the National Taiwan Museum (#257) landed on main after this PR's
   // base, so 39 + 4 new structures = 43. The four new sites are
   // unchanged (Hall 1, Hyatt, ATT, Bellavita).
-  assert.equal(plan.landmarkTowers.length, 43, '39 + 4 new structures');
+  assert.equal(plan.landmarkTowers.length, 47, '43 + 4 new structures (#289)');
+});
+
+test('Grand Hyatt south porte-cochere has columns + canopy as geometry (#294)', () => {
+  const hyatt = byId.get('grand-hyatt-taipei');
+  assert.ok(hyatt);
+  // 13 rework parts + 10 porte-cochere parts (canopy, glass wall, 8 columns)
+  // + 9 north-base + loggia parts (#291: 5 base blocks, canopy, 2 columns,
+  // glass wall). Re-pinned 23 -> 32 at the #291 re-gate (2026-11-01):
+  // the #294 geometry assertions below are unchanged — only the count
+  // moved, by the PR's own 9 parts.
+  assert.equal(hyatt.parts.length, 32, 'canopy + glass wall + 8 columns on top of the #255 rework');
+  const canopy = hyatt.parts.find((p) => p.type === 'box' && p.w === 76 && p.d === 10 && p.y0 === 7);
+  assert.ok(canopy, 'pale-stone canopy slab projects 10 m south of the entrance face');
+  assert.equal(canopy.dx, -6, 'canopy centred on the entrance block');
+  assert.equal(canopy.dz, 47, 'canopy spans the face (dz 42) to 10 m out (dz 52)');
+  assert.equal(canopy.h, 0.8, 'canopy clears the sign (sign spans y 3.5..6.5)');
+  const glass = hyatt.parts.find((p) => p.type === 'box' && p.w === 70 && p.d === 1 && p.h === 7);
+  assert.ok(glass, 'dark-glass lobby wall recessed behind the columns');
+  const columns = hyatt.parts.filter((p) => p.type === 'box' && p.w === 1.5 && p.d === 1.5 && p.h === 7 && p.dz === 51);
+  assert.equal(columns.length, 8, 'eight stone columns under the canopy south edge');
+  const dxs = columns.map((p) => p.dx).sort((a, b) => a - b);
+  assert.deepEqual(dxs, [-39.25, -29.75, -20.25, -10.75, -1.25, 8.25, 17.75, 27.25],
+    '9.5 m column spacing, half-bay offset so a gap — not a column — stands on the sign axis (dx -6)');
+  assert.ok(hyatt.sign && hyatt.sign.text === 'GRAND HYATT' && hyatt.sign.y === 5,
+    'entrance wordmark untouched, still on the face below the canopy');
+  // Re-pinned 8 -> 13 at the #291 re-gate (2026-11-01): the 5 north-base
+  // blocks are storey mass and survive into the far version; the loggia
+  // dressing (canopy, columns, glass) drops, as the bands and pool do.
+  assert.equal(hyatt.farParts.length, 13, 'far version keeps the bare block (ATT colonnade precedent: near-only detail)');
+  assert.equal(Math.max(...hyatt.parts.map((p) => (p.y0 || 0) + p.h)), 104, 'top stays 104 m');
 });
 
 test('A4 keeps its geometry, goes glassier, and carries NO red frame', () => {
@@ -160,16 +190,22 @@ test('far versions: simplified massing, storey silhouette kept, never culled', (
     assert.ok(farTop <= nearTop, `${s.id}: far massing never exceeds the near silhouette`);
   }
   const withFar = plan.landmarkTowers.filter((s) => s.farParts).map((s) => s.id).sort();
-  // Gate 2026-10-30: + national-taiwan-museum — it landed on main
-  // (#275) after this PR's base and carries its own designed far
-  // version (merged slab + hall + drum + dome); the six #255
-  // structures are unchanged.
+  // Issue #283 (2026-10-30): the 16 reworked live Xinyi specials
+  // now carry farParts too, so the far-version checks cover them.
   assert.deepEqual(withFar, [
-    'att-4-fun', 'bellavita', 'grand-hyatt-taipei',
-    'national-taiwan-museum',
-    'shin-kong-mitsukoshi-a4', 'shin-kong-mitsukoshi-a8',
-    'twtc-exhibition-hall-1',
-  ], 'exactly the six #255 structures + the museum carry far versions');
+    'att-4-fun', 'bellavita', 'cathay-financial-center',
+    'cathay-landmark', 'eslite-spectrum-songyan',
+    'farglory-financial-center', 'four-seasons-hotel-taipei',
+    'fubon-xinyi-a25', 'grand-hyatt-taipei',
+    'nan-shan-xinyi-a21', 'national-taiwan-museum',
+    'shin-kong-mitsukoshi-a11', 'shin-kong-mitsukoshi-a4',
+    'shin-kong-mitsukoshi-a8', 'shin-kong-mitsukoshi-a9',
+    'songshan-cultural-park', 'taipei-city-hall', 'taipei-dome',
+    'taipei-nan-shan-plaza', 'tao-zhu-yin-yuan', 'the-sky-taipei',
+    'twtc-exhibition-hall-1', 'twtc-international-trade-building',
+    'uni-president-international-tower', 'vieshow-cinemas-xinyi',
+    'w-taipei', 'walsin-lihwa-building',
+  ], 'exactly the six #255 structures + the museum + the four #289 structures + the sixteen #283 reworks carry far versions');
 });
 
 test('special LOD swap: hysteresis band, sticky inside it, swaps both ways', () => {
@@ -253,8 +289,8 @@ test('plan census: four new sites displace only their own lots', () => {
   // between them; A4/A8 already excluded theirs. Proven by the
   // cross-run in the gate notes (old registry on new code
   // reproduces 68,570 — the delta is the sites only).
-  assert.equal(plan.lots.length, 68538, 'lot count re-pinned for the four new sites');
+  assert.equal(plan.lots.length, 68482, 'lot count re-pinned for the four new sites (#289: 68,538 − 56 site-excluded lots net)');
   // Gate 2026-10-30: re-pinned 42 -> 43, same reason as above — main's
   // registry is 39 after #257 (museum), + 4 new structures.
-  assert.equal(plan.landmarkTowers.length, 43);
+  assert.equal(plan.landmarkTowers.length, 47);
 });

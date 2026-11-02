@@ -619,6 +619,15 @@ test('landmark structures: true positions and heights, sites kept clear', (t) =>
     'grand-hyatt-taipei': { h: 104, x: -238.4, z: -255.9 },
     'att-4-fun': { h: 46, x: 105.1, z: -257.9 },
     'bellavita': { h: 42, x: 275.0, z: -740.0 },
+    // Batch 12 (issue #289): the Xinyi four. A21 232.7 m, Cathay
+    // 105 m and Walsin 134.6 m are PUBLISHED heights; VieShow 20 m
+    // is ESTIMATED from its 3-storey west block (no published
+    // overall height found) and flagged as such in the registry.
+    // Positions are the resolved registry pins.
+    'nan-shan-xinyi-a21': { h: 232.7, x: -30.3, z: -288.0 },
+    'cathay-financial-center': { h: 105, x: 420.7, z: -576.6 },
+    'walsin-lihwa-building': { h: 134.6, x: 112.6, z: -626.9 },
+    'vieshow-cinemas-xinyi': { h: 20, x: 197.8, z: -258.8 },
   };
   assert.equal(plan.landmarkTowers.length, Object.keys(expected).length, 'all verified structures present');
   const partTop = (p) => (p.y0 || 0) + p.h + (p.type === 'ridge' ? p.ridgeH : 0);
@@ -713,9 +722,21 @@ test('landmark batch 3: two-slab Cathay rebuild, W, Songshan, Eslite, Arena', ()
   assert.ok(cathay, 'cathay landmark registered');
   const podium = cathay.parts.find((p) => p.type === 'cylinder');
   assert.ok(podium && podium.rz < podium.r, 'podium is the curved-front ellipse');
-  const slabs = cathay.parts.filter((p) => p.type === 'box');
+  // Issue #283 (2026-10-30): the slab count takes the tall boxes
+  // only — the setback crown caps are boxes too (the renderer
+  // centres frustums on the pin, so a frustum cap would render
+  // over the pin instead of its offset slab).
+  const slabs = cathay.parts.filter((p) => p.type === 'box' && p.h > 100);
   assert.equal(slabs.length, 2, 'two combined slabs, no staircase crown');
-  const tops = slabs.map(partTop).sort((a, b) => b - a);
+  // Issue #283 (2026-10-30): each slab now carries a setback
+  // box crown cap — the box shortens by the cap height, so a
+  // slab's top is its cap's top, not the box's. The massing intent
+  // is unchanged: two slabs, main at 212, secondary one step below.
+  const slabTops = slabs.map((s) => {
+    const cap = cathay.parts.find((p) => p.type === 'box' && (p.y0 || 0) === partTop(s));
+    return cap ? partTop(cap) : partTop(s);
+  }).sort((a, b) => b - a);
+  const tops = slabTops;
   assert.equal(tops[0], 212, 'main slab tops out at the published 212 m');
   assert.ok(tops[1] < tops[0] && tops[1] > 180, 'secondary slab is one clean step below');
   const [west, east] = slabs.slice().sort((a, b) => (a.dx || 0) - (b.dx || 0));
@@ -726,8 +747,17 @@ test('landmark batch 3: two-slab Cathay rebuild, W, Songshan, Eslite, Arena', ()
   const w = byId('w-taipei');
   assert.ok(w, 'w taipei registered');
   assert.equal(w.parts.filter((p) => p.type === 'box' && !p.y0).length, 3, 'podium massed as three blocks around the station court');
-  const tower = w.parts.find((p) => p.y0 === 17);
-  assert.ok(tower && partTop(tower) === 151, 'tower rises from the podium to 151 m');
+  // Issue #283 (2026-10-30): the tower box now tops at 143 under a
+  // setback box crown cap that tops at 151 — the tower still
+  // rises from the podium to the published 151 m. The find takes
+  // the tall box (the #283 fin strips also sit at y0 17). The cap
+  // is a box, not a frustum: the renderer centres frustums on the
+  // landmark pin, so a frustum cap would render over the pin
+  // instead of the tower (and fail the #42 overlap audit).
+  const tower = w.parts.find((p) => p.y0 === 17 && p.type === 'box' && p.h > 100);
+  assert.ok(tower, 'tower rises from the east podium block');
+  const wCap = w.parts.find((p) => p.type === 'box' && (p.y0 || 0) === partTop(tower));
+  assert.ok(wCap && partTop(wCap) === 151, 'tower + crown cap top out at 151 m');
   const eastPodium = w.parts.find((p) => !p.y0 && p.dx === tower.dx);
   assert.ok(eastPodium, 'tower stands on the east podium block');
 
@@ -735,7 +765,10 @@ test('landmark batch 3: two-slab Cathay rebuild, W, Songshan, Eslite, Arena', ()
   // chimney as the tallest part.
   const park = byId('songshan-cultural-park');
   assert.ok(park, 'songshan park registered');
-  const chimney = park.parts.find((p) => p.type === 'cylinder');
+  // Issue #283 (2026-10-30): the west portico added small cylinders
+  // (columns, top 4 m) before the chimney in the parts list, so the
+  // chimney is the TALLEST cylinder now, not the first one.
+  const chimney = park.parts.filter((p) => p.type === 'cylinder').sort((a, b) => partTop(b) - partTop(a))[0];
   assert.ok(chimney && partTop(chimney) === 30, 'chimney is the tallest part at 30 m');
   assert.ok(park.parts.filter((p) => p.type === 'box').length >= 2, 'factory hall and boiler room both massed');
   assert.ok(park.parts.some((p) => p.type === 'ridge'), 'hall carries its ridge roof');
@@ -773,7 +806,7 @@ test('landmark batch 3: two-slab Cathay rebuild, W, Songshan, Eslite, Arena', ()
       && s.id !== 'shipai-junior-high' && s.id !== 'qingjiang-elementary'
       && s.id !== 'jianguo-high-school' && s.id !== 'national-palace-museum'
       && s.id !== 'twtc-exhibition-hall-1' && s.id !== 'att-4-fun'
-      && s.id !== 'bellavita') {
+      && s.id !== 'bellavita' && s.id !== 'vieshow-cinemas-xinyi') {
       assert.equal(s.estimated, false, `${s.id} height is published, not estimated`);
     }
   }
@@ -1236,7 +1269,7 @@ test('taiwan types: family zoning, distribution and rooftop clamp', (t) => {
   // the glass band and re-roll to the masonry/Taiwan families.
   // facadeMatFor is unedited; the census moves because the
   // heights do: glass 8,203 − 362 = 7,841.
-  assert.equal(glass, 7206, 'glass family counts after #136 + #139 + #135 + #142, composed with #134 + #137, #144, #165, #124, #166, #186, #226, #213, #219 and #221 (campus clearing removes 628 glass lots) and #255 (the 4 registry sites exclude 32 lots, 7 of them glass, no kept-lot re-rolls — lot-by-lot diff on this tree)');
+  assert.equal(glass, 7191, 'glass family counts after #136 + #139 + #135 + #142, composed with #134 + #137, #144, #165, #124, #166, #186, #226, #213, #219 and #221 (campus clearing removes 628 glass lots) and #255 (the 4 registry sites exclude 32 lots, 7 of them glass, no kept-lot re-rolls — lot-by-lot diff on this tree) and #289 (the 4 registry sites exclude 56 lots net, 15 of them glass — 6/5/4 across families 3/4/5, net of the 2 re-seats that land in 4/5 — lot-by-lot diff on this tree)');
   // (The #186 PR2 branch carried its own stale-base version of
   // this composition — glass 4,120 -> 4,419 on the pre-#124
   // plan — which the merge union initially kept as a duplicate
@@ -1394,7 +1427,7 @@ test('arcade parts: recessed core and full-perimeter colonnade', (t) => {
   const f7 = opts.lots.filter((l) => l.mat === 7);
   const withArcade = f7.filter((l) => l.arcade);
   const eligible = f7.filter((l) => (l.x1 - l.x0) >= 11 && (l.z1 - l.z0) >= 11);
-  assert.equal(f7.length, 6685, 'F7 census after #124, composed with #166, #186, #226, #213, #219 and #221 (campus clearing removes 519 F7 lots) and #255 (the 4 registry sites exclude 32 lots, 1 of them F7, and 1 kept lot leaves F7 — lot-by-lot diff on this tree)');
+  assert.equal(f7.length, 6683, 'F7 census after #124, composed with #166, #186, #226, #213, #219 and #221 (campus clearing removes 519 F7 lots) and #255 (the 4 registry sites exclude 32 lots, 1 of them F7, and 1 kept lot leaves F7 — lot-by-lot diff on this tree) and #289 (the 4 registry sites exclude 56 lots net, 2 of them F7, no kept lot leaves F7 — lot-by-lot diff on this tree)');
   assert.equal(withArcade.length, eligible.length, `every size-eligible F7 lot carries the arcade (${withArcade.length}/${eligible.length})`);
   const totalCols = withArcade.reduce((s, l) => s + l.arcade.columns.length, 0);
   assert.ok(totalCols / withArcade.length < 30, `columns per arcade lot sane (${(totalCols / withArcade.length).toFixed(1)})`);
@@ -1605,7 +1638,7 @@ test('rooftop AC census on the real plan: one roof in three keeps AC', (t) => {
     if (out.hvacUnits.length) kept++; else dropped++;
   }
   t.diagnostic(`real-plan AC census: ${hut} hut lots, ${kept} keep / ${dropped} drop`);
-  assert.equal(hut, 5892, 'hut selection untouched by the AC roll');
+  assert.equal(hut, 5891, 'hut selection untouched by the AC roll (issue #289: the 4 registry sites exclude 56 lots net, 1 of them a hut lot — the hut/AC rolls are seeded from lot position and footprint, so the 9 field re-seats keep their status)');
   // Issue #216: the facing pass moves lots, and the AC roll is
   // seeded from lot position — 50 moved lots flip their roll, so
   // kept moves 20,957 -> 21,007, while the hut selection is
@@ -1617,8 +1650,13 @@ test('rooftop AC census on the real plan: one roof in three keeps AC', (t) => {
   // kept AC, 18 dropped it, 0 were huts (lot-by-lot vs pristine
   // main, diff265.mjs), so kept 21,007 -> 20,993 and dropped
   // 41,671 -> 41,653; the share stays at the 1/3 design point.
-  assert.equal(kept, 20993, 'kept AC lots on this tree');
-  assert.equal(dropped, 41653, 'dropped AC lots on this tree');
+  // Issue #289 gate: the 4 new sites exclude 56 lots net — 1 hut,
+  // 20 kept AC, 35 dropped it (the hut/AC rolls are seeded from
+  // lot position and footprint, so the 9 field re-seats — same
+  // footprint, new height — keep their status), so hut 5,892 ->
+  // 5,891, kept 20,993 -> 20,973 and dropped 41,653 -> 41,618.
+  assert.equal(kept, 20973, 'kept AC lots on this tree');
+  assert.equal(dropped, 41618, 'dropped AC lots on this tree');
   const share = kept / (kept + dropped);
   assert.ok(share > 0.30 && share < 0.37, `kept share at the 1/3 design point (${share.toFixed(3)})`);
 });

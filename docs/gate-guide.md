@@ -33,6 +33,15 @@ merge call; workers open PRs unmerged).
   after the command, then echo `$ec`. Verify suite results from the
   `ℹ pass/fail` lines inside the per-file logs, not from echoed exit
   codes alone.
+- **Long-probe completion deliveries can lie (#281/#291 gates):**
+  background completion notices for long Chrome probes have twice
+  reported success that no disk file supports (the #281 frame-cost
+  numbers — 5.1 ms / +8.4 ms / 3.84M tris / 797/800 placed — were
+  retracted by the continuation builder; the #291 coordinator first
+  reported a boot-smoke pass from an unverified notice, then corrected
+  it after checking the primary log). Verify every probe result from
+  the output file and log tail on disk before reporting or publishing
+  it.
 - **Parse-check after unions:** after any scripted conflict/union
   resolution, run `node --check` on every touched file before running
   tests. A non-parsing test file fails at load inside a loop and is easy
@@ -71,6 +80,13 @@ merge call; workers open PRs unmerged).
   abbreviated parent SHAs with 422 — always pass full 40-char SHAs — and
   a commit whose tree exists only locally is rejected the same way:
   create the blobs and the tree on the remote first.
+- **ghapi.py calling convention:** `ghapi.py` takes the method and path
+  as POSITIONAL args (`ghapi.py GET /repos/...`); `-d` is the JSON
+  request *body*, not a method flag — the `-d '{"method":...}'` form
+  403s. For large payloads use a Python urllib script with
+  `add_surrogate_to_request(req, 'custom.github',
+  allowed_hosts=['api.github.com'])` from
+  `/opt/muse/skills/custom-connector-setup/bin/dynamic_credentials.py`.
 - **Stage-page detail focus (#247 gate):** the boot-smoke stage page fills
   the detail-stream pools ONCE around its default focus (0, 62) and never
   calls `update()` — so a shot-gate frame at a distant cell shows
@@ -118,6 +134,30 @@ inputs and a future full regen re-cuts them (known drift class).
   under the workspace, never `/tmp`; workers commit/push early.
 - Local git push has NO credentials — push via the Git Data API only.
 - Never `pkill -f` a pattern that matches your own shell command line
-  (it kills your own exec); kill orphaned processes by PID.
+  (it kills your own exec); kill orphaned processes by PID. Killing a
+  probe's shell wrapper orphans the node process, which keeps writing
+  into the shared log/json — kill the NODE pid, not the shell (found by
+  the #293 live-probe worker, 2026-11-01).
 - Screenshot rig: `gate-tools/shot-gate.mjs <root> <outPng> <x> <z> <r>
   [waitSec]` (4 attempts × 180 s + 8 s sleeps).
+- **Canvas-first screenshots:** `Page.captureScreenshot` is broken on
+  this machine's Chrome (0/~20 successes, even a 240 s probe on a
+  healthy booted stage) while `canvas.toDataURL` with a 300 s timeout
+  works — the rig's 60 s canvas timeout was far too short at ~30 s/frame.
+  Shoot canvas-first; the working rigs are
+  `shot-292b-v2-b3-canvas.mjs` and `shot-292b-v2-az-b3-canvas.mjs` in the
+  #292 frames evidence (`xinyi289-gate-evidence/frames-B/`).
+- **Real-page frame pumping:** on the real page headless Chrome produces
+  NO frames: rAF never fires on its own, `HeadlessExperimental.beginFrame`
+  does not exist in this Chrome, `Page.captureScreenshot` never returns on
+  the real page (works on about:blank), `canvas.toDataURL` never returns
+  (300–600 s timeouts), virtual-time grants and metrics-override advance
+  nothing on the real page (they pump rAF on about:blank only). To drive
+  rAF-gated applies without frames, use a disclosed rAF shim (global rAF
+  → setTimeout(0), installed after boot, restored at the end — the app's
+  own loop was registered at boot with the original rAF and is untouched)
+  plus direct `update()` calls for placement (pure data work). Frame rate
+  on a real device is still unmeasured by any headless probe — say so,
+  never invent a number (probe method proven by the #293 live-probe
+  worker, 2026-11-01, `sliders281-gate-evidence/logs-live/`).
+
