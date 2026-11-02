@@ -52,7 +52,9 @@ const DEDUPE_M = 3;
 
 const q = (v) => Math.round(v * 10) / 10 + 0; // +0: -0 must not survive (JSON writes it as 0, so the shipped section would never re-derive exactly)
 const qr = (v) => Math.round(v * 100) / 100 + 0;
-const isPlazaName = (name) => (name || '').includes('廣場');
+// Issue #289: 松壽廣場 is a lawn park, not a paved square — exempted,
+// mirroring taipei-surfaces.js.
+const isPlazaName = (name) => (name || '').includes('廣場') && name !== '松壽廣場';
 
 function pointInRing(x, z, ring) {
   let inside = false;

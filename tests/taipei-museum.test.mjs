@@ -151,14 +151,15 @@ test('museum adds no lots and keeps the park setting: site, plaza and park ring'
   const plan = planTaipeiBuildings(TAIPEI_GEO);
   const s = museum(plan);
   // Gate 2026-10-30 (#265 re-gate): on this merged tree the plan is
-  // 68538, not 68570 — the #255 Xinyi sites remove 32 lots from main's
-  // 68570 (full-field diff main→merged: removed 32, added 0, changed 6);
-  // the museum itself moves no lots (0 lots in its site rect, asserted
-  // below). Registry is 43, not 39: #255 adds 4 net entries (Hall 1,
-  // Grand Hyatt, ATT 4 FUN, Bellavita — A4 and A8 were already registered
-  // and are reworked in place).
-  assert.equal(plan.lots.length, 68538, 'museum site/plaza must not move the plan');
-  assert.equal(plan.landmarkTowers.length, 43);
+  // 68482, not 68538 — the #289 Xinyi sites remove 56 lots net from
+  // main's 68538 (full-field diff main→merged: removed 65, added 9
+  // re-seated heights, changed 0 positions; per-site A21 9, Cathay 20,
+  // Walsin 14, VieShow 13, counted by body-overlap); the museum itself
+  // moves no lots (0 lots in its site rect, asserted below). Registry
+  // is 47, not 43: #289 adds 4 net entries (A21, Cathay Financial
+  // Center, Walsin Lihwa, VieShow Cinemas).
+  assert.equal(plan.lots.length, 68482, 'museum site/plaza must not move the plan');
+  assert.equal(plan.landmarkTowers.length, 47);
   for (const rect of s.sites) {
     const inside = plan.lots.filter((l) => l.x > rect.minX && l.x < rect.maxX && l.z > rect.minZ && l.z < rect.maxZ);
     assert.equal(inside.length, 0, `lot inside museum exclusion rect ${JSON.stringify(rect)}`);

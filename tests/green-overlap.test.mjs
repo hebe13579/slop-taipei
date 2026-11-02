@@ -134,7 +134,12 @@ test('geodata: removed areas match the #206 census (tile-wide)', () => {
   // Bands are ±3%: if the geodata is regenerated, re-measure
   // with tools/taipei/census-green-overlaps.mjs and re-pin.
   const near = (v, target) => Math.abs(v - target) <= target * 0.03;
-  assert.ok(near(fam.removed.parks, 51347), `parks removed ${fam.removed.parks.toFixed(0)}`);
+  // Issue #289: re-pinned 51,347 → 48,954 — the Songshou exemption
+  // moves 松壽廣場 from the plaza family to the parks family, so
+  // the 2,393 m² of neighbouring park polygons it used to consume
+  // as a plaza (it sits above parks in the consumption order) now
+  // stays in the parks family.
+  assert.ok(near(fam.removed.parks, 48954), `parks removed ${fam.removed.parks.toFixed(0)}`);
   // Water re-pinned at the #224 gate for issue #186: measured
   // 359,915 on the post-#186 tile — the strip's Keelung River
   // reach and Dazhi water add +12,642 m² (+3.6%) of

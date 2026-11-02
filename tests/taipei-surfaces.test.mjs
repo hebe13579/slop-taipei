@@ -303,10 +303,11 @@ test('plaza classification: 廣場 polygons are paving, real parks stay green', 
   const plazas = TAIPEI_GEO.parks.filter(isPlazaPark);
   const greens = TAIPEI_GEO.parks.filter((p) => !isPlazaPark(p));
   assert.equal(plazas.length + greens.length, TAIPEI_GEO.parks.length);
-  assert.equal(plazas.length, 25); // pinned on post-#30 data; re-pinned 2026-10-24 (issue #60: +中山堂/行旅/西本願寺/北門 and other west-side 廣場); re-pinned for issue #102 (+6 measured against the baseline list: 北投3號廣場, 青春82廣場, 微風廣場, 關渡自然公園 x2 賞鳥廣場, and a second 大同16號廣場 piece); re-pinned for issue #134 (+1: a second 厚生廣場 piece on the west bank, recovered by the extractor's two-pass relation stitch — the plaza stands in the corridor's new west strip); re-pinned for issue #186 (+1: 中山21號廣場， whole now that the airport box covers its ground at the old north seam)
-  for (const name of ['台北市民廣場', '松壽廣場', '台北世貿廣場', '信義21號廣場', '忠信廣場']) {
+  assert.equal(plazas.length, 24); // pinned on post-#30 data; re-pinned 2026-10-24 (issue #60: +中山堂/行旅/西本願寺/北門 and other west-side 廣場); re-pinned for issue #102 (+6 measured against the baseline list: 北投3號廣場, 青春82廣場, 微風廣場, 關渡自然公園 x2 賞鳥廣場, and a second 大同16號廣場 piece); re-pinned for issue #134 (+1: a second 厚生廣場 piece on the west bank, recovered by the extractor's two-pass relation stitch — the plaza stands in the corridor's new west strip); re-pinned for issue #186 (+1: 中山21號廣場， whole now that the airport box covers its ground at the old north seam); re-pinned for issue #289 (−1: 松壽廣場 is a lawn park with big trees, not a paved square — exempted from the plaza classification)
+  for (const name of ['台北市民廣場', '台北世貿廣場', '信義21號廣場', '忠信廣場']) {
     assert.ok(plazas.some((p) => p.name === name), `${name} classified as plaza paving`);
   }
+  assert.ok(greens.some((p) => p.name === '松壽廣場'), '松壽廣場 is a green lawn park, not plaza paving (issue #289)');
   const daan = TAIPEI_GEO.parks.find((p) => (p.name || '').includes('大安森林公園'));
   assert.ok(daan, '大安森林公園 exists in the park data');
   assert.ok(!isPlazaPark(daan), '大安森林公園 stays a green park');

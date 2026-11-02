@@ -35,7 +35,7 @@ function planAndOpts() {
 
 test('newer apartments: census pins — both families planted, glass untouched', (t) => {
   const { plan, opts } = planAndOpts();
-  assert.equal(plan.lots.length, 68538, 'the rule moves families only — the lot count is the composed plan (issue #255 gate: 68,570 − 32 site-excluded lots)');
+  assert.equal(plan.lots.length, 68482, 'the rule moves families only — the lot count is the composed plan (issue #255 gate: 68,570 − 32 site-excluded lots; issue #289 gate: 68,538 − 56 site-excluded lots net)');
   const fam = {};
   for (const l of opts.lots) fam[l.mat] = (fam[l.mat] || 0) + 1;
   // Pinned at the #256 gate on the composed tree: 492 tall-Taiwan lots
@@ -57,13 +57,21 @@ test('newer apartments: census pins — both families planted, glass untouched',
   // re-rolls 3 kept lots across the Taiwan families (0/1/7 lose one
   // each; 6 gains one, 9 gains two). Glass (3/4/5) is pure removal;
   // 10/11 and the twins are untouched.
-  assert.equal(fam[6], 7563, 'tile shophouse gives up its seeded share');
-  assert.equal(fam[8], 7493, 'walk-up slab gives up its seeded share');
-  assert.equal(fam[9], 5776, 'pebble-dash gives up its seeded share');
-  assert.equal(fam[7], 6685, 'arcade family untouched — the rule never consults it');
-  assert.equal(fam[3], 5133, 'glass family 3 untouched — the accent roll runs first');
-  assert.equal(fam[4], 1066, 'glass family 4 untouched');
-  assert.equal(fam[5], 1007, 'glass family 5 untouched');
+  // Issue #289 gate: the 4 new sites exclude 56 lots net; the
+  // removed lots' families (lot-by-lot vs pristine main,
+  // facing-fam-measure.mjs — 65 full-field keys, the 56 removals
+  // plus the 9 field re-seats at their old heights) are 0:3, 1:1,
+  // 3:6, 4:6, 5:5, 6:19, 7:2, 8:7, 9:16; the 9 re-seats land in
+  // 4:1, 5:1, 6:2, 8:1, 9:3 and one of 0/1/2 at their new heights,
+  // so the census moves are 6:−17, 8:−6, 9:−13, 7:−2, 3:−6, 4:−5,
+  // 5:−4. 10/11 and the twins are untouched.
+  assert.equal(fam[6], 7546, 'tile shophouse gives up its seeded share');
+  assert.equal(fam[8], 7487, 'walk-up slab gives up its seeded share');
+  assert.equal(fam[9], 5763, 'pebble-dash gives up its seeded share');
+  assert.equal(fam[7], 6683, 'arcade family untouched — the rule never consults it');
+  assert.equal(fam[3], 5127, 'glass family 3 untouched — the accent roll runs first');
+  assert.equal(fam[4], 1061, 'glass family 4 untouched');
+  assert.equal(fam[5], 1003, 'glass family 5 untouched');
   t.diagnostic(`families: ${JSON.stringify(fam)}`);
 });
 
