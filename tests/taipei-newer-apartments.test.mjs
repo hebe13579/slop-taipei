@@ -65,10 +65,20 @@ test('newer apartments: census pins — both families planted, glass untouched',
   // 4:1, 5:1, 6:2, 8:1, 9:3 and one of 0/1/2 at their new heights,
   // so the census moves are 6:−17, 8:−6, 9:−13, 7:−2, 3:−6, 4:−5,
   // 5:−4. 10/11 and the twins are untouched.
-  assert.equal(fam[6], 7546, 'tile shophouse gives up its seeded share');
-  assert.equal(fam[8], 7487, 'walk-up slab gives up its seeded share');
-  assert.equal(fam[9], 5763, 'pebble-dash gives up its seeded share');
-  assert.equal(fam[7], 6683, 'arcade family untouched — the rule never consults it');
+  // Issue #17 slice 2 re-pins the Taiwan families: the low-band
+  // Taiwan roll assigns F6–F9 their shares of the 6–15 m masonry
+  // pool — F6 +4,477 (6–9 m: 1,091; 9–12 m: 1,395; 12–15 m: 1,991),
+  // F7 +4,515 (1,116 / 1,402 / 1,997), F8 +3,434 (9–12 m: 1,399;
+  // 12–15 m: 2,035), F9 +2,494 (1,003 / 1,491) — 14,920 lots in
+  // all, exactly the masonry drop. Proven delta: the plan is
+  // byte-identical (the pull/facing guards judge by the pre-slice-2
+  // family, see facadeMatFor), so no lot moved — the whole delta
+  // is the family re-assignment at the final positions. F10/F11
+  // and the glass families are untouched by the change.
+  assert.equal(fam[6], 12023, 'tile shophouse gives up its seeded share');
+  assert.equal(fam[8], 10921, 'walk-up slab gives up its seeded share');
+  assert.equal(fam[9], 8257, 'pebble-dash gives up its seeded share');
+  assert.equal(fam[7], 11198, 'arcade family: #256 never consults it, but #17 slice 2 assigns it the low-band share');
   assert.equal(fam[3], 5127, 'glass family 3 untouched — the accent roll runs first');
   assert.equal(fam[4], 1061, 'glass family 4 untouched');
   assert.equal(fam[5], 1003, 'glass family 5 untouched');

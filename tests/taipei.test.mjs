@@ -1463,7 +1463,14 @@ test('arcade parts: recessed core and full-perimeter colonnade', (t) => {
   const f7 = opts.lots.filter((l) => l.mat === 7);
   const withArcade = f7.filter((l) => l.arcade);
   const eligible = f7.filter((l) => (l.x1 - l.x0) >= 11 && (l.z1 - l.z0) >= 11);
-  assert.equal(f7.length, 6683, 'F7 census after #124, composed with #166, #186, #226, #213, #219 and #221 (campus clearing removes 519 F7 lots) and #255 (the 4 registry sites exclude 32 lots, 1 of them F7, and 1 kept lot leaves F7 — lot-by-lot diff on this tree) and #289 (the 4 registry sites exclude 56 lots net, 2 of them F7, no kept lot leaves F7 — lot-by-lot diff on this tree)');
+  // Issue #17 slice 2 re-pins the census: the low-band Taiwan roll
+  // assigns F7 its share of the 6–15 m masonry pool — +4,515 lots
+  // (6–9 m: 1,116; 9–12 m: 1,402; 12–15 m: 1,997), 6,683 + 4,515
+  // = 11,198. Proven delta: the plan is byte-identical (the
+  // pull/facing guards judge by the pre-slice-2 family, see
+  // facadeMatFor), so no lot moved, entered, or left — the whole
+  // delta is the family re-assignment at the final positions.
+  assert.equal(f7.length, 11198, 'F7 census after #124, composed with #166, #186, #226, #213, #219 and #221 (campus clearing removes 519 F7 lots) and #255 (the 4 registry sites exclude 32 lots, 1 of them F7, and 1 kept lot leaves F7 — lot-by-lot diff on this tree) and #289 (the 4 registry sites exclude 56 lots net, 2 of them F7, no kept lot leaves F7 — lot-by-lot diff on this tree) and #17 slice 2 (the low-band Taiwan roll assigns F7 its share of the 6-15 m masonry pool: +4,515, plan byte-identical)');
   assert.equal(withArcade.length, eligible.length, `every size-eligible F7 lot carries the arcade (${withArcade.length}/${eligible.length})`);
   const totalCols = withArcade.reduce((s, l) => s + l.arcade.columns.length, 0);
   assert.ok(totalCols / withArcade.length < 30, `columns per arcade lot sane (${(totalCols / withArcade.length).toFixed(1)})`);
