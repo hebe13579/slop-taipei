@@ -35,7 +35,7 @@ function planAndOpts() {
 test('taiwan108: high-rise residential (12) is banded 40-75 m, outside the cores', () => {
   const { plan, opts } = planAndOpts();
   const f12 = opts.lots.filter((l) => l.mat === 12);
-  // Issue #110: the renderer options re-roll families on the re-seated lots — F12 606 -> 609 (the plan's own family census is unchanged at 606).
+  // Issue #110: the re-seated lots re-roll families in the plan itself — F12 606 -> 609 (facadeMatFor is the assignment, so the renderer options agree).
   assert.equal(f12.length, 609, 'high-rise residential planted in the hundreds');
   for (let i = 0; i < opts.lots.length; i++) {
     const l = opts.lots[i];
@@ -52,7 +52,7 @@ test('taiwan108: high-rise residential (12) is banded 40-75 m, outside the cores
 test('taiwan108: strip-tile mid-rise (13) is banded 9-30 m', () => {
   const { opts } = planAndOpts();
   const f13 = opts.lots.filter((l) => l.mat === 13);
-  // Issue #110: F13 4,358 -> 4,377 in the renderer options (the plan's own family census is unchanged at 4,358).
+  // Issue #110: F13 4,358 -> 4,377 in the plan itself (same mechanism as F12).
   assert.equal(f13.length, 4377, 'strip-tile mid-rise planted in the thousands');
   for (const l of f13) {
     assert.ok(l.h >= STRIP_TILE_MIN_H && l.h < STRIP_TILE_MAX_H,
