@@ -6612,15 +6612,21 @@ export function officeCoreFor(lot) {
 // 3-5 curtain-wall glass, 6-9 the Taiwan types — issue #17).
 // Deterministic from the lot's position, like everything else in the
 // plan: the Xinyi-core towers go glass, boulevard mid-rises mix glass
-// and masonry, residential interiors stay masonry. The four Taiwan types
+// and masonry, and the residential fabric below 40 m is mostly the
+// Taiwan types — the tile shophouses, arcades, walk-up slabs and
+// pebble-dash mid-rises of the real streets. The four Taiwan types
 // (6 tile shophouse, 7 arcade shophouse, 8 walk-up slab, 9 pebble-dash
 // mid-rise) take a large share of the lots the pre-#17 rules put on
-// MASONRY in the 15–40 m band where Taipei's classic mixed-use blocks
-// live — 72% of the masonry pool at 15–22 m, 75% at 22–40 m — split
-// between the types by height-plausibility weights (see taiwanTypeFor).
-// The glass rolls in both bands are evaluated first with the exact
-// pre-#17 formulas, so the glass families' counts are untouched; above
-// 40 m and below 15 m nothing changes at all.
+// MASONRY in the 6–40 m bands where Taipei's classic mixed-use blocks
+// live — 72% of the masonry pool at 15–22 m, 75% at 22–40 m, and the
+// same 72% down through the low-rise bands (issue #17 slice 2: the
+// 12–15 m walk-ups and the sub-12 m shophouse rows are the tile
+// fabric of the user's Dihua St / walk-up references, not brick) —
+// split between the types by height-plausibility weights (see
+// taiwanTypeFor). Below 6 m lots stay masonry: a one-storey lot is a
+// shed, not a shophouse. The glass rolls in every band are evaluated
+// first with the exact pre-#17 formulas, so the glass families'
+// counts are untouched; above 40 m nothing changes at all.
 //
 // Issue #136 re-draws the two tall bands around the office cores (see
 // officeCoreFor): the #128 real-height join put true heights on the
@@ -6701,7 +6707,35 @@ export function facadeMatFor(lot, opts) {
     const v = (u - 0.72) / 0.28;
     return [0, 1, 2][Math.floor(v * 3) % 3];
   }
-  if (lot.h >= 12) return r < 0.1 ? 3 : [0, 1, 2][Math.floor(r * 3) % 3];
+  // Issue #17 slice 2: the low-rise bands join the Taiwan set — the
+  // 12–15 m walk-ups keep their 10% glass accent, and the masonry
+  // remainder below 15 m takes the Taiwan types at the same 72%
+  // share the 15–22 m band uses, leaving brick as the rare accent
+  // the issue asks for. Below 12 m there is no glass roll: real
+  // low-rise Taipei is not curtain wall.
+  // Guard mode: judge landings by the PRE-slice-2 family — the
+  // low-band Taiwan roll below would otherwise re-roll the
+  // pull/facing guards' candidate search (measured 2,201 lots
+  // re-seated, up to ~27 m, when the guards judged by the new
+  // rules) for a hash difference that is not a band crossing. The
+  // new types are a post-pull assignment in
+  // taipeiCityBlocksOptions, keyed on the final position — exactly
+  // the #256 guard precedent. Guard mode reproduces the old
+  // expressions verbatim, so the plan stays byte-identical.
+  if (lot.h >= 12) {
+    if (r < 0.1) return 3; // glass accent, unchanged
+    if (opts?.guard) return [0, 1, 2][Math.floor(r * 3) % 3];
+    const u = (r - 0.1) / 0.9; // masonry pool, rescaled to 0..1
+    if (u < 0.72) return taiwanTypeFor(lot, seed);
+    const v = (u - 0.72) / 0.28;
+    return [0, 1, 2][Math.floor(v * 3) % 3];
+  }
+  if (lot.h >= 6) {
+    if (opts?.guard) return [0, 1, 2][Math.floor(r * 3) % 3];
+    if (r < 0.72) return taiwanTypeFor(lot, seed);
+    const v = (r - 0.72) / 0.28;
+    return [0, 1, 2][Math.floor(v * 3) % 3];
+  }
   return [0, 1, 2][Math.floor(r * 3) % 3];
 }
 
@@ -6771,16 +6805,25 @@ function tallTaiwanTypeFor(lot, seed) {
 // Which Taiwan type a Taiwan-set lot becomes, by height plausibility —
 // a second hash of the same seed picks within the weights, and a type's
 // weight is zero outside its band, which is what caps each type:
-//   6 tile shophouse  15–40 m, weight 3 throughout
-//   7 arcade shophouse 15–36 m, weight 3 (issue #55 raised the cap from
+//   6 tile shophouse  6–40 m, weight 3 throughout (issue #17 slice 2
+//     lowers the floor 15 → 6: the 2–3 storey tile shophouse rows are
+//     the Dihua St reference — shopfront band + tile upper floors)
+//   7 arcade shophouse 6–36 m, weight 3 (issue #55 raised the cap from
 //     28: the 騎樓 colonnade is a ground-floor treatment, and arcade-
 //     fronted blocks of 9–10 storeys stand all over Taipei — the type
-//     thins out above that, it does not stop at 8 storeys)
-//   8 walk-up slab     15–36 m, weight 3 (raised from 30, issue #55: the
+//     thins out above that, it does not stop at 8 storeys; slice 2
+//     lowers the floor 15 → 6 for the same reason — the colonnade is
+//     a ground-floor treatment, and 2-storey arcade rows are the old
+//     streets. Lots under 11 m in either dimension keep the flat F7
+//     facade: taipeiArcadeParts needs room for the inset core)
+//   8 walk-up slab     9–36 m, weight 3 (raised from 30, issue #55: the
 //     family's dense beige-tile vocabulary runs on the taller 80s slabs
-//     too; the pure stairs-only walk-ups are its low end)
-//   9 pebble-dash      15–40 m, weight 2.2 (洗石子 runs from 5-storey
-//     walk-ups to mid-rises, but is the least common of the four)
+//     too; the pure stairs-only walk-ups are its low end; slice 2
+//     lowers the floor 15 → 9 — a 3-storey tile slab is the low end
+//     of that stock, and below 9 m only the shophouse types apply)
+//   9 pebble-dash      9–40 m, weight 2.2 (洗石子 runs from 5-storey
+//     walk-ups to mid-rises, but is the least common of the four;
+//     slice 2 lowers the floor 15 → 9, same low end as the slab)
 // All caps stay under 40 m on purpose: this pick serves the classic
 // mixed-use bands only. Above 40 m facadeMatFor's own rules decide —
 // glass inside the office cores, tallTaiwanTypeFor outside them
@@ -6790,10 +6833,10 @@ function tallTaiwanTypeFor(lot, seed) {
 function taiwanTypeFor(lot, seed) {
   const h = lot.h;
   const weights = [
-    [6, h >= 15 && h < 40 ? 3 : 0],
-    [7, h >= 15 && h < 36 ? 3 : 0],
-    [8, h >= 15 && h < 36 ? 3 : 0],
-    [9, h >= 15 && h < 40 ? 2.2 : 0],
+    [6, h >= 6 && h < 40 ? 3 : 0],
+    [7, h >= 6 && h < 36 ? 3 : 0],
+    [8, h >= 9 && h < 36 ? 3 : 0],
+    [9, h >= 9 && h < 40 ? 2.2 : 0],
   ];
   const total = weights.reduce((s, [, w]) => s + w, 0);
   let pick = hash01(seed ^ 0x9e3779b9) * total;
