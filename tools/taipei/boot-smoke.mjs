@@ -108,6 +108,10 @@ function parseArgs(argv) {
     else if (a === '--frame-wait') args.frameWait = Number(next());
     else if (a === '--port') args.port = Number(next());
     else if (a === '--report') args.report = resolve(next());
+    // Sandbox: the query string appended to the stage page URL, e.g.
+    // 'city=taipei&sandbox=xinyi'. The stage page forwards it to
+    // loadSelectedTile, so boot-smoke can measure a sandbox slice.
+    else if (a === '--query') args.query = next();
     else if (a === '--help' || a === '-h') args.help = true;
     else { console.error(`unknown argument: ${a}`); process.exit(2); }
   }
@@ -117,6 +121,7 @@ function parseArgs(argv) {
 if (process.argv.includes('--help') || process.argv.includes('-h')) {
   console.log('Usage: node tools/taipei/boot-smoke.mjs [--root <checkout>] [--mirror <dir>] [--chrome <path>]');
   console.log('       [--timeout <sec>=420] [--stall <sec>=120] [--frame-wait <sec>=180] [--port <n>] [--report <file>]');
+  console.log("       [--query <qs>]  query string for the stage page, e.g. 'city=taipei&sandbox=xinyi'");
   console.log('Exit codes: 0 pass, 1 fail, 2 inconclusive. Full story: tools/taipei/boot-smoke/README.md');
   process.exit(0);
 }
@@ -256,7 +261,7 @@ const server = createServer(async (req, res) => {
 });
 await new Promise((res) => server.listen(args.port, '127.0.0.1', res));
 const port = server.address().port;
-const pageUrl = `http://127.0.0.1:${port}${STAGE_URL_PATH}`;
+const pageUrl = `http://127.0.0.1:${port}${STAGE_URL_PATH}${args.query ? `?${args.query}` : ''}`;
 report.url = pageUrl;
 say(`serving on 127.0.0.1:${port}`);
 

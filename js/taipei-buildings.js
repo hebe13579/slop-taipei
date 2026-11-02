@@ -5093,8 +5093,17 @@ export function planTaipeiBuildings(geodata, opts = {}) {
   // frame's real origin, and every exclusion rectangle they register
   // (structure sites + City Hall's open plaza) joins the 101 site in
   // keeping generic lots off.
+  // Sandbox (?sandbox=, js/taipei-sandbox.js): the boot passes opts.bounds
+  // (the sandbox box) so registry/site structures whose pin falls outside
+  // the box never render. The registry is static code, not geodata, so the
+  // geo filter alone cannot keep them out; the planner's lot union
+  // (frame.boxes) already keeps generic lots inside. Without bounds this
+  // is a no-op and the plan is unchanged.
+  const bounds = opts.bounds || null;
+  const inBounds = (x, z) => !bounds || (x >= bounds.minX && x <= bounds.maxX && z >= bounds.minZ && z <= bounds.maxZ);
   const originLatLon = (geodata.frame && geodata.frame.originLatLon) || [25.033, 121.565];
-  const landmarkTowers = LANDMARK_STRUCTURES.map((def) => resolveLandmark(def, originLatLon));
+  let landmarkTowers = LANDMARK_STRUCTURES.map((def) => resolveLandmark(def, originLatLon));
+  if (bounds) landmarkTowers = landmarkTowers.filter((s) => inBounds(s.x, s.z));
   const landmarkSites = landmarkTowers.flatMap((s) => s.sites);
   // Songshan Airport site structures (issue #135): resolved like
   // landmarks but kept off the registry — the plan carries them
@@ -5111,6 +5120,15 @@ export function planTaipeiBuildings(geodata, opts = {}) {
   // neighbouring city blocks that are not campus land.
   const schoolPlan = planSchoolCampuses(geodata, landmarkSites, carriageways, originLatLon);
   for (const s of schoolPlan.structures) siteStructures.push(s);
+  if (bounds) {
+    // Airport structures outside the box drop here (their exclusion rects
+    // were already computed above — harmless outside the box). School
+    // structures are already inside via the geo filter; this is a
+    // belt-and-braces check on their pins.
+    for (let i = siteStructures.length - 1; i >= 0; i--) {
+      if (!inBounds(siteStructures[i].x, siteStructures[i].z)) siteStructures.splice(i, 1);
+    }
+  }
   // Issue #132: drape lifts — when the boot injects opts.groundAt,
   // every registry/site structure records its lift (the draped
   // ground at its centre); the renderer (createTaipeiLandmarkTowers)

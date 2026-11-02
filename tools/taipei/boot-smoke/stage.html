@@ -45,7 +45,10 @@ try {
   const { buildCityBlocks } = await import('/js/buildings.js');
   status('importing tile registry');
   const { loadSelectedTile } = await import('/js/tile-registry.js');
-  const sel = await loadSelectedTile('?city=taipei');
+  // The stage page forwards its own query string (defaulting to the
+  // Taipei tile), so the runner can boot a sandbox slice with e.g.
+  // --query 'city=taipei&sandbox=xinyi' instead of only the full city.
+  const sel = await loadSelectedTile(location.search || '?city=taipei');
   const tile = sel.tile;
 
   const renderer = new THREE.WebGPURenderer({ antialias: true, powerPreference: 'high-performance', reversedDepthBuffer: true });
