@@ -75,10 +75,26 @@ test('newer apartments: census pins — both families planted, glass untouched',
   // family, see facadeMatFor), so no lot moved — the whole delta
   // is the family re-assignment at the final positions. F10/F11
   // and the glass families are untouched by the change.
-  assert.equal(fam[6], 12023, 'tile shophouse gives up its seeded share');
-  assert.equal(fam[8], 10921, 'walk-up slab gives up its seeded share');
-  assert.equal(fam[9], 8257, 'pebble-dash gives up its seeded share');
-  assert.equal(fam[7], 11198, 'arcade family: #256 never consults it, but #17 slice 2 assigns it the low-band share');
+  // Issue #108 re-pins the Taiwan families: the two new families take
+  // their shares from the Taiwan pools only — F12 (high-rise
+  // residential) takes 606 lots from the 40–75 m tall-Taiwan remainder
+  // (F6 −169: 40–50 m −103, 50–75 m −66; F8 −262: −173/−89; F9 −175:
+  // −107/−68) and F13 (二丁掛 strip-tile) takes 4,358 lots from the
+  // 9–30 m Taiwan pool (F6 −1,182: 9–12 m −169, 12–15 m −222, 15–22 m
+  // −623, 22–30 m −168; F7 −1,160: −167/−243/−594/−156; F8 −1,183:
+  // −154/−245/−615/−169; F9 −833: −115/−195/−423/−100). Proven delta:
+  // the plan is byte-identical (both new rolls are guard-wrapped —
+  // the pull/facing guards judge by the pre-#108 family, see
+  // facadeMatFor — full-field diff, 0 moved lots), so the whole delta
+  // is the family re-assignment at the final positions. Glass and
+  // F10/F11 are untouched: their rolls evaluate first with the exact
+  // pre-#108 formulas.
+  assert.equal(fam[6], 10672, 'tile shophouse gives up its seeded share');
+  assert.equal(fam[8], 9476, 'walk-up slab gives up its seeded share');
+  assert.equal(fam[9], 7249, 'pebble-dash gives up its seeded share');
+  assert.equal(fam[7], 10038, 'arcade family: #256 never consults it, but #17 slice 2 assigns it the low-band share');
+  assert.equal(fam[12], 606, 'high-rise residential planted in the hundreds');
+  assert.equal(fam[13], 4358, 'strip-tile mid-rise planted in the thousands');
   assert.equal(fam[3], 5127, 'glass family 3 untouched — the accent roll runs first');
   assert.equal(fam[4], 1061, 'glass family 4 untouched');
   assert.equal(fam[5], 1003, 'glass family 5 untouched');

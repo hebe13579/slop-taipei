@@ -542,6 +542,71 @@ function buildCityBlocks(scene, opts = null) {
       latticeColor: 0x6b5326,
       latticeEvery: 2,
       latticeProb: 0.8
+    }],
+    // 12/13: two more Taiwan types (issue #108) — appended so the twelve
+    // existing indices never move. Only the Taipei planner assigns them;
+    // Manhattan's matFor never returns them, so NYC renders as before.
+    // 12: Taiwan high-rise residential （電梯大樓/華廈） — the 12–25F
+    // tile slab. Rose-red/pink/white/beige tile (the #136 "real tall
+    // residential" palette, leaning red where F8 leans beige), 3.0 m
+    // floors, rail balconies on most columns (the per-storey balcony
+    // band of sc0Vu's punched read), heavy AC-box and window-grille
+    // speckle (the 鐵窗 cages + AC units of the tile-rain reference),
+    // no shop signs (a residential lobby, like 10/11). Roof tanks come
+    // from taipeiRooftopAdditions' extended cap for mat 12, not the
+    // material.
+    [createTileShophouseMaterial, {
+      windowWidth: 2.2,
+      floorHeight: 3.0,
+      windowRatioX: 0.58,
+      windowRatioY: 0.60,
+      litProbability: 0.55,
+      warmth: 0.80,
+      seed: 719.1,
+      cornerPier: 0.5,
+      tilePalette: [0xb96a5e, 0xc98d7e, 0xd8b0a2, 0xe6dcc9],
+      accentColor: 0x8a4a3c,
+      accentEvery: 0,
+      trimColor: 0x9a7a5e,
+      tileModule: 0.3,
+      acThreshold: 0.55,
+      grilleProb: 0.50,
+      balconyStyle: 1,
+      balconyThreshold: 0.30,
+      balconyPalette: [0xd6c8a8, 0xc4b28c],
+      signRate: 0,
+      recess: 0.30,
+      wallRoughness: 0.66
+    }],
+    // 13: Taiwan 二丁掛 strip-tile mid-rise — the long-strip tile module
+    // no other family draws (every other tile family is square-module).
+    // Grey-white stone-look strips, 0.45 x 0.12 m (the real 6 x 22.7 cm
+    // module at this factory's stylization), 3.1 m floors, rail
+    // balconies, moderate AC/grille speckle, shop signs + vertical signs
+    // like the other mid-rise Taiwan types.
+    [createTileShophouseMaterial, {
+      windowWidth: 2.4,
+      floorHeight: 3.1,
+      windowRatioX: 0.55,
+      windowRatioY: 0.58,
+      litProbability: 0.52,
+      warmth: 0.78,
+      seed: 823.7,
+      cornerPier: 0.5,
+      tilePalette: [0xdcd8ce, 0xcfc9bd, 0xc4bcab, 0xe4e0d6],
+      accentColor: 0x8f8578,
+      accentEvery: 0,
+      trimColor: 0x9a927f,
+      tileModule: 0.45,
+      tileModuleY: 0.12,
+      acThreshold: 0.68,
+      grilleProb: 0.30,
+      balconyStyle: 1,
+      balconyThreshold: 0.45,
+      balconyPalette: [0xd8d2c4, 0xc4bcab],
+      signRate: 0.8,
+      recess: 0.30,
+      wallRoughness: 0.66
     }]
   ];
   // Issue #240: Taipei lots fade facade detail with distance

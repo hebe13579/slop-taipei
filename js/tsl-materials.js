@@ -1246,6 +1246,12 @@ function createTileShophouseMaterial(opts = {}) {
     pilasterColor = 0xd8d2c4,
     trimColor = 0xb0a184,
     tileModule = 0.3, // ceramic tile size in metres
+    // Issue #108: vertical tile module in metres — defaults to the
+    // square module above. The 二丁掛 strip tile (family 13) sets a
+    // shorter vertical module, so the grid draws long horizontal strips
+    // (0.45 x 0.12 m — the real 6 x 22.7 cm module at this factory's
+    // stylization, the same ~2x exaggeration as the 0.30 m square).
+    tileModuleY = tileModule,
     pebble = 0, // 0..1 washed-stone speckle replacing the tile grid
     acThreshold = 0.70, // AC box when the per-window hash exceeds this
     grilleProb = 0.06, // share of upper windows with a security grille
@@ -1367,15 +1373,16 @@ function createTileShophouseMaterial(opts = {}) {
     const cWarmWindow = color(0xffca7a);
     const cSoot = color(0x17140f);
 
-    // --- Tile cladding (fronts): square-tile module, per-tile tint
-    // variation and grout lines, both faded out with pixel footprint so
-    // distant blocks read as calm cladding instead of shimmer. The
-    // pebble-dash type cross-fades the grid into fine washed-stone
-    // speckle (two-tone aggregate grain at ~8 cm).
+    // --- Tile cladding (fronts): tile module (square by default, long
+    // horizontal strips when tileModuleY < tileModule — issue #108), per-
+    // tile tint variation and grout lines, both faded out with pixel
+    // footprint so distant blocks read as calm cladding instead of
+    // shimmer. The pebble-dash type cross-fades the grid into fine
+    // washed-stone speckle (two-tone aggregate grain at ~8 cm).
     const tileFade = float(1.0).sub(smoothstep(0.05, 0.55, fwidth(uCoord).add(fwidth(vCoord))));
-    const tileCellId = vec2(floor(uCoord.div(tileModule)), floor(vCoord.div(tileModule)));
+    const tileCellId = vec2(floor(uCoord.div(tileModule)), floor(vCoord.div(tileModuleY)));
     const tileVar = hash2D(tileCellId.add(boxSeed.mul(13.7))).sub(0.5).mul(0.10).mul(tileFade);
-    const grout = max(gridLine(uCoord, tileModule, 0.012), gridLine(vCoord, tileModule, 0.012)).mul(tileFade).mul(float(1.0 - pebble));
+    const grout = max(gridLine(uCoord, tileModule, 0.012), gridLine(vCoord, tileModuleY, 0.012)).mul(tileFade).mul(float(1.0 - pebble));
     let tileCol = mix(cTileA, cTileB, step(0.30, tone));
     tileCol = mix(tileCol, cTileC, step(0.58, tone));
     tileCol = mix(tileCol, cTileD, step(0.82, tone));
@@ -1635,7 +1642,7 @@ function createTileShophouseMaterial(opts = {}) {
     const detailFade = float(1.0).sub(smoothstep(1.2, 3.6, fwSum));
 
     const tileFade = float(1.0).sub(smoothstep(0.05, 0.55, fwidth(uCoord).add(fwidth(vCoord))));
-    const groutH = max(gridLine(uCoord, tileModule, 0.012), gridLine(vCoord, tileModule, 0.012)).mul(tileFade).mul(cell.back.oneMinus()).mul(float(1.0 - pebble));
+    const groutH = max(gridLine(uCoord, tileModule, 0.012), gridLine(vCoord, tileModuleY, 0.012)).mul(tileFade).mul(cell.back.oneMinus()).mul(float(1.0 - pebble));
 
     const effHalfX = mix(float(0.5).sub(uRatioX.mul(0.5)), float(0.11), cell.isGroundFloor);
     const effHalfY = mix(float(0.5).sub(uRatioY.mul(0.5)), float(0.10), cell.isGroundFloor);

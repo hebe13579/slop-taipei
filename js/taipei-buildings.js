@@ -6684,6 +6684,49 @@ export function newerApartmentKind(lot, seed) {
   return 0;
 }
 
+// Issue #108: the high-rise residential roll — a seeded share of the
+// tall-Taiwan remainder (40–75 m, outside the office cores, after the
+// 12% glass accent and the #256 newer-apartment roll) becomes family
+// 12, the 電梯大樓 tile slab. Capped at 75 m: above that the lots are
+// office-scale even outside the cores and keep the tall-Taiwan pick.
+// Guard-wrapped at the call site (see facadeMatFor): the pull/facing
+// guards judge landings by the pre-#108 family, exactly the #256
+// precedent, so the new type moves no lot.
+export const HIGH_RISE_TAIWAN_SHARE = 0.40;
+export const HIGH_RISE_TAIWAN_MIN_H = 40;
+export const HIGH_RISE_TAIWAN_MAX_H = 75;
+export function highRiseTaiwanKind(lot, seed) {
+  if (lot.h < HIGH_RISE_TAIWAN_MIN_H || lot.h >= HIGH_RISE_TAIWAN_MAX_H) return 0;
+  return hash01(seed ^ 0x1081) < HIGH_RISE_TAIWAN_SHARE ? 12 : 0;
+}
+
+// Issue #108: the 二丁掛 strip-tile roll — a seeded share of the
+// Taiwan-set lots in the 9–30 m mid-rise band becomes family 13.
+// Applied after the taiwanTypeFor pick (see taiwanPickWithStrip), so
+// it subdivides the Taiwan pool instead of re-rolling the glass or
+// masonry shares — glass and masonry counts are untouched.
+export const STRIP_TILE_SHARE = 0.12;
+export const STRIP_TILE_MIN_H = 9;
+export const STRIP_TILE_MAX_H = 30;
+export function stripTileKind(lot, seed) {
+  if (lot.h < STRIP_TILE_MIN_H || lot.h >= STRIP_TILE_MAX_H) return 0;
+  return hash01(seed ^ 0x1080) < STRIP_TILE_SHARE ? 13 : 0;
+}
+
+// Issue #108: the Taiwan pick with the strip-tile roll. In guard mode
+// the roll is skipped and the pre-#108 family is returned, so the
+// pull/facing guard probes (which compare facadeMatFor across heights)
+// see exactly the old assignment and no lot re-seats. In normal mode
+// the roll applies at the final position, like #256's newer apartments.
+function taiwanPickWithStrip(lot, seed, opts) {
+  const base = taiwanTypeFor(lot, seed);
+  if (!opts?.guard) {
+    const strip = stripTileKind(lot, seed);
+    if (strip) return strip;
+  }
+  return base;
+}
+
 export function facadeMatFor(lot, opts) {
   const seed = (Math.imul(Math.round(lot.x * 10), 73856093) ^ Math.imul(Math.round(lot.z * 10), 19349663) ^ 0x101) | 0;
   const r = hash01(seed);
@@ -6702,26 +6745,33 @@ export function facadeMatFor(lot, opts) {
       const newer = newerApartmentKind(lot, seed);
       if (newer) return newer;
     }
+    // Issue #108: the high-rise residential roll — guard-wrapped like
+    // the newer roll above, so the pull/facing guards judge landings
+    // by the pre-#108 family and the new type moves no lot.
+    if (!opts?.guard) {
+      const high = highRiseTaiwanKind(lot, seed);
+      if (high) return high;
+    }
     return tallTaiwanTypeFor(lot, seed);
   }
   if (lot.h >= 22) {
     if (core) {
       if (r < 0.5) return xinyiGlassOrLight(lot, seed, [3, 4, 5][Math.floor(r * 6) % 3]); // glass half (issue #142 may trade tall Xinyi glass for light)
       const u = (r - 0.5) * 2; // masonry half, rescaled to 0..1
-      if (u < 0.75) return taiwanTypeFor(lot, seed);
+      if (u < 0.75) return taiwanPickWithStrip(lot, seed, opts);
       const v = (u - 0.75) * 4;
       return [0, 1][Math.floor(v * 2) % 2];
     }
     if (r < 0.2) { const u = r / 0.2; return [3, 4, 5][Math.floor(u * 6) % 3]; } // glass fifth: district offices/hotels
     const u = (r - 0.2) / 0.8; // remainder, rescaled to 0..1
-    if (u < 0.75) return taiwanTypeFor(lot, seed);
+    if (u < 0.75) return taiwanPickWithStrip(lot, seed, opts);
     const v = (u - 0.75) * 4;
     return [0, 1][Math.floor(v * 2) % 2];
   }
   if (lot.h >= 15) {
     if (r < 0.1) return 3; // glass accent, unchanged
     const u = (r - 0.1) / 0.9; // masonry pool, rescaled to 0..1
-    if (u < 0.72) return taiwanTypeFor(lot, seed);
+    if (u < 0.72) return taiwanPickWithStrip(lot, seed, opts);
     const v = (u - 0.72) / 0.28;
     return [0, 1, 2][Math.floor(v * 3) % 3];
   }
@@ -6744,13 +6794,13 @@ export function facadeMatFor(lot, opts) {
     if (r < 0.1) return 3; // glass accent, unchanged
     if (opts?.guard) return [0, 1, 2][Math.floor(r * 3) % 3];
     const u = (r - 0.1) / 0.9; // masonry pool, rescaled to 0..1
-    if (u < 0.72) return taiwanTypeFor(lot, seed);
+    if (u < 0.72) return taiwanPickWithStrip(lot, seed, opts);
     const v = (u - 0.72) / 0.28;
     return [0, 1, 2][Math.floor(v * 3) % 3];
   }
   if (lot.h >= 6) {
     if (opts?.guard) return [0, 1, 2][Math.floor(r * 3) % 3];
-    if (r < 0.72) return taiwanTypeFor(lot, seed);
+    if (r < 0.72) return taiwanPickWithStrip(lot, seed, opts);
     const v = (r - 0.72) / 0.28;
     return [0, 1, 2][Math.floor(v * 3) % 3];
   }
@@ -7067,8 +7117,12 @@ export function taipeiRooftopAdditions(gear, lot, units) {
   const tanks = [];
   // Stainless tanks: nearly any non-glass roof of 8–34 m with 5.5 m of
   // room — in the photo they sit on walk-ups and mid slabs alike.
-  // Skipped on hut lots (issue #100): every spot is under the addition.
-  if (huts.length === 0 && lot.h >= 8 && lot.h <= 34 && Math.min(w, d) >= 5.5 && hash01(seed ^ 0x7777) < TAIPEI_TANK_RATE) {
+  // Issue #108: the high-rise residential family (12) carries its
+  // roof tanks too — the cap runs to 75 m for mat 12 only, same 14%
+  // rate, so the tall tile slabs get the stainless-tank roofscape the
+  // issue asks for. Skipped on hut lots (issue #100): every spot is
+  // under the addition.
+  if (huts.length === 0 && lot.h >= 8 && lot.h <= (lot.mat === 12 ? HIGH_RISE_TAIWAN_MAX_H : 34) && Math.min(w, d) >= 5.5 && hash01(seed ^ 0x7777) < TAIPEI_TANK_RATE) {
     for (const s of spots) {
       const r = { x0: s.x - TANK_RADIUS, x1: s.x + TANK_RADIUS, z0: s.z - TANK_RADIUS, z1: s.z + TANK_RADIUS };
       if (!fits(r, 0.35)) continue;
@@ -7287,7 +7341,10 @@ export function taipeiNewerEntrance(lot) {
 const SIGN_RATE = 0.55;
 
 export function taipeiVerticalSigns(lot) {
-  if (!lot || lot.mat < 6 || lot.mat > 9 || lot.h < 10) return [];
+  // Issue #108: family 13 (二丁掛 mid-rise) joins the sign-carrying
+  // Taiwan set; family 12 (the lobby tower) stays out with 10/11 —
+  // a residential tower carries no vertical shop sign.
+  if (!lot || ![6, 7, 8, 9, 13].includes(lot.mat) || lot.h < 10) return [];
   const seed = lotPolicySeed(lot, 0x5167);
   if (hash01(seed) >= SIGN_RATE) return [];
   const two = hash01(seed ^ 0x11) >= 0.62;

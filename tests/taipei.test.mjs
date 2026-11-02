@@ -979,7 +979,7 @@ test('buildings options: plan faithfully adapted for the upstream building syste
     assert.ok(Math.abs((l.x0 + l.x1) / 2 - p.x) < 0.051 && Math.abs((l.z0 + l.z1) / 2 - p.z) < 0.051, 'lot centre matches the plan');
     assert.ok(Math.abs((l.x1 - l.x0) - p.w) < 0.051 && Math.abs((l.z1 - l.z0) - p.d) < 0.051, 'lot footprint matches the plan');
     assert.equal(l.h, p.h, 'lot height matches the plan');
-    assert.ok(Number.isInteger(l.mat) && l.mat >= 0 && l.mat <= 11, `facade material index ${l.mat} within the twelve families (0-9 upstream/Taiwan, 10/11 issue #256)`);
+    assert.ok(Number.isInteger(l.mat) && l.mat >= 0 && l.mat <= 13, `facade material index ${l.mat} within the fourteen families (0-9 upstream/Taiwan, 10/11 issue #256, 12/13 issue #108)`);
   });
   // Material zoning: tall lots never wear the low masonry families
   // (0-2), and the low residential interiors are mostly the Taiwan
@@ -1010,7 +1010,9 @@ test('buildings options: plan faithfully adapted for the upstream building syste
   assert.ok(tallOutCore.length > 0 && tallOutGlass / tallOutCore.length < 0.25, `tall residential lots are mostly Taiwan tile (${tallOutGlass}/${tallOutCore.length} glass accent)`);
   const low = opts.lots.filter((l) => l.h < 12);
   // Issue #17 slice 2: the low residential fabric is mostly the
-  // Taiwan types (72% of the 6–12 m lots), masonry is the minority
+  // Taiwan types (72% of the 6–12 m lots; issue #108 re-bases the
+  // share to 79% — the strip-tile roll adds 605 Taiwan lots in the
+  // 9–12 m band on top of the same pool), masonry is the minority
   // accent, and there is no glass below 12 m — real low-rise Taipei
   // is not curtain wall. The sub-6 m sheds stay masonry.
   assert.ok(low.length > 0, 'low residential lots exist');
@@ -1068,7 +1070,14 @@ test('taiwan types: family zoning, distribution and rooftop clamp', (t) => {
   // their bands below carry no ceiling (null); family 7 keeps its
   // 36 m cap on every path — the arcade colonnade is a street-wall
   // ground floor, not a tower language.
-  const typeBand = { 6: [6, null], 7: [6, 36], 8: [9, null], 9: [9, null] };
+  // Issue #108 adds two families with their own bands: 12, the
+  // high-rise residential slab, 40–75 m outside the office cores
+  // (40% of the tall-Taiwan remainder, after the glass accent and
+  // the newer-apartment roll); 13, the 二丁掛 strip-tile mid-rise,
+  // 9–30 m (12% of the Taiwan pool in-band). Both rolls are
+  // guard-wrapped, so the plan is byte-identical — the bands below
+  // pin the assignment, not the plan.
+  const typeBand = { 6: [6, null], 7: [6, 36], 8: [9, null], 9: [9, null], 12: [40, 75], 13: [9, 30] };
   for (const [mat, [lo, hi]] of Object.entries(typeBand)) {
     const lots = opts.lots.filter((l) => l.mat === Number(mat));
     assert.ok(lots.length > 400, `family ${mat} planted in real numbers (${lots.length} lots)`);
@@ -1470,7 +1479,15 @@ test('arcade parts: recessed core and full-perimeter colonnade', (t) => {
   // pull/facing guards judge by the pre-slice-2 family, see
   // facadeMatFor), so no lot moved, entered, or left — the whole
   // delta is the family re-assignment at the final positions.
-  assert.equal(f7.length, 11198, 'F7 census after #124, composed with #166, #186, #226, #213, #219 and #221 (campus clearing removes 519 F7 lots) and #255 (the 4 registry sites exclude 32 lots, 1 of them F7, and 1 kept lot leaves F7 — lot-by-lot diff on this tree) and #289 (the 4 registry sites exclude 56 lots net, 2 of them F7, no kept lot leaves F7 — lot-by-lot diff on this tree) and #17 slice 2 (the low-band Taiwan roll assigns F7 its share of the 6-15 m masonry pool: +4,515, plan byte-identical)');
+  // Issue #108 re-pins the census: the F13 二丁掛 strip-tile roll
+  // takes 12% of the Taiwan pool in 9–30 m, and F7 (6–36 m) loses
+  // its share — −1,160 lots (11,198 → 10,038). F12 takes nothing
+  // from F7: F12 starts at 40 m, above F7's 36 m cap. Proven delta:
+  // census before/after on this tree (F6 −1,351, F7 −1,160,
+  // F8 −1,445, F9 −1,008 = −4,964 = F12 606 + F13 4,358), plan
+  // byte-identical, so no lot moved — the whole delta is the family
+  // re-assignment at the final positions.
+  assert.equal(f7.length, 10038, 'F7 census after #124, composed with #166, #186, #226, #213, #219 and #221 (campus clearing removes 519 F7 lots) and #255 (the 4 registry sites exclude 32 lots, 1 of them F7, and 1 kept lot leaves F7 — lot-by-lot diff on this tree) and #289 (the 4 registry sites exclude 56 lots net, 2 of them F7, no kept lot leaves F7 — lot-by-lot diff on this tree) and #17 slice 2 (the low-band Taiwan roll assigns F7 its share of the 6-15 m masonry pool: +4,515, plan byte-identical) and #108 (the F13 strip-tile roll takes 12% of the Taiwan pool in 9–30 m: F7 −1,160, plan byte-identical)');
   assert.equal(withArcade.length, eligible.length, `every size-eligible F7 lot carries the arcade (${withArcade.length}/${eligible.length})`);
   const totalCols = withArcade.reduce((s, l) => s + l.arcade.columns.length, 0);
   assert.ok(totalCols / withArcade.length < 30, `columns per arcade lot sane (${(totalCols / withArcade.length).toFixed(1)})`);
