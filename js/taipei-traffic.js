@@ -1,4 +1,4 @@
-import { TAIPEI_GEO } from './taipei-geodata.js';
+import { TAIPEI_GEO } from './taipei-sandbox.js'; // sandbox wrapper: the generated geo, filtered when ?sandbox= is set, untouched otherwise
 import { ASPHALT_LIFT } from './taipei-viaduct.js'; // three-free geometry constants; the sampler below reuses the digest the renderer draws
 
 // js/taipei-traffic.js — issue #210 EXPERIMENT: traffic generation for the Taipei tile.
