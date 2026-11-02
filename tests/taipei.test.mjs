@@ -982,7 +982,10 @@ test('buildings options: plan faithfully adapted for the upstream building syste
     assert.ok(Number.isInteger(l.mat) && l.mat >= 0 && l.mat <= 11, `facade material index ${l.mat} within the twelve families (0-9 upstream/Taiwan, 10/11 issue #256)`);
   });
   // Material zoning: tall lots never wear the low masonry families
-  // (0-2), and the low residential interiors stay masonry. Issue #136
+  // (0-2), and the low residential interiors are mostly the Taiwan
+  // types now (issue #17 slice 2: the 6–15 m shophouse rows and
+  // walk-ups are tile, not brick — masonry stays only as the ~28%
+  // accent and on the sub-6 m sheds). Issue #136
   // sharpens the tall rule: inside the office cores every tall lot is
   // curtain glass (3-5) — the pre-#136 rule, verbatim — while outside
   // them tall lots are residential and wear the Taiwan tile types,
@@ -1006,7 +1009,16 @@ test('buildings options: plan faithfully adapted for the upstream building syste
   const tallOutGlass = tallOutCore.filter((l) => l.mat >= 3 && l.mat <= 5).length;
   assert.ok(tallOutCore.length > 0 && tallOutGlass / tallOutCore.length < 0.25, `tall residential lots are mostly Taiwan tile (${tallOutGlass}/${tallOutCore.length} glass accent)`);
   const low = opts.lots.filter((l) => l.h < 12);
-  assert.ok(low.length > 0 && low.every((l) => l.mat <= 2), 'low residential lots are masonry');
+  // Issue #17 slice 2: the low residential fabric is mostly the
+  // Taiwan types (72% of the 6–12 m lots), masonry is the minority
+  // accent, and there is no glass below 12 m — real low-rise Taipei
+  // is not curtain wall. The sub-6 m sheds stay masonry.
+  assert.ok(low.length > 0, 'low residential lots exist');
+  const lowTaiwan = low.filter((l) => l.mat >= 6).length;
+  assert.ok(lowTaiwan / low.length > 0.55, `low residential lots are mostly Taiwan types (${lowTaiwan}/${low.length})`);
+  assert.ok(low.every((l) => l.mat <= 2 || l.mat >= 6), 'no glass on low residential lots');
+  const sheds = opts.lots.filter((l) => l.h < 6);
+  assert.ok(sheds.length > 0 && sheds.every((l) => l.mat <= 2), 'sub-6 m lots stay masonry');
 });
 
 // Issue #17: the four Taiwan types (families 6-9) are assigned only inside
@@ -1015,6 +1027,11 @@ test('buildings options: plan faithfully adapted for the upstream building syste
 // rules produced (the glass rolls are evaluated first, unchanged). The
 // rooftop-gear clamp keeps every unit inside its roof, near-square, and
 // removes water towers.
+// Issue #17 slice 2 lowers the classic-band floors: F6/F7 run from
+// 6 m (the 2–3 storey shophouse/arcade rows of the Dihua St reference)
+// and F8/F9 from 9 m (the 3-storey walk-up low end) — so the < 15 m
+// floor below is re-based to 6 m, and the per-type bands below carry
+// the new floors.
 // Issue #136 extends the Taiwan set upward: above 40 m, lots outside
 // the office cores draw families 6/8/9 from tallTaiwanTypeFor (the
 // tall-residential rule), so the < 40 m ceiling below is re-based to
@@ -1030,7 +1047,7 @@ test('taiwan types: family zoning, distribution and rooftop clamp', (t) => {
   const opts = taipeiCityBlocksOptions(TAIPEI_GEO, plan);
   const taiwan = opts.lots.filter((l) => l.mat >= 6);
   assert.ok(taiwan.length > 3000, `the Taiwan set is a major presence (${taiwan.length} lots)`);
-  assert.ok(taiwan.every((l) => l.h >= 15), 'Taiwan types only on 15 m+ lots');
+  assert.ok(taiwan.every((l) => l.h >= 6), 'Taiwan types only on 6 m+ lots');
   const tallTaiwan = opts.lots.map((l, i) => [l, i]).filter(([l]) => l.mat >= 6 && l.h >= 40);
   assert.ok(tallTaiwan.length > 1000, `the #136 tall-residential set is planted (${tallTaiwan.length} lots)`);
   // Issue #142: the only tall Taiwan lots inside a core are the
@@ -1038,16 +1055,20 @@ test('taiwan types: family zoning, distribution and rooftop clamp', (t) => {
   // 6/8/9 only (never the arcade family 7).
   assert.ok(tallTaiwan.every(([, i]) => !officeCoreFor(plan.lots[i]) || xinyiDistrictFor(plan.lots[i])), 'no tall Taiwan lot inside an office core except the #142 Xinyi conversions');
   assert.ok(tallTaiwan.every(([l, i]) => !officeCoreFor(plan.lots[i]) || l.mat !== 7), 'no arcade-family tall lot inside an office core');
-  // Per-type bands: 6 tile shophouse 15-40, 7 arcade < 36, 8 walk-up
-  // < 36, 9 pebble-dash 15-40 — and every type is planted in real
+  // Per-type bands: 6 tile shophouse 6-40, 7 arcade 6-36, 8 walk-up
+  // 9-36, 9 pebble-dash 9-40 — and every type is planted in real
   // numbers. Issue #55 raised the F7 cap 28 → 36 and the F8 cap 30 → 36
   // (the taller fourth gallery sample needs a planted band behind it).
+  // Issue #17 slice 2 lowers the floors 15 → 6 (F6/F7) and 15 → 9
+  // (F8/F9): the 2–3 storey shophouse rows and the 3-storey walk-up
+  // low end. Below 6 m only the shophouse types could apply and
+  // none does — a one-storey lot is a shed, not a shophouse.
   // Those caps bind taiwanTypeFor's classic bands only: issue #136's
   // tall rule plants 6/8/9 above 40 m outside the office cores, so
   // their bands below carry no ceiling (null); family 7 keeps its
   // 36 m cap on every path — the arcade colonnade is a street-wall
   // ground floor, not a tower language.
-  const typeBand = { 6: [15, null], 7: [15, 36], 8: [15, null], 9: [15, null] };
+  const typeBand = { 6: [6, null], 7: [6, 36], 8: [9, null], 9: [9, null] };
   for (const [mat, [lo, hi]] of Object.entries(typeBand)) {
     const lots = opts.lots.filter((l) => l.mat === Number(mat));
     assert.ok(lots.length > 400, `family ${mat} planted in real numbers (${lots.length} lots)`);
@@ -1057,6 +1078,11 @@ test('taiwan types: family zoning, distribution and rooftop clamp', (t) => {
   const band = opts.lots.filter((l) => l.h >= 15 && l.h < 22);
   const bandTaiwan = band.filter((l) => l.mat >= 6).length;
   assert.ok(bandTaiwan / band.length > 0.55, `15-22 m band is mostly Taiwan types (${bandTaiwan}/${band.length})`);
+  // Issue #17 slice 2: the low-rise band carries the same share —
+  // the 6–15 m shophouse rows and walk-ups are tile, not brick.
+  const lowBand = opts.lots.filter((l) => l.h >= 6 && l.h < 15);
+  const lowBandTaiwan = lowBand.filter((l) => l.mat >= 6).length;
+  assert.ok(lowBandTaiwan / lowBand.length > 0.55, `6-15 m band is mostly Taiwan types (${lowBandTaiwan}/${lowBand.length})`);
   const glass = opts.lots.filter((l) => l.mat >= 3 && l.mat <= 5).length;
   t.diagnostic(`taiwan set 6-9: ${taiwan.length} lots; glass 3-5: ${glass} lots`);
   // The invariant is structural: facadeMatFor evaluates the glass rolls
@@ -1306,7 +1332,17 @@ test('taiwan types: family zoning, distribution and rooftop clamp', (t) => {
   // the #136 composition, on twice the lots); masonry + Taiwan
   // together are 63,750 (89.1%), the local fabric as before.
   // The range is re-based to the new census with headroom.
-  assert.ok(masonry > 30000 && masonry < 40000, `masonry 0-2 reduced but still present (${masonry})`);
+  // Issue #17 slice 2 re-bases the range: the low-band Taiwan roll
+  // moves 14,920 lots from masonry to the Taiwan types (33,320 ->
+  // 18,400 of 68,482; 48.7% -> 26.9%) on the unchanged plan — the
+  // plan is byte-identical (the pull/facing guards judge by the
+  // pre-slice-2 family, see facadeMatFor), so the whole delta is
+  // the family re-assignment. Masonry + Taiwan together are
+  // unchanged at 60,799 (88.8%): the local fabric is intact, only
+  // its split moves, and brick survives as the accent the issue
+  // asks for. The range is re-based to hold the new count with
+  // headroom for dataset refreshes.
+  assert.ok(masonry > 15000 && masonry < 22000, `masonry 0-2 reduced but still present (${masonry})`);
   // (The #186 PR2 branch's stale-base masonry range — 20,896 of
   // 42,142 lots, range 12,000-22,000 — was a duplicate assert on
   // this variable from the same union; removed at the gate
