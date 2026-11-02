@@ -21,7 +21,7 @@ import {
 
 const plan = planTaipeiBuildings(TAIPEI_GEO);
 const NON_CARRIAGEWAY = new Set(['footway', 'path', 'steps', 'pedestrian', 'cycleway', 'corridor', 'elevator', 'crossing', 'platform', 'traffic_island']);
-const isPlazaName = (name) => (name || '').includes('廣場');
+const isPlazaName = (name) => (name || '').includes('廣場') && name !== '松壽廣場'; // Issue #289: 松壽廣場 is a lawn park, not a paved square — exempted, mirroring taipei-surfaces.js.
 
 test('amenity census: the shipped totals are pinned', () => {
   const { items, stats } = planParkAmenities(TAIPEI_GEO, plan);
@@ -56,16 +56,23 @@ test('amenity census: the shipped totals are pinned', () => {
   // The 9 net removals all sit in the 'large' area class (228
   // Peace Memorial Park): large 9740 → 9731, other classes
   // unchanged.
+  // Re-pinned for issue #289 (Songshou Plaza Park): 松壽廣場 is a
+  // lawn park, not a paved square, so it leaves the plaza bucket and
+  // is dressed like any other medium park — +31 items, all in the
+  // medium class, all inside its ring (bench 7, lamp 8, bin 6,
+  // vending 1, bush 9, proven by the item diff in
+  // xinyi289-evidence/amenity-census.mjs; zero removals anywhere
+  // else). parksPlaza 25 -> 24, parksDressed 461 -> 462.
   assert.deepEqual(counts, {
-    bench: 4102, lamp: 3785, bin: 2323, vending: 300,
-    restroom: 81, sculpture: 18, fountain: 12, bush: 8696,
+    bench: 4109, lamp: 3793, bin: 2329, vending: 301,
+    restroom: 81, sculpture: 18, fountain: 12, bush: 8705,
     playground: 133, picnic: 78, court: 90, pavilion: 184,
   });
-  assert.equal(Object.values(counts).reduce((s, v) => s + v, 0), 19802, 'grand total');
+  assert.equal(Object.values(counts).reduce((s, v) => s + v, 0), 19833, 'grand total');
   assert.equal(stats.parksTotal, 1600);
-  assert.equal(stats.parksPlaza, 25);
+  assert.equal(stats.parksPlaza, 24);
   assert.equal(stats.parksPathless, 1114);
-  assert.equal(stats.parksDressed, 461);
+  assert.equal(stats.parksDressed, 462);
   assert.equal(stats.parksMapped, 146);
   assert.equal(stats.parksSeeded246, 119);
   assert.deepEqual(stats.kits246.mapped, { playground: 63, picnic: 17, court: 81, pavilion: 179 });
@@ -76,7 +83,8 @@ test('amenity census: the shipped totals are pinned', () => {
     Object.fromEntries(Object.entries(stats.byClass).map(([k, v]) => [k, v.items])),
     // +138 large / +194 medium / +46 small / +3 tiny vs #236.
     // −9 large for #257 (see the census re-pin above).
-    { large: 9731, medium: 8181, small: 1852, tiny: 38 },
+    // +31 medium for #289 (Songshou Plaza Park, see above).
+    { large: 9731, medium: 8212, small: 1852, tiny: 38 },
     'items by area class',
   );
   // Every park eligible for a restroom got one (81 of 81).
@@ -145,7 +153,7 @@ test('placement invariants: inside a park, off water and off paths', () => {
       checked++;
     }
   }
-  assert.equal(checked, 19317); // −9 for #257: the museum forecourt spots (see the census re-pin above).
+  assert.equal(checked, 19348); // −9 for #257: the museum forecourt spots (see the census re-pin above); +31 for #289: the newly-dressed Songshou Plaza Park (7 benches, 8 lamps, 6 bins, 1 vending machine, 9 bushes — all inside the park, off water and off paths, as this test proves).
 });
 
 test('placement invariants, rect kits: pads inside a park, off water and carriageways, cores off paths', () => {
