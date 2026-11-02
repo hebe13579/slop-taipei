@@ -158,7 +158,8 @@ test('museum adds no lots and keeps the park setting: site, plaza and park ring'
   // moves no lots (0 lots in its site rect, asserted below). Registry
   // is 47, not 43: #289 adds 4 net entries (A21, Cathay Financial
   // Center, Walsin Lihwa, VieShow Cinemas).
-  assert.equal(plan.lots.length, 68482, 'museum site/plaza must not move the plan');
+  // Issue #110: plan 68,482 -> 68,472 — 23 bridge links re-admitted + 71 bed-end fusions re-seat 1,282 lots near the changed roadbeds (net -10).
+  assert.equal(plan.lots.length, 68472, 'museum site/plaza must not move the plan');
   assert.equal(plan.landmarkTowers.length, 47);
   for (const rect of s.sites) {
     const inside = plan.lots.filter((l) => l.x > rect.minX && l.x < rect.maxX && l.z > rect.minZ && l.z < rect.maxZ);

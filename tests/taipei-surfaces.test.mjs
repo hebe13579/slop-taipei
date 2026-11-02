@@ -82,7 +82,8 @@ test('geodata: class populations cover every roadbed exactly once', () => {
   // 1,130 -> 1,129 — the single removed bed is the 復北地下道
   // north apron stub (secondary), clipped into the portal
   // approach cut (generation-map rework v6).
-  assert.deepEqual(counts, { deck: 210, arterial: 1180, collector: 1057, lane: 12099 }); // merged-tree re-pin at the #186 gate: main {207,1129,1015,11226} + the #186 strip beds (deck/collector/lane exactly the #186 branch pins; arterial 1,180 — one strip way is routed to roadTunnels by the post-#196 builder); sums to the 14,546 roadbeds
+  // Issue #110: the 24 re-admitted link beds classify as arterial +3, deck +10, lane +11 (collector unchanged) — measured per bed.
+  assert.deepEqual(counts, { deck: 220, arterial: 1183, collector: 1057, lane: 12110 }); // merged-tree re-pin at the #186 gate: main {207,1129,1015,11226} + the #186 strip beds (deck/collector/lane exactly the #186 branch pins; arterial 1,180 — one strip way is routed to roadTunnels by the post-#196 builder); sums to the 14,546 roadbeds
 });
 
 test('medianKind: merged + width rule, planted only on wide secondary', () => {

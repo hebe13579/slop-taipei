@@ -183,18 +183,28 @@ test('facing census: turns land, the #185 pull and heights are untouched', () =>
   // turned 3,101 → 3,100, held 19,847 → 19,818, sample 17,438 →
   // 17,421 — all 17 sampled lots in the 0-2 bucket); no kept lot
   // changed turned/held status.
-  assert.deepEqual(plan.stats.lotsFacingTurned, 3100);
-  assert.deepEqual(plan.stats.lotsFacingTurnedFull, 1677);
-  assert.deepEqual(plan.stats.lotsFacingTurnedPartial, 1423);
-  assert.deepEqual(plan.stats.lotsFacingHeld, 19818);
-  assert.deepEqual(plan.stats.lotsFacingHeldNoFace, 8172);
-  assert.deepEqual(plan.stats.lotsFacingHeldSmallTurn, 7274);
-  assert.deepEqual(plan.stats.lotsFacingHeldFacade, 764);
-  assert.deepEqual(plan.stats.lotsFacingHeldClear, 3591);
+  // Issue #110: the re-seated lots change the facing census (turned 3,100 -> 3,101; full 1,677 -> 1,673; partial 1,423 -> 1,428; held 19,818 -> 19,823).
+  assert.deepEqual(plan.stats.lotsFacingTurned, 3101);
+  // Issue #110: see the facing-census re-pin above.
+  assert.deepEqual(plan.stats.lotsFacingTurnedFull, 1673);
+  // Issue #110: see the facing-census re-pin above.
+  assert.deepEqual(plan.stats.lotsFacingTurnedPartial, 1428);
+  // Issue #110: see the facing-census re-pin above.
+  assert.deepEqual(plan.stats.lotsFacingHeld, 19823);
+  // Issue #110: see the facing-census re-pin above.
+  assert.deepEqual(plan.stats.lotsFacingHeldNoFace, 8184);
+  // Issue #110: see the facing-census re-pin above.
+  assert.deepEqual(plan.stats.lotsFacingHeldSmallTurn, 7259);
+  // Issue #110: see the facing-census re-pin above.
+  assert.deepEqual(plan.stats.lotsFacingHeldFacade, 767);
+  // Issue #110: see the facing-census re-pin above.
+  assert.deepEqual(plan.stats.lotsFacingHeldClear, 3596);
   assert.deepEqual(plan.stats.lotsFacingHeldAlignedMain, 17);
   const { sample, buckets } = censusMismatch(plan.lots);
-  assert.equal(sample, 17421);
-  assert.deepEqual(buckets, { '0-2': 9243, '2-5': 2997, '5-10': 2021, '10-20': 1191, '20-45': 1969 });
+  // Issue #110: sample 17,421 -> 17,417 — 4 fewer lots in the mismatch census (the re-seated lots change which lots the census samples).
+  assert.equal(sample, 17417);
+  // Issue #110: buckets shift with the re-seated lots (0-2: 9,243 -> 9,228; 5-10: 2,021 -> 2,029; 10-20: 1,191 -> 1,197; 20-45: 1,969 -> 1,966; 2-5 unchanged).
+  assert.deepEqual(buckets, { '0-2': 9228, '2-5': 2997, '5-10': 2029, '10-20': 1197, '20-45': 1966 });
 });
 
 function lotCorners(cx, cz, w, d, c, s) {

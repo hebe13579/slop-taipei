@@ -1427,6 +1427,365 @@ const approachCuts = [];
   }
 }
 
+// ---- connectivity repair (issue #110) --------------------------------------
+// Two defects, one pass, over the FINAL bed set (after every suppression
+// pass, so the repair sees exactly what ships):
+//   (A) Bridge-link re-admission: a ground-level *_link way excluded by
+//       the <120 m rule is re-admitted ONLY when it BRIDGES a kept bed
+//       that would otherwise dangle — at least one bed end it touches is
+//       dangling (no other end within 22 m, not on another bed), so the
+//       link is that bed's only connection to the network. A link whose
+//       touched beds are already connected through junctions is junction
+//       spaghetti (the #6 rule's original target) and stays excluded:
+//       the first version of this test ("both ends land on kept
+//       pavement") re-admitted 214 of 243 excluded links — nearly every
+//       short link touches a road at both ends — and must not return.
+//   (C) Bed-end fusion: two bed ends facing each other across a
+//       junction-less gap (the runtime needs >=3 ends within 22 m to
+//       make a junction cap, so a 2-end meeting gets no cap and the gap
+//       is a real hole in the pavement) are joined by extending the
+//       NARROWER bed's centreline to the other bed's endpoint, so the
+//       two beds share an exact endpoint and their ribbons meet. Candidates:
+//       same-name collinear pairs (the 愛國東路 case: OSM split one road
+//       at minor nodes and the bed merger never fused the near-touching
+//       collinear ends), or same-route dangling pairs at interchanges
+//       (the Xinyi Expressway mainline continuing into the Xiangshan
+//       Tunnel under a different name; a ramp joining its mainline).
+//       Guards: each end's outward tangent faces the other end (angle
+//       <=30 deg) AND the other end lies inside this bed's corridor —
+//       its perpendicular offset from this end's tangent line is <=
+//       half width + 2 m, or <= 30% of the gap (a gentle bend over a
+//       long gap). A pure angle test admits parallel carriageways whose
+//       ends face each other across a lateral offset; the corridor test
+//       keeps the connector on the road's own pavement. Merged
+//       (boulevard) beds MAY be extended — their ends are the same
+//       road's continuation (重陽橋 / 中山北路五段 / 洲美快速道路 gaps
+//       are merged-vs-merged); the extension continues the boulevard
+//       at its own width. The connector crosses no third GROUND bed's
+//       ribbon (ramps and decks overlap freely in 2D, so links/decks
+//       are exempt) and neither end lies on a third bed (no T-join is
+//       paved over, no junction mouth is bridged); the connector stays
+//       inside the tile boxes (no paving into the void between boxes);
+//       the connector never enters a portal approach-cut corridor
+//       (issue #196 — a fusion across the 復北地下道 trench would pave
+//       over the trench). Genuine dead ends are never fused: a
+//       cul-de-sac end faces no other end, so it has no candidate pair.
+//       An end extended once is never extended again (an extension's
+//       target is final), so chains resolve without oscillation. Runs
+//       to a fixed point (max 5 passes).
+// Bookkeeping: re-admitted link length moves from excludedLinkLength
+// to roadbedLength (identity stays closed — the simplification
+// shortening of the re-admitted runs is booked by singleEntry, as for
+// every single bed); fusion connectors are NEW pavement — their length
+// books into fusionAddedLength, subtracted in the identity below.
+const FUSE_MAX_GAP_M = 45;      // == MAX_PAIR_DIST_M; the issue's gaps run 7.5-42 m
+const FUSE_FACE_DEG = 30;       // each end's outward tangent must face the other end (angle cap)
+const FUSE_CORRIDOR_M = 2;      // corridor margin beyond a bed's half width (see corridor test below)
+const FUSE_JUNCTION_M = 22;     // == JUNCTION_CLUSTER_M (js/taipei-markings.js)
+const BRIDGE_TOUCH_M = 12;      // a re-admitted link's end must land this close to kept pavement
+const FUSE_MAX_PASSES = 5;
+const ROUTE_FAMILY = { motorway: 'motorway', motorway_link: 'motorway', trunk: 'trunk', trunk_link: 'trunk', primary: 'primary', primary_link: 'primary', secondary: 'secondary', secondary_link: 'secondary', tertiary: 'tertiary', tertiary_link: 'tertiary' };
+const fusionReport = [];
+const readmittedLinks = [];
+let fusionAddedLength = 0;
+let fusionPasses = 0;
+
+// --- indexes over the current bed set (rebuilt whenever beds change) ---
+const collectEnds110 = () => {
+  const out = [];
+  roadbeds.forEach((b, bi) => {
+    const pts = pairsOf(b.centreline);
+    if (pts.length < 2) return;
+    const tan = (i, j) => { const dx = pts[i][0] - pts[j][0], dz = pts[i][1] - pts[j][1]; const n = Math.hypot(dx, dz) || 1; return [dx / n, dz / n]; };
+    const t0 = tan(0, 1), t1 = tan(pts.length - 1, pts.length - 2);
+    out.push({ bi, end: 0, x: pts[0][0], z: pts[0][1], tx: t0[0], tz: t0[1], name: b.name, highway: b.highway, width: b.width, merged: !!b.merged });
+    out.push({ bi, end: 1, x: pts[pts.length - 1][0], z: pts[pts.length - 1][1], tx: t1[0], tz: t1[1], name: b.name, highway: b.highway, width: b.width, merged: !!b.merged });
+  });
+  return out;
+};
+const indexEnds110 = (ends, cellM) => {
+  const grid = new Map();
+  ends.forEach((e, i) => {
+    const k = `${Math.floor(e.x / cellM)},${Math.floor(e.z / cellM)}`;
+    if (!grid.has(k)) grid.set(k, []);
+    grid.get(k).push(i);
+  });
+  return { grid, cellM };
+};
+const endsWithin110 = (eg, ends, x, z, R, excludeBis) => {
+  let n = 0;
+  for (let gx = Math.floor((x - R) / eg.cellM); gx <= Math.floor((x + R) / eg.cellM); gx++)
+    for (let gz = Math.floor((z - R) / eg.cellM); gz <= Math.floor((z + R) / eg.cellM); gz++)
+      for (const i of eg.grid.get(`${gx},${gz}`) || []) {
+        const e = ends[i];
+        if (excludeBis.has(e.bi)) continue;
+        if (Math.hypot(e.x - x, e.z - z) <= R) n++;
+      }
+  return n;
+};
+const segDist110 = (px, pz, s) => {
+  const dx = s.bx - s.ax, dz = s.bz - s.az;
+  const L2 = dx * dx + dz * dz || 1;
+  let t = ((px - s.ax) * dx + (pz - s.az) * dz) / L2;
+  t = Math.max(0, Math.min(1, t));
+  return Math.hypot(px - (s.ax + t * dx), pz - (s.az + t * dz));
+};
+const indexSegs110 = (cellM) => {
+  const grid = new Map();
+  roadbeds.forEach((b, bi) => {
+    const pts = pairsOf(b.centreline);
+    const link = b.highway.endsWith('_link') || !!b.deck;
+    for (let i = 0; i + 1 < pts.length; i++) {
+      const s = { bi, ax: pts[i][0], az: pts[i][1], bx: pts[i + 1][0], bz: pts[i + 1][1], half: Math.max((b.width || 3) / 2, 0.75), link };
+      const x0 = Math.min(s.ax, s.bx), x1 = Math.max(s.ax, s.bx), z0 = Math.min(s.az, s.bz), z1 = Math.max(s.az, s.bz);
+      for (let gx = Math.floor(x0 / cellM); gx <= Math.floor(x1 / cellM); gx++)
+        for (let gz = Math.floor(z0 / cellM); gz <= Math.floor(z1 / cellM); gz++) {
+          const k = `${gx},${gz}`;
+          if (!grid.has(k)) grid.set(k, []);
+          grid.get(k).push(s);
+        }
+    }
+  });
+  return { grid, cellM };
+};
+// Min over nearby segments of (distance to centreline - half width - margin):
+// <= 0 means the point lies inside some (non-excluded) bed's ribbon.
+const clearanceToBeds110 = (sg, x, z, R, excludeBis, margin, groundOnly) => {
+  let best = Infinity;
+  for (let gx = Math.floor((x - R) / sg.cellM); gx <= Math.floor((x + R) / sg.cellM); gx++)
+    for (let gz = Math.floor((z - R) / sg.cellM); gz <= Math.floor((z + R) / sg.cellM); gz++)
+      for (const s of sg.grid.get(`${gx},${gz}`) || []) {
+        if (excludeBis.has(s.bi)) continue;
+        if (groundOnly && s.link) continue;
+        best = Math.min(best, segDist110(x, z, s) - s.half - margin);
+      }
+  return best;
+};
+const inBoxes110 = (x, z, eps = 0.5) => BOXES_WORLD.some((b) => x >= b.minX - eps && x <= b.maxX + eps && z >= b.minZ - eps && z <= b.maxZ + eps);
+// Portal approach-cut corridors (issue #196): quads from each tunnel
+// mouth along its cut. A fusion connector must never enter one.
+const cutCorridors110 = () => {
+  const quads = [];
+  for (const t of roadTunnels) {
+    const half = t.width / 2 + 0.3; // ROAD_CUT_CLIP_MARGIN_M
+    for (const m of t.mouths) {
+      if (!m.cut) continue;
+      const [mx, mz, ex, ez] = m.cut.pts;
+      const len = Math.hypot(ex - mx, ez - mz) || 1;
+      const ox = (ex - mx) / len, oz = (ez - mz) / len;
+      const nx = -oz, nz = ox;
+      quads.push([[mx + nx * half, mz + nz * half], [ex + nx * half, ez + nz * half], [ex - nx * half, ez - nz * half], [mx - nx * half, mz - nz * half]]);
+    }
+  }
+  return quads;
+};
+const CUT_QUADS_110 = cutCorridors110();
+// Tile-wide census the issue asks for (before/after): dangling
+// trunk/trunk_link ends, and uncapped collinear same-name gaps.
+const connectivityCensus110 = () => {
+  const ends = collectEnds110();
+  const eg = indexEnds110(ends, 25);
+  const sg = indexSegs110(50);
+  let danglingTrunk = 0;
+  for (const e of ends) {
+    if (e.highway !== 'trunk' && e.highway !== 'trunk_link') continue;
+    if (endsWithin110(eg, ends, e.x, e.z, FUSE_MAX_GAP_M, new Set([e.bi])) > 0) continue;
+    if (clearanceToBeds110(sg, e.x, e.z, 40, new Set([e.bi]), 2, false) <= 0) continue;
+    danglingTrunk++;
+  }
+  let uncappedSameName = 0;
+  const seen = new Set();
+  ends.forEach((e, i) => {
+    for (let gx = Math.floor((e.x - FUSE_MAX_GAP_M) / 25); gx <= Math.floor((e.x + FUSE_MAX_GAP_M) / 25); gx++)
+      for (let gz = Math.floor((e.z - FUSE_MAX_GAP_M) / 25); gz <= Math.floor((e.z + FUSE_MAX_GAP_M) / 25); gz++)
+        for (const j of eg.grid.get(`${gx},${gz}`) || []) {
+          if (j <= i) continue;
+          const o = ends[j];
+          if (o.bi === e.bi || !e.name || e.name !== o.name) continue;
+          const key = e.bi < o.bi ? `${e.bi}:${e.end}-${o.bi}:${o.end}` : `${o.bi}:${o.end}-${e.bi}:${e.end}`;
+          if (seen.has(key)) continue;
+          seen.add(key);
+          const gap = Math.hypot(o.x - e.x, o.z - e.z);
+          if (gap < 2 || gap > FUSE_MAX_GAP_M) continue;
+          const dot = Math.abs(e.tx * o.tx + e.tz * o.tz);
+          if (Math.acos(Math.max(-1, Math.min(1, dot))) * 180 / Math.PI > 25) continue;
+          const mx = (e.x + o.x) / 2, mz = (e.z + o.z) / 2;
+          if (endsWithin110(eg, ends, mx, mz, FUSE_JUNCTION_M, new Set()) >= 3) continue;
+          uncappedSameName++;
+        }
+  });
+  return { danglingTrunk, uncappedSameName };
+};
+const censusBefore110 = connectivityCensus110();
+
+// (A) Bridge-link re-admission — iterate: a link re-admitted in one
+// round becomes kept pavement the next round can bridge from.
+for (let round = 0; round < 3; round++) {
+  const ends = collectEnds110();
+  const eg = indexEnds110(ends, 25);
+  const sg = indexSegs110(50);
+  // Beds a point touches: ends within BRIDGE_TOUCH_M (returns {bi -> end}),
+  // or a bed whose ribbon contains the point (returns {bi -> -1}).
+  const touchedBeds110 = (x, z) => {
+    const out = new Map();
+    for (let gx = Math.floor((x - BRIDGE_TOUCH_M) / 25); gx <= Math.floor((x + BRIDGE_TOUCH_M) / 25); gx++)
+      for (let gz = Math.floor((z - BRIDGE_TOUCH_M) / 25); gz <= Math.floor((z + BRIDGE_TOUCH_M) / 25); gz++)
+        for (const i of eg.grid.get(`${gx},${gz}`) || []) {
+          const e = ends[i];
+          if (Math.hypot(e.x - x, e.z - z) <= BRIDGE_TOUCH_M) out.set(e.bi, e.end);
+        }
+    for (let gx = Math.floor((x - (BRIDGE_TOUCH_M + 30)) / 50); gx <= Math.floor((x + (BRIDGE_TOUCH_M + 30)) / 50); gx++)
+      for (let gz = Math.floor((z - (BRIDGE_TOUCH_M + 30)) / 50); gz <= Math.floor((z + (BRIDGE_TOUCH_M + 30)) / 50); gz++)
+        for (const s of sg.grid.get(`${gx},${gz}`) || []) {
+          if (out.has(s.bi)) continue;
+          if (segDist110(x, z, s) - s.half - 2 <= 0) out.set(s.bi, -1);
+        }
+    return out;
+  };
+  const endByKey110 = new Map(ends.map((e) => [`${e.bi}:${e.end}`, e]));
+  const touchedEndDangling110 = (bi, end) => {
+    const e = endByKey110.get(`${bi}:${end}`);
+    if (!e) return false;
+    if (endsWithin110(eg, ends, e.x, e.z, FUSE_JUNCTION_M, new Set([bi])) > 0) return false;
+    return clearanceToBeds110(sg, e.x, e.z, 40, new Set([bi]), 1, false) > 0;
+  };
+  const byWay = new Map();
+  for (const s of segments) {
+    if (!excludedLinkWays.has(s.wayId)) continue;
+    if (!byWay.has(s.wayId)) byWay.set(s.wayId, []);
+    byWay.get(s.wayId).push(s);
+  }
+  let admitted = 0;
+  for (const [wayId, runs] of byWay) {
+    const a = runs[0].pts[0];
+    const lastPts = runs[runs.length - 1].pts;
+    const b = lastPts[lastPts.length - 1];
+    const touchA = touchedBeds110(a[0], a[1]);
+    const touchB = touchedBeds110(b[0], b[1]);
+    if (!touchA.size || !touchB.size) continue;
+    // A link from a bed to itself is a loop, not a bridge.
+    if (touchA.size === touchB.size && [...touchA.keys()].every((k) => touchB.has(k))) continue;
+    // Bridge: at least one touched END dangles — the link is that bed's
+    // only connection to the network. A mid-ribbon touch (end -1) is a
+    // through bed, never dangling.
+    let bridges = false;
+    for (const [bi, end] of [...touchA, ...touchB]) {
+      if (end < 0) continue;
+      if (touchedEndDangling110(bi, end)) { bridges = true; break; }
+    }
+    if (!bridges) continue;
+    const rawLen = linkWayLength.get(wayId) || 0;
+    for (const s of runs) pushRoadbed(singleEntry(s, s.pts));
+    excludedLinkWays.delete(wayId);
+    excludedLinkLength -= rawLen;
+    readmittedLinks.push({ wayId, highway: runs[0].highway, name: runs[0].name, lengthM: Math.round(rawLen), ends: [[q(a[0]), q(a[1])], [q(b[0]), q(b[1])]] });
+    admitted++;
+  }
+  if (!admitted) break;
+}
+
+// (C) Bed-end fusion — iterate to a fixed point.
+const extendedEnds110 = new Set(); // an end extended once is never extended again
+for (let pass = 0; pass < FUSE_MAX_PASSES; pass++) {
+  const ends = collectEnds110();
+  const eg = indexEnds110(ends, 25);
+  const sg = indexSegs110(50);
+  const isDangling = (e, partner) => {
+    if (endsWithin110(eg, ends, e.x, e.z, FUSE_JUNCTION_M, new Set([e.bi, partner.bi])) > 0) return false;
+    return clearanceToBeds110(sg, e.x, e.z, 40, new Set([e.bi, partner.bi]), 1, false) > 0;
+  };
+  const connectorClear = (e, o) => {
+    const gap = Math.hypot(o.x - e.x, o.z - e.z);
+    const n = Math.max(1, Math.ceil(gap / 2));
+    const excl = new Set([e.bi, o.bi]);
+    for (let i = 0; i <= n; i++) {
+      const t = i / n;
+      const x = e.x + (o.x - e.x) * t, z = e.z + (o.z - e.z) * t;
+      if (clearanceToBeds110(sg, x, z, 40, excl, 1, true) <= 0) return false;
+      if (CUT_QUADS_110.some((quad) => pip([x, z], quad))) return false;
+    }
+    return true;
+  };
+  const candidates = [];
+  const seen = new Set();
+  ends.forEach((e, i) => {
+    for (let gx = Math.floor((e.x - FUSE_MAX_GAP_M) / 25); gx <= Math.floor((e.x + FUSE_MAX_GAP_M) / 25); gx++)
+      for (let gz = Math.floor((e.z - FUSE_MAX_GAP_M) / 25); gz <= Math.floor((e.z + FUSE_MAX_GAP_M) / 25); gz++)
+        for (const j of eg.grid.get(`${gx},${gz}`) || []) {
+          if (j <= i) continue;
+          const o = ends[j];
+          if (o.bi === e.bi) continue;
+          const key = e.bi < o.bi ? `${e.bi}:${e.end}-${o.bi}:${o.end}` : `${o.bi}:${o.end}-${e.bi}:${e.end}`;
+          if (seen.has(key)) continue;
+          seen.add(key);
+          const gap = Math.hypot(o.x - e.x, o.z - e.z);
+          if (gap < 1 || gap > FUSE_MAX_GAP_M) continue;
+          // Corridor test: each end's outward tangent must point toward
+          // the other end (angle <= FUSE_FACE_DEG) AND the other end
+          // must lie inside this bed's corridor — its perpendicular
+          // offset from this end's tangent line <= half width +
+          // FUSE_CORRIDOR_M, or <= 30% of the gap (a gentle bend over a
+          // long gap). A pure angle test admits parallel carriageways
+          // whose ends face each other across a lateral offset.
+          const faceOk = (a, b) => {
+            const ux = (b.x - a.x) / gap, uz = (b.z - a.z) / gap;
+            const ang = Math.acos(Math.max(-1, Math.min(1, a.tx * ux + a.tz * uz))) * 180 / Math.PI;
+            if (ang > FUSE_FACE_DEG) return false;
+            const off = Math.abs((b.x - a.x) * a.tz - (b.z - a.z) * a.tx);
+            return off <= Math.max((a.width || 3) / 2 + FUSE_CORRIDOR_M, gap * 0.3);
+          };
+          if (!faceOk(e, o) || !faceOk(o, e)) continue;
+          const mx = (e.x + o.x) / 2, mz = (e.z + o.z) / 2;
+          if (endsWithin110(eg, ends, mx, mz, FUSE_JUNCTION_M, new Set([e.bi, o.bi])) >= 1) continue;
+          const sameName = e.name && e.name === o.name;
+          let reason = null;
+          if (sameName) reason = 'same-name';
+          else if (ROUTE_FAMILY[e.highway] && ROUTE_FAMILY[e.highway] === ROUTE_FAMILY[o.highway] && isDangling(e, o) && isDangling(o, e)) reason = 'same-route-dangling';
+          else continue;
+          if (clearanceToBeds110(sg, e.x, e.z, 40, new Set([e.bi, o.bi]), 1, false) <= 0) continue;
+          if (clearanceToBeds110(sg, o.x, o.z, 40, new Set([e.bi, o.bi]), 1, false) <= 0) continue;
+          if (!connectorClear(e, o)) continue;
+          if (!inBoxes110(mx, mz) || !inBoxes110(e.x, e.z) || !inBoxes110(o.x, o.z)) continue;
+          candidates.push({ e, o, gap, reason });
+        }
+  });
+  if (!candidates.length) break;
+  candidates.sort((a, b) => a.gap - b.gap);
+  let applied = 0;
+  for (const c of candidates) {
+    // Extend the NARROWER bed (ties: lower bed index). The connector
+    // takes the extender's width, so the narrower width fits within
+    // BOTH beds' footprints and never overhangs the narrower road.
+    // Extending the wider bed can pave outside the narrower road — the
+    // 重慶北路四段 fusion (29.1 m bed onto a 9.6 m bed) put a deck pier
+    // 0.86 m inside the connector's edge and failed validate's
+    // pier-in-carriageway check; the narrower extension clears it.
+    const pick = (a, b) => {
+      if (a.width !== b.width) return a.width < b.width ? a : b;
+      return a.bi < b.bi ? a : b;
+    };
+    const ext = pick(c.e, c.o);
+    const lockKey = `${ext.bi}:${ext.end}`;
+    if (extendedEnds110.has(lockKey)) continue;
+    const other = ext === c.e ? c.o : c.e;
+    const bed = roadbeds[ext.bi];
+    const pts = pairsOf(bed.centreline);
+    if (ext.end === 1) pts.push([other.x, other.z]);
+    else pts.unshift([other.x, other.z]);
+    bed.centreline = pts.flatMap(([x, z]) => [q(x), q(z)]);
+    roadbedLength += c.gap;
+    fusionAddedLength += c.gap;
+    extendedEnds110.add(lockKey);
+    applied++;
+    fusionReport.push({ pass: pass + 1, reason: c.reason, gapM: Math.round(c.gap * 10) / 10, aName: c.e.name, aHighway: c.e.highway, aBed: c.e.bi, aEnd: c.e.end, bName: c.o.name, bHighway: c.o.highway, bBed: c.o.bi, bEnd: c.o.end });
+  }
+  if (applied) fusionPasses = pass + 1;
+  if (!applied) break;
+}
+const censusAfter110 = connectivityCensus110();
+console.log(`[generation-map] connectivity repair (issue #110): ${readmittedLinks.length} bridge links re-admitted, ${fusionReport.length} bed-end fusions in ${fusionPasses} passes (+${Math.round(fusionAddedLength)} m of connector pavement)`);
+console.log(`[generation-map] connectivity census (issue #110): dangling trunk/trunk_link ends ${censusBefore110.danglingTrunk} -> ${censusAfter110.danglingTrunk}; uncapped collinear same-name gaps ${censusBefore110.uncappedSameName} -> ${censusAfter110.uncappedSameName}`);
+
 // ---- stats + output ----------------------------------------------------------
 const stats = {
   carriagewayRuns: segments.length,
@@ -1456,11 +1815,17 @@ const stats = {
   roadbedCount: roadbeds.length,
   deckBeds: roadbeds.filter((b) => b.deck).length,
   roadbedLength: Math.round(roadbedLength * 10) / 10,
+  fusionAddedLength: Math.round(fusionAddedLength * 10) / 10,
+  fusionPasses,
+  fusionBeds: fusionReport,
+  readmittedLinks,
+  connectivityCensusBefore: censusBefore110,
+  connectivityCensusAfter: censusAfter110,
   overrides: [...overrideMatched.entries()].map(([name, matchedWays]) => ({ name, width: OVERRIDES[name], matchedWays })),
   mergedRoads: mergedReport,
 };
-const identity = stats.roadbedLength + stats.excludedLinkLength + stats.mergedConstituentOverlapLength - stats.mergedLength + stats.droppedScrapLength + stats.suppressedLength + stats.parkServiceExcludedLength + stats.airfieldTunnelLength + stats.approachCutLength + stats.simplificationShorteningM;
-console.log(`[generation-map] length identity: roadbeds ${stats.roadbedLength} + excludedLinks ${stats.excludedLinkLength} + mergedOverlap ${stats.mergedConstituentOverlapLength} - merged ${stats.mergedLength} + scrap ${stats.droppedScrapLength} + suppressed ${stats.suppressedLength} + parkService ${stats.parkServiceExcludedLength} + airfieldTunnel ${stats.airfieldTunnelLength} + approachCut ${stats.approachCutLength} + simplifyShortening ${stats.simplificationShorteningM} = ${identity.toFixed(1)} vs carriageway ${stats.carriagewayLength} (delta ${(identity - stats.carriagewayLength).toFixed(1)} m)`);
+const identity = stats.roadbedLength + stats.excludedLinkLength + stats.mergedConstituentOverlapLength - stats.mergedLength + stats.droppedScrapLength + stats.suppressedLength + stats.parkServiceExcludedLength + stats.airfieldTunnelLength + stats.approachCutLength + stats.simplificationShorteningM - stats.fusionAddedLength;
+console.log(`[generation-map] length identity: roadbeds ${stats.roadbedLength} + excludedLinks ${stats.excludedLinkLength} + mergedOverlap ${stats.mergedConstituentOverlapLength} - merged ${stats.mergedLength} + scrap ${stats.droppedScrapLength} + suppressed ${stats.suppressedLength} + parkService ${stats.parkServiceExcludedLength} + airfieldTunnel ${stats.airfieldTunnelLength} + approachCut ${stats.approachCutLength} + simplifyShortening ${stats.simplificationShorteningM} - fusion ${stats.fusionAddedLength} = ${identity.toFixed(1)} vs carriageway ${stats.carriagewayLength} (delta ${(identity - stats.carriagewayLength).toFixed(1)} m)`);
 const out = {
   version: 1,
   generatedBy: 'tools/taipei/build-generation-map.mjs',

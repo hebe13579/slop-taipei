@@ -112,7 +112,8 @@ test('the #134 site exclusion does not regress', () => {
   // block order restored in the shipped geodata, the count
   // reproduces main's 222 exactly — the strip growth does not
   // touch the airfield polygon's candidate set.
-  assert.equal(plan.stats.lotsDroppedAirfield, 222, 'airfield lots dropped, as #134 (222 on main and on the #186 merged tree with restored block order; the interim 203 was a re-rolled-regeneration artefact)');
+  // Issue #110: one fewer lot dropped on airfield land — a re-seated lot near a fused bed now stands off the field.
+  assert.equal(plan.stats.lotsDroppedAirfield, 221, 'airfield lots dropped, as #134 (222 on main and on the #186 merged tree with restored block order; the interim 203 was a re-rolled-regeneration artefact)');
 });
 
 // Issue #183: 復興北路 dives UNDER the field through the

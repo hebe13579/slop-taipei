@@ -100,7 +100,8 @@ test('plan census: four new sites displace only their own lots', () => {
   // not a re-pin: the full-field diff (lots-old.json vs lots-new.json)
   // shows zero lots added at a new x/z and zero removals outside the
   // four rects + those 9 re-seats.
-  assert.equal(plan.lots.length, 68482, 'lot count re-pinned for the four new sites');
+  // Issue #110: plan 68,482 -> 68,472 — 23 bridge links re-admitted + 71 bed-end fusions re-seat 1,282 lots near the changed roadbeds (net -10).
+  assert.equal(plan.lots.length, 68472, 'lot count re-pinned for the four new sites');
 });
 
 test('Civic Plaza: already registered, already lot-free, still paved', () => {

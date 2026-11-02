@@ -35,7 +35,8 @@ function planAndOpts() {
 
 test('newer apartments: census pins — both families planted, glass untouched', (t) => {
   const { plan, opts } = planAndOpts();
-  assert.equal(plan.lots.length, 68482, 'the rule moves families only — the lot count is the composed plan (issue #255 gate: 68,570 − 32 site-excluded lots; issue #289 gate: 68,538 − 56 site-excluded lots net)');
+  // Issue #110: plan 68,482 -> 68,472 — 23 bridge links re-admitted + 71 bed-end fusions re-seat 1,282 lots near the changed roadbeds (net -10).
+  assert.equal(plan.lots.length, 68472, 'the rule moves families only — the lot count is the composed plan (issue #255 gate: 68,570 − 32 site-excluded lots; issue #289 gate: 68,538 − 56 site-excluded lots net)');
   const fam = {};
   for (const l of opts.lots) fam[l.mat] = (fam[l.mat] || 0) + 1;
   // Pinned at the #256 gate on the composed tree: 492 tall-Taiwan lots
@@ -47,7 +48,8 @@ test('newer apartments: census pins — both families planted, glass untouched',
   // rendered family at its final position. The plan itself is
   // byte-identical to main (0 differing lots, full-field diff), so
   // this is a census re-pin, not a moved city.
-  assert.equal(fam[10], 272, 'modern slab family planted in the hundreds');
+  // Issue #110: F10 272 -> 274 (+2) — the re-seated lots re-roll the newer-apartment families (2 more lots land in F10).
+  assert.equal(fam[10], 274, 'modern slab family planted in the hundreds');
   assert.equal(fam[11], 220, 'neoclassical stone family planted in the hundreds');
   // Issue #255 gate: the 4 new sites exclude 32 lots; the removed
   // lots' families (lot-by-lot vs pristine main, diff265.mjs) are
@@ -89,15 +91,24 @@ test('newer apartments: census pins — both families planted, glass untouched',
   // is the family re-assignment at the final positions. Glass and
   // F10/F11 are untouched: their rolls evaluate first with the exact
   // pre-#108 formulas.
-  assert.equal(fam[6], 10672, 'tile shophouse gives up its seeded share');
-  assert.equal(fam[8], 9476, 'walk-up slab gives up its seeded share');
-  assert.equal(fam[9], 7249, 'pebble-dash gives up its seeded share');
-  assert.equal(fam[7], 10038, 'arcade family: #256 never consults it, but #17 slice 2 assigns it the low-band share');
-  assert.equal(fam[12], 606, 'high-rise residential planted in the hundreds');
-  assert.equal(fam[13], 4358, 'strip-tile mid-rise planted in the thousands');
-  assert.equal(fam[3], 5127, 'glass family 3 untouched — the accent roll runs first');
-  assert.equal(fam[4], 1061, 'glass family 4 untouched');
-  assert.equal(fam[5], 1003, 'glass family 5 untouched');
+  // Issue #110: F6 10,672 -> 10,652 (-20) — the re-seated lots re-roll the renderer-options families.
+  assert.equal(fam[6], 10652, 'tile shophouse gives up its seeded share');
+  // Issue #110: F8 9,476 -> 9,484 (+8).
+  assert.equal(fam[8], 9484, 'walk-up slab gives up its seeded share');
+  // Issue #110: F9 7,249 -> 7,243 (-6).
+  assert.equal(fam[9], 7243, 'pebble-dash gives up its seeded share');
+  // Issue #110: F7 10,038 -> 10,037 (-1).
+  assert.equal(fam[7], 10037, 'arcade family: #256 never consults it, but #17 slice 2 assigns it the low-band share');
+  // Issue #110: F12 606 -> 609 (+3) — same delta as the taiwan108 test.
+  assert.equal(fam[12], 609, 'high-rise residential planted in the hundreds');
+  // Issue #110: F13 4,358 -> 4,377 (+19) — same delta as the taiwan108 test.
+  assert.equal(fam[13], 4377, 'strip-tile mid-rise planted in the thousands');
+  // Issue #110: glass F3 5,127 -> 5,126 (-1) — the re-seated lots re-roll the glass accent.
+  assert.equal(fam[3], 5126, 'glass family 3 untouched — the accent roll runs first');
+  // Issue #110: glass F4 1,061 -> 1,062 (+1).
+  assert.equal(fam[4], 1062, 'glass family 4 untouched');
+  // Issue #110: glass F5 1,003 -> 999 (-4).
+  assert.equal(fam[5], 999, 'glass family 5 untouched');
   t.diagnostic(`families: ${JSON.stringify(fam)}`);
 });
 

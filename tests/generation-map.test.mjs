@@ -125,3 +125,55 @@ test('link policy: elevated ramps are kept, short ground links stay excluded (is
   const delta = Math.abs(s.roadbedLength + s.excludedLinkLength + s.mergedConstituentOverlapLength - s.mergedLength + s.droppedScrapLength - s.carriagewayLength);
   assert.ok(delta < 5, `length identity still closes on synthetic data (delta ${delta})`);
 });
+
+test('bridge-link re-admission: a short ground link that is a dangling bed\'s only connection is re-admitted, a shortcut between connected beds stays excluded (issue #110)', () => {
+  const gm = buildGenerationMap([
+    // Road A ends at (200,0) with nothing beyond it — its end dangles.
+    way(401, { name: '測試大道', highway: 'primary', oneway: 'yes', lanes: '3' }, [pt(0, 0), pt(200, 0)]),
+    // Road B runs north-south through x=300; the link joins it mid-block.
+    way(402, { name: '測試快速道路', highway: 'trunk', oneway: 'yes', lanes: '2' }, [pt(300, -100), pt(300, 100)]),
+    // Short ground link (100 m < 120 m) from A's dangling end to B.
+    // It is A's only connection to the network, so it is a bridge.
+    way(403, { name: '測試匝道', highway: 'trunk_link', oneway: 'yes' }, [pt(200, 0), pt(300, 0)]),
+    // Roads E and F meet at a shared endpoint (200,500) — already connected.
+    way(404, { name: '測試橫路', highway: 'primary', oneway: 'yes', lanes: '3' }, [pt(0, 500), pt(200, 500)]),
+    way(405, { name: '測試直路', highway: 'primary', oneway: 'yes', lanes: '3' }, [pt(200, 500), pt(200, 700)]),
+    // Short ground link (71 m) cutting the corner between E and F
+    // mid-block. Both beds are already connected through their shared
+    // endpoint, so this is junction spaghetti and stays excluded.
+    way(406, { name: '測試捷徑', highway: 'primary_link', oneway: 'yes' }, [pt(150, 500), pt(200, 550)]),
+    tokenDeckWay(),
+  ]);
+  assert.ok(gm.roadbeds.some((rb) => rb.sourceWayIds.includes(403)), 'bridging link is re-admitted');
+  assert.ok(gm.stats.readmittedLinks.some((r) => r.wayId === 403), 'bridging link is recorded in stats');
+  assert.ok(!gm.roadbeds.some((rb) => rb.sourceWayIds.includes(406)), 'shortcut between connected beds stays excluded');
+  assert.ok(!gm.stats.readmittedLinks.some((r) => r.wayId === 406), 'shortcut is not recorded as re-admitted');
+});
+
+test('bed-end fusion: a same-name collinear gap is joined, a genuine dead end is not extended (issue #110)', () => {
+  const gm = buildGenerationMap([
+    // One road split into two beds 20 m apart, same name, collinear.
+    way(501, { name: '測試路', highway: 'tertiary', oneway: 'yes', lanes: '3' }, [pt(0, 100), pt(100, 100)]),
+    way(502, { name: '測試路', highway: 'tertiary', oneway: 'yes', lanes: '3' }, [pt(120, 100), pt(220, 100)]),
+    // A genuine dead end: a cul-de-sac with nothing beyond it.
+    way(503, { name: '死巷', highway: 'residential', oneway: 'yes', lanes: '1' }, [pt(0, 300), pt(100, 300)]),
+    tokenDeckWay(),
+  ]);
+  // The gap midpoint is paved after the fusion.
+  assert.ok(coveredBy(gm, 110, 100), 'the 20 m gap between the two 測試路 beds is paved');
+  const fusions = gm.stats.fusionBeds.filter((f) => f.reason === 'same-name');
+  assert.ok(fusions.length >= 1, 'a same-name fusion is recorded');
+  assert.ok(fusions.some((f) => f.gapM >= 19 && f.gapM <= 21), `fusion gap is ~20 m (got ${fusions.map((f) => f.gapM)})`);
+  // The dead end is not extended and no fusion touches it.
+  const deadBed = gm.roadbeds.find((rb) => rb.sourceWayIds.includes(503));
+  assert.ok(deadBed, 'dead-end bed renders');
+  const c = deadBed.centreline;
+  assert.ok(Math.abs(c[c.length - 2] - 100) < 0.5 && Math.abs(c[c.length - 1] - 300) < 0.5,
+    `dead end is not extended (end ${c[c.length - 2]},${c[c.length - 1]})`);
+  assert.ok(!gm.stats.fusionBeds.some((f) => gm.roadbeds[f.aBed]?.sourceWayIds.includes(503) || gm.roadbeds[f.bBed]?.sourceWayIds.includes(503)),
+    'no fusion touches the dead-end bed');
+  // Length identity still closes with the fusion term.
+  const s = gm.stats;
+  const delta = Math.abs((s.roadbedLength + s.excludedLinkLength + s.mergedConstituentOverlapLength - s.mergedLength + s.droppedScrapLength + (s.suppressedLength || 0) + (s.parkServiceExcludedLength || 0) + (s.airfieldTunnelLength || 0) + (s.approachCutLength || 0) + (s.simplificationShorteningM || 0) - (s.fusionAddedLength || 0)) - s.carriagewayLength);
+  assert.ok(delta < 5, `length identity still closes with fusion (delta ${delta})`);
+});

@@ -1304,7 +1304,8 @@ test('taiwan types: family zoning, distribution and rooftop clamp', (t) => {
   // the glass band and re-roll to the masonry/Taiwan families.
   // facadeMatFor is unedited; the census moves because the
   // heights do: glass 8,203 − 362 = 7,841.
-  assert.equal(glass, 7191, 'glass family counts after #136 + #139 + #135 + #142, composed with #134 + #137, #144, #165, #124, #166, #186, #226, #213, #219 and #221 (campus clearing removes 628 glass lots) and #255 (the 4 registry sites exclude 32 lots, 7 of them glass, no kept-lot re-rolls — lot-by-lot diff on this tree) and #289 (the 4 registry sites exclude 56 lots net, 15 of them glass — 6/5/4 across families 3/4/5, net of the 2 re-seats that land in 4/5 — lot-by-lot diff on this tree)');
+  // Issue #110: 4 fewer glass lots — the re-seated lots change the glass-family census.
+  assert.equal(glass, 7187, 'glass family counts after #136 + #139 + #135 + #142, composed with #134 + #137, #144, #165, #124, #166, #186, #226, #213, #219 and #221 (campus clearing removes 628 glass lots) and #255 (the 4 registry sites exclude 32 lots, 7 of them glass, no kept-lot re-rolls — lot-by-lot diff on this tree) and #289 (the 4 registry sites exclude 56 lots net, 15 of them glass — 6/5/4 across families 3/4/5, net of the 2 re-seats that land in 4/5 — lot-by-lot diff on this tree)');
   // (The #186 PR2 branch carried its own stale-base version of
   // this composition — glass 4,120 -> 4,419 on the pre-#124
   // plan — which the merge union initially kept as a duplicate
@@ -1487,7 +1488,8 @@ test('arcade parts: recessed core and full-perimeter colonnade', (t) => {
   // F8 −1,445, F9 −1,008 = −4,964 = F12 606 + F13 4,358), plan
   // byte-identical, so no lot moved — the whole delta is the family
   // re-assignment at the final positions.
-  assert.equal(f7.length, 10038, 'F7 census after #124, composed with #166, #186, #226, #213, #219 and #221 (campus clearing removes 519 F7 lots) and #255 (the 4 registry sites exclude 32 lots, 1 of them F7, and 1 kept lot leaves F7 — lot-by-lot diff on this tree) and #289 (the 4 registry sites exclude 56 lots net, 2 of them F7, no kept lot leaves F7 — lot-by-lot diff on this tree) and #17 slice 2 (the low-band Taiwan roll assigns F7 its share of the 6-15 m masonry pool: +4,515, plan byte-identical) and #108 (the F13 strip-tile roll takes 12% of the Taiwan pool in 9–30 m: F7 −1,160, plan byte-identical)');
+  // Issue #110: 1 fewer F7 lot — the re-seated lots change the F7 census.
+  assert.equal(f7.length, 10037, 'F7 census after #124, composed with #166, #186, #226, #213, #219 and #221 (campus clearing removes 519 F7 lots) and #255 (the 4 registry sites exclude 32 lots, 1 of them F7, and 1 kept lot leaves F7 — lot-by-lot diff on this tree) and #289 (the 4 registry sites exclude 56 lots net, 2 of them F7, no kept lot leaves F7 — lot-by-lot diff on this tree) and #17 slice 2 (the low-band Taiwan roll assigns F7 its share of the 6-15 m masonry pool: +4,515, plan byte-identical) and #108 (the F13 strip-tile roll takes 12% of the Taiwan pool in 9–30 m: F7 −1,160, plan byte-identical)');
   assert.equal(withArcade.length, eligible.length, `every size-eligible F7 lot carries the arcade (${withArcade.length}/${eligible.length})`);
   const totalCols = withArcade.reduce((s, l) => s + l.arcade.columns.length, 0);
   assert.ok(totalCols / withArcade.length < 30, `columns per arcade lot sane (${(totalCols / withArcade.length).toFixed(1)})`);
@@ -1698,7 +1700,8 @@ test('rooftop AC census on the real plan: one roof in three keeps AC', (t) => {
     if (out.hvacUnits.length) kept++; else dropped++;
   }
   t.diagnostic(`real-plan AC census: ${hut} hut lots, ${kept} keep / ${dropped} drop`);
-  assert.equal(hut, 5891, 'hut selection untouched by the AC roll (issue #289: the 4 registry sites exclude 56 lots net, 1 of them a hut lot — the hut/AC rolls are seeded from lot position and footprint, so the 9 field re-seats keep their status)');
+  // Issue #110: 4 more hut lots — the re-seated lots re-roll the hut selection (seeded from lot position/footprint).
+  assert.equal(hut, 5895, 'hut selection untouched by the AC roll (issue #289: the 4 registry sites exclude 56 lots net, 1 of them a hut lot — the hut/AC rolls are seeded from lot position and footprint, so the 9 field re-seats keep their status)');
   // Issue #216: the facing pass moves lots, and the AC roll is
   // seeded from lot position — 50 moved lots flip their roll, so
   // kept moves 20,957 -> 21,007, while the hut selection is
@@ -1715,8 +1718,10 @@ test('rooftop AC census on the real plan: one roof in three keeps AC', (t) => {
   // lot position and footprint, so the 9 field re-seats — same
   // footprint, new height — keep their status), so hut 5,892 ->
   // 5,891, kept 20,993 -> 20,973 and dropped 41,653 -> 41,618.
-  assert.equal(kept, 20973, 'kept AC lots on this tree');
-  assert.equal(dropped, 41618, 'dropped AC lots on this tree');
+  // Issue #110: kept AC lots 20,973 -> 20,937 (-36) — the re-seated lots re-roll the rooftop-AC selection (random subset of roofs).
+  assert.equal(kept, 20937, 'kept AC lots on this tree');
+  // Issue #110: dropped AC lots 41,618 -> 41,640 (+22) — the re-seated lots re-roll the rooftop-AC selection (the kept + dropped deltas are the same re-roll: kept -36, dropped +22, net -14 AC lots).
+  assert.equal(dropped, 41640, 'dropped AC lots on this tree');
   const share = kept / (kept + dropped);
   assert.ok(share > 0.30 && share < 0.37, `kept share at the 1/3 design point (${share.toFixed(3)})`);
 });
