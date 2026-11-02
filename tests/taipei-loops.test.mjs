@@ -49,7 +49,8 @@ const inRing = (ring, x, z) => {
 const inAnySite = (x, z) => sites.some((s) => inRing(s.ring, x, z));
 
 test('geodata carries the derived loop sites (issue #213)', (t) => {
-  assert.equal(sites.length, 62, 'loop sites emitted by the geodata builder');
+  // Issue #110: loop sites 62 -> 64 — the re-derived sites at the interchanges (10 removed + 12 added) ship with the roadbeds.
+  assert.equal(sites.length, 64, 'loop sites emitted by the geodata builder');
   let area = 0;
   for (const s of sites) {
     assert.ok(Array.isArray(s.ring) && s.ring.length >= 8, 'every site is a real ring');
@@ -57,7 +58,8 @@ test('geodata carries the derived loop sites (issue #213)', (t) => {
     area += Math.abs(ringArea(s.ring));
   }
   t.diagnostic(`loop sites: ${sites.length} rings, ${(area / 1e4).toFixed(2)} ha`);
-  assert.ok(Math.abs(area - 131512) / 131512 < 0.01, `site area ${Math.round(area)} m2 (the derivation's raster area, exact at build)`);
+  // Issue #110: site area 131,512 -> 128,784 m2 (-2.1%) — the re-derived loop sites (10 removed + 12 added at the interchanges) cover less raster area.
+  assert.ok(Math.abs(area - 128784) / 128784 < 0.01, `site area ${Math.round(area)} m2 (the derivation's raster area, exact at build)`);
 });
 
 test('the shipped sites are the derivation rule output, re-derived', () => {
@@ -86,8 +88,10 @@ test('type sites: infields in, the real neighbourhood out', () => {
 
 test('the planner clears the loops — and only the loops move', () => {
   const plan = planTaipeiBuildings(TAIPEI_GEO);
-  assert.equal(plan.stats.blocksSkippedLoop, 58, 'blocks whose centroid falls in a loop site');
-  assert.equal(plan.stats.lotsDroppedLoop, 363, 'lot candidates dropped by the loop tests (364 on the pre-#221 tree; issue #221 composition at the merge gate: one loop candidate stands on campus land and the school exclusion drops it first — probed with the schools layer off, the count reproduces 364 and blocksSkippedLoop stays 58)');
+  // Issue #110: blocksSkippedLoop 58 -> 61 — the re-derived loop sites cover 3 more block centroids.
+  assert.equal(plan.stats.blocksSkippedLoop, 61, 'blocks whose centroid falls in a loop site');
+  // Issue #110: lotsDroppedLoop 363 -> 354 — the re-derived loop sites exclude 9 fewer lots (the new sites sit on already-road-cleared interchange land).
+  assert.equal(plan.stats.lotsDroppedLoop, 354, 'lot candidates dropped by the loop tests (364 on the pre-#221 tree; issue #221 composition at the merge gate: one loop candidate stands on campus land and the school exclusion drops it first — probed with the schools layer off, the count reproduces 364 and blocksSkippedLoop stays 58)');
   // 71,315 on the worker's base: the #213 A/B there is 71,446
   // -> 71,315 (-131 net: the 125 lots that stood inside loop
   // rings, the remaining candidates of the 58 skipped blocks,
@@ -105,9 +109,11 @@ test('the planner clears the loops — and only the loops move', () => {
   // #186/#226, and the derivation on merged inputs accepts
   // the same 62 components at 131,508 m2 vs 131,512 m2 (a
   // 4 m2 boundary shift from the #226 creek narrowing).
-  assert.equal(plan.lots.length, 68482, 'plan lot count with the loop exclusion live (75,389 before issue #221; the #221 merge gate re-pin — campus clearing removes 6,819 lots, loop counters 58/363 reproduce as re-pinned above; the #255 re-pin — 4 new registry sites exclude 32 lots: 17 TWTC Hall 1, 4 Grand Hyatt, 7 ATT 4 FUN, 4 Bellavita, counted on the pre-#255 plan; the #289 re-pin — 4 new registry sites exclude 56 lots net: A21 9, Cathay 20, Walsin 14, VieShow 13, counted by body-overlap on the pre-#289 plan)');
+  // Issue #110: plan 68,482 -> 68,472 — 23 bridge links re-admitted + 71 bed-end fusions re-seat 1,282 lots near the changed roadbeds (net -10). (loopSites re-derived with the roadbeds: 62 -> 64.)
+  assert.equal(plan.lots.length, 68472, 'plan lot count with the loop exclusion live (75,389 before issue #221; the #221 merge gate re-pin — campus clearing removes 6,819 lots, loop counters 61/354 reproduce as re-pinned above; the #255 re-pin — 4 new registry sites exclude 32 lots: 17 TWTC Hall 1, 4 Grand Hyatt, 7 ATT 4 FUN, 4 Bellavita, counted on the pre-#255 plan; the #289 re-pin — 4 new registry sites exclude 56 lots net: A21 9, Cathay 20, Walsin 14, VieShow 13, counted by body-overlap on the pre-#289 plan)');
   assert.equal(plan.stats.blocksSkippedAirfield, 45, 'airfield exclusion unmoved (#134)');
-  assert.equal(plan.stats.lotsDroppedAirfield, 222, 'airfield exclusion unmoved (#134)');
+  // Issue #110: airfield exclusion 222 -> 221 — moved by the ROADBED change (a re-seated lot stands off the field), not by the loop change; the loop re-derivation itself moves nothing on the field.
+  assert.equal(plan.stats.lotsDroppedAirfield, 221, 'airfield exclusion unmoved (#134)');
   let inside = 0;
   for (const lot of plan.lots) {
     const hw = lot.w / 2, hd = lot.d / 2;

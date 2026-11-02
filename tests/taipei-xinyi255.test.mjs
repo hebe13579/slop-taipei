@@ -289,7 +289,8 @@ test('plan census: four new sites displace only their own lots', () => {
   // between them; A4/A8 already excluded theirs. Proven by the
   // cross-run in the gate notes (old registry on new code
   // reproduces 68,570 — the delta is the sites only).
-  assert.equal(plan.lots.length, 68482, 'lot count re-pinned for the four new sites (#289: 68,538 − 56 site-excluded lots net)');
+  // Issue #110: plan 68,482 -> 68,472 — 23 bridge links re-admitted + 71 bed-end fusions re-seat 1,282 lots near the changed roadbeds (net -10).
+  assert.equal(plan.lots.length, 68472, 'lot count re-pinned for the four new sites (#289: 68,538 − 56 site-excluded lots net)');
   // Gate 2026-10-30: re-pinned 42 -> 43, same reason as above — main's
   // registry is 39 after #257 (museum), + 4 new structures.
   assert.equal(plan.landmarkTowers.length, 47);

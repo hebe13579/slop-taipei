@@ -168,7 +168,9 @@ test('generation is deterministic and the plan counts are pinned', () => {
   const again = planTaipeiBuildings(TAIPEI_GEO);
   assert.equal(JSON.stringify(again.siteStructures.filter((s) => s.school)),
     JSON.stringify(campuses), 'same geodata, same campuses, byte for byte');
-  assert.equal(plan.lots.length, 68482); // the composed plan: 75,389 − 6,819 campus-cleared lots − 32 #255 registry-site lots − 56 #289 registry-site lots net
+  // Issue #110: plan 68,482 -> 68,472 — 23 bridge links re-admitted + 71 bed-end fusions re-seat 1,282 lots near the changed roadbeds (net -10).
+  assert.equal(plan.lots.length, 68472); // the composed plan: 75,389 − 6,819 campus-cleared lots − 32 #255 registry-site lots − 56 #289 registry-site lots net
   assert.equal(plan.stats.blocksSkippedSchool, 193);
-  assert.equal(plan.stats.lotsDroppedSchool, 3323);
+  // Issue #110: lotsDroppedSchool 3,323 -> 3,327 (+4) — the re-seated lots change the school exclusion (4 more lots stand on campus land).
+  assert.equal(plan.stats.lotsDroppedSchool, 3327);
 });

@@ -111,8 +111,10 @@ const real = planStreetLamps(TAIPEI_GEO, plan, {});
 test('real tile: census pins (cap, split, rejections)', (t) => {
   t.diagnostic(`lamps ${real.lamps.length} (ground ${real.stats.ground}, deck ${real.stats.deck}), rejected ${JSON.stringify(real.stats.rejected)}`);
   assert.equal(real.lamps.length, 12000, 'lamps at the cap');
-  assert.equal(real.stats.ground, 8977, 'ground lamps');
-  assert.equal(real.stats.deck, 3023, 'deck lamps');
+  // Issue #110: 1 more ground lamp — the re-admitted link beds get lamps.
+  assert.equal(real.stats.ground, 8978, 'ground lamps');
+  // Issue #110: deck lamps 3,023 -> 3,022 (-1) — the lamp cap is 12,000, so the +1 ground lamp displaces one deck lamp (8,978 + 3,022 = 12,000).
+  assert.equal(real.stats.deck, 3022, 'deck lamps');
   assert.equal(real.stats.cap, LAMP_CAP);
   assert.ok(real.stats.capped, 'raw candidates exceed the cap');
   assert.ok(real.stats.rejected.junction > 1000, 'junction rejections');
