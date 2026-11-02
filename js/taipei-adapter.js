@@ -1,4 +1,4 @@
-import { TAIPEI_GEO } from './taipei-geodata.js';
+import { TAIPEI_GEO } from './taipei-sandbox.js'; // sandbox wrapper: the generated geo, filtered when ?sandbox= is set, untouched otherwise
 
 // js/taipei-adapter.js
 // Converts the Taipei-native TAIPEI_GEO (tools/taipei/build-taipei-geodata.mjs)

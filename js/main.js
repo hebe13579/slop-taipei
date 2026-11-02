@@ -986,7 +986,19 @@ async function initApp() {
         markInit('gpu');
         console.log(`[init] ${initTimings.join(', ')}`);
         initTimings = null;
-        if (loadingOverlay) loadingOverlay.classList.add('hidden');
+        // Sandbox (?sandbox=): an empty box builds a bare ground plane.
+        // Keep the loading overlay up with the notice instead of hiding
+        // it, so the player sees why the city is empty; any click
+        // dismisses it. Null on the full city and on non-empty sandboxes.
+        const sandboxNotice = cityGrid && cityGrid.sandboxNotice;
+        if (loadingOverlay) {
+          if (sandboxNotice) {
+            if (loadingStatus) loadingStatus.textContent = sandboxNotice;
+            loadingOverlay.addEventListener('click', () => loadingOverlay.classList.add('hidden'), { once: true });
+          } else {
+            loadingOverlay.classList.add('hidden');
+          }
+        }
         audioSystem.ready = true;
         setLoadingProgress(1);
       });

@@ -11,6 +11,7 @@ import { buildRoadMarkings, detectJunctions, DASH_LEN, DASH_GAP, STRIPE_W, STRIP
 import { planJunctionCaps, planRoundabouts, ringPoints, capSurfacePolys, capClipPolys, capWaterPolys, CAP_Y, ISLAND_Y } from './taipei-junctions.js';
 import { buildDeckGeometry, groundContactPolys, portalTrenchSlots, diveAdjustedPiers, PIER_W, PIER_D } from './taipei-viaduct.js';
 import { buildDriveModel, taipeiExtraColliders } from './taipei-drive.js';
+import { SANDBOX_BOX, SANDBOX_INFO, sandboxEmptiness } from './taipei-sandbox.js'; // sandbox bounds + empty-box notice
 import { ribbonsQuads, jointFramesFor, densifyPts } from './taipei-ribbons.js';
 import { drapeHeight, drapeEnabled, setDrapeEnabled, DRAPE_RECTS, DRAPE_FEATHER, buildAdaptiveDrapeGround } from './taipei-drape.js';
 import { buildMrtStationGeometry, buildMrtDepotGeometry } from './taipei-mrt-stations.js';
@@ -1919,7 +1920,20 @@ export async function buildTaipeiGround(scene, tile, deps = {}) {
     specials: deps.settings?.specials !== false,
   };
   const buildingsStart = performance.now();
-  let plan = planTaipeiBuildings(geo, { density: bootSettings.density, groundAt: drapeHeight });
+  // Sandbox (?sandbox=): the box bounds the registry/site structures
+  // (opts.bounds in planTaipeiBuildings); the geo filter already keeps
+  // generic lots inside via frame.boxes. Without the param SANDBOX_BOX
+  // is null and this is the pre-sandbox call exactly.
+  let plan = planTaipeiBuildings(geo, { density: bootSettings.density, groundAt: drapeHeight, bounds: SANDBOX_BOX || undefined });
+  // Sandbox: an empty box (ocean, outside the tile) still builds the
+  // ground plane but plans nothing. The notice rides the result to
+  // main.js, which shows it on the loading overlay until clicked; the
+  // console warning covers the stage page too.
+  let sandboxNotice = null;
+  if (SANDBOX_BOX && sandboxEmptiness(geo).empty) {
+    sandboxNotice = `Sandbox is empty — nothing inside ${SANDBOX_INFO.lat.toFixed(4)}, ${SANDBOX_INFO.lon.toFixed(4)} ± ${SANDBOX_INFO.radius} m. Try a different lat/lng or a preset like ?sandbox=xinyi.`;
+    console.warn(`[sandbox] ${sandboxNotice}`);
+  }
   let cityBlocks = deps.buildCityBlocks
     ? deps.buildCityBlocks(scene, taipeiCityBlocksOptions(geo, plan, { groundAt: drapeHeight }))
     : null;
@@ -2103,7 +2117,7 @@ export async function buildTaipeiGround(scene, tile, deps = {}) {
       for (const mesh of trees.meshes) { group.remove(mesh); disposeBuilt(mesh); }
       if (cityBlocks) { scene.remove(cityBlocks.group); disposeBuilt(cityBlocks.group); }
       bootSettings.density = preset;
-      plan = planTaipeiBuildings(geo, { density: preset, groundAt: drapeHeight });
+      plan = planTaipeiBuildings(geo, { density: preset, groundAt: drapeHeight, bounds: SANDBOX_BOX || undefined });
       cityBlocks = deps.buildCityBlocks
         ? deps.buildCityBlocks(scene, taipeiCityBlocksOptions(geo, plan, { groundAt: drapeHeight }))
         : null;
@@ -2138,6 +2152,9 @@ export async function buildTaipeiGround(scene, tile, deps = {}) {
     allBlocks: [],
     update: null,
     taipeiSettings,
+    // Sandbox: a notice string when the box is empty (null otherwise);
+    // main.js shows it on the loading overlay until clicked.
+    sandboxNotice,
   };
   return result;
 }

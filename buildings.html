@@ -426,7 +426,8 @@
       setStatus('Planning the city from the shipped geodata…');
       const plan = planTaipeiBuildings(TAIPEI_GEO);
       const cityOpts = taipeiCityBlocksOptions(TAIPEI_GEO, plan);
-      const familyCounts = FAMILIES.map(() => 0);
+      // Size by max mat id, not FAMILIES length: F12/F13 ids (12/13) sit past the 12-entry array.
+      const familyCounts = new Array(Math.max(...FAMILIES.map((f) => f.id)) + 1).fill(0);
       for (const lot of cityOpts.lots) familyCounts[lot.mat]++;
       const planTotal = cityOpts.lots.length;
 

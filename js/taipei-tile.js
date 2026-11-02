@@ -1,4 +1,4 @@
-import { TAIPEI_GEO } from './taipei-geodata.js';
+import { TAIPEI_GEO, SANDBOX_BOX, pointInBox } from './taipei-sandbox.js'; // sandbox wrapper: the generated geo, filtered when ?sandbox= is set, untouched otherwise
 import { taipeiLandmarkStructures } from './taipei-buildings.js';
 import {
   TAIPEI_GEO_ADAPTED,
@@ -34,6 +34,46 @@ const lm = (key) => TAIPEI_GEO.landmarks[key];
 const daanPark = parkPoint('大安森林公園');
 const wuchangPark = parkPoint('五常公園'); // Songshan district
 
+// Sandbox (?sandbox=): the geo filter drops out-of-box landmark pins and
+// parks, so the spawn and teleports must never dereference a missing pin.
+// Spawn falls back to the sandbox centre; the teleports shrink to the
+// pins that survived; a sandbox with no surviving pin gets a single
+// centre teleport so the teleport bar is never empty.
+const sandboxCentre = SANDBOX_BOX
+  ? { x: (SANDBOX_BOX.minX + SANDBOX_BOX.maxX) / 2, z: (SANDBOX_BOX.minZ + SANDBOX_BOX.maxZ) / 2 }
+  : null;
+const spawnPoint = lm('Taipei 101') || sandboxCentre || { x: 0, z: 0 };
+const teleportEntries = [
+  ['taipei101', lm('Taipei 101'), 0, 'Taipei 101', 'Xinyi · 台北101'],
+  ['cityhall', lm('Taipei City Government'), Math.PI, 'Taipei City Hall', 'Xinyi · 臺北市政府'],
+  ['sysmemorial', lm('Sun Yat-sen Memorial Hall'), 0, 'Sun Yat-sen Memorial Hall', 'Xinyi · 國父紀念館'],
+  ['daanpark', daanPark, 0, "Da'an Forest Park", "Da'an · 大安森林公園"],
+  ['songshan', wuchangPark, 0, 'Songshan — Wuchang Park', 'Songshan · 五常公園'],
+];
+const tileTeleports = {};
+for (const [key, pt, heading, name, sub] of teleportEntries) {
+  if (pt) tileTeleports[key] = { x: pt.x, z: pt.z, heading, name, sub };
+}
+if (Object.keys(tileTeleports).length === 0 && sandboxCentre) {
+  tileTeleports.sandbox = { x: sandboxCentre.x, z: sandboxCentre.z, heading: 0, name: 'Sandbox centre', sub: 'Sandbox · 沙盒中心' };
+}
+// The map's landmark layer: the 101 entry only when its pin survived,
+// and the registry structures filtered to pins inside the sandbox box
+// (the registry itself is static code, so the geo filter cannot do it).
+const tileLandmarks = [
+  ...(lm('Taipei 101') ? [{
+    id: 'taipei-101', name: 'Taipei 101', nameZh: '台北101', short: 'Taipei 101',
+    x: lm('Taipei 101').x, z: lm('Taipei 101').z, height: 508,
+    district: taipeiDistrictAt(lm('Taipei 101').x, lm('Taipei 101').z),
+  }] : []),
+  ...taipeiLandmarkStructures(TAIPEI_GEO)
+    .filter((s) => !SANDBOX_BOX || pointInBox(s.x, s.z, SANDBOX_BOX))
+    .map((s) => ({
+      id: s.id, name: s.name, nameZh: s.nameZh, short: s.name,
+      x: s.x, z: s.z, height: s.height, district: taipeiDistrictAt(s.x, s.z),
+    })),
+];
+
 export const TAIPEI_TILE = {
   id: 'taipei',
   label: "Taipei — Xinyi / Da'an / Songshan / Zhongzheng tile",
@@ -52,32 +92,18 @@ export const TAIPEI_TILE = {
   frame: TAIPEI_GEO.frame,
   geodata: TAIPEI_GEO,
   adaptedGeo: TAIPEI_GEO_ADAPTED,
-  // Spawn / default camera target: Taipei 101's landmark site.
-  spawn: { x: lm('Taipei 101').x, z: lm('Taipei 101').z, heading: 0 },
-  teleports: {
-    taipei101: { x: lm('Taipei 101').x, z: lm('Taipei 101').z, heading: 0, name: 'Taipei 101', sub: 'Xinyi · 台北101' },
-    cityhall: { x: lm('Taipei City Government').x, z: lm('Taipei City Government').z, heading: Math.PI, name: 'Taipei City Hall', sub: 'Xinyi · 臺北市政府' },
-    sysmemorial: { x: lm('Sun Yat-sen Memorial Hall').x, z: lm('Sun Yat-sen Memorial Hall').z, heading: 0, name: 'Sun Yat-sen Memorial Hall', sub: 'Xinyi · 國父紀念館' },
-    daanpark: { x: daanPark.x, z: daanPark.z, heading: 0, name: "Da'an Forest Park", sub: 'Da\'an · 大安森林公園' },
-    songshan: { x: wuchangPark.x, z: wuchangPark.z, heading: 0, name: 'Songshan — Wuchang Park', sub: 'Songshan · 五常公園' },
-  },
+  // Spawn / default camera target: Taipei 101's landmark site (the
+  // sandbox centre when the 101 pin is outside the box).
+  spawn: { x: spawnPoint.x, z: spawnPoint.z, heading: 0 },
+  teleports: tileTeleports,
   // The map's landmark layer (issue #33): Taipei 101 itself plus every
   // structure in the LANDMARK_STRUCTURES registry (js/taipei-buildings.js),
   // resolved through the registry's own export — never a second
   // hand-maintained list. The geodata's other named points (the 101
   // MALL, MRT Exit 5) are POIs, not landmark structures, and stay off
-  // this layer; the teleports above are unchanged.
-  landmarks: [
-    {
-      id: 'taipei-101', name: 'Taipei 101', nameZh: '台北101', short: 'Taipei 101',
-      x: lm('Taipei 101').x, z: lm('Taipei 101').z, height: 508,
-      district: taipeiDistrictAt(lm('Taipei 101').x, lm('Taipei 101').z),
-    },
-    ...taipeiLandmarkStructures(TAIPEI_GEO).map((s) => ({
-      id: s.id, name: s.name, nameZh: s.nameZh, short: s.name,
-      x: s.x, z: s.z, height: s.height, district: taipeiDistrictAt(s.x, s.z),
-    })),
-  ],
+  // this layer; the teleports above are unchanged. In a sandbox the
+  // list is the in-box subset (tileLandmarks, built above).
+  landmarks: tileLandmarks,
   roadNames: [...new Set(TAIPEI_GEO.roads.map((r) => r.name || r.nameEn).filter(Boolean))],
   getLocationLabel: getTaipeiLocationLabel,
   getLocationParts: getTaipeiLocationParts,
