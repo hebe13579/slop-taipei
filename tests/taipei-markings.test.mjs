@@ -933,9 +933,11 @@ test('geodata: tile-wide centre-line census is the audited rule (issue #249)', (
 
 // POC (#214) G1: divided-avenue zebras. Flag-gated via
 // opts.dividedPoc on buildJunctionFurniture / buildRoadMarkings;
-// off by default the furniture is exactly the signalized-only
-// set (the 'non-signalized junctions get nothing' test above
-// keeps passing unchanged).
+// off by default at FUNCTION level the furniture is exactly the
+// signalized-only set (the 'non-signalized junctions get nothing'
+// test above keeps passing unchanged). The BOOT ships G1 on by
+// default since the #214 ship decision — see
+// tests/taipei-poc-ship.test.mjs.
 test('POC #214 G1: synthetic divided-avenue T gets two carriageway zebras, flag-on only', () => {
   // Merged-bed avenue (tertiary, so the junction stays fitted,
   // like ji570's 民生東路三段） with one lane T-ing in from the
