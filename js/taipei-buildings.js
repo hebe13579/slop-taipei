@@ -3283,12 +3283,26 @@ const LANDMARK_STRUCTURES = [
       { type: 'box', w: 114, d: 62, h: 3, y0: 3, dx: -4, dz: 1, flat: 0xd8d3c4 },
       // Main hall: cream block + pale-green hip roof (ridge at the
       // origin = hall centre), raised central tier, end pavilions.
+      // Issue #231 (detail pass): the tier steps read as one flat
+      // green slab from the air — both ridges shared flat 0x55806a
+      // and sat flush, so the raised centre and corner pavilions
+      // were low-contrast. The separation is now built, not painted:
+      // a dark eave shadow slab under each roof, a deeper green for
+      // the raised central roof, and a lighter ridge cap along each
+      // ridge. Footprint, heights and placement unchanged (apex
+      // stays 27.5 m; the central cap tops out exactly at 27.5).
       { type: 'box', w: 132, d: 36, h: 13, y0: 6 },
+      { type: 'box', w: 138, d: 42, h: 0.7, y0: 18.6, flat: 0x3d5c46 },
       { type: 'ridge', w: 136, d: 40, h: 0, ridgeH: 6.5, y0: 19, flat: 0x55806a },
+      { type: 'box', w: 68, d: 2, h: 0.5, y0: 25.2, flat: 0x6f9a7e },
       { type: 'box', w: 46, d: 24, h: 4, y0: 19 },
-      { type: 'ridge', w: 50, d: 27, h: 0, ridgeH: 4.5, y0: 23, flat: 0x55806a },
+      { type: 'box', w: 52, d: 29, h: 0.7, y0: 22.6, flat: 0x3d5c46 },
+      { type: 'ridge', w: 50, d: 27, h: 0, ridgeH: 4.5, y0: 23, flat: 0x4a7a63 },
+      { type: 'box', w: 25, d: 2, h: 0.5, y0: 27.0, flat: 0x6f9a7e },
       { type: 'box', w: 14, d: 14, h: 3.5, y0: 19, dx: -52 },
       { type: 'box', w: 14, d: 14, h: 3.5, y0: 19, dx: 52 },
+      { type: 'box', w: 17.5, d: 17.5, h: 0.5, y0: 22.2, dx: -52, flat: 0x3d5c46 },
+      { type: 'box', w: 17.5, d: 17.5, h: 0.5, y0: 22.2, dx: 52, flat: 0x3d5c46 },
       { type: 'box', w: 16.5, d: 16.5, h: 1.1, y0: 22.5, dx: -52, flat: 0x4a7a63 },
       { type: 'box', w: 16.5, d: 16.5, h: 1.1, y0: 22.5, dx: 52, flat: 0x4a7a63 },
       // The forecourt terrace floor on the podium's south face.
