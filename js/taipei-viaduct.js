@@ -529,21 +529,42 @@ function _chordFrom(L, endIdx, chordLen) {
   return [(cx - x) / d, (cz - z) / d];
 }
 
+// The inside-other predicate, keyed by digest. parapetTrims() builds
+// it alongside the trims; pointInsideOther() reads it (computing the
+// trims first when the digest has not been seen yet). It lives OUTSIDE
+// the memoized return value on purpose: the return object must stay
+// lines + stats only, because tests deepEqual it across two calls and
+// Node deepStrictEqual never equates two distinct function references
+// (issue #253 gate blocker — the PR first shipped the predicate on the
+// return object and broke "trims are deterministic and memoized").
+const _insideOtherByDigest = new WeakMap();
+
+export function pointInsideOther(elevated, x, z, h, excludeLi) {
+  if (!elevated || typeof elevated !== 'object') return false;
+  let pred = _insideOtherByDigest.get(elevated);
+  if (!pred) {
+    parapetTrims(elevated);
+    pred = _insideOtherByDigest.get(elevated);
+  }
+  return pred ? pred(x, z, h, excludeLi) : false;
+}
+
 // Kept parapet intervals + surviving end caps for one digest.
 // Returns { lines: [{ segments: [{ left, right }], capStart, capEnd }],
-//           stats: { blockedM, totalM, suppressedCaps, affectedStrips },
-//           pointInsideOther(x, z, h, excludeLi) }
+//           stats: { blockedM, totalM, suppressedCaps, affectedStrips } }
 // where left/right are kept [t0, t1] fraction lists along the
 // segment (left = the +normal side, the renderer's L parapet and
 // the drive model's s = +1 strip) and capStart/capEnd say whether
-// the line's terminal end-cap quad is drawn. pointInsideOther is
-// the same test the trims are built from (inside another eligible
-// line's corridor at the same level); issue #253's deck markings
-// reuse it so lane dashes stop at a merge mouth instead of
-// painting across the other deck's driving surface.
+// the line's terminal end-cap quad is drawn. The return object is
+// lines + stats ONLY — never a function — so two calls on equal
+// geometry stay deepEqual (the memoization test). The same test the
+// trims are built from (inside another eligible line's corridor at
+// the same level) is the module-level pointInsideOther(); issue
+// #253's deck markings call it so lane dashes stop at a merge mouth
+// instead of painting across the other deck's driving surface.
 export function parapetTrims(elevated) {
   if (!elevated || !Array.isArray(elevated.lines)) {
-    return { lines: [], stats: { blockedM: 0, totalM: 0, suppressedCaps: 0, affectedStrips: 0 }, pointInsideOther: () => false };
+    return { lines: [], stats: { blockedM: 0, totalM: 0, suppressedCaps: 0, affectedStrips: 0 } };
   }
   const hit = _trimCache.get(elevated);
   if (hit) return hit;
@@ -729,7 +750,7 @@ export function parapetTrims(elevated) {
     if ((L.h?.[0] ?? 0) >= LOW_BED_MAX && insideOther(L.pts[0], L.pts[1], L.h?.[0] ?? 0, li)) { out.lines[li].capStart = false; out.stats.suppressedCaps++; }
     if ((L.h?.[n - 1] ?? 0) >= LOW_BED_MAX && insideOther(L.pts[n * 2 - 2], L.pts[n * 2 - 1], L.h?.[n - 1] ?? 0, li)) { out.lines[li].capEnd = false; out.stats.suppressedCaps++; }
   }
-  out.pointInsideOther = insideOther;
+  _insideOtherByDigest.set(elevated, insideOther);
   return out;
 }
 
@@ -1120,7 +1141,7 @@ export function buildDeckGeometry(elevated, opts = {}) {
               if (d1 - d0 < 0.1) continue;
               const t0 = (d0 - arc) / segLen, t1 = (d1 - arc) / segLen, tm = (t0 + t1) / 2;
               const mid = at(tm, off);
-              if (trims?.pointInsideOther?.(mid[0], mid[2], hAt(tm), li)) { markStats.suppressedDashes++; continue; }
+              if (pointInsideOther(elevated, mid[0], mid[2], hAt(tm), li)) { markStats.suppressedDashes++; continue; }
               markQuad(at(t0, off + DIVIDER_W / 2), at(t1, off + DIVIDER_W / 2), at(t1, off - DIVIDER_W / 2), at(t0, off - DIVIDER_W / 2));
               markStats.dashQuads++;
               markStats.dashKm += (d1 - d0) / 1000;
