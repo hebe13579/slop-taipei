@@ -2542,12 +2542,12 @@ const LANDMARK_STRUCTURES = [
       // wall yields where that modelled bed crosses it. The
       // road-overlap audit covers these parts like any other —
       // they must stay at 0.000 m².
-      { type: 'box', w: 139.9, d: 0.8, h: 3, dx: -362.7, dz: -293.5, rotY: 2.0632, flat: 0xe9e4d4, despawnFar: true },
-      { type: 'box', w: 139.9, d: 1.7, h: 0.55, y0: 3, dx: -362.7, dz: -293.5, rotY: 2.0632, flat: 0x2c4a7c, despawnFar: true },
-      { type: 'box', w: 153.9, d: 0.8, h: 3, dx: -450.1, dz: -130.5, rotY: 2.0632, flat: 0xe9e4d4, despawnFar: true },
-      { type: 'box', w: 153.9, d: 1.7, h: 0.55, y0: 3, dx: -450.1, dz: -130.5, rotY: 2.0632, flat: 0x2c4a7c, despawnFar: true },
-      { type: 'box', w: 290.5, d: 0.8, h: 3, dx: -355.6, dz: 13.4, rotY: 0.4872, flat: 0xe9e4d4, despawnFar: true },
-      { type: 'box', w: 290.5, d: 1.7, h: 0.55, y0: 3, dx: -355.6, dz: 13.4, rotY: 0.4872, flat: 0x2c4a7c, despawnFar: true },
+      { type: 'box', w: 142.9, d: 0.8, h: 3, dx: -385.1, dz: -305.1, rotY: 1.8592, flat: 0xe9e4d4, despawnFar: true },
+      { type: 'box', w: 142.9, d: 1.7, h: 0.55, y0: 3, dx: -385.1, dz: -305.1, rotY: 1.8592, flat: 0x2c4a7c, despawnFar: true },
+      { type: 'box', w: 131.5, d: 0.8, h: 3, dx: -442.4, dz: -112.1, rotY: 1.8592, flat: 0xe9e4d4, despawnFar: true },
+      { type: 'box', w: 131.5, d: 1.7, h: 0.55, y0: 3, dx: -442.4, dz: -112.1, rotY: 1.8592, flat: 0x2c4a7c, despawnFar: true },
+      { type: 'box', w: 260.5, d: 0.8, h: 3, dx: -342.4, dz: 20.4, rotY: 0.4872, flat: 0xe9e4d4, despawnFar: true },
+      { type: 'box', w: 260.5, d: 1.7, h: 0.55, y0: 3, dx: -342.4, dz: 20.4, rotY: 0.4872, flat: 0x2c4a7c, despawnFar: true },
       { type: 'box', w: 138.7, d: 0.8, h: 3, dx: -151.9, dz: 121.4, rotY: 0.4872, flat: 0xe9e4d4, despawnFar: true },
       { type: 'box', w: 138.7, d: 1.7, h: 0.55, y0: 3, dx: -151.9, dz: 121.4, rotY: 0.4872, flat: 0x2c4a7c, despawnFar: true },
       { type: 'box', w: 171.8, d: 0.8, h: 3, dx: -0.6, dz: 201.5, rotY: 0.4872, flat: 0xe9e4d4, despawnFar: true },
@@ -2558,8 +2558,8 @@ const LANDMARK_STRUCTURES = [
       { type: 'box', w: 176.3, d: 1.7, h: 0.55, y0: 3, dx: 164.4, dz: -104.8, rotY: -2.6617, flat: 0x2c4a7c, despawnFar: true },
       { type: 'box', w: 138.2, d: 0.8, h: 3, dx: 10.7, dz: -184.8, rotY: -2.6617, flat: 0xe9e4d4, despawnFar: true },
       { type: 'box', w: 138.2, d: 1.7, h: 0.55, y0: 3, dx: 10.7, dz: -184.8, rotY: -2.6617, flat: 0x2c4a7c, despawnFar: true },
-      { type: 'box', w: 289.2, d: 0.8, h: 3, dx: -193.1, dz: -290.9, rotY: -2.6617, flat: 0xe9e4d4, despawnFar: true },
-      { type: 'box', w: 289.2, d: 1.7, h: 0.55, y0: 3, dx: -193.1, dz: -290.9, rotY: -2.6617, flat: 0x2c4a7c, despawnFar: true },
+      { type: 'box', w: 330.3, d: 0.8, h: 3, dx: -211.3, dz: -300.3, rotY: -2.6617, flat: 0xe9e4d4, despawnFar: true },
+      { type: 'box', w: 330.3, d: 1.7, h: 0.55, y0: 3, dx: -211.3, dz: -300.3, rotY: -2.6617, flat: 0x2c4a7c, despawnFar: true },
       // Issue #138: the Liberty Square Arch at the west
       // wall's gate gap (published 30 m tall x 80 m wide,
       // five bays / six pillars, blue tile roofs — zh-
