@@ -2165,6 +2165,10 @@ function buildCityBlocks(scene, opts = null) {
       // Issue #56: vertical sign panels (from the lot, planner policy)
       // and 鐵皮屋 rooftop additions (from the gear clamp below).
       signs: Array.isArray(lot.signs) ? lot.signs : [],
+      // Issue #153: rooftop billboard signs (from the lot, planner
+      // policy) — world position + yaw on the descriptor, so the
+      // renderer places them directly.
+      roofBoards: Array.isArray(lot.roofBoards) ? lot.roofBoards : [],
       rooftopAdds: []
     };
     rand = mulberry32((Math.imul(Math.round(minX * 4), 73856093) ^ Math.imul(Math.round(minZ * 4), 19349663) ^ 10019) >>> 0);
@@ -3025,6 +3029,91 @@ function buildCityBlocks(scene, opts = null) {
   vSignInst.frustumCulled = false;
   group.add(vSignInst);
 
+  // 6e. Rooftop billboard signs (issue #153): big brand plates on
+  // arterial commercial roofs, plus tall tower side signs. One
+  // InstancedMesh per plate (the awning-theme pattern): the plate
+  // index is a material constant, so the shader samples a fixed UV
+  // rect from the roof/tower atlas — no per-instance attribute, no
+  // position hash (a position hash would give a whole avenue row the
+  // same brand, since neighbours share a face depth). Filled from
+  // blk.roofBoards (planner policy data); Manhattan blocks never
+  // carry any. When the Taipei boot has not injected the atlases
+  // (the gallery), each plate falls back to its own brand bg colour.
+  // Roof/tower atlas grids, mirrored from js/taipei-signs.js
+  // (ROOF_ATLAS / TOWER_ATLAS / TAIPEI_ROOF_SIGNS): 4 cols × 4 rows,
+  // 13 plates, plate row counted from the texture's bottom. The node
+  // suite source-pins these literals against the signs module —
+  // change them together.
+  const SIGN_ROOF_COLS = 4.0;
+  const SIGN_ROOF_ROWS = 4.0;
+  const SIGN_ROOF_PLATES = 13.0;
+  const SIGN_TOWER_COLS = 4.0;
+  const SIGN_TOWER_ROWS = 4.0;
+  // Brand bg colours in pool order (the no-atlas fallback plate).
+  const ROOF_PLATE_BG = [0xffffff, 0xffffff, 0x1b4f9c, 0xffffff, 0xd52027, 0xe8eef4, 0x000000, 0xa50034, 0xffffff, 0x005bac, 0x007a5e, 0xf58220, 0xffffff];
+  const MAX_ROOF_PER_PLATE = 96;
+  const MAX_TOWER_PER_PLATE = 32;
+  const makeRoofBoardMaterial = (plate, atlasKind) => {
+    const mat = new THREE.MeshStandardNodeMaterial({ roughness: 0.42, metalness: 0.08 });
+    const bgHex = ROOF_PLATE_BG[plate];
+    const cols = atlasKind === 'tower' ? SIGN_TOWER_COLS : SIGN_ROOF_COLS;
+    const rows = atlasKind === 'tower' ? SIGN_TOWER_ROWS : SIGN_ROOF_ROWS;
+    const atlasTex = atlasKind === 'tower' ? getTaipeiSignAtlases().tower : getTaipeiSignAtlases().roof;
+    // Sample this plate's fixed rect from the atlas. Broad faces
+    // take the lettering; thin edges and the top/bottom faces take
+    // the plate's own background (sampled from the cell's bottom
+    // margin) — the same edge rule as the blade plates above.
+    const plateColor = () => {
+      const uvN = uv();
+      const colI = float(plate % 4);
+      const rowB = float(Math.floor(plate / 4));
+      const inset = float(0.03);
+      const tuv = vec2(
+        colI.add(inset).add(uvN.x.mul(float(1.0).sub(inset.mul(2.0)))).div(cols),
+        rowB.add(inset).add(uvN.y.mul(float(1.0).sub(inset.mul(2.0)))).div(rows)
+      );
+      const texCol = texture(atlasTex, tuv).rgb;
+      const bgUV = vec2(colI.add(0.5).div(cols), rowB.add(0.02).div(rows));
+      const bgCol = texture(atlasTex, bgUV).rgb;
+      // Broad faces are the unit box's ±z faces (the plate's long axis
+      // is local-x, thickness local-z); thin edges (±x) and the
+      // top/bottom faces (±y) take the plate's background. This MUST
+      // be the box-local normal, not the blades' faceCoord-derivative
+      // rule: that rule reads the world-space coordinate across the
+      // face, which varies on any plate turned off the cardinal axes —
+      // a roof board follows its road (often ~15–20° off), so the
+      // derivative rule blanks the whole broad face (seen live: the
+      // Hitachi board rendered as a blank white plate). Box-local
+      // normals are exact on every face regardless of the turn.
+      const edge = step(0.5, abs(normalGeometry.x)).add(step(0.5, abs(normalGeometry.y))).clamp(0.0, 1.0);
+      return mix(texCol, bgCol, edge);
+    };
+    mat.colorNode = Fn(() => {
+      if (!atlasTex) return color(bgHex);
+      return plateColor();
+    })();
+    mat.emissiveNode = Fn(() => {
+      // A lit lightbox sign: the whole plate glows, lettering included.
+      if (!atlasTex) return color(bgHex).mul(0.30);
+      return plateColor().mul(0.30);
+    })();
+    return mat;
+  };
+  const roofBoardInsts = [];
+  const towerSignInsts = [];
+  for (let plate = 0; plate < SIGN_ROOF_PLATES; plate++) {
+    const rInst = new THREE.InstancedMesh(unitBox, makeRoofBoardMaterial(plate, 'roof'), MAX_ROOF_PER_PLATE);
+    rInst.castShadow = rInst.receiveShadow = true;
+    rInst.frustumCulled = false;
+    group.add(rInst);
+    roofBoardInsts.push(rInst);
+    const tInst = new THREE.InstancedMesh(unitBox, makeRoofBoardMaterial(plate, 'tower'), MAX_TOWER_PER_PLATE);
+    tInst.castShadow = tInst.receiveShadow = true;
+    tInst.frustumCulled = false;
+    group.add(tInst);
+    towerSignInsts.push(tInst);
+  }
+
   // 7. Ground-floor storefront clustered SpotLights (awnings/fascia signs)
   const storeLightGroup = new THREE.Group();
   storeLightGroup.name = 'StoreClusteredLights';
@@ -3099,6 +3188,8 @@ function buildCityBlocks(scene, opts = null) {
     let bumpCount = 0;
     let vSignCount = 0;
     const signCounts = signInsts.map(() => 0);
+    const roofBoardCounts = roofBoardInsts.map(() => 0);
+    const towerSignCounts = towerSignInsts.map(() => 0);
 
     for (let bIdx = 0; bIdx < nearbyBlocks.length; bIdx++) {
       const blk = nearbyBlocks[bIdx];
@@ -3229,6 +3320,28 @@ function buildCityBlocks(scene, opts = null) {
         vSignInst.setMatrixAt(vSignCount, dummy.matrix);
         vSignCount++;
       }
+
+      // 7b. Rooftop billboard signs (issue #153): one instanced plate
+      // per board, routed by kind + plate to its plate's mesh. The
+      // descriptor carries world position + yaw (the adapter resolved
+      // the frontage), so the board does NOT turn with its block —
+      // set dummy.rotation from the descriptor and restore the
+      // block's turn afterwards, or the sections below would inherit
+      // the board's yaw.
+      for (let i = 0; i < (blk.roofBoards || []).length; i++) {
+        const s = blk.roofBoards[i];
+        const isTower = s.kind === 'tower';
+        const insts = isTower ? towerSignInsts : roofBoardInsts;
+        const counts = isTower ? towerSignCounts : roofBoardCounts;
+        const cap = isTower ? MAX_TOWER_PER_PLATE : MAX_ROOF_PER_PLATE;
+        if (s.plate < 0 || s.plate >= insts.length || counts[s.plate] >= cap) continue;
+        dummy.rotation.set(0, s.ry, 0);
+        dummy.position.set(s.x, s.y0 + s.h * 0.5, s.z);
+        dummy.scale.set(s.w, s.h, s.thick);
+        dummy.updateMatrix();
+        insts[s.plate].setMatrixAt(counts[s.plate]++, dummy.matrix);
+      }
+      dummy.rotation.set(0, blk.ry || 0, 0);
 
       // 8. 鐵皮屋 rooftop additions (issue #56): the hut box, then its
       //    single-pitch sheet — a thin box rotated about the hut's ridge
@@ -3472,6 +3585,13 @@ function buildCityBlocks(scene, opts = null) {
 
     vSignInst.count = vSignCount;
     flagRange(vSignInst.instanceMatrix, vSignCount);
+
+    for (let p = 0; p < roofBoardInsts.length; p++) {
+      roofBoardInsts[p].count = roofBoardCounts[p];
+      flagRange(roofBoardInsts[p].instanceMatrix, roofBoardCounts[p]);
+      towerSignInsts[p].count = towerSignCounts[p];
+      flagRange(towerSignInsts[p].instanceMatrix, towerSignCounts[p]);
+    }
   }
 
   function smoothFade(d, start, end) {

@@ -22,7 +22,7 @@ import { buildGreenTintLayers, buildLoopTintLayers, consumeGreenFamilyOverlaps, 
 import { unionExclusionRects, clipRectToBoxes } from './taipei-union.js';
 import { createCurtainWallMaterial, createPreWarBuildingMaterial, createTaipeiMarkingMaterial, setTaipeiSignAtlases, cityUniforms } from './tsl-materials.js';
 import { color, mix, smoothstep, uv, float } from 'three/tsl';
-import { drawBandAtlas, drawBladeAtlas, BAND_ATLAS, BLADE_ATLAS, TAIPEI_BAND_SIGNS, TAIPEI_BLADE_SIGNS } from './taipei-signs.js';
+import { drawBandAtlas, drawBladeAtlas, drawRoofAtlas, drawTowerAtlas, BAND_ATLAS, BLADE_ATLAS, ROOF_ATLAS, TOWER_ATLAS, TAIPEI_BAND_SIGNS, TAIPEI_BLADE_SIGNS, TAIPEI_ROOF_SIGNS } from './taipei-signs.js';
 import { createBuildProgress, TAIPEI_BUILD_STAGES } from './taipei-progress.js';
 
 // js/taipei-boot.js
@@ -1903,9 +1903,11 @@ export async function buildTaipeiGround(scene, tile, deps = {}) {
     };
     setTaipeiSignAtlases(
       mkSignTexture(drawBandAtlas, BAND_ATLAS),
-      mkSignTexture(drawBladeAtlas, BLADE_ATLAS)
+      mkSignTexture(drawBladeAtlas, BLADE_ATLAS),
+      mkSignTexture(drawRoofAtlas, ROOF_ATLAS),
+      mkSignTexture(drawTowerAtlas, TOWER_ATLAS)
     );
-    console.info(`[taipei-signs] real-text sign atlases ready (${TAIPEI_BAND_SIGNS.length} band plates, ${TAIPEI_BLADE_SIGNS.length} blade plates)`);
+    console.info(`[taipei-signs] real-text sign atlases ready (${TAIPEI_BAND_SIGNS.length} band plates, ${TAIPEI_BLADE_SIGNS.length} blade plates, ${TAIPEI_ROOF_SIGNS.length} roof plates)`);
   } catch (err) {
     console.warn('[taipei-signs] sign atlas build failed; glyph signs remain', err);
   }

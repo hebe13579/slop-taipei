@@ -7370,6 +7370,163 @@ export function taipeiVerticalSigns(lot) {
   return signs;
 }
 
+// Issue #153: rooftop billboard signs on arterial commercial
+// buildings — the big Hitachi air-con board and the SANLUX tower sign
+// in the user's station-district photo. The #105 sign system is
+// street-level only; this is the roof layer, in the same idiom: the
+// planner policy assigns one deterministic descriptor per lot
+// (taipeiCityBlocksOptions carries it to the renderer as
+// r.roofBoards, like r.signs for the vertical blades) and the
+// renderer emits it as an instanced plate sampling the roof/tower
+// atlas (js/taipei-signs.js holds the brand pool).
+//
+// Eligibility reuses the #106 frontage classification: a lot only
+// boards when an arterial (rank >= 3, secondary or better) fronts
+// it — the great avenues are all rank 3–4 (Zhongxiao primary,
+// Fuxing/Nanjing/Chengde secondary), residential lanes are rank 1
+// and never board. Taller commercial lots only (h >= 15, Taiwan
+// commercial families 6/7/8/9/13 — the same sign-carrying set as the
+// vertical blades; the F12 lobby tower and the glass towers carry
+// no roof board). Two kinds: a wide horizontal ROOF board standing
+// on the roof, broad faces parallel to the frontage road; and, on
+// tall lots (h >= 40), a TOWER side sign — a tall narrow plate on
+// the front face, top just below the roofline, the SANLUX class.
+// A tower-signed lot carries no roof board.
+//
+// Density from the photo: densest in the station district and along
+// the great avenues, sparse-to-none in residential lanes. Rates are
+// the policy (measured census in the PR): rank >= 4 fronts board
+// ~35%, rank 3 ~15%, +30 points inside the station district, tower
+// signs ~12% of tall arterial lots.
+export const ROOF_BOARD_MIN_H = 15;
+export const ROOF_BOARD_TOWER_H = 40;
+export const ROOF_BOARD_RATE_RANK4 = 0.35;
+export const ROOF_BOARD_RATE_RANK3 = 0.15;
+export const ROOF_BOARD_RATE_STATION = 0.30;
+export const ROOF_BOARD_TOWER_RATE = 0.12;
+// Plate count, mirrored from TAIPEI_ROOF_SIGNS in js/taipei-signs.js
+// (this module stays import-free; the node suite source-pins the
+// mirror against the pool).
+export const ROOF_BOARD_PLATES = 13;
+// The station district: the station pin (-4836,-1626) plus the
+// Zhongxiao W. Rd corridor west of it and the Chengde Rd frontage,
+// one block north/south of the avenue — the user's photo angle.
+export const ROOF_BOARD_STATION_DISTRICT = { minX: -5600, maxX: -4200, minZ: -2100, maxZ: -1100 };
+
+export function taipeiRoofBoards(lot, front) {
+  if (!lot || ![6, 7, 8, 9, 13].includes(lot.mat) || lot.h < ROOF_BOARD_MIN_H) return [];
+  if (!front || front.rank < 3) return [];
+  const seed = lotPolicySeed(lot, 0x1531);
+  const cx = (lot.x0 + lot.x1) / 2, cz = (lot.z0 + lot.z1) / 2;
+  const w = lot.x1 - lot.x0, d = lot.z1 - lot.z0;
+  const roofY = (lot.y || 0) + lot.h;
+  const plate = Math.floor(hash01(seed ^ 0x91) * ROOF_BOARD_PLATES);
+  // Board yaw: the broad faces run parallel to the frontage road, so
+  // the long axis follows the road. front.angle is the road's
+  // direction atan2(dz, dx); rotation.y = -angle puts the box's long
+  // (local x) axis along it.
+  const ry = -front.angle;
+  if (lot.h >= ROOF_BOARD_TOWER_H && hash01(seed) < ROOF_BOARD_TOWER_RATE) {
+    // Tower side sign: tall narrow plate on the front face, top just
+    // below the roofline. The face offset is the lot's half-extent
+    // along the road normal (the support function of the turned
+    // rect) plus the plate standing proud of the face.
+    const signH = Math.min(10 + hash01(seed ^ 0x71) * 6, lot.h - 8);
+    const signW = 3 + hash01(seed ^ 0x81) * 1.5;
+    const th = lot.rotY || 0;
+    const xx = Math.cos(th), xz = -Math.sin(th);
+    const zx = Math.sin(th), zz = Math.cos(th);
+    const half = (w / 2) * Math.abs(front.nx * xx + front.nz * xz)
+      + (d / 2) * Math.abs(front.nx * zx + front.nz * zz);
+    return [{
+      kind: 'tower',
+      plate,
+      w: Math.round(signW * 10) / 10,
+      h: Math.round(signH * 10) / 10,
+      thick: 0.35,
+      x: Math.round((cx + front.nx * (half + 0.35)) * 10) / 10,
+      y0: Math.round((roofY - 1.5 - signH) * 10) / 10,
+      z: Math.round((cz + front.nz * (half + 0.35)) * 10) / 10,
+      ry: Math.round(ry * 10000) / 10000,
+    }];
+  }
+  const inStation = cx >= ROOF_BOARD_STATION_DISTRICT.minX && cx <= ROOF_BOARD_STATION_DISTRICT.maxX
+    && cz >= ROOF_BOARD_STATION_DISTRICT.minZ && cz <= ROOF_BOARD_STATION_DISTRICT.maxZ;
+  const rate = (front.rank >= 4 ? ROOF_BOARD_RATE_RANK4 : ROOF_BOARD_RATE_RANK3)
+    + (inStation ? ROOF_BOARD_RATE_STATION : 0);
+  if (hash01(seed ^ 0x41) >= rate) return [];
+  const boardW = Math.min(w * 0.7, 18);
+  if (boardW < 4) return [];
+  const boardH = 3.5 + hash01(seed ^ 0x61) * 2;
+  return [{
+    kind: 'roof',
+    plate,
+    w: Math.round(boardW * 10) / 10,
+    h: Math.round(boardH * 10) / 10,
+    thick: 0.4,
+    x: Math.round(cx * 10) / 10,
+    y0: Math.round((roofY + 0.4) * 10) / 10,
+    z: Math.round(cz * 10) / 10,
+    ry: Math.round(ry * 10000) / 10000,
+  }];
+}
+
+// Issue #153: frontage lookup for the adapter — the planner's
+// frontageRankAt, plus the winning segment (its direction angle and
+// the unit normal from the query point toward it), for the
+// roof-board policy. The planner computes frontage per block face
+// inside its loop; the adapter recomputes it per rect from the same
+// carriageway set, sampling the four face midpoints pushed 7 m
+// outward with reach 16 (the planner's edgeRankAt sampling). Built
+// once per taipeiCityBlocksOptions call; a geodata without
+// carriageways yields no frontage and no boards.
+function taipeiFrontageLookup(geodata) {
+  const carriageways = Array.isArray(geodata.roadbeds) && geodata.roadbeds.length
+    ? geodata.roadbeds
+    : (geodata.roads || []).filter((r) => !NON_CARRIAGEWAY.has(r.highway));
+  const { grid, key } = buildSegmentGrid(carriageways);
+  const at = (x, z, reach, fnx, fnz) => {
+    const bucket = grid.get(key(Math.floor(x / GRID_CELL), Math.floor(z / GRID_CELL)));
+    let best = null;
+    if (bucket) {
+      for (const s of bucket) {
+        const dx = s.bx - s.ax, dz = s.bz - s.az;
+        const len2 = dx * dx + dz * dz;
+        let t = len2 > 0 ? ((x - s.ax) * dx + (z - s.az) * dz) / len2 : 0;
+        t = Math.max(0, Math.min(1, t));
+        const qx = s.ax + t * dx, qz = s.az + t * dz;
+        const dd = Math.hypot(qx - x, qz - z) - s.half;
+        if (dd <= reach && (!best || s.rank > best.rank || (s.rank === best.rank && dd < best.d))) {
+          let nx = qx - x, nz = qz - z;
+          const nl = Math.hypot(nx, nz);
+          if (nl < 0.01) { nx = fnx; nz = fnz; } else { nx /= nl; nz /= nl; }
+          best = { rank: s.rank, d: dd, angle: Math.atan2(dz, dx), nx, nz };
+        }
+      }
+    }
+    return best;
+  };
+  return (rect) => {
+    const w = rect.x1 - rect.x0, d = rect.z1 - rect.z0;
+    const cx = (rect.x0 + rect.x1) / 2, cz = (rect.z0 + rect.z1) / 2;
+    const th = rect.rotY || 0, c = Math.cos(th), s = Math.sin(th);
+    // Face midpoints pushed 7 m outward, each with its face's outward
+    // normal as the degenerate-query fallback.
+    const faces = [
+      { x: cx + (w / 2 + 7) * c, z: cz - (w / 2 + 7) * s, nx: c, nz: -s },
+      { x: cx - (w / 2 + 7) * c, z: cz + (w / 2 + 7) * s, nx: -c, nz: s },
+      { x: cx + (d / 2 + 7) * s, z: cz + (d / 2 + 7) * c, nx: s, nz: c },
+      { x: cx - (d / 2 + 7) * s, z: cz - (d / 2 + 7) * c, nx: -s, nz: -c },
+    ];
+    let best = null;
+    for (const f of faces) {
+      const r = at(f.x, f.z, 16, f.nx, f.nz);
+      if (r && (!best || r.rank > best.rank || (r.rank === best.rank && r.d < best.d))) best = r;
+    }
+    return best;
+  };
+}
+
 // Adapt a plan into the options upstream's buildCityBlocks (js/
 // buildings.js) understands: one pre-planned lot per building, the
 // tile frame as the streaming bounds, the tile origin as the first
@@ -7380,6 +7537,8 @@ export function taipeiCityBlocksOptions(geodata, plan = planTaipeiBuildings(geod
   // Issue #132: opts.groundAt (the drape height field, injected by
   // the boot) seats lots on slopes — see the plinth rule below.
   const groundAt = typeof opts.groundAt === 'function' ? opts.groundAt : null;
+  // Issue #153: frontage lookup for the roof-board policy below.
+  const frontageFor = taipeiFrontageLookup(geodata);
   return {
     lots: plan.lots.map((lot) => {
       const r = {
@@ -7439,6 +7598,10 @@ export function taipeiCityBlocksOptions(geodata, plan = planTaipeiBuildings(geod
       // Issue #56: vertical signs on a hashed subset of Taiwan-type lots.
       const signs = taipeiVerticalSigns(r);
       if (signs.length) r.signs = signs;
+      // Issue #153: rooftop billboard signs on arterial commercial
+      // lots (the frontage query above supplies the #106 rank).
+      const roofBoards = taipeiRoofBoards(r, frontageFor(r));
+      if (roofBoards.length) r.roofBoards = roofBoards;
       return r;
     }),
     bounds: { ...geodata.frame.bbox },

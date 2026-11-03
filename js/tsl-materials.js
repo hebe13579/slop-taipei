@@ -1138,8 +1138,8 @@ function createPreWarBuildingMaterial(opts = {}) {
 // Null (NYC, gallery, any boot that never sets them) keeps the
 // procedural-glyph treatment everywhere.
 let _taipeiSignAtlases = { band: null, blade: null };
-export function setTaipeiSignAtlases(band, blade) {
-  _taipeiSignAtlases = { band: band || null, blade: blade || null };
+export function setTaipeiSignAtlases(band, blade, roof = null, tower = null) {
+  _taipeiSignAtlases = { band: band || null, blade: blade || null, roof: roof || null, tower: tower || null };
 }
 export function getTaipeiSignAtlases() {
   return _taipeiSignAtlases;

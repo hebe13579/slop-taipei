@@ -10,14 +10,21 @@ import {
   TAIPEI_BAND_SIGNS,
   TAIPEI_BLADE_SIGNS,
   TAIPEI_BLADE_EXTRA,
+  TAIPEI_ROOF_SIGNS,
   BAND_ATLAS,
   BLADE_ATLAS,
+  ROOF_ATLAS,
+  TOWER_ATLAS,
   BAND_MAX_UNITS,
   BLADE_MAX_CHARS,
+  ROOF_MAX_UNITS,
+  TOWER_MAX_CHARS,
   SIGN_FONT_STACK,
   nameWidthUnits,
   bandSignFits,
   bladeSignFits,
+  roofSignFits,
+  towerSignFits,
   plateCellUV,
 } from '../js/taipei-signs.js';
 
@@ -74,7 +81,7 @@ assert.equal(nameWidthUnits('牛肉麵'), 3);
 assert.ok(nameWidthUnits('7-ELEVEN') > 4 && nameWidthUnits('7-ELEVEN') <= 5);
 
 // --- Atlas layout math ----------------------------------------------
-for (const [atlas, count] of [[BAND_ATLAS, TAIPEI_BAND_SIGNS.length], [BLADE_ATLAS, TAIPEI_BLADE_SIGNS.length]]) {
+for (const [atlas, count] of [[BAND_ATLAS, TAIPEI_BAND_SIGNS.length], [BLADE_ATLAS, TAIPEI_BLADE_SIGNS.length], [ROOF_ATLAS, TAIPEI_ROOF_SIGNS.length], [TOWER_ATLAS, TAIPEI_ROOF_SIGNS.length]]) {
   assert.equal(atlas.w, atlas.cols * atlas.cellW);
   assert.equal(atlas.h, atlas.rows * atlas.cellH);
   for (let i = 0; i < count; i++) {
@@ -90,6 +97,32 @@ for (const [atlas, count] of [[BAND_ATLAS, TAIPEI_BAND_SIGNS.length], [BLADE_ATL
     cells.add(key);
   }
 }
+
+// --- Issue #153: rooftop billboard pool ------------------------------
+// The roof brands (the photo's Hitachi board, the SANLUX tower sign,
+// plus the appliance/telecom/bank names that actually own Taipei's
+// roofs) — one pool, two atlases (landscape roof boards, portrait
+// tower signs, same plate index = same brand in both).
+assert.ok(TAIPEI_ROOF_SIGNS.length >= 10, 'roof pool carries the avenue brands');
+assert.ok(TAIPEI_ROOF_SIGNS.length <= ROOF_ATLAS.cols * ROOF_ATLAS.rows, 'roof pool fits the roof atlas grid');
+assert.ok(TAIPEI_ROOF_SIGNS.length <= TOWER_ATLAS.cols * TOWER_ATLAS.rows, 'roof pool fits the tower atlas grid');
+const roofNames = new Set();
+for (const sign of TAIPEI_ROOF_SIGNS) {
+  assert.ok(sign.name && sign.name.length > 0, 'every roof sign has a name');
+  assert.ok(!roofNames.has(sign.name), `duplicate roof brand: ${sign.name}`);
+  roofNames.add(sign.name);
+  assert.match(sign.bg, /^#[0-9a-f]{6}$/i, `${sign.name} bg is a hex colour`);
+  assert.match(sign.fg, /^#[0-9a-f]{6}$/i, `${sign.name} fg is a hex colour`);
+  assert.notEqual(sign.bg.toLowerCase(), sign.fg.toLowerCase(), `${sign.name} bg/fg contrast`);
+  assert.ok(!sign.name.includes('檳'), `no roof plate is a betel-nut brand: ${sign.name}`);
+  assert.ok(roofSignFits(sign), `roof name fits: ${sign.name}`);
+  assert.ok(towerSignFits(sign), `tower name fits: ${sign.name}`);
+}
+for (const named of ['日立', '三洋', '大同', '國際牌']) {
+  assert.ok(roofNames.has(named), `user/photo-named roof brand present: ${named}`);
+}
+assert.equal(ROOF_MAX_UNITS, 5.0);
+assert.equal(TOWER_MAX_CHARS, 8);
 
 // --- Font stack: every Taiwan device resolves a real CJK face -------
 for (const face of ['Noto Sans TC', 'PingFang TC', 'JhengHei']) {
@@ -108,9 +141,24 @@ assert.ok(buildings.includes('getTaipeiSignAtlases'), 'buildings reads the injec
 assert.ok(buildings.includes(`const SIGN_BLADE_COLS = ${BLADE_ATLAS.cols}.0;`), 'blade cols literal matches taipei-signs');
 assert.ok(buildings.includes(`const SIGN_BLADE_ROWS = ${BLADE_ATLAS.rows}.0;`), 'blade rows literal matches taipei-signs');
 assert.ok(buildings.includes(`const SIGN_BLADE_PLATES = ${TAIPEI_BLADE_SIGNS.length}.0;`), 'blade plate count matches the pool');
+// Issue #153 mirrors: the roof/tower atlas grids and the brand bg
+// colours (the no-atlas fallback plate) in the preloaded renderer,
+// which cannot import the signs module.
+assert.ok(buildings.includes(`const SIGN_ROOF_COLS = ${ROOF_ATLAS.cols}.0;`), 'roof cols literal matches taipei-signs');
+assert.ok(buildings.includes(`const SIGN_ROOF_ROWS = ${ROOF_ATLAS.rows}.0;`), 'roof rows literal matches taipei-signs');
+assert.ok(buildings.includes(`const SIGN_ROOF_PLATES = ${TAIPEI_ROOF_SIGNS.length}.0;`), 'roof plate count matches the pool');
+assert.ok(buildings.includes(`const SIGN_TOWER_COLS = ${TOWER_ATLAS.cols}.0;`), 'tower cols literal matches taipei-signs');
+assert.ok(buildings.includes(`const SIGN_TOWER_ROWS = ${TOWER_ATLAS.rows}.0;`), 'tower rows literal matches taipei-signs');
+const roofBgLiteral = `const ROOF_PLATE_BG = [${TAIPEI_ROOF_SIGNS.map((s) => s.bg.replace('#', '0x')).join(', ')}];`;
+assert.ok(buildings.includes(roofBgLiteral), 'roof plate bg colours match the pool in order');
+
+const planner = read('../js/taipei-buildings.js');
+assert.ok(planner.includes(`export const ROOF_BOARD_PLATES = ${TAIPEI_ROOF_SIGNS.length};`), 'planner plate count matches the pool');
 
 const boot = read('../js/taipei-boot.js');
 assert.ok(boot.includes('setTaipeiSignAtlases('), 'taipei-boot injects the atlases');
 assert.ok(boot.includes("from './taipei-signs.js'"), 'taipei-boot imports the signs module');
+assert.ok(boot.includes('drawRoofAtlas'), 'taipei-boot paints the roof atlas');
+assert.ok(boot.includes('drawTowerAtlas'), 'taipei-boot paints the tower atlas');
 
 console.log('taipei-signs.test.mjs: all assertions passed');
