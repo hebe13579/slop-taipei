@@ -1806,9 +1806,16 @@ export async function buildTaipeiGround(scene, tile, deps = {}) {
     concrete.castShadow = true;
     const deckTop = addLayer(deckPartGeometry(deckGeo.asphalt), mat(SURFACE_TONES.deck, 0.9), 'TaipeiDeckAsphalt');
     deckTop.castShadow = true;
+    // Issue #253: deck-top road markings — white dashed lane
+    // dividers + solid white edge lines on the asphalt (the same
+    // white paint as the ground stop lines), riding the deck
+    // profile. No castShadow: paint is a flat decal, not a volume.
+    if (deckGeo.deckMarkings.positions.length) {
+      addLayer(deckPartGeometry(deckGeo.deckMarkings), mat(0xf2f2f2, 0.9), 'TaipeiDeckMarkings');
+    }
     const pierMesh = buildDeckPierMesh(geo.elevatedRoads.piers || [], drapeHeight);
     if (pierMesh) group.add(pierMesh);
-    console.info(`[taipei-decks] ${deckGeo.lineCount} deck lines (${geo.elevatedRoads.stats?.lineKm ?? '?'} km), ${deckGeo.pierCount} piers, ${deckGeo.triCount.toLocaleString('en-US')} triangles in ${Math.round(performance.now() - decksStart)}ms`);
+    console.info(`[taipei-decks] ${deckGeo.lineCount} deck lines (${geo.elevatedRoads.stats?.lineKm ?? '?'} km), ${deckGeo.pierCount} piers, ${deckGeo.triCount.toLocaleString('en-US')} triangles, ${deckGeo.deckMarkingStats.dashKm.toFixed(1)} km deck dashes + ${deckGeo.deckMarkingStats.edgeKm.toFixed(1)} km deck edge lines in ${Math.round(performance.now() - decksStart)}ms`);
   }
   // MRT Red Line (issue #118): the same deck idiom on the sibling
   // geodata field — guideway decks (elevated 圓山→北投 + branch,

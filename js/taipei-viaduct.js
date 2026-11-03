@@ -15,10 +15,15 @@
 // carriageways merged to central piers, carriageway/lot rejection
 // applied there); this module only shapes the pier box.
 //
-// Decks are DRAWN, NOT DRIVEN: no collision, no traffic, no deck
-// markings. Ground systems (junction caps, markings, signals,
-// medians) keep treating the deck roadbeds as ground beds exactly
-// as before — only their ground ribbons are replaced by the deck.
+// Decks are DRAWN, NOT DRIVEN: no collision, no traffic. Ground
+// systems (junction caps, markings, signals, medians) keep treating
+// the deck roadbeds as ground beds exactly as before — only their
+// ground ribbons are replaced by the deck. Issue #253: the deck
+// top carries its own white paint — dashed lane dividers + solid
+// edge lines — in the deckMarkings sink, because the ground
+// markings are deliberately skipped under a deck (issue #162).
+
+import { LANE_W, DASH_LEN, DASH_GAP, DIVIDER_W } from './taipei-markings.js';
 //
 // Winding convention (verified by tests/taipei-decks.test.mjs on a
 // synthetic east-running line): in the world frame (x east, z
@@ -31,6 +36,13 @@ export const PARAPET_T = 0.25;     // parapet thickness, m
 export const ASPHALT_LIFT = 0.03;  // asphalt ribbon above the slab top, m
 export const LOW_BED_MAX = 0.5;    // profiles below this render as a low bed
 export const LOW_BED_H = 0.25;     // low-bed slab height, m
+// Issue #253: deck-top road markings — the same white paint as the
+// ground lane dividers (taipei-markings.js LANE_W / DASH_LEN /
+// DASH_GAP / DIVIDER_W, shared so the two paints never drift
+// apart), drawn on the deck asphalt instead of under it.
+export const DECK_MARK_LIFT = 0.012; // markings above the asphalt, m
+export const DECK_EDGE_W = 0.15;     // solid edge-line width, m
+export const DECK_EDGE_INSET = 0.15; // edge-line centre inside the asphalt edge, m
 export const PIER_W = 1.6;         // pier box crosswise, m
 export const PIER_D = 2.24;        // pier box along-road, m
 // Issue #139: the MRT track treatment (opts.tracks) — a brown
@@ -517,13 +529,39 @@ function _chordFrom(L, endIdx, chordLen) {
   return [(cx - x) / d, (cz - z) / d];
 }
 
+// The inside-other predicate, keyed by digest. parapetTrims() builds
+// it alongside the trims; pointInsideOther() reads it (computing the
+// trims first when the digest has not been seen yet). It lives OUTSIDE
+// the memoized return value on purpose: the return object must stay
+// lines + stats only, because tests deepEqual it across two calls and
+// Node deepStrictEqual never equates two distinct function references
+// (issue #253 gate blocker — the PR first shipped the predicate on the
+// return object and broke "trims are deterministic and memoized").
+const _insideOtherByDigest = new WeakMap();
+
+export function pointInsideOther(elevated, x, z, h, excludeLi) {
+  if (!elevated || typeof elevated !== 'object') return false;
+  let pred = _insideOtherByDigest.get(elevated);
+  if (!pred) {
+    parapetTrims(elevated);
+    pred = _insideOtherByDigest.get(elevated);
+  }
+  return pred ? pred(x, z, h, excludeLi) : false;
+}
+
 // Kept parapet intervals + surviving end caps for one digest.
 // Returns { lines: [{ segments: [{ left, right }], capStart, capEnd }],
 //           stats: { blockedM, totalM, suppressedCaps, affectedStrips } }
 // where left/right are kept [t0, t1] fraction lists along the
 // segment (left = the +normal side, the renderer's L parapet and
 // the drive model's s = +1 strip) and capStart/capEnd say whether
-// the line's terminal end-cap quad is drawn.
+// the line's terminal end-cap quad is drawn. The return object is
+// lines + stats ONLY — never a function — so two calls on equal
+// geometry stay deepEqual (the memoization test). The same test the
+// trims are built from (inside another eligible line's corridor at
+// the same level) is the module-level pointInsideOther(); issue
+// #253's deck markings call it so lane dashes stop at a merge mouth
+// instead of painting across the other deck's driving surface.
 export function parapetTrims(elevated) {
   if (!elevated || !Array.isArray(elevated.lines)) {
     return { lines: [], stats: { blockedM: 0, totalM: 0, suppressedCaps: 0, affectedStrips: 0 } };
@@ -712,6 +750,7 @@ export function parapetTrims(elevated) {
     if ((L.h?.[0] ?? 0) >= LOW_BED_MAX && insideOther(L.pts[0], L.pts[1], L.h?.[0] ?? 0, li)) { out.lines[li].capStart = false; out.stats.suppressedCaps++; }
     if ((L.h?.[n - 1] ?? 0) >= LOW_BED_MAX && insideOther(L.pts[n * 2 - 2], L.pts[n * 2 - 1], L.h?.[n - 1] ?? 0, li)) { out.lines[li].capEnd = false; out.stats.suppressedCaps++; }
   }
+  _insideOtherByDigest.set(elevated, insideOther);
   return out;
 }
 
@@ -723,7 +762,14 @@ export function parapetTrims(elevated) {
 //   guideway: { positions, normals },  // Wenhu concrete strips (guideway lines)
 //   portal:   { positions, normals },  // dive-portal headwalls + wings (opts.tracks, issue #173)
 //   portalDark: { positions, normals },// the portal openings (opts.tracks, issue #173)
-//   triCount, lineCount, pierCount,
+//   deckMarkings: { positions, normals },// white dashes + edge lines on the
+//     deck asphalt (roads mode only, issue #253)
+//   deckMarkingStats: { lines, linesWithDashes, dashQuads, dashKm,
+//     edgeQuads, edgeKm, suppressedDashes }, // paint census
+//   triCount, lineCount, pierCount,  // triCount is the seven sinks
+//     above (the markings are a separate boot layer, so the existing
+//     triCount pins do not move); the markings' own triangle count
+//     is deckMarkings.positions.length / 9.
 // }
 // Positions are non-indexed triangles (6 vertices per quad face) in
 // world metres, y-up; normals are per-face (flat shading).
@@ -747,6 +793,10 @@ export function buildDeckGeometry(elevated, opts = {}) {
   const guideway = { pos: [], nor: [] };
   const portal = { pos: [], nor: [] };
   const portalDark = { pos: [], nor: [] };
+  // Issue #253: deck-top road markings (roads mode only) — white
+  // dashed lane dividers + solid white edge lines on the asphalt.
+  const deckMarkings = { pos: [], nor: [] };
+  const markStats = { lines: 0, linesWithDashes: 0, dashQuads: 0, dashKm: 0, edgeQuads: 0, edgeKm: 0, suppressedDashes: 0 };
   // Append one quad (corners in boundary order) as two triangles
   // with the quad's flat normal.
   const quad = (sink, a, b, c, d) => {
@@ -1017,6 +1067,94 @@ export function buildDeckGeometry(elevated, opts = {}) {
     const lineTrim = trims?.lines[li];
     if (!lineTrim || lineTrim.capStart) cap(cs[0], false);
     if (!lineTrim || lineTrim.capEnd) cap(cs[cs.length - 1], true);
+    // Issue #253: deck-top road markings (roads mode only) — white
+    // dashed lane dividers at every internal lane boundary plus a
+    // solid white edge line just inside each asphalt edge, following
+    // the profile the drive model reads (slab top, low-bed top, and
+    // the drape lift at each cross-section). Lane count comes from
+    // the DRAWN width (lanes = round(w / 3.2), the ground rule), so
+    // the paint follows the rendered slab. Dashes keep the ground
+    // phase (3 m paint / 4.5 m gap from the line start, one quad per
+    // dash); a dash whose midpoint lies inside another eligible
+    // deck's corridor at the same level is suppressed, so paint
+    // stops at a merge mouth instead of crossing the other deck's
+    // driving surface. Edge lines follow the parapet trims' kept
+    // intervals, so paint and fence end together at a gore.
+    if (!tracks) {
+      const CYCLE = DASH_LEN + DASH_GAP;
+      const lanes = Math.max(1, Math.round((line.width || 6) / LANE_W));
+      const laneW = (line.width || 6) / lanes;
+      const edgeOff = inner - DECK_EDGE_INSET;
+      // A marking quad must face up: on a very short segment with
+      // a sharp turn the cross-section twist can reverse the
+      // winding (the same twist flips one asphalt quad on 朝籟橋
+      // wayId 374621768 — a pre-existing viaduct quirk, out of
+      // scope here). Reverse the winding when the computed normal
+      // points down, so the paint is never backface-culled.
+      const markQuad = (a, b, c, d) => {
+        const ux = b[0] - a[0], uy = b[1] - a[1], uz = b[2] - a[2];
+        const vx = c[0] - a[0], vy = c[1] - a[1], vz = c[2] - a[2];
+        if (uz * vx - ux * vz < 0) quad(deckMarkings, a, d, c, b);
+        else quad(deckMarkings, a, b, c, d);
+      };
+      let lineDashes = 0, lineMarks = 0;
+      let arc = 0;
+      for (let i = 0; i + 1 < cs.length; i++) {
+        const A = cs[i], B = cs[i + 1];
+        const segLen = Math.hypot(pts[i + 1][0] - pts[i][0], pts[i + 1][1] - pts[i][1]);
+        if (segLen > 0) {
+          const low = Math.max(A.h, B.h) < LOW_BED_MAX;
+          const surfA = low ? LOW_BED_H + A.g + ASPHALT_LIFT : A.aL[1];
+          const surfB = low ? LOW_BED_H + B.g + ASPHALT_LIFT : B.aL[1];
+          // Point on the paint surface at arc fraction t and lateral
+          // offset off (+normal side); the quad it bounds lies on
+          // the asphalt ribbon's plane, DECK_MARK_LIFT above it.
+          const at = (t, off) => {
+            const nx = normals[i][0] + (normals[i + 1][0] - normals[i][0]) * t;
+            const nz = normals[i][1] + (normals[i + 1][1] - normals[i][1]) * t;
+            return [
+              pts[i][0] + (pts[i + 1][0] - pts[i][0]) * t + nx * off,
+              surfA + (surfB - surfA) * t + DECK_MARK_LIFT,
+              pts[i][1] + (pts[i + 1][1] - pts[i][1]) * t + nz * off,
+            ];
+          };
+          const hAt = (t) => A.h + (B.h - A.h) * t;
+          // Solid edge lines: one quad per kept parapet-trim
+          // interval per side (the trim intervals are the fence's,
+          // so the paint ends where the fence ends).
+          const segTrim = trims?.lines[li]?.segments[i];
+          for (const [side, list] of [[1, segTrim?.left], [-1, segTrim?.right]]) {
+            const off = side * edgeOff;
+            for (const [t0, t1] of list || [[0, 1]]) {
+              if (!(t1 > t0)) continue;
+              markQuad(at(t0, off + DECK_EDGE_W / 2), at(t1, off + DECK_EDGE_W / 2), at(t1, off - DECK_EDGE_W / 2), at(t0, off - DECK_EDGE_W / 2));
+              markStats.edgeQuads++;
+              markStats.edgeKm += (t1 - t0) * segLen / 1000;
+              lineMarks++;
+            }
+          }
+          // Dashed lane dividers: one quad per dash per boundary.
+          for (let k = 1; k < lanes; k++) {
+            const off = -half + k * laneW;
+            for (let m = Math.floor(arc / CYCLE); m * CYCLE < arc + segLen; m++) {
+              const d0 = Math.max(m * CYCLE, arc), d1 = Math.min(m * CYCLE + DASH_LEN, arc + segLen);
+              if (d1 - d0 < 0.1) continue;
+              const t0 = (d0 - arc) / segLen, t1 = (d1 - arc) / segLen, tm = (t0 + t1) / 2;
+              const mid = at(tm, off);
+              if (pointInsideOther(elevated, mid[0], mid[2], hAt(tm), li)) { markStats.suppressedDashes++; continue; }
+              markQuad(at(t0, off + DIVIDER_W / 2), at(t1, off + DIVIDER_W / 2), at(t1, off - DIVIDER_W / 2), at(t0, off - DIVIDER_W / 2));
+              markStats.dashQuads++;
+              markStats.dashKm += (d1 - d0) / 1000;
+              lineDashes++;
+              lineMarks++;
+            }
+          }
+        }
+        arc += segLen;
+      }
+      if (lineMarks > 0) markStats.lines++;
+      if (lineDashes > 0) markStats.linesWithDashes++;
+    }
     // Issue #196: this line's portal clusters emit their trenches
     // (face, retaining walls, floor, trench track strips) once,
     // from the cluster's first member's turn.
@@ -1034,6 +1172,8 @@ export function buildDeckGeometry(elevated, opts = {}) {
     guideway: { positions: new Float32Array(guideway.pos), normals: new Float32Array(guideway.nor) },
     portal: { positions: new Float32Array(portal.pos), normals: new Float32Array(portal.nor) },
     portalDark: { positions: new Float32Array(portalDark.pos), normals: new Float32Array(portalDark.nor) },
+    deckMarkings: { positions: new Float32Array(deckMarkings.pos), normals: new Float32Array(deckMarkings.nor) },
+    deckMarkingStats: markStats,
     triCount,
     lineCount: lines.length,
     pierCount: (elevated?.piers || []).length,
