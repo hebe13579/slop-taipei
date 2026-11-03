@@ -112,6 +112,12 @@ merge call; workers open PRs unmerged).
   diff the candidate gated trees; gate the one the full battery proves.
   Runtime-file identity is what lets the other worker's live evidence
   carry over.
+- **Registry-part plan diffs (#306 gate):** for a PR that changes landmark
+  registry parts, the plan-diff criterion is "lots identical and the diff
+  limited to the intended landmarks", NOT an empty diff — `resolveLandmark()`
+  serializes parts into the plan output, so any registry part change
+  necessarily appears in it. An empty diff is the right criterion only
+  for adapter-only PRs that touch no registry or geodata.
 
 ## Geodata composition doctrine
 
@@ -130,9 +136,21 @@ inputs and a future full regen re-cuts them (known drift class).
 - 2-CPU VM; SwiftShader is slow; load saturates tests/screenshot rigs
   into false timeouts — run decisive tests solo, and expect screenshot
   captures to fail under worker contention and retry.
+- **Boot-smoke runs solo (#307 gate):** run boot-smoke with nothing else
+  on the machine — the first attempt stalled under contention (battery +
+  2 planner runs concurrently); the clean standalone re-run passes. A
+  freeze with no page errors under load is starvation until proven
+  otherwise; retry in a quiet window before concluding a product defect.
 - VM restarts recur and wipe `/tmp` — keep all scripts and evidence
   under the workspace, never `/tmp`; workers commit/push early.
 - Local git push has NO credentials — push via the Git Data API only.
+- **Never `cp -a` a worktree clone (#253 build):** a clone whose `.git`
+  is a worktree-link file shares its admin dir with the parent clone, so
+  a `git checkout` in the copy moves the shared HEAD in the work clone
+  too. Delete the copy's `.git` immediately (serve it as a plain root),
+  or seed from a clone with a real `.git` directory. Verify a clone's
+  tree SHA equals the API head's tree SHA before working — seed clones
+  go stale.
 - Never `pkill -f` a pattern that matches your own shell command line
   (it kills your own exec); kill orphaned processes by PID. Killing a
   probe's shell wrapper orphans the node process, which keeps writing
