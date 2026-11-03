@@ -1064,6 +1064,18 @@ export function buildDeckGeometry(elevated, opts = {}) {
       const lanes = Math.max(1, Math.round((line.width || 6) / LANE_W));
       const laneW = (line.width || 6) / lanes;
       const edgeOff = inner - DECK_EDGE_INSET;
+      // A marking quad must face up: on a very short segment with
+      // a sharp turn the cross-section twist can reverse the
+      // winding (the same twist flips one asphalt quad on 朝籟橋
+      // wayId 374621768 — a pre-existing viaduct quirk, out of
+      // scope here). Reverse the winding when the computed normal
+      // points down, so the paint is never backface-culled.
+      const markQuad = (a, b, c, d) => {
+        const ux = b[0] - a[0], uy = b[1] - a[1], uz = b[2] - a[2];
+        const vx = c[0] - a[0], vy = c[1] - a[1], vz = c[2] - a[2];
+        if (uz * vx - ux * vz < 0) quad(deckMarkings, a, d, c, b);
+        else quad(deckMarkings, a, b, c, d);
+      };
       let lineDashes = 0, lineMarks = 0;
       let arc = 0;
       for (let i = 0; i + 1 < cs.length; i++) {
@@ -1094,7 +1106,7 @@ export function buildDeckGeometry(elevated, opts = {}) {
             const off = side * edgeOff;
             for (const [t0, t1] of list || [[0, 1]]) {
               if (!(t1 > t0)) continue;
-              quad(deckMarkings, at(t0, off + DECK_EDGE_W / 2), at(t1, off + DECK_EDGE_W / 2), at(t1, off - DECK_EDGE_W / 2), at(t0, off - DECK_EDGE_W / 2));
+              markQuad(at(t0, off + DECK_EDGE_W / 2), at(t1, off + DECK_EDGE_W / 2), at(t1, off - DECK_EDGE_W / 2), at(t0, off - DECK_EDGE_W / 2));
               markStats.edgeQuads++;
               markStats.edgeKm += (t1 - t0) * segLen / 1000;
               lineMarks++;
@@ -1109,7 +1121,7 @@ export function buildDeckGeometry(elevated, opts = {}) {
               const t0 = (d0 - arc) / segLen, t1 = (d1 - arc) / segLen, tm = (t0 + t1) / 2;
               const mid = at(tm, off);
               if (trims?.pointInsideOther?.(mid[0], mid[2], hAt(tm), li)) { markStats.suppressedDashes++; continue; }
-              quad(deckMarkings, at(t0, off + DIVIDER_W / 2), at(t1, off + DIVIDER_W / 2), at(t1, off - DIVIDER_W / 2), at(t0, off - DIVIDER_W / 2));
+              markQuad(at(t0, off + DIVIDER_W / 2), at(t1, off + DIVIDER_W / 2), at(t1, off - DIVIDER_W / 2), at(t0, off - DIVIDER_W / 2));
               markStats.dashQuads++;
               markStats.dashKm += (d1 - d0) / 1000;
               lineDashes++;
