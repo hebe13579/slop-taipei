@@ -852,8 +852,14 @@ test('landmark batch 4: station district — crown, hip roof, terrace hall, pala
   // Shin Kong Life Tower: podium + shaft + pyramid crown + cap.
   const shinKong = byId('shin-kong-life-tower');
   assert.ok(shinKong, 'shin kong life tower registered');
-  const crown = shinKong.parts.find((p) => p.type === 'frustum');
-  assert.ok(crown && crown.wT < crown.wB, 'pyramid crown steps in from the shaft');
+  // Issue #154 re-pin: the crown is no longer a single smooth frustum —
+  // the audit (user's photo + Wikimedia) shows a STEPPED rose crown,
+  // so it is three set-back boxes (34x42 -> 27x34 -> 18x24 over 24 m)
+  // under the cap. The total height is unchanged (244.15 m).
+  const crownSteps = shinKong.parts.filter((p) => p.type === 'box' && p.y0 >= 216 && p.y0 < 240);
+  assert.equal(crownSteps.length, 3, 'stepped crown: three set-back tiers over 24 m (issue #154)');
+  assert.ok(crownSteps[0].w > crownSteps[1].w && crownSteps[1].w > crownSteps[2].w, 'crown tiers step in from the shaft');
+  assert.equal(Math.max(...crownSteps.map((p) => (p.y0 || 0) + p.h)), 240, 'crown tiers top out at 240 m under the cap');
   assert.equal(Math.max(...shinKong.parts.map(partTop)), 244.15, 'cap tops out at the published 244.15 m');
 
   // Taipei Main Station: one red hip roof (fine steps) at 48 m.
@@ -863,8 +869,13 @@ test('landmark batch 4: station district — crown, hip roof, terrace hall, pala
   // tower — so the height pin moves to the deck topping the roof.
   const station = byId('taipei-main-station');
   assert.ok(station, 'taipei main station registered');
-  const deck = station.parts.find((p) => p.flat === 0x39434e);
+  // Issue #154 re-pin: the skylight deck is now pale glass (0xd8d4c8) —
+  // the audit (Trenopedia aerial + user's photo) shows a pale skylight
+  // strip along the ridge, not a dark slab — so it is pinned by its
+  // y0/h, not its colour.
+  const deck = station.parts.find((p) => p.y0 === 46.5 && p.h === 1.5);
   assert.ok(deck && partTop(deck) === 48, 'skylight deck tops out at the published 48 m');
+  assert.equal(deck.flat, 0xd8d4c8, 'skylight deck is pale glass, not a dark slab (issue #154)');
   assert.equal(Math.max(...station.parts.map(partTop)), 48, 'no part rises past the published 48 m (no clock tower)');
   assert.ok(station.parts.filter((p) => p.flat === 0x9c4a38).length >= 2, 'red roof steps carry the flat terracotta');
 

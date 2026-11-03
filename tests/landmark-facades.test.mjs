@@ -27,7 +27,7 @@ const EXPECTED_FACADES = {
   'taipei-arena': 'curtain', // silvery shell panels (tuned curtain)
   // Batch 4 (issue #74): the station district — all six are stone /
   // brick civic-era masses, so all six take the prewar grid.
-  'shin-kong-life-tower': 'prewar', // beige stone-clad tower
+  'shin-kong-life-tower': 'prewar', // pale rose-grey stone-clad tower (issue #154: was beige)
   'taipei-main-station': 'prewar', // stone station house
   'chiang-kai-shek-memorial-hall': 'prewar', // white marble hall
   'national-concert-hall': 'prewar', // cream palace walls
