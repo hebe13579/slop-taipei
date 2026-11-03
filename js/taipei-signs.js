@@ -218,3 +218,128 @@ export function drawBladeAtlas(ctx) {
     }
   });
 }
+
+// ---------------------------------------------------------------------
+// Issue #153: rooftop billboard signs. The #105 pool is street-level
+// shop names; the roofs belong to the brands that actually own them —
+// the electronics/appliance names from the user's station-district
+// photo (Hitachi's big air-con board, the SANLUX tower sign) plus big
+// everyday retail/telecom/bank names. Betel nut stays OUT, same as
+// #105. One pool, two atlases: the ROOF atlas paints each brand
+// landscape (a wide board on a roof, name big with the Latin mark
+// below) and the TOWER atlas paints the same brand portrait (stacked
+// characters, the blade idiom — a tall side sign on a tower). Plate
+// index i is the same brand in both atlases, so the renderer picks
+// the atlas by the board's kind, never by the brand.
+// ---------------------------------------------------------------------
+
+export const ROOF_MAX_UNITS = 5.0;
+// A tower plate stacks the name top-to-bottom like a blade.
+export const TOWER_MAX_CHARS = 8;
+
+// `latin` is the brand's Latin mark, drawn under (roof) the CJK name;
+// Latin-only brands carry no CJK name. `bar` is the bottom-edge
+// stripe (7-ELEVEN's green stripe, same as its band plate). Colours
+// are the brands' own looks: Hitachi white/red with the green
+// HITACHI line from the user's photo, SANLUX white/blue, Tatung blue,
+// SAMPO red, SONY black, LG crimson, Samsung blue-on-white,
+// Chunghwa blue, Cathay green, Taiwan Mobile orange.
+export const TAIPEI_ROOF_SIGNS = [
+  { name: '日立', latin: 'HITACHI', bg: '#ffffff', fg: '#d52027', accent: '#009444' },
+  { name: '三洋', latin: 'SANLUX', bg: '#ffffff', fg: '#1b4f9c', accent: '#d52027' },
+  { name: '大同', latin: 'TATUNG', bg: '#1b4f9c', fg: '#ffffff' },
+  { name: '國際牌', latin: 'Panasonic', bg: '#ffffff', fg: '#004488' },
+  { name: '聲寶', latin: 'SAMPO', bg: '#d52027', fg: '#ffffff' },
+  { name: '東元', latin: 'TECO', bg: '#e8eef4', fg: '#0f2f5e' },
+  { name: 'SONY', latin: null, bg: '#000000', fg: '#ffffff' },
+  { name: 'LG', latin: null, bg: '#a50034', fg: '#ffffff' },
+  { name: '三星', latin: 'SAMSUNG', bg: '#ffffff', fg: '#1428a0' },
+  { name: '中華電信', latin: null, bg: '#005bac', fg: '#ffffff' },
+  { name: '國泰世華', latin: null, bg: '#007a5e', fg: '#ffffff' },
+  { name: '台灣大哥大', latin: null, bg: '#f58220', fg: '#ffffff' },
+  { name: '7-ELEVEN', latin: null, bg: '#ffffff', fg: '#e4572e', bar: '#009444' },
+];
+
+// Wide cells for wide roof boards (2:1); tall cells for tower signs
+// (1:4, the blade shape). Both grids hold the whole pool with spare
+// cells — the pool grows into the grid, never past it.
+export const ROOF_ATLAS = { cols: 4, rows: 4, cellW: 512, cellH: 256 };
+ROOF_ATLAS.w = ROOF_ATLAS.cols * ROOF_ATLAS.cellW;
+ROOF_ATLAS.h = ROOF_ATLAS.rows * ROOF_ATLAS.cellH;
+export const TOWER_ATLAS = { cols: 4, rows: 4, cellW: 144, cellH: 576 };
+TOWER_ATLAS.w = TOWER_ATLAS.cols * TOWER_ATLAS.cellW;
+TOWER_ATLAS.h = TOWER_ATLAS.rows * TOWER_ATLAS.cellH;
+
+export function roofSignFits(sign) {
+  return nameWidthUnits(sign.name) <= ROOF_MAX_UNITS + 1e-9;
+}
+export function towerSignFits(sign) {
+  return [...sign.name].length <= TOWER_MAX_CHARS;
+}
+
+// Paint every roof plate: the brand name big across the wide cell,
+// the Latin mark smaller below it (accent colour when the brand has
+// one — Hitachi's green HITACHI line from the photo). Font size
+// comes from the width-units estimator, so the atlas is identical on
+// every machine regardless of which CJK face the stack resolves to.
+export function drawRoofAtlas(ctx) {
+  const { cellW, cellH } = ROOF_ATLAS;
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  TAIPEI_ROOF_SIGNS.forEach((sign, i) => {
+    const { x, y } = cellOrigin(i, ROOF_ATLAS);
+    ctx.globalAlpha = 1;
+    ctx.fillStyle = sign.bg;
+    ctx.fillRect(x, y, cellW, cellH);
+    if (sign.bar) {
+      ctx.fillStyle = sign.bar;
+      ctx.fillRect(x, y + cellH - 16, cellW, 16);
+    }
+    ctx.globalAlpha = 0.55;
+    ctx.strokeStyle = sign.fg;
+    ctx.lineWidth = 5;
+    ctx.strokeRect(x + 8, y + 8, cellW - 16, cellH - 16);
+    ctx.globalAlpha = 1;
+    const px = Math.min(120, (cellW * 0.86) / nameWidthUnits(sign.name));
+    ctx.font = `700 ${px}px ${SIGN_FONT_STACK}`;
+    ctx.fillStyle = sign.fg;
+    const nameY = sign.latin ? y + cellH / 2 - 28 : y + cellH / 2 + 3;
+    ctx.fillText(sign.name, x + cellW / 2, nameY);
+    if (sign.latin) {
+      const lpx = Math.min(46, (cellW * 0.86) / nameWidthUnits(sign.latin));
+      ctx.font = `700 ${lpx}px ${SIGN_FONT_STACK}`;
+      ctx.fillStyle = sign.accent || sign.fg;
+      ctx.fillText(sign.latin, x + cellW / 2, y + cellH / 2 + 62);
+    }
+  });
+}
+
+// Paint every tower plate: the brand name stacked top-to-bottom, one
+// character per line, centred in the tall cell — the blade idiom, for
+// a tall side sign on a tower. Latin-only brands stack their letters.
+export function drawTowerAtlas(ctx) {
+  const { cellW, cellH } = TOWER_ATLAS;
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  TAIPEI_ROOF_SIGNS.forEach((sign, i) => {
+    const { x, y } = cellOrigin(i, TOWER_ATLAS);
+    ctx.globalAlpha = 1;
+    ctx.fillStyle = sign.bg;
+    ctx.fillRect(x, y, cellW, cellH);
+    ctx.globalAlpha = 0.5;
+    ctx.strokeStyle = sign.fg;
+    ctx.lineWidth = 4;
+    ctx.strokeRect(x + 6, y + 6, cellW - 12, cellH - 12);
+    ctx.globalAlpha = 1;
+    const chars = [...sign.name];
+    const px = Math.min(cellW * 0.74, (cellH * 0.88) / chars.length);
+    ctx.font = `700 ${px}px ${SIGN_FONT_STACK}`;
+    ctx.fillStyle = sign.fg;
+    const stepY = px * 1.04;
+    let cy = y + cellH / 2 - ((chars.length - 1) * stepY) / 2;
+    for (const ch of chars) {
+      ctx.fillText(ch, x + cellW / 2, cy);
+      cy += stepY;
+    }
+  });
+}
