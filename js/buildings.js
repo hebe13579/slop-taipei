@@ -3065,8 +3065,6 @@ function buildCityBlocks(scene, opts = null) {
     // margin) — the same edge rule as the blade plates above.
     const plateColor = () => {
       const uvN = uv();
-      const nW = normalWorldGeometry;
-      const faceCoord = mix(positionWorld.z, positionWorld.x, step(abs(nW.z), abs(nW.x)));
       const colI = float(plate % 4);
       const rowB = float(Math.floor(plate / 4));
       const inset = float(0.03);
@@ -3077,7 +3075,17 @@ function buildCityBlocks(scene, opts = null) {
       const texCol = texture(atlasTex, tuv).rgb;
       const bgUV = vec2(colI.add(0.5).div(cols), rowB.add(0.02).div(rows));
       const bgCol = texture(atlasTex, bgUV).rgb;
-      const edge = step(0.001, fwidth(faceCoord)).add(step(0.5, abs(nW.y))).clamp(0.0, 1.0);
+      // Broad faces are the unit box's ±z faces (the plate's long axis
+      // is local-x, thickness local-z); thin edges (±x) and the
+      // top/bottom faces (±y) take the plate's background. This MUST
+      // be the box-local normal, not the blades' faceCoord-derivative
+      // rule: that rule reads the world-space coordinate across the
+      // face, which varies on any plate turned off the cardinal axes —
+      // a roof board follows its road (often ~15–20° off), so the
+      // derivative rule blanks the whole broad face (seen live: the
+      // Hitachi board rendered as a blank white plate). Box-local
+      // normals are exact on every face regardless of the turn.
+      const edge = step(0.5, abs(normalGeometry.x)).add(step(0.5, abs(normalGeometry.y))).clamp(0.0, 1.0);
       return mix(texCol, bgCol, edge);
     };
     mat.colorNode = Fn(() => {
