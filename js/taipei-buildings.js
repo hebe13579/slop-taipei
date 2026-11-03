@@ -7465,7 +7465,9 @@ export function taipeiCityBlocksOptions(geodata, plan = planTaipeiBuildings(geod
 }
 
 // The Taipei 101 massing as plain meshes (podium + eight identical
-// flared tiers + narrower top section + spire, dark glass-green).
+// flared tiers + narrower top section + spire, pale sky-blue glass —
+// issue #152: the real tower's curtain glass in daylight is a light
+// sky blue, not the deep green-teal it used to wear).
 // `THREE` is passed in (the boot module owns
 // the three import) so the planner above stays three-free and
 // unit-testable in plain node. Returns null when the geodata has no
@@ -7526,16 +7528,28 @@ export function createTaipei101(THREE, plan, factories) {
   const towerGroup = new THREE.Group();
   towerGroup.name = 'Taipei101';
   // Issue #57: the shaft's flat glass colour becomes a real curtain
-  // wall — dark green-teal glazing at the tower's floor rhythm —
+  // wall — pale sky-blue glazing at the tower's floor rhythm —
   // and the mall blocks a green-grey punched-stone facade, when the
   // boot module injects the TSL factories (this file stays
   // import-free for the node suite; without factories the original
   // flat tones render, as before). The spire keeps the flat tone:
   // a window grid would be noise at its radius. Massing, the
   // ornaments and the curved shell are untouched.
+  // Issue #152: the glass was a deep green-teal (glassTint 0x14342a,
+  // frame 0x3d5c50, flat 0x2e4f45) that read too dark against the
+  // real tower. Daylight photos of the tower (see PR evidence) show
+  // pale sky-blue glass, blue-dominant with a green shift — far view
+  // samples ~(50, 86, 112), close shaded face ~(48, 66, 72). The
+  // shader mixes ~70% glassTint with the dark interior behind the
+  // panes plus ~30% sky reflection, so the tint itself must sit
+  // lighter than the target face-on reading: glassTint 0x6395bd and
+  // frameTint 0x7d9bb4 land the render near (95, 130, 160) face-on.
+  // The flat fallback moves to the same family (0x78a0be). The
+  // spire keeps its dark flat tone per the issue's scope (massing,
+  // crown and spire unchanged).
   const glassMat = factories
-    ? factories.createCurtainWallMaterial({ glassTint: 0x14342a, frameTint: 0x3d5c50, windowWidth: 2.6, floorHeight: 3.9, litProbability: 0.32, warmth: 0.55, reflectivity: 0.9, seed: 57.101, boxLocal: false })
-    : new THREE.MeshStandardNodeMaterial({ color: 0x2e4f45, roughness: 0.35, metalness: 0.15 });
+    ? factories.createCurtainWallMaterial({ glassTint: 0x6395bd, frameTint: 0x7d9bb4, windowWidth: 2.6, floorHeight: 3.9, litProbability: 0.32, warmth: 0.55, reflectivity: 0.9, seed: 57.101, boxLocal: false })
+    : new THREE.MeshStandardNodeMaterial({ color: 0x78a0be, roughness: 0.35, metalness: 0.15 });
   const mallMat = factories
     ? factories.createPreWarBuildingMaterial({ stoneColor: 0x77877c, trimColor: 0x5d6f63, windowGlassColor: 0x1d2b26, windowWidth: 3.4, floorHeight: 3.75, litProbability: 0.3, warmth: 0.7, seed: 57.102, boxLocal: false })
     : new THREE.MeshStandardNodeMaterial({ color: 0x51655a, roughness: 0.8, metalness: 0.05 });
