@@ -103,18 +103,25 @@ test('riverside parks (河濱): named polygons present and lot-free', (t) => {
     assert.equal(after, 0, `lots inside ${name}`);
   }
   // 古亭河濱公園 (way 301927905, lat 25.0115-25.0215) and 中正河濱公園
-  // (way 349570046, lat 25.0206-25.0239) lie entirely SOUTH of the
-  // tile union (south edge lat 25.0285): no tile ground exists there,
-  // so no polygon reaches the geodata. Pin their real footprints as
-  // zero-lot ground — true today by the union drop, and it stays the
-  // requirement if the tile ever grows south to meet them.
-  for (const [name, w, e, s, n] of [
-    ['古亭河濱公園', 121.5166, 121.5281, 25.0115, 25.0215],
-    ['中正河濱公園', 121.5064, 121.5164, 25.0206, 25.0239],
-  ]) {
-    const inside = plan.lots.filter((l) => inLonLat(l.x, l.z, w, e, s, n)).length;
-    t.diagnostic(`${name}: south of tile, lots in footprint ${inside}`);
-    assert.equal(inside, 0, `lots on ${name} ground`);
+  // (way 349570046, lat 25.0206-25.0239) used to lie entirely SOUTH of
+  // the tile union (south edge lat 25.0285): no tile ground existed
+  // there, so no polygon reached the geodata, and the test pinned
+  // their lon/lat bounding boxes as zero-lot ground. Issue #258 grows
+  // the tile south to meet them (box 7-south, lat 25.010-25.0285), so
+  // the boxes are no longer zero-lot: a riverside strip's bounding
+  // box is mostly city, not park (古亭's park polygon is 0.150 km²
+  // inside a 1.28 km² box; its 583 box lots stand 117-779 m from the
+  // polygon on real streets — 汀州路二段/羅斯福路三段/中興街/竹林路;
+  // 中正's 53 box lots stand 42-138 m off on 水源路）. The parks
+  // themselves are now in the geodata and lot-free by polygon — which
+  // is the requirement, checked here the same way as the named parks
+  // above (and again by the whole-河濱-family check below).
+  for (const name of ['古亭河濱公園', '中正河濱公園']) {
+    const polys = openLand.filter((p) => p.name === name);
+    assert.ok(polys.length >= 1, `${name} missing from parks/green data`);
+    const after = lotsInside(plan.lots, polys);
+    t.diagnostic(`${name}: ${polys.length} polys, lots after ${after}`);
+    assert.equal(after, 0, `lots inside ${name}`);
   }
   // The whole 河濱 family, wherever the tile carries it:
   const riverside = openLand.filter((p) => p.name && p.name.includes('河濱公園'));
@@ -192,10 +199,17 @@ test('issue #137: the Tamsui stem is real water and its band is lot-free on both
   const shezi = openLand.filter((p) => p.name === '社子島溼地');
   assert.ok(shezi.length >= 1, '社子島溼地 missing from parks/green data');
   assert.equal(lotsInside(plan.lots, shezi), 0, 'lots inside 社子島溼地');
-  // 馬場町紀念公園 lies entirely SOUTH of the tile union, like
-  // 古亭/中正河濱公園 above: pin its ground as zero-lot.
-  const machang = plan.lots.filter((l) => inLonLat(l.x, l.z, 121.500, 121.505, 25.020, 25.027)).length;
-  assert.equal(machang, 0, 'lots on 馬場町紀念公園 ground (south of tile)');
+  // 馬場町紀念公園 used to lie entirely SOUTH of the tile union, like
+  // 古亭/中正河濱公園 above, and the test pinned its lon/lat bounding
+  // box as zero-lot ground. Issue #258 grows the tile south to meet
+  // it (box 7-south), so the box is no longer zero-lot: the park
+  // polygon is 0.055 km² inside its box, and the box's 684 lots stand
+  // 160-781 m from the polygon on real streets (萬大路/青年路/長泰街）.
+  // The park itself is in the geodata and lot-free by polygon — the
+  // requirement, checked here.
+  const machangPolys = openLand.filter((p) => p.name === '馬場町紀念公園');
+  assert.ok(machangPolys.length >= 1, '馬場町紀念公園 missing from parks/green data');
+  assert.equal(lotsInside(plan.lots, machangPolys), 0, 'lots inside 馬場町紀念公園');
   // Dadaocheng reach: the real fabric WEST of the levee line
   // (lon 121.5085) survives — the band must not eat the city —
   // but every surviving lot stands clear of the true bank

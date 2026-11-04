@@ -139,7 +139,11 @@ test('geodata: removed areas match the #206 census (tile-wide)', () => {
   // the 2,393 m² of neighbouring park polygons it used to consume
   // as a plaza (it sits above parks in the consumption order) now
   // stays in the parks family.
-  assert.ok(near(fam.removed.parks, 48954), `parks removed ${fam.removed.parks.toFixed(0)}`);
+  // Issue #258 (south expansion): re-pinned 48,954 → 53,629 — the
+  // south adds riverside parks (古亭/中正河濱公園， 馬場町紀念公園）,
+  // the Da'an Park tip and Fuyang Eco Park, so more park area sits
+  // under the above families to be consumed (+4,675 m²).
+  assert.ok(near(fam.removed.parks, 53629), `parks removed ${fam.removed.parks.toFixed(0)}`);
   // Water re-pinned at the #224 gate for issue #186: measured
   // 359,915 on the post-#186 tile — the strip's Keelung River
   // reach and Dazhi water add +12,642 m² (+3.6%) of
@@ -152,13 +156,23 @@ test('geodata: removed areas match the #206 census (tile-wide)', () => {
   // water, so far less water sits under the above families to
   // be consumed (−47,638 vs the #224 pin). Parks and band
   // reproduce inside their bands unedited.
-  assert.ok(near(fam.removed.water, 312277), `water removed ${fam.removed.water.toFixed(0)}`);
-  assert.ok(near(fam.removed.band, 3013763), `band removed ${fam.removed.band.toFixed(0)}`);
+  // Issue #258 (south expansion): water re-pinned 312,277 →
+  // 327,843 — the south adds Xindian River reach, Drunken Moon
+  // Lake and the NTU/Shida campus ponds, so more water sits under
+  // the above families (+15,566 m²).
+  assert.ok(near(fam.removed.water, 327843), `water removed ${fam.removed.water.toFixed(0)}`);
+  // Issue #258 (south expansion): band re-pinned 3,013,763 →
+  // 3,365,786 — the south's riverside band (Xindian River banks +
+  // the extended Tamsui band) grows the band family (+352,023 m²).
+  assert.ok(near(fam.removed.band, 3365786), `band removed ${fam.removed.band.toFixed(0)}`);
   // Tint re-pinned at the same gate: measured 3,314,939.
   // Tint sits BELOW water in the consumption order, so the
   // narrowed creeks also uncover tint that the fat buffers
   // used to eat (−370,841 vs the original census pin).
-  assert.ok(near(fam.removed.tint, 3314939), `tint removed ${fam.removed.tint.toFixed(0)}`);
+  // Issue #258 (south expansion): tint re-pinned 3,314,939 →
+  // 3,990,077 — the south's green tint (campus grounds, riverside
+  // green, farmland) grows the tint family (+675,138 m²).
+  assert.ok(near(fam.removed.tint, 3990077), `tint removed ${fam.removed.tint.toFixed(0)}`);
   // Probe-counted residue tile-wide: holes the subtraction
   // primitive's last-resort fallback keeps even solo (their
   // sample probes still land inside afterwards). One on the
