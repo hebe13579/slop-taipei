@@ -486,7 +486,17 @@ function drapedRibbonsGeometry(roads, y, jointFrames = null) {
 function buildAdaptiveDrapeGroundMeshes(geo) {
   if (!drapeEnabled()) return null;
   const roads = (geo.roadbeds || []).map((b) => b.pts).filter((p) => p && p.length >= 4);
-  const out = buildAdaptiveDrapeGround((geo.water || []).map((w) => w.ring), { roads });
+  // Issue #263: the adaptive ground must not bridge the trench
+  // slots (the Wenhu Line dive portal + the 復北地下道 cuts) — the
+  // flat land layer has holes there, and a ground surface over a
+  // slot would bury the trench.
+  const out = buildAdaptiveDrapeGround((geo.water || []).map((w) => w.ring), {
+    roads,
+    trenchSlots: [
+      ...portalTrenchSlots(geo.mrtDecks || { lines: [] }),
+      ...roadTrenchSlots(geo.airfield),
+    ],
+  });
   const meshes = [];
   for (const p of out.patch) {
     const bgeo = new THREE.BufferGeometry();
@@ -498,7 +508,7 @@ function buildAdaptiveDrapeGroundMeshes(geo) {
     mesh.receiveShadow = true;
     meshes.push(mesh);
   }
-  console.info(`[taipei-drape] adaptive ground: ${out.stats.totalTris.toLocaleString('en-US')} tris (${out.stats.blockTris.toLocaleString('en-US')} block + ${out.stats.patchTris.toLocaleString('en-US')} terrain), ${out.stats.splits.toLocaleString('en-US')} splits, max depth ${out.stats.maxDepth}, max residual over ${out.stats.maxResidualOver.toFixed(3)} m / under ${out.stats.maxResidualUnder.toFixed(3)} m, ${out.stats.refinedCells.toLocaleString('en-US')} refined / ${out.stats.coarseCells.toLocaleString('en-US')} coarse cells`);
+  console.info(`[taipei-drape] adaptive ground: ${out.stats.totalTris.toLocaleString('en-US')} tris (${out.stats.blockTris.toLocaleString('en-US')} block + ${out.stats.patchTris.toLocaleString('en-US')} terrain), ${out.stats.splits.toLocaleString('en-US')} splits, max depth ${out.stats.maxDepth}, max residual over ${out.stats.maxResidualOver.toFixed(3)} m / under ${out.stats.maxResidualUnder.toFixed(3)} m, ${out.stats.refinedCells.toLocaleString('en-US')} refined / ${out.stats.coarseCells.toLocaleString('en-US')} coarse cells, ${out.stats.slotSkippedQuads.toLocaleString('en-US')} trench-slot quads skipped`);
   return { blockPositions: out.block, patchMeshes: meshes };
 }
 
