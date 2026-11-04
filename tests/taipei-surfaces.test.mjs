@@ -179,20 +179,28 @@ test('geodata: median bed counts match the regenerated evidence list', () => {
   // unchanged — the rule still describes which beds WOULD carry a
   // median (taipei-markings' laneLayout reads it), and ground
   // beds' emitted quads are byte-identical to the pre-fix build.
-  assert.equal(stats.plantedBeds, 202); // merged-tree re-pin at the #186 gate (189 main / 202 #186 branch / 202 merged)
-  assert.equal(stats.plainBeds, 438); // merged-tree re-pin at the #186 gate (402 main / 438 #186 branch / 438 merged)
+  // Re-pinned for issue #258 (south expansion, direct stats probe):
+  // the south's divided boulevards take plantedBeds 202 -> 239,
+  // plainBeds 438 -> 493, deckBedsSkipped 71 -> 88 (the south's
+  // elevated roads), excludedUnderpass 3 -> 4 (the 水源車行地下道,
+  // w 20.2 m at z 1219 in 7-south, joins the 象山隧道 x3); rendered
+  // plantedKm 36.87, plainKm 86.91.
+  assert.equal(stats.plantedBeds, 239); // merged-tree re-pin at the #186 gate (189 main / 202 #186 branch / 202 merged)
+  assert.equal(stats.plainBeds, 493); // merged-tree re-pin at the #186 gate (402 main / 438 #186 branch / 438 merged)
   // Merged-tree re-pin at the #186 gate: deckBedsSkipped 68 (main)
   // -> 71 — the #186 strip adds exactly three deck-flagged
   // median-eligible bridge beds （復興橋, 望星橋, 自強橋, +1 each by
   // name census against main's geodata; every other name's count
   // is unchanged).
-  assert.equal(stats.deckBedsSkipped, 71);
+  assert.equal(stats.deckBedsSkipped, 88);
   // Issue #196: excludedUnderpass 4 -> 3 — the 復北地下道 bed no
   // longer exists as a bed at all (its surviving apron was
   // clipped into the portal approach cut), so only the 象山隧道
   // x3 remain name-excluded. The eligibility census above is
   // unchanged (the tunnel bed was excluded, never counted).
-  assert.equal(stats.excludedUnderpass, 3); // 象山隧道 x3
+  // Re-pinned for issue #258: excludedUnderpass 3 -> 4 — the
+  // 水源車行地下道 (7-south) joins the 象山隧道 x3.
+  assert.equal(stats.excludedUnderpass, 4); // 象山隧道 x3 + 水源車行地下道 (issue #258)
   // Length bands re-based for issue #186 (measured on the
   // merged tree at the gate): the strip's divided avenues add
   // their median lengths to the post-#167 baselines — planted
@@ -200,8 +208,10 @@ test('geodata: median bed counts match the regenerated evidence list', () => {
   // plain 69.218 -> 75.559 km (the strip's long plain median
   // runs). Bed-count pins above are unchanged in kind (202 /
   // 438 / 71 measured on the same tree).
-  assert.ok(stats.plantedKm > 30.5 && stats.plantedKm < 32.6, `planted rendered ${stats.plantedKm} km`);
-  assert.ok(stats.plainKm > 74 && stats.plainKm < 77, `plain rendered ${stats.plainKm} km`);
+  // Re-pinned for issue #258: rendered plantedKm 31.587 -> 36.87,
+  // plainKm 75.559 -> 86.91 (the south's median runs).
+  assert.ok(stats.plantedKm > 36 && stats.plantedKm < 37, `planted rendered ${stats.plantedKm} km`);
+  assert.ok(stats.plainKm > 86 && stats.plainKm < 87, `plain rendered ${stats.plainKm} km`);
 });
 
 test('medianStripWidth clamps to 1.2–3.5 m at 8% of bed width', () => {
