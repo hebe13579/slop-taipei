@@ -1689,13 +1689,15 @@ export async function buildTaipeiGround(scene, tile, deps = {}) {
   // builder (which used to detect its own copy).
   const junctions = detectJunctions(carriageways);
   const roundabouts = planRoundabouts(carriageways, junctions);
-  // POC (#214, flag-gated via deps.poc — off by default the boot is
-  // byte-identical to main): waterClip cuts creek-water spill from
-  // caps (R1), cornerClamp seats diagonal hull corners on the kerb
-  // (G2), divided feeds the G1 zebra POC in buildRoadMarkings.
+  // #214 ship: G1 + G2 are ON by default; R1 (waterClip) stays
+  // flag-gated OFF — it drops 2 caps on bridge decks (ji1079 +
+  // ji2121) and its fix is a separate follow-up. cornerClamp seats
+  // diagonal hull corners on the kerb (G2), divided feeds the G1
+  // zebra POC in buildRoadMarkings. deps.poc can still turn either
+  // off (divided: false / cornerClamp: false) for debugging.
   const poc = deps.poc || {};
   const caps = planJunctionCaps(carriageways, junctions, roundabouts, capClipPolys(geo),
-    poc.waterClip ? capWaterPolys(geo) : null, { cornerClamp: !!poc.cornerClamp });
+    poc.waterClip ? capWaterPolys(geo) : null, { cornerClamp: poc.cornerClamp !== false });
   const capPolys = [
     ...caps.flatMap((c) => capSurfacePolys(c)),
     ...roundabouts.flatMap((s) => [s.disc, ...s.aprons]).map((c) => ringPoints(c.ring)),
@@ -1755,7 +1757,7 @@ export async function buildTaipeiGround(scene, tile, deps = {}) {
   // obey them; scooter waiting boxes are out of scope (user cut).
   const markingsStart = performance.now();
   const markings = buildRoadMarkings(carriageways, medians, caps, junctions,
-    [...(geo.parks || []), ...(geo.green || [])].map((g) => ringPoints(g.ring)), { dividedPoc: !!poc.divided }); // reuses the strips built above as dash occluders; greens feed the #173 roundabout wedge occluders
+    [...(geo.parks || []), ...(geo.green || [])].map((g) => ringPoints(g.ring)), { dividedPoc: poc.divided !== false }); // #214 ship: G1 on by default (deps.poc.divided: false turns it off); reuses the strips built above as dash occluders; greens feed the #173 roundabout wedge occluders
   // Dashes and zebra stripes render as shader patterns over plain
   // ribbons/bands (issue #90 — the plan in taipei-markings.js is
   // unchanged; only the baking moved into the fragment shader).
