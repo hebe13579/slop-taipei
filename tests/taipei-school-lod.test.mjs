@@ -49,7 +49,9 @@ test('far swap: hysteresis band, sticky inside it, swaps both ways', () => {
 });
 
 test('every school campus carries trees, paired trunk + canopy', () => {
-  assert.equal(schools.length, 196, 'campus count pinned (issue #221)');
+  // Re-pinned for issue #258 (south expansion): the south's campuses
+  // take the generated-campus count 196 -> 226 (same as the schools test).
+  assert.equal(schools.length, 226, 'campus count pinned (issue #221)');
   for (const s of schools) {
     const trunks = s.parts.filter(isTrunk).length;
     const canopies = s.parts.filter(isCanopy).length;
@@ -70,10 +72,14 @@ test('far representation: tri budget pinned, most of the tree cost goes away', (
   }
   const nearTreeTris = trunks * CYLINDER_24_TRIS + canopies * 756;
   const farTreeTris = canopies * 132; // trunks dropped far: sub-pixel past 700 m
-  assert.equal(trunks, 2538, 'trunk count pinned');
-  assert.equal(canopies, 2538, 'canopy count pinned');
-  assert.equal(nearTreeTris, 2162376, 'near tree tris (the bulk of the 2.27M school total)');
-  assert.equal(farTreeTris, 335016, 'far tree tris');
+  // Re-pinned for issue #258 (south expansion): trunks/canopies
+  // 2,538 -> 2,916 (one per new campus tree, trunks == canopies);
+  // nearTreeTris 2,162,376 -> 2,484,432 (2,916 x 852); farTreeTris
+  // 335,016 -> 384,912 (2,916 x 132). Far stays under a fifth of near.
+  assert.equal(trunks, 2916, 'trunk count pinned');
+  assert.equal(canopies, 2916, 'canopy count pinned');
+  assert.equal(nearTreeTris, 2484432, 'near tree tris (the bulk of the 2.27M school total)');
+  assert.equal(farTreeTris, 384912, 'far tree tris');
   assert.ok(farTreeTris < nearTreeTris * 0.2, 'far trees cost under a fifth of near trees');
   // Note: the plan carries 3,090 cylinders in total — the other 552
   // are track-end discs and similar non-tree parts, which merge as

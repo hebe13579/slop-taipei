@@ -26,7 +26,7 @@ import { TAIPEI_TILE } from '../js/taipei-tile.js';
 const bb = TAIPEI_GEO.frame.bbox;
 const boxes = TAIPEI_GEO.frame.boxes;
 
-test('frame carries the six boxes and their bounding rect', () => {
+test('frame carries the seven boxes and their bounding rect', () => {
   // Issue #102 (northern phase 1), FINAL footprint per amendment 2
   // (user, 2026-10-24 23:42 — the live footprint is frozen as the
   // base): live A + live B (whole, exactly as PR #70 shipped it) +
@@ -39,12 +39,18 @@ test('frame carries the six boxes and their bounding rect', () => {
   // west line) and box 6-airport joins: lon 121.533..121.570,
   // lat 25.055..25.078 — the measured aerodrome ring (121.5384..
   // 121.5682 x 25.0617..25.0721) plus its immediate edges.
-  assert.ok(Array.isArray(boxes) && boxes.length === 6, 'six boxes in the footprint');
+  // Issue #258 (south expansion): box 7-south joins (lon
+  // 121.500..121.550, lat 25.010..25.0285) and Box A's west edge
+  // moves 121.503 -> 121.500 for its full height, so the west
+  // boundary runs straight at 121.500 from lat 25.010 to 25.055.
+  // This reverses the #102 amendment that cut the southern band —
+  // nothing previously live is dropped.
+  assert.ok(Array.isArray(boxes) && boxes.length === 7, 'seven boxes in the footprint');
   const byName = Object.fromEntries(boxes.map((b) => [b.name, b]));
-  const [a, b, cor, bei, inc, air] = [byName.A, byName.B, byName['3-corridor'], byName['4-beitou'], byName['5-incinerator'], byName['6-airport']];
-  assert.ok(a && b && cor && bei && inc && air, 'boxes A, B, 3-corridor, 4-beitou, 5-incinerator, 6-airport all present');
+  const [a, b, cor, bei, inc, air, south] = [byName.A, byName.B, byName['3-corridor'], byName['4-beitou'], byName['5-incinerator'], byName['6-airport'], byName['7-south']];
+  assert.ok(a && b && cor && bei && inc && air && south, 'boxes A, B, 3-corridor, 4-beitou, 5-incinerator, 6-airport, 7-south all present');
   // World frame values from the builder's own frame math, ±1 m.
-  assert.ok(Math.abs(a.minX - -6257.2) < 1 && Math.abs(a.maxX - 1513.8) < 1, `box A x span ${a.minX}..${a.maxX}`);
+  assert.ok(Math.abs(a.minX - -6560) < 1 && Math.abs(a.maxX - 1513.8) < 1, `box A x span ${a.minX}..${a.maxX}`);
   assert.ok(Math.abs(a.maxZ - 498.5) < 1, `box A south edge ${a.maxZ}`);
   // Box B exactly as live: lon 121.503..121.535, lat 25.055..25.060.
   assert.ok(Math.abs(b.maxX - -3027.7) < 1, `box B east edge ${b.maxX} = lon 121.535`);
@@ -76,13 +82,19 @@ test('frame carries the six boxes and their bounding rect', () => {
   assert.equal(bei.maxZ, inc.minZ, 'the connector abuts Beitou on the shared lat 25.113 edge');
   assert.equal(air.minX, cor.maxX, 'the airport box abuts the corridor on lon 121.533');
   assert.equal(air.maxZ, a.minZ, 'the airport box abuts A on the shared lat 25.055 edge');
+  // Issue #258: 7-south abuts A on the shared lat 25.0285 edge
+  // and its west edge aligns with A's on lon 121.500.
+  assert.ok(Math.abs(south.minX - -6560) < 1 && Math.abs(south.maxX - -1513.8) < 1, `7-south x span ${south.minX}..${south.maxX} (lon 121.500..121.550)`);
+  assert.ok(Math.abs(south.minZ - 498.5) < 1 && Math.abs(south.maxZ - 2547.8) < 1, `7-south z span ${south.minZ}..${south.maxZ} (lat 25.0285..25.010)`);
+  assert.equal(south.minZ, a.maxZ, '7-south abuts A on the shared lat 25.0285 edge');
+  assert.equal(south.minX, a.minX, '7-south west edge aligns with A on lon 121.500 (issue #258)');
   assert.equal(bb.minX, Math.min(...boxes.map((b) => b.minX)));
   assert.equal(bb.maxX, Math.max(...boxes.map((b) => b.maxX)));
   assert.equal(bb.minZ, Math.min(...boxes.map((b) => b.minZ)));
   assert.equal(bb.maxZ, Math.max(...boxes.map((b) => b.maxZ)));
 });
 
-test('unionExclusionRects: the six-box union leaves exactly five exclusion rects', () => {
+test('unionExclusionRects: the seven-box union leaves exactly six exclusion rects', () => {
   // Re-pinned for issue #102 (final footprint, amendment 2): five
   // rects — the north strip east of Beitou, the NE notch east of
   // the corridor, the strip east of B above A (the A+B era's own
@@ -98,8 +110,13 @@ test('unionExclusionRects: the six-box union leaves exactly five exclusion rects
   // shrinks to west-of-A only (the corridor's new west edge
   // coincides with the connector's, so nothing is excluded
   // between them any more).
+  // Re-pinned for issue #258: six rects. 7-south adds the south
+  // strip east of it (x -1513.8..1513.8, z 498.5..2547.8); the west
+  // notch's two strips both extend south to 7-south's south edge
+  // (z 2547.8), and the south strip's east edge moves -6257.2 ->
+  // -6560 with Box A's extended west edge.
   const rects = unionExclusionRects(boxes, bb);
-  assert.equal(rects.length, 5, `expected five exclusion rects, got ${JSON.stringify(rects)}`);
+  assert.equal(rects.length, 6, `expected six exclusion rects, got ${JSON.stringify(rects)}`);
   const near = (r, minX, maxX, minZ, maxZ) =>
     Math.abs(r.minX - minX) < 1 && Math.abs(r.maxX - maxX) < 1 && Math.abs(r.minZ - minZ) < 1 && Math.abs(r.maxZ - maxZ) < 1;
   assert.ok(rects.some((r) => near(r, -5550.8, 1513.8, -12960.5, -11077.3)), 'north strip east of Beitou (above the corridor)');
@@ -108,8 +125,9 @@ test('unionExclusionRects: the six-box union leaves exactly five exclusion rects
   // east of the airport box grows with it.
   assert.ok(rects.some((r) => near(r, -3229.5, 1513.8, -11077.3, -8197.2)), 'NE notch east of the corridor, south-bounded by the airport (issues #134/#186)');
   assert.ok(rects.some((r) => near(r, 504.6, 1513.8, -8197.2, -2437)), 'notch east of the airport box, north of A (issues #134/#186)');
-  assert.ok(rects.some((r) => near(r, -10193.2, -7165.5, -8861.9, 498.5)), 'west notch, north strip (west of the connector)');
-  assert.ok(rects.some((r) => near(r, -7165.5, -6257.2, -2437, 498.5)), 'west notch, south strip (west of A only, issue #134)');
+  assert.ok(rects.some((r) => near(r, -10193.2, -7165.5, -8861.9, 2547.8)), 'west notch, north strip (west of the connector, now running the full height to 7-south, issue #258)');
+  assert.ok(rects.some((r) => near(r, -7165.5, -6560, -2437, 2547.8)), 'west notch, south strip (west of A and 7-south, issue #258)');
+  assert.ok(rects.some((r) => near(r, -1513.8, 1513.8, 498.5, 2547.8)), 'south strip east of 7-south (issue #258)');
   // Abutting full coverage -> no exclusions; no boxes -> no exclusions.
   assert.deepEqual(unionExclusionRects([bb], bb), []);
   assert.deepEqual(unionExclusionRects(null, bb), []);
@@ -132,8 +150,8 @@ test('every generated ring, run and block stays inside the union', (t) => {
 });
 
 test('the dropped bands really are empty of data', () => {
-  // The dropped bands of the six-box union are exactly the five
-  // exclusion rects. Nothing may sit in any of them — no block
+  // The dropped bands of the seven-box union are exactly the six
+  // exclusion rects (issue #258). Nothing may sit in any of them — no block
   // centroid, no roadbed vertex.
   const rects = unionExclusionRects(boxes, bb);
   const inRect = (x, z, r) => x > r.minX && x < r.maxX && z > r.minZ && z < r.maxZ;

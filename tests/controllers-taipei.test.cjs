@@ -383,7 +383,10 @@ test('taipei world: an exclusion rect pushes ground modes out to its nearest edg
   // (was one NE notch for the A+B base). The scenario below runs on
   // the first — the north strip east of Beitou — whose south edge
   // is the corridor's north edge (lat 25.133).
-  assert.equal(opts.excludeRects.length, 5, 'the five-box union has exactly five exclusion rects');
+  // Issue #258: the seven-box union leaves six exclusion rects
+  // (7-south adds the south strip east of it); the north strip
+  // east of Beitou is still the first rect.
+  assert.equal(opts.excludeRects.length, 6, 'the seven-box union has exactly six exclusion rects');
   const notch = opts.excludeRects[0];
   const taipei = bareManager(Class, opts);
   taipei.activeMode = 'person';

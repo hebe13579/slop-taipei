@@ -209,7 +209,13 @@ export const SIGNAL_SIDE_MARGIN = 0.9;   // corner clearance past the approach's
 export const SIGNAL_BOX_MARGIN = 1.2;    // corner clearance past the junction box (crossing road's far edge)
 export const SIGNAL_ESCAPE_STEP = 0.5;   // clearance-solver step, m
 export const SIGNAL_ESCAPE_MAX = 80;     // solver budget: 40 m of diagonal escape (interchange-scale junctions)
-export const SIGNAL_SEARCH_MAX = 30;     // quadrant lattice search radius, m (Manhattan)
+export const SIGNAL_SEARCH_MAX = 45;     // quadrant lattice search radius, m (Manhattan)
+// (#258: the 辛亥路/基隆路 interchange's merged beds run 45-62 m
+// wide, so a signal corner can sit 30+ m inside the ribbon
+// tangle — at ji3172 the two 基隆路三段 corners needed Manhattan
+// 32 and 34, just past the old 30 m budget, and the diagonal
+// escape runs along the beds without exiting. 45 m covers a
+// corner a full half-bed deep plus a diagonal exit.)
 export const MAST_ARM_MIN = 4;           // mast-arm reach clamps, m
 export const MAST_ARM_MAX = 13;
 

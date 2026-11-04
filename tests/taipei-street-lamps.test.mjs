@@ -112,9 +112,13 @@ test('real tile: census pins (cap, split, rejections)', (t) => {
   t.diagnostic(`lamps ${real.lamps.length} (ground ${real.stats.ground}, deck ${real.stats.deck}), rejected ${JSON.stringify(real.stats.rejected)}`);
   assert.equal(real.lamps.length, 12000, 'lamps at the cap');
   // Issue #110: 1 more ground lamp — the re-admitted link beds get lamps.
-  assert.equal(real.stats.ground, 8978, 'ground lamps');
+  // Re-pinned for issue #258 (south expansion): the south's elevated
+  // roads (Jianguo/Keelung/Xinhai + Wenhu guideway south) add deck
+  // lamps, and the 12,000 cap displaces ground lamps — ground 8,978
+  // -> 8,937, deck 3,022 -> 3,063 (8,937 + 3,063 = 12,000).
+  assert.equal(real.stats.ground, 8937, 'ground lamps');
   // Issue #110: deck lamps 3,023 -> 3,022 (-1) — the lamp cap is 12,000, so the +1 ground lamp displaces one deck lamp (8,978 + 3,022 = 12,000).
-  assert.equal(real.stats.deck, 3022, 'deck lamps');
+  assert.equal(real.stats.deck, 3063, 'deck lamps');
   assert.equal(real.stats.cap, LAMP_CAP);
   assert.ok(real.stats.capped, 'raw candidates exceed the cap');
   assert.ok(real.stats.rejected.junction > 1000, 'junction rejections');

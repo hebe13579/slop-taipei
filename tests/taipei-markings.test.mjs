@@ -292,7 +292,7 @@ test('geodata: tile-wide marking counts are in the audited bands', () => {
   // 1,136 -> 2,361 across the corridor, Beitou and the connector,
   // but the north signalizes sparsely (Shilin/Beitou arterials,
   // long rural stretches) — signalized 241 -> 344.
-  assert.ok(r.stats.signalized >= 120 && r.stats.signalized <= 450, `signalized ${r.stats.signalized}`);
+  assert.ok(r.stats.signalized >= 120 && r.stats.signalized <= 500, `signalized ${r.stats.signalized}`);
   // Census pin (PR #72 rebase, 2026-10-24, on PR #70's data): the
   // expanded map's signalized count is exactly 241.
   // Re-pinned for issue #102: exactly 344 (per-box census in the
@@ -305,7 +305,15 @@ test('geodata: tile-wide marking counts are in the audited bands', () => {
   // Re-pinned for issue #186: exactly 406 (+14) — the strip's
   // arterial grid （北安路 x 敬業三路/明水路， 內湖路， 至善路） signalizes.
   // Issue #110: 3 more signalized junctions — the re-admitted links create signalized junctions at the interchanges.
-  assert.equal(r.stats.signalized, 409, `signalized census ${r.stats.signalized}`);
+  // Re-pinned for issue #258 (south expansion, probe-markings.mjs):
+  // signalized 409 -> 480 (band ceiling 450 -> 500); dashQuads
+  // 169,830 -> 196,615; crossPairs 284 -> 704; dividerBeds 1,075 ->
+  // 1,241; deckDividerBedsSkipped 95 -> 116; dividerKm 252.67 ->
+  // 292.50; signalUnits 1,765 -> 2,034 (mast 611 -> 705, pole 1,154
+  // -> 1,329); deckArmsSkipped 148 -> 194; stopLines 1,635 -> 1,893.
+  // The south's divided boulevards (Roosevelt, Keelung, Xinhai) and
+  // the 辛亥路/基隆路 interchange drive the whole delta.
+  assert.equal(r.stats.signalized, 480, `signalized census ${r.stats.signalized}`);
   assert.ok(r.stats.dividerKm > 50, `divider km ${r.stats.dividerKm}`);
   // Issue #162 re-pin: lane dividers are no longer planned for
   // deck-flagged beds (they painted at ground Y under their own
@@ -388,13 +396,13 @@ test('geodata: tile-wide marking counts are in the audited bands', () => {
   // identical code: every changed dash/signal/stop-line lies at
   // those two junctions; signalized stays 392, crossPairs 258.
   // Issue #110: dash quads 169,213 -> 169,830 (+617) — the 24 re-admitted link beds and the 71 fused connectors carry dashes.
-  assert.equal(r.stats.dashQuads, 169830, `dash quads ${r.stats.dashQuads}`); // merged-tree re-pin at the #186 gate: 157,083 main / 169,211 #186-stale-base / 169,213 merged
+  assert.equal(r.stats.dashQuads, 196615, `dash quads ${r.stats.dashQuads}`); // merged-tree re-pin at the #186 gate: 157,083 main / 169,211 #186-stale-base / 169,213 merged
   // Issue #110: X pairs culled 262 -> 284 (+22) — the 24 re-admitted link beds and the fused connectors create more braided crossings for the X-cull.
-  assert.equal(r.stats.crossPairs, 284, `X pairs culled ${r.stats.crossPairs}`); // merged-tree re-pin at the #186 gate: 258 main / 262 #186 branch / 262 merged
-  assert.equal(r.stats.dividerBeds, 1075, `divider beds ${r.stats.dividerBeds}`); // merged-tree re-pin at the #186 gate: 1,009 main / 1,076 #186-stale-base / 1,075 merged — the stale base predates #196, whose approach cut removes exactly one divider bed （復北地下道， ways 95015334/137317902, routed to roadTunnels); a per-bed set diff vs the PR tree shows no other change
-  assert.equal(r.stats.deckDividerBedsSkipped, 95, `deck divider beds skipped ${r.stats.deckDividerBedsSkipped}`); // merged-tree re-pin at the #186 gate: 91 main / 95 #186 branch / 95 merged — the merged set is identical to the PR tree's (per-bed set diff); vs main it adds the strip's deck beds （故宮路, 復興橋, 望星橋, 自強橋) and re-cuts the two 大直橋 beds at the extended box edge (same sourceWayIds, first points shifted ~26-46 m)
+  assert.equal(r.stats.crossPairs, 704, `X pairs culled ${r.stats.crossPairs}`); // merged-tree re-pin at the #186 gate: 258 main / 262 #186 branch / 262 merged
+  assert.equal(r.stats.dividerBeds, 1241, `divider beds ${r.stats.dividerBeds}`); // merged-tree re-pin at the #186 gate: 1,009 main / 1,076 #186-stale-base / 1,075 merged — the stale base predates #196, whose approach cut removes exactly one divider bed （復北地下道， ways 95015334/137317902, routed to roadTunnels); a per-bed set diff vs the PR tree shows no other change
+  assert.equal(r.stats.deckDividerBedsSkipped, 116, `deck divider beds skipped ${r.stats.deckDividerBedsSkipped}`); // merged-tree re-pin at the #186 gate: 91 main / 95 #186 branch / 95 merged — the merged set is identical to the PR tree's (per-bed set diff); vs main it adds the strip's deck beds （故宮路, 復興橋, 望星橋, 自強橋) and re-cuts the two 大直橋 beds at the extended box edge (same sourceWayIds, first points shifted ~26-46 m)
   // Issue #110: divider km 251.82 -> 252.67 (+0.85 km) — the 24 re-admitted link beds and the 71 fused connectors add divider length.
-  assert.ok(Math.abs(r.stats.dividerKm - 252.67) < 0.05, `divider km ${r.stats.dividerKm}`); // merged-tree re-pin at the #186 gate: main's 233.80 predates the strip; the #186 branch pinned 251.82 and the merged tree measures 251.8234 (inside the branch's band; the +0.003 km over the branch centre is #196's junction re-plans, the removed 復北 divider bed contributed ~0 km)
+  assert.ok(Math.abs(r.stats.dividerKm - 292.50) < 0.05, `divider km ${r.stats.dividerKm}`); // merged-tree re-pin at the #186 gate: main's 233.80 predates the strip; the #186 branch pinned 251.82 and the merged tree measures 251.8234 (inside the branch's band; the +0.003 km over the branch centre is #196's junction re-plans, the removed 復北 divider bed contributed ~0 km)
   assert.ok(r.stats.crosswalks > 400, `crosswalks ${r.stats.crosswalks}`);
   assert.ok(r.stats.signalUnits >= r.stats.stopLines && r.stats.stopLines > 600,
     `signals ${r.stats.signalUnits} / stop lines ${r.stats.stopLines}`);
@@ -497,13 +505,13 @@ test('geodata (issue #64): no signal stands on a carriageway; mast-arms only on 
   // sits at those two junctions).
   assert.equal(r.stats.signalMast + r.stats.signalPole, r.stats.signalUnits);
   // Issue #110: 18 more signal units — the new junctions are furnished.
-  assert.equal(r.stats.signalUnits, 1765, `signal units ${r.stats.signalUnits}`); // merged-tree re-pin at the #186 gate: 1,689 main / 1,744 #186-stale-base / 1,747 merged
+  assert.equal(r.stats.signalUnits, 2034, `signal units ${r.stats.signalUnits}`); // merged-tree re-pin at the #186 gate: 1,689 main / 1,744 #186-stale-base / 1,747 merged
   // Issue #110: mast units 609 -> 611 (+2) — the 3 new signalized junctions get 2 more mast-arms.
-  assert.equal(r.stats.signalMast, 611, `mast units ${r.stats.signalMast}`); // merged-tree re-pin at the #186 gate: 579 main / 609 #186 branch / 609 merged
+  assert.equal(r.stats.signalMast, 705, `mast units ${r.stats.signalMast}`); // merged-tree re-pin at the #186 gate: 579 main / 609 #186 branch / 609 merged
   // Issue #110: pole units 1,138 -> 1,154 (+16) — pole = units - mast = 1,765 - 611.
-  assert.equal(r.stats.signalPole, 1154, `pole units ${r.stats.signalPole}`); // merged-tree re-pin at the #186 gate: 1,110 main / 1,135 #186-stale-base / 1,138 merged — mast is the PR's 609 and units 1,747 (both pinned above), so pole = 1,747 - 609; the +3 over the stale base is #196's three net-new corner poles at the two 復北 junctions (see the #196 re-pin comment above), which the stale base predates
+  assert.equal(r.stats.signalPole, 1329, `pole units ${r.stats.signalPole}`); // merged-tree re-pin at the #186 gate: 1,110 main / 1,135 #186-stale-base / 1,138 merged — mast is the PR's 609 and units 1,747 (both pinned above), so pole = 1,747 - 609; the +3 over the stale base is #196's three net-new corner poles at the two 復北 junctions (see the #196 re-pin comment above), which the stale base predates
   // Issue #110: deck arms skipped 147 -> 148 (+1) — a re-admitted link bed adds a deck arm the markings skip.
-  assert.equal(r.stats.deckArmsSkipped, 148, `deck arms skipped ${r.stats.deckArmsSkipped}`);
+  assert.equal(r.stats.deckArmsSkipped, 194, `deck arms skipped ${r.stats.deckArmsSkipped}`);
   // Mast ⟺ divided, recomputed independently of the planner's own
   // helper: the approach bed splits at a drawn median, or a
   // same-name near-parallel twin arm shares its junction.
@@ -643,13 +651,13 @@ test('dash x furniture (issue #182): the real tile paints no dash over a zebra',
   // The measured #182 delta on this path (see the census re-pin
   // comment in the counts test): exactly 7 quads culled and 13
   // strip segments clipped.
-  assert.equal(r.stats.furnBlockedQuads, 7, `quads culled at furniture (${r.stats.furnBlockedQuads})`);
+  assert.equal(r.stats.furnBlockedQuads, 8, `quads culled at furniture (${r.stats.furnBlockedQuads})`);
   // Issue #186: +1 strip segment clipped (14) — one more
   // pre-existing-class furniture crossing on the strip's grid;
   // the invariant (no dash quad over a band/stripe) is asserted
   // above and holds.
   // Issue #110: 1 more strip segment clipped by furniture — the fused beds shift a dash onto a furniture crossing.
-  assert.equal(r.stats.furnStripSegmentsClipped, 15, `strip segments clipped (${r.stats.furnStripSegmentsClipped})`);
+  assert.equal(r.stats.furnStripSegmentsClipped, 20, `strip segments clipped (${r.stats.furnStripSegmentsClipped})`);
   const furnPolys = [...r.bands.map((b) => b.quad), ...r.stripes].map(quadPtsOf);
   const CELL = 25;
   const grid = new Map();
@@ -705,9 +713,9 @@ test('stop line x band (issue #190): the real tile paints no stop line over a ze
   // old-vs-new audit (dump in the #190 evidence) shows dashes,
   // dash strips, stripes, bands and signals byte-identical and
   // every surviving stop line a strict subsequence of before.
-  assert.equal(r.stats.bandStopLinesDropped, 68, `stop lines culled at bands (${r.stats.bandStopLinesDropped})`);
+  assert.equal(r.stats.bandStopLinesDropped, 72, `stop lines culled at bands (${r.stats.bandStopLinesDropped})`);
   // Issue #110: 18 more stop lines — the new junctions get stop lines.
-  assert.equal(r.stats.stopLines, 1635, `stop lines ${r.stats.stopLines}`); // merged-tree re-pin at the #186 gate: 1,561 main / 1,617 merged
+  assert.equal(r.stats.stopLines, 1893, `stop lines ${r.stats.stopLines}`); // merged-tree re-pin at the #186 gate: 1,561 main / 1,617 merged
   const bandPolys = r.bands.map((b) => quadPtsOf(b.quad));
   const CELL = 25;
   const grid = new Map();
@@ -893,21 +901,21 @@ test('geodata: tile-wide centre-line census is the audited rule (issue #249)', (
   // unchanged by the centre-line addition (dashQuads 169,213,
   // dividerKm 251.82, crossPairs 262, signalized 406).
   // Issue #110: 1 more centre-line bed — a re-admitted link bed carries a centre line.
-  assert.equal(r.stats.centerBeds, 2856, `centre-line beds ${r.stats.centerBeds}`);
+  assert.equal(r.stats.centerBeds, 3179, `centre-line beds ${r.stats.centerBeds}`);
   // Issue #110: double beds 599 -> 600 (+1) — a re-admitted link bed carries a double centre line.
-  assert.equal(r.stats.centerDoubleBeds, 600, `double beds ${r.stats.centerDoubleBeds}`);
-  assert.equal(r.stats.centerDashBeds, 2256, `dashed beds ${r.stats.centerDashBeds}`);
-  assert.ok(Math.abs(r.stats.centerDoubleKm - 141.34) < 0.05, `double km ${r.stats.centerDoubleKm}`);
-  assert.ok(Math.abs(r.stats.centerDashKm - 119.59) < 0.05, `dashed km ${r.stats.centerDashKm}`);
+  assert.equal(r.stats.centerDoubleBeds, 656, `double beds ${r.stats.centerDoubleBeds}`);
+  assert.equal(r.stats.centerDashBeds, 2523, `dashed beds ${r.stats.centerDashBeds}`);
+  assert.ok(Math.abs(r.stats.centerDoubleKm - 157.74) < 0.05, `double km ${r.stats.centerDoubleKm}`);
+  assert.ok(Math.abs(r.stats.centerDashKm - 132.65) < 0.05, `dashed km ${r.stats.centerDashKm}`);
   // Issue #110: double quads 94,852 -> 94,848 (-4) — the fused beds shorten the double centre-line runs.
-  assert.equal(r.stats.centerDoubleQuads, 94848, `double quads ${r.stats.centerDoubleQuads}`);
+  assert.equal(r.stats.centerDoubleQuads, 105859, `double quads ${r.stats.centerDoubleQuads}`);
   // Issue #110: dashed quads 80,603 -> 80,601 (-2) — the fused beds shorten the dashed centre-line runs.
-  assert.equal(r.stats.centerDashQuads, 80601, `dashed quads ${r.stats.centerDashQuads}`);
+  assert.equal(r.stats.centerDashQuads, 89390, `dashed quads ${r.stats.centerDashQuads}`);
   assert.equal(r.centerQuads.length, r.stats.centerDoubleQuads + r.stats.centerDashQuads, 'quads array matches the split census');
   // Skip census: every bed is accounted for exactly once.
   // Issue #110: one-way skipped 4,232 -> 4,255 (+23) — the 24 re-admitted link beds are one-way ramps, so 23 more one-way beds skip the centre line.
-  assert.equal(r.stats.centerOnewayBedsSkipped, 4255, `one-way skipped ${r.stats.centerOnewayBedsSkipped}`);
-  assert.equal(r.stats.centerMergedBedsSkipped, 772, `merged skipped ${r.stats.centerMergedBedsSkipped}`);
+  assert.equal(r.stats.centerOnewayBedsSkipped, 4909, `one-way skipped ${r.stats.centerOnewayBedsSkipped}`);
+  assert.equal(r.stats.centerMergedBedsSkipped, 903, `merged skipped ${r.stats.centerMergedBedsSkipped}`);
   assert.equal(r.stats.centerNarrowBedsSkipped, 6361, `narrow skipped ${r.stats.centerNarrowBedsSkipped}`);
   assert.equal(r.stats.centerExcludedBedsSkipped, 301, `excluded-class skipped ${r.stats.centerExcludedBedsSkipped}`);
   assert.equal(r.stats.centerDeckBedsSkipped, 25, `deck skipped ${r.stats.centerDeckBedsSkipped}`);
@@ -987,10 +995,10 @@ test('POC #214 G1: classifier finds the real divided-avenue class (ji570 + a twi
   }
   assert.equal(d1, 4, 'D1 twin census');
   // Issue #110: D2 merged census 49 -> 47 — the fused beds merge two D2 sites.
-  assert.equal(d2, 47, 'D2 merged census');
+  assert.equal(d2, 50, 'D2 merged census');
 });
 
-test('POC #214 G1: real tile — POC adds 151 surviving bands at 51 junctions, flag-off unchanged', () => {
+test('POC #214 G1: real tile — POC adds 165 surviving bands at 54 junctions, flag-off unchanged', () => {
   // Census-pinned (poc-census.mjs on current main, green-clipped
   // caps: 1281 -> 1438; this test plans caps unclipped, which
   // shifts both counts by one band: 1282 -> 1439, same +157).
@@ -1000,8 +1008,8 @@ test('POC #214 G1: real tile — POC adds 151 surviving bands at 51 junctions, f
   const off = buildRoadMarkings(beds, null, null, junctions, [], {});
   const on = buildRoadMarkings(beds, null, null, junctions, [], { dividedPoc: true });
   // Issue #110: 10 more flag-off bands — the re-admitted links/fused beds add bands at the new junctions.
-  assert.equal(off.bands.length, 1292, 'flag-off band count is the audited value');
-  assert.equal(on.stats.dividedPocJunctions, 51);
-  assert.equal(on.bands.length, 1443);
-  assert.equal(on.stats.crosswalks, 1443);
+  assert.equal(off.bands.length, 1482, 'flag-off band count is the audited value');
+  assert.equal(on.stats.dividedPocJunctions, 54);
+  assert.equal(on.bands.length, 1647);
+  assert.equal(on.stats.crosswalks, 1647);
 });

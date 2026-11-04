@@ -83,7 +83,11 @@ test('geodata: class populations cover every roadbed exactly once', () => {
   // north apron stub (secondary), clipped into the portal
   // approach cut (generation-map rework v6).
   // Issue #110: the 24 re-admitted link beds classify as arterial +3, deck +10, lane +11 (collector unchanged) — measured per bed.
-  assert.deepEqual(counts, { deck: 220, arterial: 1183, collector: 1057, lane: 12110 }); // merged-tree re-pin at the #186 gate: main {207,1129,1015,11226} + the #186 strip beds (deck/collector/lane exactly the #186 branch pins; arterial 1,180 — one strip way is routed to roadTunnels by the post-#196 builder); sums to the 14,546 roadbeds
+  // Re-pinned for issue #258 (south expansion, probe-round4.mjs): the
+  // south's roads take deck 220 -> 299, arterial 1,183 -> 1,388,
+  // collector 1,057 -> 1,154, lane 12,110 -> 14,451 (sums to the
+  // 17,292 roadbeds).
+  assert.deepEqual(counts, { deck: 299, arterial: 1388, collector: 1154, lane: 14451 }); // merged-tree re-pin at the #186 gate: main {207,1129,1015,11226} + the #186 strip beds (deck/collector/lane exactly the #186 branch pins; arterial 1,180 — one strip way is routed to roadTunnels by the post-#196 builder); sums to the 14,546 roadbeds
 });
 
 test('medianKind: merged + width rule, planted only on wide secondary', () => {
@@ -154,8 +158,11 @@ test('geodata: median bed counts match the regenerated evidence list', () => {
   // Re-pinned for issue #186: the strip's divided roads take
   // planted 195 -> 210 （北安路 +5, 內湖路一段 +3, 至善路一段 +3,
   // 至善路二段 +2, 自強橋/望星橋 +1 each) and plain 464 -> 501.
-  assert.equal(planted, 210);
-  assert.equal(plain, 501);
+  // Re-pinned for issue #258 (south expansion, probe-round4.mjs):
+  // the south's divided boulevards (Roosevelt, Keelung, Xinhai,
+  // 辛亥路） take planted 210 -> 249 and plain 501 -> 571.
+  assert.equal(planted, 249);
+  assert.equal(plain, 571);
   const { stats } = buildMedianStrips(TAIPEI_GEO.roadbeds);
   // Issue #167: the builder routes deck-flagged beds' strips out
   // of the ground lists (into deckBands, the pier-exemption set) —
@@ -304,7 +311,7 @@ test('plaza classification: 廣場 polygons are paving, real parks stay green', 
   const plazas = TAIPEI_GEO.parks.filter(isPlazaPark);
   const greens = TAIPEI_GEO.parks.filter((p) => !isPlazaPark(p));
   assert.equal(plazas.length + greens.length, TAIPEI_GEO.parks.length);
-  assert.equal(plazas.length, 24); // pinned on post-#30 data; re-pinned 2026-10-24 (issue #60: +中山堂/行旅/西本願寺/北門 and other west-side 廣場); re-pinned for issue #102 (+6 measured against the baseline list: 北投3號廣場, 青春82廣場, 微風廣場, 關渡自然公園 x2 賞鳥廣場, and a second 大同16號廣場 piece); re-pinned for issue #134 (+1: a second 厚生廣場 piece on the west bank, recovered by the extractor's two-pass relation stitch — the plaza stands in the corridor's new west strip); re-pinned for issue #186 (+1: 中山21號廣場， whole now that the airport box covers its ground at the old north seam); re-pinned for issue #289 (−1: 松壽廣場 is a lawn park with big trees, not a paved square — exempted from the plaza classification)
+  assert.equal(plazas.length, 35); // pinned on post-#30 data; re-pinned 2026-10-24 (issue #60: +中山堂/行旅/西本願寺/北門 and other west-side 廣場); re-pinned for issue #102 (+6 measured against the baseline list: 北投3號廣場, 青春82廣場, 微風廣場, 關渡自然公園 x2 賞鳥廣場, and a second 大同16號廣場 piece); re-pinned for issue #134 (+1: a second 厚生廣場 piece on the west bank, recovered by the extractor's two-pass relation stitch — the plaza stands in the corridor's new west strip); re-pinned for issue #186 (+1: 中山21號廣場， whole now that the airport box covers its ground at the old north seam); re-pinned for issue #289 (−1: 松壽廣場 is a lawn park with big trees, not a paved square — exempted from the plaza classification); re-pinned for issue #258 (+11, all in the south with centroid z > 498.5: 羅馬廣場, 鹿鳴廣場, 公館水岸廣場, 寶藏塔斜坡廣場, 聚落入口廣場, 心房廣場, 機槍堡廣場, 邊境廣場, 雅頌廣場, 陳文成事件紀念廣場, 量水室古蹟廣場 — Gongguan/NTU/寶藏巖 廣場 entering the tile)
   for (const name of ['台北市民廣場', '台北世貿廣場', '信義21號廣場', '忠信廣場']) {
     assert.ok(plazas.some((p) => p.name === name), `${name} classified as plaza paving`);
   }
@@ -405,10 +412,13 @@ test('medtip (issue #173): boot-path census — median overlap of junction surfa
   // take the boot-path lengths planted 26.9 -> 29.29 km and
   // plain 64.5 -> 70.50 km; the corner discipline above is
   // unchanged (0 corners inside a surface, asserted tile-wide).
-  assert.ok(stats.plantedKm > 29 && stats.plantedKm < 30, `planted ${stats.plantedKm} km on the boot path`);
+  // Re-pinned for issue #258 (south expansion, probe-round4.mjs):
+  // the south's planted medians take the boot-path lengths planted
+  // 29.29 -> 34.18 km and plain 70.50 -> 81.23 km.
+  assert.ok(stats.plantedKm > 34 && stats.plantedKm < 35, `planted ${stats.plantedKm} km on the boot path`);
   // (Previous value: plain 81.512 -> 81.045 for issue #178 — the
   // T18 through-crossing breaks removed 1.216 km at minor lanes
   // crossing a divided road outright, and its under-deck guard
   // restored 0.749 km where a deck crosses overhead.)
-  assert.ok(stats.plainKm > 70 && stats.plainKm < 71, `plain ${stats.plainKm} km on the boot path`);
+  assert.ok(stats.plainKm > 81 && stats.plainKm < 82, `plain ${stats.plainKm} km on the boot path`);
 });
