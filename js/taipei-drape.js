@@ -13,15 +13,28 @@
 // Regions (game coords in taipei-drape-data.js, baked from lon/lat
 // by tools/taipei/build-drape-dem.py):
 //   beitou   — tile box 4 exactly (121.464-121.510 x 25.113-25.150)
-//   yuanshan — the Grand Hotel hill pocket, refined from the DEM
-//              (121.5198-121.5335 x 25.0725-25.0830): the hill mass
-//              the hotel and its approach roads sit on, no more.
+//   yuanshan — the Grand Hotel hill pocket, extended north + east by
+//              issue #263 (121.5198-121.558 x 25.0725-25.108): the
+//              whole hill mass including the 故宮 grounds, so the
+//              200 m feather falls on flat/low ground and empty
+//              mountainside instead of mid-slope on the hotel hill.
+//              The north edge stops at 25.108 (the ridge crest
+//              behind the museum): 天母's Dayeh Takashimaya and
+//              Tianmu Stadium stay outside the feather, where they
+//              would otherwise lift and float on the slope.
+// Flat sites (issue #263, DRAPE_FLAT_SITES in taipei-drape-data.js):
+//   npm — the 國立故宮博物院 grounds stay flat (the #186
+//         flat-convention pin) while the hills around them get
+//         terrain: drapeHeight is 0 inside the site ring, feathered
+//         to 1 over 200 m outside it. Without it the museum would
+//         lift 44.4 m as a rigid body on ground varying 37.8-52.5 m
+//         under its podium (float up to 6.6 m, bury up to 8.1 m).
 //
 // Kill-switch: setDrapeEnabled(false) makes drapeHeight identically
 // 0, so every draped system renders its flat build with no geodata
 // rebuild (the settings gear's "Terrain drape" row + ?drape= URL
 // param drive it; see js/settings.js).
-import { DRAPE_GRID, DRAPE_RECTS, DRAPE_DATA_B64 } from './taipei-drape-data.js';
+import { DRAPE_GRID, DRAPE_RECTS, DRAPE_FLAT_SITES, DRAPE_DATA_B64 } from './taipei-drape-data.js';
 
 const KX = 100923.1, KY = 110773.4;         // tile frame (taipei-buildings.js latLonToTile)
 const ORIGIN_LON = 121.5650, ORIGIN_LAT = 25.0330;
@@ -76,6 +89,52 @@ let _enabled = true;
 export function setDrapeEnabled(v) { _enabled = !!v; }
 export function drapeEnabled() { return _enabled; }
 
+// Flat-site factor (issue #263): 0 inside a flat site's ring,
+// smoothstep 0 -> 1 across `feather` m outside it, 1 beyond. A bbox
+// pre-check (ring bbox + feather) keeps the per-call cost to a
+// bounds test outside the site's neighbourhood; inside it the
+// point-in-polygon + ring-distance test runs over the ring's points.
+const FLAT_SITES = (DRAPE_FLAT_SITES || []).map((s) => {
+  let minX = Infinity, maxX = -Infinity, minZ = Infinity, maxZ = -Infinity;
+  for (let i = 0; i < s.ring.length; i += 2) {
+    minX = Math.min(minX, s.ring[i]); maxX = Math.max(maxX, s.ring[i]);
+    minZ = Math.min(minZ, s.ring[i + 1]); maxZ = Math.max(maxZ, s.ring[i + 1]);
+  }
+  return { ...s, minX: minX - s.feather, maxX: maxX + s.feather, minZ: minZ - s.feather, maxZ: maxZ + s.feather };
+});
+function pointInRing(x, z, ring) {
+  let inside = false;
+  for (let i = 0, j = ring.length - 2; i < ring.length; j = i, i += 2) {
+    const xi = ring[i], zi = ring[i + 1], xj = ring[j], zj = ring[j + 1];
+    if ((zi > z) !== (zj > z) && x < ((xj - xi) * (z - zi)) / (zj - zi) + xi) inside = !inside;
+  }
+  return inside;
+}
+function distToRing(x, z, ring) {
+  let d = Infinity;
+  for (let i = 0, j = ring.length - 2; i < ring.length; j = i, i += 2) {
+    const ax = ring[i], az = ring[i + 1], bx = ring[j], bz = ring[j + 1];
+    const dx = bx - ax, dz = bz - az, L2 = dx * dx + dz * dz;
+    let t = L2 ? ((x - ax) * dx + (z - az) * dz) / L2 : 0;
+    t = Math.max(0, Math.min(1, t));
+    d = Math.min(d, Math.hypot(x - (ax + t * dx), z - (az + t * dz)));
+  }
+  return d;
+}
+export function flatSiteFactor(x, z) {
+  let f = 1;
+  for (const s of FLAT_SITES) {
+    if (x < s.minX || x > s.maxX || z < s.minZ || z > s.maxZ) continue;
+    if (pointInRing(x, z, s.ring)) return 0;
+    const d = distToRing(x, z, s.ring);
+    if (d < s.feather) {
+      const t = d / s.feather;
+      f = Math.min(f, t * t * (3 - 2 * t));
+    }
+  }
+  return f;
+}
+
 // The height function every draped system samples. `feather` is a
 // parameter (not a constant) so the seam census can measure the
 // design before and after feather tuning with the same code the game
@@ -84,10 +143,12 @@ export function drapeHeight(x, z, feather = DRAPE_FEATHER) {
   if (!_enabled) return 0;
   const w = drapeWeight(x, z, feather);
   if (w <= 0) return 0;
-  return drapeDem(x, z) * w;
+  const f = flatSiteFactor(x, z);
+  if (f <= 0) return 0;
+  return drapeDem(x, z) * w * f;
 }
 
-export { DRAPE_RECTS };
+export { DRAPE_RECTS, DRAPE_FLAT_SITES };
 
 // --- Drape ground patch grids (pure; the boot colours them) ---------
 // One DEM grid mesh per region (plus its feather margin) at h - 0.02,
@@ -356,9 +417,12 @@ export function buildDrapeRefineMask(roads, radiusM = DRAPE_GROUND_REFINE_RADIUS
 // the patch's rule, so rivers stay water. opts.roads is the road
 // polylines (flat [x, z, ...]) that drive the refinement mask; with
 // no roads the mask is empty and every cell stays coarse (the
-// builder still returns a valid ground). Returns non-indexed
-// triangle positions (the boot wraps them in BufferGeometry) plus a
-// stats block the boot logs and tests pin.
+// builder still returns a valid ground). opts.trenchSlots is the
+// trench-slot rings (issue #263): quads intersecting one are
+// skipped whole, counted in stats.slotSkippedQuads, so the trench
+// stays open. Returns non-indexed triangle positions (the boot
+// wraps them in BufferGeometry) plus a stats block the boot logs
+// and tests pin.
 export function buildAdaptiveDrapeGround(waterRings, opts = {}) {
   const mask = opts.mask || buildDrapeRefineMask(opts.roads || []);
   const refineAt = (x, z) => mask.needsRefine(x, z);
@@ -383,12 +447,60 @@ export function buildAdaptiveDrapeGround(waterRings, opts = {}) {
     }
     return false;
   };
+  // Trench slots (issue #263): the Wenhu Line dive portal + the
+  // 復北地下道 approach cuts. The adaptive ground must not bridge
+  // them — the flat land layer has holes there, and a ground surface
+  // over a slot would bury the trench (the 復北地下道 underpass
+  // reads as a filled-in slab). opts.trenchSlots is an array of
+  // 4-point rings ([[x, z], ...]) as portalTrenchSlots /
+  // roadTrenchSlots return them. A leaf quad or coarse cell whose
+  // footprint intersects a slot is skipped whole (conservative:
+  // the hole is accurate to the leaf/cell size, and the slot's
+  // approach cutting reads as a shallow ditch around the trench
+  // rather than a buried underpass). The intersection test mirrors
+  // the boot's quadIntersectsPts (js/taipei-boot.js): bbox reject,
+  // then a corner/vertex/midpoint inside either polygon, then a
+  // proper edge crossing.
+  const slotRings = (opts.trenchSlots || []).filter((r) => r && r.length >= 4).map((r) => {
+    const pts = r.map((p) => [p[0], p[1]]);
+    let minX = 1e9, maxX = -1e9, minZ = 1e9, maxZ = -1e9;
+    for (const [x, z] of pts) { minX = Math.min(minX, x); maxX = Math.max(maxX, x); minZ = Math.min(minZ, z); maxZ = Math.max(maxZ, z); }
+    return { pts, minX, maxX, minZ, maxZ };
+  });
+  const pointInPoly = (x, z, pts) => {
+    let inside = false;
+    for (let i = 0, j = pts.length - 1; i < pts.length; j = i, i++) {
+      const [xi, zi] = pts[i], [xj, zj] = pts[j];
+      if ((zi > z) !== (zj > z) && x < ((xj - xi) * (z - zi)) / (zj - zi) + xi) inside = !inside;
+    }
+    return inside;
+  };
+  const quadIntersectsSlot = (x0, z0, x1, z1) => {
+    const quad = [[x0, z0], [x1, z0], [x1, z1], [x0, z1]];
+    for (const s of slotRings) {
+      if (x1 < s.minX || x0 > s.maxX || z1 < s.minZ || z0 > s.maxZ) continue;
+      if (quad.some((p) => pointInPoly(p[0], p[1], s.pts))) return true;
+      if (s.pts.some((p) => p[0] >= x0 && p[0] <= x1 && p[1] >= z0 && p[1] <= z1)) return true;
+      const mid = (a, b) => [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2];
+      if (s.pts.some((p, i) => { const m = mid(p, s.pts[(i + 1) % s.pts.length]); return m[0] >= x0 && m[0] <= x1 && m[1] >= z0 && m[1] <= z1; })) return true;
+      if (quad.some((p, i) => pointInPoly(...mid(p, quad[(i + 1) % 4]), s.pts))) return true;
+      const segX = (a, b, c, d) => {
+        const den = (b[0] - a[0]) * (d[1] - c[1]) - (b[1] - a[1]) * (d[0] - c[0]);
+        if (Math.abs(den) < 1e-12) return false;
+        const t = ((c[0] - a[0]) * (d[1] - c[1]) - (c[1] - a[1]) * (d[0] - c[0])) / den;
+        const u = ((c[0] - a[0]) * (b[1] - a[1]) - (c[1] - a[1]) * (b[0] - a[0])) / -den;
+        return t > 0 && t < 1 && u > 0 && u < 1;
+      };
+      if (s.pts.some((p, i) => quad.some((q, j) => segX(p, s.pts[(i + 1) % s.pts.length], q, quad[(j + 1) % 4])))) return true;
+    }
+    return false;
+  };
   // A ground vertex: [x, drapeHeight, z], pinned under water.
   const vert = (x, z) => {
     const h = drapeHeight(x, z);
     return [x, (h > 0 && inWater(x, z)) ? DRAPE_WATER_PIN_Y : h, z];
   };
-  const stats = { totalTris: 0, blockTris: 0, patchTris: 0, splits: 0, maxDepth: 0, maxResidualOver: -Infinity, maxResidualUnder: -Infinity, refinedCells: 0, coarseCells: 0, coarseTris: 0, worstResidual: null };
+  const stats = { totalTris: 0, blockTris: 0, patchTris: 0, splits: 0, maxDepth: 0, maxResidualOver: -Infinity, maxResidualUnder: -Infinity, refinedCells: 0, coarseCells: 0, coarseTris: 0, slotSkippedQuads: 0, worstResidual: null };
   const blockPos = [], patchByRegion = [];
   // Leaves are emitted straight into the position arrays (never collected):
   // the builder holds O(depth) live triangles, not O(leaves).
@@ -423,6 +535,15 @@ export function buildAdaptiveDrapeGround(waterRings, opts = {}) {
     const e1 = groundTriError(t1), e2 = groundTriError(t2);
     const over = Math.max(e1.over, e2.over), under = Math.max(e1.under, e2.under);
     if (depth >= DRAPE_GROUND_MAX_DEPTH || (over <= DRAPE_GROUND_TOL_M && under <= DRAPE_GROUND_TOL_UNDER_M)) {
+      // A leaf over a trench slot is skipped whole: the trench
+      // stays open (the flat land layer has a hole there) instead
+      // of being bridged by a ground surface. The quad was
+      // evaluated at this depth, so maxDepth still counts it.
+      if (quadIntersectsSlot(x0, z0, x1, z1)) {
+        stats.slotSkippedQuads++;
+        stats.maxDepth = Math.max(stats.maxDepth, depth);
+        return;
+      }
       emit(t1, patchPositions, patchColors);
       emit(t2, patchPositions, patchColors);
       stats.maxDepth = Math.max(stats.maxDepth, depth);
@@ -470,6 +591,13 @@ export function buildAdaptiveDrapeGround(waterRings, opts = {}) {
         if (refineAt((x0 + x1) / 2, (z0 + z1) / 2)) {
           stats.refinedCells++;
           splitTri(x0, z0, x1, z1, 0, positions, colors);
+        } else if (quadIntersectsSlot(x0, z0, x1, z1)) {
+          // A coarse cell over a trench slot is skipped whole (it
+          // still counts as a coarse cell, so the stats invariant
+          // totalTris == 2*(refined+coarse) + 6*splits -
+          // 2*slotSkippedQuads holds); it emits no triangles.
+          stats.coarseCells++;
+          stats.slotSkippedQuads++;
         } else {
           stats.coarseCells++;
           const t1 = [vert(x0, z0), vert(x1, z1), vert(x1, z0)];
