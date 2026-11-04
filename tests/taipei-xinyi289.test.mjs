@@ -80,7 +80,8 @@ test('the four #289 structures are registered with the reference-pack facts', ()
   // 43 (post-#265) + 4 new structures = 47. The two plazas add no
   // structures: the Civic Plaza was already City Hall's `plaza`
   // exclusion, and Songshou was already a geodata park polygon.
-  assert.equal(plan.landmarkTowers.length, 47, '43 + 4 new structures');
+  // Issue #258: 47 -> 49 — the south expansion adds 2 net entries (NTU main campus, NTNU Heping campus).
+  assert.equal(plan.landmarkTowers.length, 49, '43 + 4 new structures');
 });
 
 test('plan census: four new sites displace only their own lots', () => {
@@ -101,7 +102,8 @@ test('plan census: four new sites displace only their own lots', () => {
   // shows zero lots added at a new x/z and zero removals outside the
   // four rects + those 9 re-seats.
   // Issue #110: plan 68,482 -> 68,472 — 23 bridge links re-admitted + 71 bed-end fusions re-seat 1,282 lots near the changed roadbeds (net -10).
-  assert.equal(plan.lots.length, 68472, 'lot count re-pinned for the four new sites');
+  // Issue #258: plan 68,472 -> 76,367 (+7,895) — the south expansion (see the schools test for the full lot-diff decomposition).
+  assert.equal(plan.lots.length, 76367, 'lot count re-pinned for the four new sites');
 });
 
 test('Civic Plaza: already registered, already lot-free, still paved', () => {

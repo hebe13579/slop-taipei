@@ -70,7 +70,12 @@ test('every deck-flagged roadbed is covered by deck geometry', () => {
   // airport box completes the 大直橋 deck beds (the bridge was
   // clipped at the old north edge) and adds the strip's small
   // river bridges （自強/復興/望星）; deck lines 397 -> 405.
-  assert.equal(deckBeds.length, 340, 'deck-flagged bed count');
+  // Census re-pinned for issue #258: 340 -> 417 — the south
+  // expansion brings the Jianguo / Keelung / Xinhai elevated
+  // expressways south through 7-south plus the Wenhu guideway
+  // extension (deck lines 405 -> 497); every new deck-flagged
+  // bed is covered by deck geometry (asserted below).
+  assert.equal(deckBeds.length, 417, 'deck-flagged bed count');
   for (const b of deckBeds) {
     let samples = 0, covered = 0;
     for (let i = 0; i + 3 < b.pts.length; i += 2) {
@@ -268,17 +273,20 @@ test('ground network unchanged: beds, junctions and caps exactly as before decks
   // approach cut; generation-map rework v6), junctions 2,701 ->
   // 2,699 (the two portal-mouth stub clusters dissolve).
   // Issue #110: +24 beds — 23 re-admitted links produce 24 runs (one link way yields 2 runs).
-  assert.equal(TAIPEI_GEO.roadbeds.length, 14570, 'roadbed count on the merged tree (13,577 on main + 969 beds in the #186 airport-north strip; the one remaining #186-signature bed is a zero-point stub the post-#196 builder routes to roadTunnels instead)');
+  // Issue #258: roadbeds 14,570 -> 17,292 (+2,722) — the south expansion's streets (7-south + Box A west strip); the 113 seam re-merges replace their old beds in place (see the geodata composition note), so the count grows by the truly-new beds only.
+  assert.equal(TAIPEI_GEO.roadbeds.length, 17292, 'roadbed count on the merged tree (13,577 on main + 969 beds in the #186 airport-north strip; the one remaining #186-signature bed is a zero-point stub the post-#196 builder routes to roadTunnels instead)');
   const junctions = detectJunctions(carriageways);
     // Issue #110: junctions 2,871 -> 2,870 — the fused bed ends merge two junctions (same delta as the junctions test).
-  assert.equal(junctions.length, 2870, 'ground junction detection on the merged tree (2,699 main + 172 in the #186 strip; re-pinned at the #186 gate)');
+    // Issue #258: junctions 2,870 -> 3,479 (+609) — the south expansion's street junctions (Gongguan/Guting grid + the NTU/Shida campus approaches).
+  assert.equal(junctions.length, 3479, 'ground junction detection on the merged tree (2,699 main + 172 in the #186 strip; re-pinned at the #186 gate)');
   const caps = planJunctionCaps(carriageways, junctions);
   // Gate re-pin (PR #78 onto post-#77 main): caps = junctions minus the 7
   // junctions claimed by #77's handcrafted roundabout sites (Renai 4 +
   // Dongmen 3). The invariant this test protects is unchanged: decks do not
   // remove a single cap — the delta is #77's, documented in its audit.
   // Issue #110: caps 2,793 -> 2,792 — the fused bed ends merge two junctions (same delta as the junctions test).
-  assert.equal(caps.length, 2792, 'junction caps still planned over the full bed set, deck beds included (2,871 detected − 7 roundabout-claimed, #77; − 71 groundless phantoms dropped by the issue #178 ORPHAN rule — merged-tree re-pin at the #186 gate: 2,621 on main, 2,795 pinned by #186 on its stale base, 2,793 measured merged)');
+  // Issue #258: caps 2,792 -> 3,375 (+583) — the south expansion's junctions, less the 26 the loop/roundabout rules claim (3,479 − 7 roundabout-claimed − 97 groundless phantoms dropped by the #178 ORPHAN rule = 3,375).
+  assert.equal(caps.length, 3375, 'junction caps still planned over the full bed set, deck beds included (2,871 detected − 7 roundabout-claimed, #77; − 71 groundless phantoms dropped by the issue #178 ORPHAN rule — merged-tree re-pin at the #186 gate: 2,621 on main, 2,795 pinned by #186 on its stale base, 2,793 measured merged)');
 });
 
 test('viaduct renderer: synthetic box section with parapets', () => {

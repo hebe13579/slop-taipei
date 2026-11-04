@@ -28,22 +28,34 @@ test('deck census: profiles ride the graph, ground pins unchanged (issue #254)',
   // test below), and no profile is broken (deckInvalidEdges 0:
   // the whole-edge line match never flips carriageways mid-span).
   // The default graph is byte-identical to the #252 pins.
+  // Issue #258: the south expansion grows both graphs — deck
+  // drivable 25,674 -> 29,135 (+3,461), links 12,098 -> 13,433
+  // (+1,335), keptKm 1,255.5 -> 1,419.6 (+164.1), deckLinks
+  // 297 -> 372 (+75, the south elevated expressways + Wenhu
+  // guideway), deckKm 137.9 -> 163.7 (+25.8). The unplaced-edge
+  // count holds at 32 (the same mis-tagged ground alleys — the
+  // south adds no new unplaceable edges); their km moves
+  // 2.8 -> 3.5. deckInvalidEdges 0 and heightSplits 1 unchanged.
   assert.equal(deck.stats.deckMode, true);
-  assert.equal(deck.stats.drivableEdges, 25674);
-  assert.equal(deck.stats.links, 12098);
-  assert.equal(deck.stats.keptKm, 1255.5);
-  assert.equal(deck.stats.deckLinks, 297);
-  assert.equal(deck.stats.deckKm, 137.9);
+  assert.equal(deck.stats.drivableEdges, 29135);
+  assert.equal(deck.stats.links, 13433);
+  assert.equal(deck.stats.keptKm, 1419.6);
+  assert.equal(deck.stats.deckLinks, 372);
+  assert.equal(deck.stats.deckKm, 163.7);
   assert.equal(deck.stats.droppedLevelEdges, 32);
-  assert.equal(deck.stats.droppedLevelKm, 2.8);
+  assert.equal(deck.stats.droppedLevelKm, 3.5);
   assert.equal(deck.stats.deckInvalidEdges, 0);
   assert.equal(deck.stats.heightSplits, 1);
+  // Issue #258: ground drivable 24,523 -> 27,737 (+3,214), links
+  // 11,942 -> 13,233 (+1,291), keptKm 1,161.0 -> 1,311.2 (+150.2),
+  // droppedLevelEdges 1,183 -> 1,430 (+247, the south decks),
+  // keptLevelEdges 518 -> 659 (+141, the south level ±1 crossings).
   assert.equal(ground.stats.deckMode, false);
-  assert.equal(ground.stats.drivableEdges, 24523);
-  assert.equal(ground.stats.links, 11942);
-  assert.equal(ground.stats.keptKm, 1161.0);
-  assert.equal(ground.stats.droppedLevelEdges, 1183);
-  assert.equal(ground.stats.keptLevelEdges, 518);
+  assert.equal(ground.stats.drivableEdges, 27737);
+  assert.equal(ground.stats.links, 13233);
+  assert.equal(ground.stats.keptKm, 1311.2);
+  assert.equal(ground.stats.droppedLevelEdges, 1430);
+  assert.equal(ground.stats.keptLevelEdges, 659);
   assert.equal(ground.stats.deckLinks, 0);
 });
 
@@ -230,12 +242,16 @@ test('reachability: every deck edge is reachable from the ground and returns to 
 test('ground core: the #252 network is unchanged (issue #254)', () => {
   // Cross-run proof for the re-pin in taipei-traffic.test.mjs: the
   // ground-only graph on this geodata builds the exact #252 core.
+  // Census re-pinned for issue #258 (south expansion): the ground
+  // core grows with the south streets — nodes 6,890 -> 7,563,
+  // edges 15,229 -> 16,676, paintEdges 20,984 -> 22,988. The
+  // ground edges still carry no heights (asserted below).
   const env = taipeiTrafficEnv(200);
   const g = buildTaipeiRoadGraph(TAIPEI_GEO);
   const net = buildRoadNetwork([], [], { ...env.networkEnv, roadGraph: g.roadGraph });
-  assert.equal(net.nodes.length, 6890);
-  assert.equal(net.edges.length, 15229);
-  assert.equal(net.paintEdges.length, 20984);
+  assert.equal(net.nodes.length, 7563);
+  assert.equal(net.edges.length, 16676);
+  assert.equal(net.paintEdges.length, 22988);
   for (const e of net.edges) {
     assert.equal(e.y0 || 0, 0, 'ground edges carry no heights');
     assert.equal(e.y1 || 0, 0, 'ground edges carry no heights');

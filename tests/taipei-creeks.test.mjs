@@ -166,6 +166,13 @@ test('true polygons untouched: non-derived water area is exactly the pre-fix dis
   // total to the metre, with zero distinct rings missing. After the
   // fix the non-derived total must equal that distinct total exactly —
   // proof the creek fix ate nothing real.
+  // Issue #258 (south expansion): the distinct total grows to
+  // 6,312,756 m² (+1,081,487) — the south adds the Xindian River
+  // reach, Drunken Moon Lake and the NTU/Shida campus ponds as real
+  // polygon water (726,247 m² by centroid in the new area; the rest
+  // is the river polygons straddling the z=498.5 seam growing
+  // southward). The composition audit shows water only-old 2 (seam
+  // re-clips) / only-new 65 (pure additions) — no real water eaten.
   const total = water.filter((w) => !w.derived).reduce((s, w) => s + ringArea(w.ring), 0);
-  assert.ok(Math.abs(total - 5231269) < 1, `non-derived water area ${Math.round(total)} m² ≠ 5,231,269 m²`);
+  assert.ok(Math.abs(total - 6312756) < 1, `non-derived water area ${Math.round(total)} m² ≠ 6,312,756 m²`);
 });

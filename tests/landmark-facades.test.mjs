@@ -92,6 +92,11 @@ const EXPECTED_FACADES = {
   'cathay-financial-center': 'curtain', // dark bronze-green glass
   'walsin-lihwa-building': 'curtain', // dark glass curtain tower
   'vieshow-cinemas-xinyi': 'prewar', // red masonry fallback (flat red parts)
+  // Issue #258 (south expansion): the two campus landmarks — NTU's
+  // brick library halls and Shida's pale stone halls are masonry
+  // masses, so both take the prewar grid (like the #166 campuses).
+  'ntu-main-campus': 'prewar', // brick library + halls
+  'ntnu-heping-campus': 'prewar', // pale stone halls + gym
 };
 
 // The only Latin wordmarks a landmark sign may carry — the ones the

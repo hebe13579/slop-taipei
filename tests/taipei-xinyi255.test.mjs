@@ -74,7 +74,8 @@ test('the five #255 structures are registered with the reference-pack facts', ()
   // the National Taiwan Museum (#257) landed on main after this PR's
   // base, so 39 + 4 new structures = 43. The four new sites are
   // unchanged (Hall 1, Hyatt, ATT, Bellavita).
-  assert.equal(plan.landmarkTowers.length, 47, '43 + 4 new structures (#289)');
+  // Issue #258: re-pinned 47 -> 49 — the south expansion adds 2 net entries (NTU main campus, NTNU Heping campus).
+  assert.equal(plan.landmarkTowers.length, 49, '43 + 4 new structures (#289)');
 });
 
 test('Grand Hyatt south porte-cochere has columns + canopy as geometry (#294)', () => {
@@ -290,8 +291,10 @@ test('plan census: four new sites displace only their own lots', () => {
   // cross-run in the gate notes (old registry on new code
   // reproduces 68,570 — the delta is the sites only).
   // Issue #110: plan 68,482 -> 68,472 — 23 bridge links re-admitted + 71 bed-end fusions re-seat 1,282 lots near the changed roadbeds (net -10).
-  assert.equal(plan.lots.length, 68472, 'lot count re-pinned for the four new sites (#289: 68,538 − 56 site-excluded lots net)');
+  // Issue #258: plan 68,472 -> 76,367 (+7,895) — the south expansion (see the schools test for the full lot-diff decomposition).
+  assert.equal(plan.lots.length, 76367, 'lot count re-pinned for the four new sites (#289: 68,538 − 56 site-excluded lots net)');
   // Gate 2026-10-30: re-pinned 42 -> 43, same reason as above — main's
   // registry is 39 after #257 (museum), + 4 new structures.
-  assert.equal(plan.landmarkTowers.length, 47);
+  // Issue #258: re-pinned 47 -> 49 — the south expansion adds 2 net entries (NTU main campus, NTNU Heping campus).
+  assert.equal(plan.landmarkTowers.length, 49);
 });

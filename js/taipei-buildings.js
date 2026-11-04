@@ -3238,6 +3238,132 @@ const LANDMARK_STRUCTURES = [
     ],
   },
   {
+    // South expansion (issue #258): National Taiwan University main
+    // campus — a special site (no procedural lots inside; the school
+    // kit's rust-red track is replaced by the real blue one). All
+    // measurements from the PBF + Esri z18 satellite
+    // (expansion-south-evidence/ntu-shida-measurements.md). The site
+    // rect is a TIGHT rect around the campus core (1040 x 650 m
+    // centred on tile (-2600, 1725)), NOT the full ring-0 bbox:
+    // the bbox (1336 x 1173 m) is only 55% filled by the ring, and
+    // using it as the site rect wrongly excluded 459 street lots in
+    // its corners (SW Gongguan + NE Keelung Rd); a first shrink to
+    // 1100 x 890 m still excluded 179. This rect still overlaps
+    // ~43% of the ground's largest-piece bbox (the skip needs ≥35%),
+    // and it contains the track, library, museum, Fu Bell and courts.
+    // The northern buildings (Sports Center, Astronomy-Math, Social
+    // Sciences) and the Admin Building sit outside it but inside the
+    // OSM rings (or, for the Admin, on clear ground near Zhoushan Rd
+    // — 0 lots within 45 m), so they render clear without a
+    // keep-clear rect.
+    // Drunken Moon Lake needs no part — it is already in the geodata
+    // water (醉月湖）. The 椰林大道 palm rows are NOT modelled: the
+    // registry has no tree part type (the avenue road itself is in
+    // the geodata); a palm-row treatment is a follow-up. Main Library
+    // height ~18 m (5 floors + basement, published, unverified) and
+    // the Sports Center dome ~20 m are estimates.
+    id: 'ntu-main-campus', name: 'National Taiwan University', nameZh: '國立臺灣大學',
+    lat: 25.01686, lon: 121.53956, realHeight: 28, color: 0xa06848, estimated: true,
+    site: { w: 1040, d: 650, dx: -35, dz: -66 },
+    facade: { kind: 'prewar', stoneColor: 0xa06848, trimColor: 0x7a4a34, windowGlassColor: 0x2e3a46, windowWidth: 2.8, floorHeight: 3.6, litProbability: 0.25, warmth: 0.55, seed: 258.11 },
+    parts: [
+      // Main Library 總圖書館 (satellite-measured; NO OSM way):
+      // 91 x 73 m brick block, entrance faces WEST onto the plaza
+      // at the east end of 椰林大道. Dark-grey flat roof with a
+      // central pyramid/diamond atrium roof (a box here, not a
+      // frustum: the overlap test reads frustums as centred on the
+      // structure anchor, which would misplace it onto a road).
+      // Modelled 91 x 66 m, shifted 6 m north: the measured 73 m
+      // depth overhung 舟山路's roadbed at the south-east corner.
+      { type: 'box', w: 91, d: 66, h: 18, dx: 146.9, dz: -56.7, rotY: 0, flat: { color: 0x9c6b4a, roughness: 0.92, metalness: 0.02 } },
+      { type: 'box', w: 91, d: 66, h: 0.8, y0: 18, dx: 146.9, dz: -56.7, rotY: 0, flat: 0x4a4a4a },
+      { type: 'box', w: 18, d: 18, h: 5, y0: 18.8, dx: 146.9, dz: -56.7, rotY: 0, flat: 0x3a3a3a },
+      // Sports Center 綜合體育館 (OSM way/39240218, building=stadium):
+      // white domed hall on Xinhai Rd — low white box + white dome
+      // (rx 46, rz 40, ~20 m high, unverified). Shifted 6 m south
+      // and shrunk (103.8 x 91.5 m measured) so the edges clear the
+      // service drives that bound it on the west, south and north
+      // (the min-area rect overhung all three).
+      { type: 'box', w: 95, d: 80, h: 8, dx: -442.4, dz: -520.9, rotY: -0.011, flat: { color: 0xf4f1ea, roughness: 0.6, metalness: 0.05 } },
+      { type: 'dome', rx: 46, rz: 40, h: 20, y0: 8, dx: -442.4, dz: -520.9, flat: { color: 0xf4f1ea, roughness: 0.6, metalness: 0.05 } },
+      // Blue running track (satellite-measured; OSM has NO leisure=track
+      // oval here): outer 173 x 94 m, N-S, around the soccer pitch.
+      // trackColor 0x5b91bf is the sampled blue surface (RGB 91,145,191).
+      ...trackCapsuleParts(-473.8, -312.5, 79, 94, 70, 1.56, 0x5b91bf, 0x4e7d32),
+      // Courts around the track (OSM leisure=pitch ways), one painted
+      // slab per group: tennis row (8 courts, W of track), basketball
+      // pair (N of tennis), clay tennis pair (E of track), volleyball
+      // strip (E).
+      { type: 'box', w: 171, d: 41, h: 0.25, y0: 0.02, dx: -472.9, dz: -199.7, rotY: 0, flat: 0x3f6d8e },
+      { type: 'box', w: 34, d: 26, h: 0.25, y0: 0.02, dx: -528.4, dz: -231.9, rotY: 0, flat: 0x3f6d8e },
+      { type: 'box', w: 35, d: 38, h: 0.25, y0: 0.02, dx: -399.5, dz: -253.2, rotY: 0, flat: 0xa06a4a },
+      { type: 'box', w: 85, d: 26, h: 0.25, y0: 0.02, dx: -305.1, dz: -267.6, rotY: 0, flat: 0x3f7d6b },
+      // Fu Bell 傅鐘 (node/472493077): small roofed pavilion on the
+      // south side of 椰林大道, just east of the museum. (Roof as a
+      // box, not a frustum — see the library atrium note above.)
+      { type: 'box', w: 6, d: 6, h: 5, dx: -281.3, dz: -29.4, rotY: 0, flat: { color: 0x8a4a3a, roughness: 0.9, metalness: 0.02 } },
+      { type: 'box', w: 7, d: 7, h: 2, y0: 5, dx: -281.3, dz: -29.4, rotY: 0, flat: 0x3a3a3a },
+      // History Museum 台大校史館 (node/1707866520; the old Main
+      // Library, 1930s): dark-roofed U-shaped block, modelled as a
+      // single 94 x 39 m brick block + dark roof slab (2 floors, ~9 m).
+      { type: 'box', w: 94, d: 39, h: 9, dx: -432.1, dz: -95.1, rotY: 0, flat: { color: 0x9c6b4a, roughness: 0.92, metalness: 0.02 } },
+      { type: 'box', w: 94, d: 39, h: 0.8, y0: 9, dx: -432.1, dz: -95.1, rotY: 0, flat: 0x4a4a4a },
+      // Other large named buildings (PBF min-area rects): Social
+      // Sciences 社會科學院大樓 (8 floors) — shrunk and shifted
+      // slightly south so its north-west corner clears the service
+      // drive (the min-area rect overhung it). Admin Building
+      // 行政大樓 (diagonal bar). 天文數學館 (Astronomy-Math, 14
+      // floors) is NOT placed: its min-area rect overlaps both
+      // 辛亥路二段's wide roadbed and a service drive, and the
+      // 44-pt outline is irregular — it needs a fitted rect from
+      // the actual outline, not the bounding rect (follow-up).
+      { type: 'box', w: 150, d: 22, h: 24, dx: 281.7, dz: -429.4, rotY: -3.126 },
+      { type: 'box', w: 55.9, d: 23.7, h: 12, dx: 153.2, dz: 403.2, rotY: -0.758 },
+    ],
+  },
+  {
+    // South expansion (issue #258): National Taiwan Normal University
+    // Heping campus — a special site (no procedural lots inside).
+    // All measurements from the PBF + Esri z18 satellite
+    // (expansion-south-evidence/ntu-shida-measurements.md). The site
+    // rect is ring 1 of relation/5671455 (the west/central block,
+    // 360 x 209 m centred on tile (-3871, 808)), which overlaps
+    // ~100% of the ground's largest-piece bbox, so the whole ground
+    // (all 7 pieces) is suppressed as a registry campus; the parts
+    // below cover rings 0–2. The field is a plain grass soccer pitch
+    // — NO running track exists on this campus (campusStats
+    // hasTrack False), so no trackCapsuleParts. The campus grid is
+    // rotated ~5–10° off cardinal; the rotY values are kept as
+    // measured, not snapped. 和平大苑 (levels=40) is EXCLUDED — the
+    // tag looks wrong for this campus (verify before use).
+    // NTNU Gongguan gets NO entry: only a 49 m sliver is in-tile
+    // and no campus buildings lie in it.
+    id: 'ntnu-heping-campus', name: 'National Taiwan Normal University', nameZh: '國立臺灣師範大學',
+    lat: 25.02572, lon: 121.52661, realHeight: 30, color: 0xd9d2c4, estimated: true,
+    site: { w: 360, d: 209, dx: 0, dz: 0 },
+    facade: { kind: 'prewar', stoneColor: 0xd9d2c4, trimColor: 0xb3aa97, windowGlassColor: 0x2e3a46, windowWidth: 2.8, floorHeight: 3.6, litProbability: 0.25, warmth: 0.55, seed: 258.12 },
+    parts: [
+      // 行政大樓 (Admin), 體育館 (Gym), 博愛大樓 (10 floors),
+      // 師大圖書館 (Library), 游泳館 (Pool, 2 floors) — PBF rects.
+      // Admin shrunk 108.7 -> 100 m so its east edge clears the
+      // service drive (the min-area rect overhung it).
+      { type: 'box', w: 100, d: 26.6, h: 15, dx: 92.6, dz: -25.2, rotY: 0.081 },
+      { type: 'box', w: 66.6, d: 44.8, h: 12, dx: -5.9, dz: -16.3, rotY: -3.056 },
+      { type: 'box', w: 66.3, d: 37.7, h: 30, dx: 192.9, dz: -195.3, rotY: -2.975 },
+      { type: 'box', w: 45.7, d: 39.4, h: 15, dx: 184.4, dz: -145.5, rotY: -2.976 },
+      { type: 'box', w: 60.4, d: 42, h: 8, dx: -34.1, dz: 63.3, rotY: -3.062 },
+      // Sports field 運動場 (way/202262798, sport=soccer, grass):
+      // a flat green slab, N-S, tilted ~5°. No track around it.
+      { type: 'box', w: 152.9, d: 72.1, h: 0.25, y0: 0.02, dx: -108.6, dz: -8.9, rotY: -1.486, flat: 0x4e7d32 },
+      // 勤大樓 (10 floors). The dorms 男一舍 / 女一舍 are NOT placed:
+      // they sit squeezed between service drives and their min-area
+      // rects cannot fit without overlapping a drive (17–44 m²) —
+      // they need fitted rects from the actual outlines (follow-up).
+      // 樂智樓 is NOT placed either (see above).
+      { type: 'box', w: 86, d: 15, h: 30, dx: 43.3, dz: 83.3, rotY: -3.067 },
+    ],
+  },
+  {
     // Batch 8 (issues #149 + #186): the National Palace Museum on
     // its terraced hillfoot in Waishuangxi — the palace-style main
     // hall (第一展覽區/正館, OSM way 203799171: a ~140 x ~120 m

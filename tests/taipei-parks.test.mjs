@@ -63,36 +63,50 @@ test('amenity census: the shipped totals are pinned', () => {
   // vending 1, bush 9, proven by the item diff in
   // xinyi289-evidence/amenity-census.mjs; zero removals anywhere
   // else). parksPlaza 25 -> 24, parksDressed 461 -> 462.
+  // Re-pinned for issue #258 (south expansion, probe-round4.mjs):
+  // the south's parks (Da'an south tip, Fuyang, Toad Mountain,
+  // Gongguan riverside, NTU/Shida grounds) are dressed like the
+  // rest of the tile — bench 4,109 -> 4,801, lamp 3,793 -> 4,410,
+  // bin 2,329 -> 2,740, vending 301 -> 353, restroom 81 -> 93,
+  // sculpture 18 -> 23, fountain 12 -> 15, bush 8,705 -> 10,412,
+  // playground 133 -> 159, picnic 78 -> 88, court 90 -> 122,
+  // pavilion 184 -> 212; grand total 19,833 -> 23,428.
   assert.deepEqual(counts, {
-    bench: 4109, lamp: 3793, bin: 2329, vending: 301,
-    restroom: 81, sculpture: 18, fountain: 12, bush: 8705,
-    playground: 133, picnic: 78, court: 90, pavilion: 184,
+    bench: 4801, lamp: 4410, bin: 2740, vending: 353,
+    restroom: 93, sculpture: 23, fountain: 15, bush: 10412,
+    playground: 159, picnic: 88, court: 122, pavilion: 212,
   });
-  assert.equal(Object.values(counts).reduce((s, v) => s + v, 0), 19833, 'grand total');
-  assert.equal(stats.parksTotal, 1600);
-  assert.equal(stats.parksPlaza, 24);
-  assert.equal(stats.parksPathless, 1114);
-  assert.equal(stats.parksDressed, 462);
-  assert.equal(stats.parksMapped, 146);
-  assert.equal(stats.parksSeeded246, 119);
-  assert.deepEqual(stats.kits246.mapped, { playground: 63, picnic: 17, court: 81, pavilion: 179 });
-  assert.deepEqual(stats.kits246.seeded, { playground: 70, picnic: 61, court: 9, pavilion: 5 });
-  assert.deepEqual(stats.kits246.mappedSkipped, { playground: 62, picnic: 1, court: 49, pavilion: 37 });
+  assert.equal(Object.values(counts).reduce((s, v) => s + v, 0), 23428, 'grand total');
+  assert.equal(stats.parksTotal, 2268);
+  assert.equal(stats.parksPlaza, 35);
+  assert.equal(stats.parksPathless, 1625);
+  assert.equal(stats.parksDressed, 608);
+  assert.equal(stats.parksMapped, 169);
+  assert.equal(stats.parksSeeded246, 140);
+  assert.deepEqual(stats.kits246.mapped, { playground: 76, picnic: 17, court: 111, pavilion: 206 });
+  assert.deepEqual(stats.kits246.seeded, { playground: 83, picnic: 71, court: 11, pavilion: 6 });
+  assert.deepEqual(stats.kits246.mappedSkipped, { playground: 79, picnic: 2, court: 68, pavilion: 40 });
   assert.equal(stats.kits246.mappedOrphan, 0, 'every shipped entry joins a park ring');
   assert.deepEqual(
     Object.fromEntries(Object.entries(stats.byClass).map(([k, v]) => [k, v.items])),
     // +138 large / +194 medium / +46 small / +3 tiny vs #236.
     // −9 large for #257 (see the census re-pin above).
     // +31 medium for #289 (Songshou Plaza Park, see above).
-    { large: 9731, medium: 8212, small: 1852, tiny: 38 },
+    // Re-pinned for issue #258 (south expansion): large 9,731 ->
+    // 12,607, medium 8,212 -> 8,637, small 1,852 -> 2,124, tiny
+    // 38 -> 60 — the south's parks dress across all classes.
+    { large: 12607, medium: 8637, small: 2124, tiny: 60 },
     'items by area class',
   );
   // Every park eligible for a restroom got one (81 of 81).
   assert.equal(stats.skipped.restroom, 0);
   // The type site reads fully dressed.
   const daan = stats.topParks.find((p) => p.name === '大安森林公園');
+  // Re-pinned for issue #258: Da'an Park's ring now extends into
+  // its south tip (7-south), and the vending seed lands one fewer
+  // (3 -> 2); every other Da'an count is unchanged.
   assert.deepEqual(daan.counts, {
-    bench: 64, lamp: 48, bin: 28, vending: 3,
+    bench: 64, lamp: 48, bin: 28, vending: 2,
     restroom: 1, sculpture: 0, fountain: 1, bush: 260,
     playground: 0, picnic: 0, court: 0, pavilion: 9,
   });
@@ -153,7 +167,9 @@ test('placement invariants: inside a park, off water and off paths', () => {
       checked++;
     }
   }
-  assert.equal(checked, 19348); // −9 for #257: the museum forecourt spots (see the census re-pin above); +31 for #289: the newly-dressed Songshou Plaza Park (7 benches, 8 lamps, 6 bins, 1 vending machine, 9 bushes — all inside the park, off water and off paths, as this test proves).
+  // Re-pinned for issue #258: checked 19,348 -> 22,847 (grand total
+  // 23,428 minus the 581 rect-kit items, which the next test checks).
+  assert.equal(checked, 22847); // −9 for #257: the museum forecourt spots (see the census re-pin above); +31 for #289: the newly-dressed Songshou Plaza Park (7 benches, 8 lamps, 6 bins, 1 vending machine, 9 bushes — all inside the park, off water and off paths, as this test proves).
 });
 
 test('placement invariants, rect kits: pads inside a park, off water and carriageways, cores off paths', () => {
@@ -227,7 +243,10 @@ test('placement invariants, rect kits: pads inside a park, off water and carriag
       checked++;
     }
   }
-  assert.equal(checked, 133 + 78 + 90 + 184, 'all four rect kits checked');
+  // Re-pinned for issue #258: rect kits 133+78+90+184=485 ->
+  // 159+88+122+212=581 (the south's parks add playgrounds, picnic
+  // sets, courts and pavilions).
+  assert.equal(checked, 159 + 88 + 122 + 212, 'all four rect kits checked');
 });
 
 test('eligibility rules: big-ticket items only in big enough parks', () => {
@@ -400,7 +419,9 @@ test('park trees keep out of the kit pads when the pads are passed as exclusions
   const { items, pads } = planParkAmenities(TAIPEI_GEO, plan);
   const kitTotal = items.playground.length + items.picnic.length + items.court.length + items.pavilion.length;
   assert.equal(pads.length, kitTotal, 'one pad ring per placed kit');
-  assert.equal(pads.length, 485);
+  // Re-pinned for issue #258: pads 485 -> 581 (same rect-kit census
+  // as the placement-invariants test above).
+  assert.equal(pads.length, 581);
   for (const ring of pads) {
     assert.equal(ring.length, 10, 'closed rect ring (5 points)');
     assert.equal(ring[0], ring[8]);

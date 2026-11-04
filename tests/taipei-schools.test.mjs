@@ -64,26 +64,38 @@ for (const s of TAIPEI_GEO.schools || []) {
 test('geodata carries the schools layer (issue #221)', () => {
   const pieces = TAIPEI_GEO.schools;
   assert.ok(Array.isArray(pieces), 'TAIPEI_GEO.schools emitted by the geodata builder');
-  assert.equal(pieces.length, 246, 'clipped ground pieces in tile (226 on the PR base; re-derived at the merge gate on the composed tile — the #186 strip frame admits 20 more pieces)');
+  assert.equal(pieces.length, 300, 'clipped ground pieces in tile (246 on the pre-#258 main; +54 in the #258 south expansion — NTU, Shida, Gongguan/Guting/Yonghe grounds in box 7-south + the Box A west strip)');
   for (const p of pieces) {
     assert.ok(p.osmId && p.kind && Array.isArray(p.ring) && p.ring.length >= 8, 'piece shape');
     assert.ok(p.area >= 100, 'builder drops sub-100 m² pieces');
   }
-  assert.equal(mainRingByKey.size, 218, 'distinct OSM education grounds in tile (198 on the PR base; +20 grounds on the composed tile, incl. the #186-strip campuses the gate re-extract admitted)');
+  assert.equal(mainRingByKey.size, 255, 'distinct OSM education grounds in tile (218 on the pre-#258 main; +37 grounds in the #258 south expansion)');
 });
 
 test('census decomposition closes: generated + skipped-with-reason = every ground', () => {
-  assert.equal(report.length, 218, 'one report row per ground');
+  assert.equal(report.length, 255, 'one report row per ground');
   const generated = report.filter((r) => !r.skip);
   const skipped = report.filter((r) => r.skip);
-  assert.equal(generated.length, 196); // 177 on the PR base; +19 of the 20 new grounds generate
-  assert.equal(skipped.length, 22); // +1: 私立奧爾仕幼兒園 is building-footprint-scale
+  assert.equal(generated.length, 226); // 196 on the pre-#258 main; +30 of the 37 new grounds generate (NTU + Shida Heping are registry-skipped; the other 5 new skipped grounds are no-fit/building-footprint-scale/subsumed)
+  assert.equal(skipped.length, 29); // 22 on the pre-#258 main; +7 (NTU + Shida Heping as registry campuses, +5 new no-fit/building-footprint-scale grounds, −1 subsumed that flipped to no-fit when the NTU/Shida kit campuses were suppressed)
   assert.equal(generated.length + skipped.length, report.length, 'no ground unaccounted');
   for (const r of skipped) assert.ok(typeof r.skip === 'string' && r.skip.length > 4, `skip reason recorded for ${r.key}`);
   assert.equal(campuses.length, generated.length, 'one site structure per generated campus');
   const reasons = {};
   for (const r of skipped) reasons[r.skip.split(' (')[0].split(' by ')[0]] = (reasons[r.skip.split(' (')[0].split(' by ')[0]] || 0) + 1;
-  assert.deepEqual(reasons, { 'registry campus': 3, subsumed: 1, 'no-fit': 6, 'building-footprint-scale': 12 });
+  assert.deepEqual(reasons, { 'registry campus': 5, 'no-fit': 10, subsumed: 1, 'building-footprint-scale': 13 });
+});
+
+test('the #258 handcrafted campuses are skipped as registry grounds', () => {
+  for (const name of ['國立臺灣大學', '國立臺灣師範大學和平校區']) {
+    const row = report.find((r) => r.name === name);
+    assert.ok(row, `${name} is in the census`);
+    assert.ok(row.skip && row.skip.startsWith('registry campus'), `${name} skipped as registry, got: ${row.skip}`);
+  }
+  assert.ok(!campuses.some((s) => ['國立臺灣大學', '國立臺灣師範大學和平校區'].includes(s.nameZh)), 'no generated structure duplicates a #258 registry campus');
+  // NTNU Gongguan gets NO registry entry (only a 49 m sliver is in-tile, no campus buildings in it), so it still generates a kit campus.
+  const gongguan = report.find((r) => r.name === '國立臺灣師範大學公館校區');
+  assert.ok(gongguan && !gongguan.skip, 'NTNU Gongguan generates (no registry entry by design)');
 });
 
 test('the #166 handcrafted campuses are skipped as registry grounds', () => {
@@ -168,9 +180,10 @@ test('generation is deterministic and the plan counts are pinned', () => {
   const again = planTaipeiBuildings(TAIPEI_GEO);
   assert.equal(JSON.stringify(again.siteStructures.filter((s) => s.school)),
     JSON.stringify(campuses), 'same geodata, same campuses, byte for byte');
-  // Issue #110: plan 68,482 -> 68,472 — 23 bridge links re-admitted + 71 bed-end fusions re-seat 1,282 lots near the changed roadbeds (net -10).
-  assert.equal(plan.lots.length, 68472); // the composed plan: 75,389 − 6,819 campus-cleared lots − 32 #255 registry-site lots − 56 #289 registry-site lots net
-  assert.equal(plan.stats.blocksSkippedSchool, 193);
-  // Issue #110: lotsDroppedSchool 3,323 -> 3,327 (+4) — the re-seated lots change the school exclusion (4 more lots stand on campus land).
-  assert.equal(plan.stats.lotsDroppedSchool, 3327);
+  // Issue #258: plan 68,472 -> 76,367 (+7,895) — the south expansion adds 1,356 blocks (7-south + Box A west strip). Lot diff vs main (proven by cross-run): identical 67,450, changed 632, missing 390, added 8,285 (south 6,972 + west strip 922 + old-interior 234 + seam 157). The old-interior delta (changed 433 + missing 235 + added 234 = 902 lots, 1.3%) is the justified seam-road boundary effect: the seam roads extend south, so their roadbeds were re-merged, which legitimately changes frontage angles along those roads; heights are preserved (only 59 height-only changes).
+  assert.equal(plan.lots.length, 76367);
+  assert.equal(plan.stats.blocksSkippedSchool, 292);
+  // Issue #258: lotsDroppedSchool 3,327 -> 4,267 (+940) — the 37 new south grounds exclude their campus lots.
+  assert.equal(plan.stats.lotsDroppedSchool, 4267);
+  assert.equal(plan.stats.lotsDroppedSchool, 4267);
 });

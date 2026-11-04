@@ -135,21 +135,25 @@ test('deck markings: dashes stop at a merge mouth, paint never crosses the other
 
 test('deck markings: real-digest census, existing sinks unchanged, MRT emits none', () => {
   const geo = buildDeckGeometry(elev);
-  assert.equal(geo.lineCount, 405);
+  // Issue #258 (south expansion): the south's elevated expressways
+  // (Jianguo/Keelung/Xinhai south + the Wenhu guideway extension)
+  // grow the deck digest 405 -> 497 lines; every downstream census
+  // below moves with it (measured on this tree).
+  assert.equal(geo.lineCount, 497);
   // The seven existing sinks are byte-identical to before markings.
-  assert.equal(geo.triCount, 46004);
-  assert.equal(geo.concrete.positions.length / 9, 41756);
-  assert.equal(geo.asphalt.positions.length / 9, 4248);
+  assert.equal(geo.triCount, 56342);
+  assert.equal(geo.concrete.positions.length / 9, 51132);
+  assert.equal(geo.asphalt.positions.length / 9, 5210);
   // Paint census (measured 2026-11-03; deterministic on the digest).
   const s = geo.deckMarkingStats;
-  assert.equal(s.lines, 403, '405 lines - 2 single-lane ramps fully inside another deck\'s corridor (wayId 48769267 堤頂交流道， 51911167 環河北路出口匝道）');
-  assert.equal(s.linesWithDashes, 307);
-  assert.equal(s.dashQuads, 28265);
-  assert.ok(Math.abs(s.dashKm - 81.71) < 0.5, `${s.dashKm} km of dash paint`);
-  assert.equal(s.edgeQuads, 4129);
-  assert.ok(Math.abs(s.edgeKm - 247.37) < 0.5, `${s.edgeKm} km of edge lines`);
-  assert.equal(s.suppressedDashes, 1118);
-  assert.equal(geo.deckMarkings.positions.length / 9, 64788, 'marking tris');
+  assert.equal(s.lines, 495, '497 lines - 2 single-lane ramps fully inside another deck\'s corridor (wayId 48769267 堤頂交流道， 51911167 環河北路出口匝道）');
+  assert.equal(s.linesWithDashes, 364);
+  assert.equal(s.dashQuads, 32094);
+  assert.ok(Math.abs(s.dashKm - 92.62) < 0.5, `${s.dashKm} km of dash paint`);
+  assert.equal(s.edgeQuads, 5033);
+  assert.ok(Math.abs(s.edgeKm - 287.39) < 0.5, `${s.edgeKm} km of edge lines`);
+  assert.equal(s.suppressedDashes, 1293);
+  assert.equal(geo.deckMarkings.positions.length / 9, 74254, 'marking tris');
   assert.equal(geo.deckMarkings.positions.length / 18, s.dashQuads + s.edgeQuads);
   // Every marking normal faces up and every vertex is finite.
   for (let i = 0; i < geo.deckMarkings.positions.length; i++) {

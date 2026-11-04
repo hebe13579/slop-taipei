@@ -165,10 +165,14 @@ test('renderer: no parapet top stands inside another same-level corridor at a mo
 
 test('real tile: census totals pinned (issue #239, main 01c30cef)', () => {
   const tr = parapetTrims(TAIPEI_GEO.elevatedRoads);
-  assert.equal(Math.round(tr.stats.blockedM), 13641,
+  // Re-pinned for issue #258 (south expansion, probe-battery5.mjs):
+  // the south's elevated roads (Jianguo/Keelung/Xinhai + Wenhu
+  // guideway south) take blockedM 13,641 -> 17,631, suppressedCaps
+  // 205 -> 254, affectedStrips 594 -> 768.
+  assert.equal(Math.round(tr.stats.blockedM), 17631,
     'blocked parapet metres, sample-counted (independent census probe: 13,461 m; interval length 13,319 m — the three agree within sampling tolerance)');
-  assert.equal(tr.stats.suppressedCaps, 205, 'terminal caps inside another same-level corridor');
-  assert.equal(tr.stats.affectedStrips, 594, 'strips carrying a suppressed stretch');
+  assert.equal(tr.stats.suppressedCaps, 254, 'terminal caps inside another same-level corridor');
+  assert.equal(tr.stats.affectedStrips, 768, 'strips carrying a suppressed stretch');
   // The user's type site: the 承德路入口匝道 mouth on the 洲美快速道路
   // is trimmed, and the 洲美 way's start cap at the 大業路 mouth is gone.
   const byWay = new Map(TAIPEI_GEO.elevatedRoads.lines.map((l, i) => [l.wayId, i]));

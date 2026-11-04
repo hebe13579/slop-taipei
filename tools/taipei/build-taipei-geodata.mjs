@@ -1000,95 +1000,148 @@ for (const el of load('osm_landmarks.json').elements) {
 
 // ---- blocks: raster method (land = tile rect minus water, roads stamped, label components) ----
 const RES = 2; // m per cell (spike resolution; upstream used 1 m)
-const W = Math.ceil((BBOX.maxX - BBOX.minX) / RES), H = Math.ceil((BBOX.maxZ - BBOX.minZ) / RES);
-const grid = new Uint8Array(W * H).fill(1);
-// Union mask (issue #60): the raster spans the union's bounding rect,
-// but a cell whose centre falls outside EVERY tile box is not land —
-// the dropped bands of the union (e.g. north of lat 25.055 east of
-// lon 121.535) form no blocks, exactly as if the tile ended there.
-const inUnionCell = (x, z) => BOXES_WORLD.some((b) => x >= b.minX && x <= b.maxX && z >= b.minZ && z <= b.maxZ);
-for (let j = 0; j < H; j++) {
-  const cz = BBOX.minZ + (j + 0.5) * RES;
-  for (let i = 0; i < W; i++) {
-    if (!inUnionCell(BBOX.minX + (i + 0.5) * RES, cz)) grid[j * W + i] = 0;
-  }
-}
-function fillRing(ringFlat, val) { // scanline even-odd fill, ring as flat [x,z,...]
-  const pts = [];
-  for (let i = 0; i < ringFlat.length; i += 2) pts.push([ringFlat[i], ringFlat[i + 1]]);
-  let zMin = 1e18, zMax = -1e18;
-  for (const [, z] of pts) { zMin = Math.min(zMin, z); zMax = Math.max(zMax, z); }
-  const j0 = Math.max(0, Math.floor((zMin - BBOX.minZ) / RES)), j1 = Math.min(H - 1, Math.ceil((zMax - BBOX.minZ) / RES));
-  for (let j = j0; j <= j1; j++) {
-    const z = BBOX.minZ + (j + 0.5) * RES;
-    const xs = [];
-    for (let i = 0, k = pts.length - 1; i < pts.length; k = i++) {
-      const [xa, za] = pts[k], [xb, zb] = pts[i];
-      if ((za > z) !== (zb > z)) xs.push(xa + ((z - za) * (xb - xa)) / (zb - za));
+// Issue #258 (south expansion): TWO-PASS blocks. The planner seeds lot
+// draws by block index (hash01(bi*7919)), so the new area's blocks must
+// be APPENDED without re-sorting the existing blocks, or the whole city
+// re-rolls. Pass A runs the raster on the PRE-#258 union — the six boxes
+// exactly as of main 66fd6204 (Box A west edge 121.503) — and must
+// reproduce main's blocks byte-identically; pass B runs the same raster
+// on the new regions only (the 7-south box + the Box A west strip) and
+// its blocks are appended after pass A's. The two passes share the
+// global lattice (same origin BBOX.minX/minZ, same RES), so the cells
+// tile exactly with no overlap or gap — except the one shared edge that
+// falls on a cell-centre row (z = 498.5, Box A's south edge = 7-south's
+// north edge): that row belongs to pass A, so pass B treats it as
+// exclusive. (The other shared edges fall between cell centres — the
+// lattice is anchored at half-integers — so they need no special case.)
+// A future expansion extends this pattern: pass A becomes the previous
+// stable set, pass B the new regions.
+const LEGACY_BOXES = [ // pre-#258 union, from tile-boxes.json at main 66fd6204
+  { name: 'A', s: 25.0285, w: 121.503, n: 25.055, e: 121.58 },
+  { name: 'B', s: 25.055, w: 121.503, n: 25.06, e: 121.535 },
+  { name: '3-corridor', s: 25.055, w: 121.494, n: 25.133, e: 121.533 },
+  { name: '4-beitou', s: 25.113, w: 121.464, n: 25.15, e: 121.51 },
+  { name: '5-incinerator', s: 25.104, w: 121.494, n: 25.113, e: 121.503 },
+  { name: '6-airport', s: 25.055, w: 121.533, n: 25.107, e: 121.57 },
+];
+const LEGACY_BOXES_WORLD = LEGACY_BOXES.map((b) => {
+  const [x0, z1] = toWorld(b.w, b.s); // south-west: z is max (south = +z)
+  const [x1, z0] = toWorld(b.e, b.n);
+  return { name: b.name, minX: q(x0), maxX: q(x1), minZ: q(z0), maxZ: q(z1) };
+});
+const LEGACY_BBOX = {
+  minX: Math.min(...LEGACY_BOXES_WORLD.map((b) => b.minX)), maxX: Math.max(...LEGACY_BOXES_WORLD.map((b) => b.maxX)),
+  minZ: Math.min(...LEGACY_BOXES_WORLD.map((b) => b.minZ)), maxZ: Math.max(...LEGACY_BOXES_WORLD.map((b) => b.maxZ)),
+};
+// The two passes must share the grid origin or their cells do not tile.
+if (LEGACY_BBOX.minX !== BBOX.minX || LEGACY_BBOX.minZ !== BBOX.minZ) throw new Error(`[taipei-geodata] two-pass blocks: legacy origin ${LEGACY_BBOX.minX},${LEGACY_BBOX.minZ} != current origin ${BBOX.minX},${BBOX.minZ} — re-derive the legacy boxes`);
+function computeBlocks(gridBbox, inUnion) {
+  const W = Math.ceil((gridBbox.maxX - gridBbox.minX) / RES), H = Math.ceil((gridBbox.maxZ - gridBbox.minZ) / RES);
+  const grid = new Uint8Array(W * H).fill(1);
+  // Union mask (issue #60): the raster spans the union's bounding rect,
+  // but a cell whose centre falls outside EVERY tile box is not land —
+  // the dropped bands of the union (e.g. north of lat 25.055 east of
+  // lon 121.535) form no blocks, exactly as if the tile ended there.
+  for (let j = 0; j < H; j++) {
+    const cz = gridBbox.minZ + (j + 0.5) * RES;
+    for (let i = 0; i < W; i++) {
+      if (!inUnion(gridBbox.minX + (i + 0.5) * RES, cz)) grid[j * W + i] = 0;
     }
-    xs.sort((a, b) => a - b);
-    for (let n = 0; n + 1 < xs.length; n += 2) {
-      const i0 = Math.max(0, Math.ceil((xs[n] - BBOX.minX) / RES - 0.5));
-      const i1 = Math.min(W - 1, Math.floor((xs[n + 1] - BBOX.minX) / RES - 0.5));
-      for (let i = i0; i <= i1; i++) grid[j * W + i] = val;
-    }
   }
-}
-for (const wpoly of water) fillRing(wpoly.ring, 0);
-// stamp roads (only carriageway-ish classes cut blocks; footpaths would shred them)
-const NON_CUTTING = new Set(['footway', 'path', 'pedestrian', 'cycleway', 'steps', 'corridor', 'elevator', 'crossing', 'platform', 'traffic_island']);
-for (const r of roads) {
-  if (NON_CUTTING.has(r.highway)) continue;
-  const half = Math.max(r.width / 2, 1.5);
-  const pts = [];
-  for (let i = 0; i < r.pts.length; i += 2) pts.push([r.pts[i], r.pts[i + 1]]);
-  for (let s = 0; s + 1 < pts.length; s++) {
-    const [ax, az] = pts[s], [bx, bz] = pts[s + 1];
-    const i0 = Math.max(0, Math.floor((Math.min(ax, bx) - half - BBOX.minX) / RES)), i1 = Math.min(W - 1, Math.ceil((Math.max(ax, bx) + half - BBOX.minX) / RES));
-    const j0 = Math.max(0, Math.floor((Math.min(az, bz) - half - BBOX.minZ) / RES)), j1 = Math.min(H - 1, Math.ceil((Math.max(az, bz) + half - BBOX.minZ) / RES));
-    const dx = bx - ax, dz = bz - az, L2 = dx * dx + dz * dz || 1e-9, r2 = half * half;
+  function fillRing(ringFlat, val) { // scanline even-odd fill, ring as flat [x,z,...]
+    const pts = [];
+    for (let i = 0; i < ringFlat.length; i += 2) pts.push([ringFlat[i], ringFlat[i + 1]]);
+    let zMin = 1e18, zMax = -1e18;
+    for (const [, z] of pts) { zMin = Math.min(zMin, z); zMax = Math.max(zMax, z); }
+    const j0 = Math.max(0, Math.floor((zMin - gridBbox.minZ) / RES)), j1 = Math.min(H - 1, Math.ceil((zMax - gridBbox.minZ) / RES));
     for (let j = j0; j <= j1; j++) {
-      const pz = BBOX.minZ + (j + 0.5) * RES;
-      for (let i = i0; i <= i1; i++) {
-        const k = j * W + i;
-        if (!grid[k]) continue;
-        const px = BBOX.minX + (i + 0.5) * RES;
-        let t = ((px - ax) * dx + (pz - az) * dz) / L2;
-        t = t < 0 ? 0 : t > 1 ? 1 : t;
-        const ex = ax + t * dx - px, ez = az + t * dz - pz;
-        if (ex * ex + ez * ez <= r2) grid[k] = 0;
+      const z = gridBbox.minZ + (j + 0.5) * RES;
+      const xs = [];
+      for (let i = 0, k = pts.length - 1; i < pts.length; k = i++) {
+        const [xa, za] = pts[k], [xb, zb] = pts[i];
+        if ((za > z) !== (zb > z)) xs.push(xa + ((z - za) * (xb - xa)) / (zb - za));
+      }
+      xs.sort((a, b) => a - b);
+      for (let n = 0; n + 1 < xs.length; n += 2) {
+        const i0 = Math.max(0, Math.ceil((xs[n] - gridBbox.minX) / RES - 0.5));
+        const i1 = Math.min(W - 1, Math.floor((xs[n + 1] - gridBbox.minX) / RES - 0.5));
+        for (let i = i0; i <= i1; i++) grid[j * W + i] = val;
       }
     }
   }
-}
-// label 4-connected components
-const label = new Int32Array(W * H);
-const blocks = [];
-const stack = new Int32Array(W * H);
-for (let start = 0; start < W * H; start++) {
-  if (!grid[start] || label[start]) continue;
-  let sp = 0, count = 0, sx = 0, sz = 0, ix0 = W, ix1 = 0, jz0 = H, jz1 = 0;
-  const id = blocks.length + 1;
-  stack[sp++] = start; label[start] = id;
-  while (sp) {
-    const cur = stack[--sp];
-    const ci = cur % W, cj = (cur / W) | 0;
-    count++; sx += ci; sz += cj;
-    ix0 = Math.min(ix0, ci); ix1 = Math.max(ix1, ci); jz0 = Math.min(jz0, cj); jz1 = Math.max(jz1, cj);
-    if (ci > 0 && grid[cur - 1] && !label[cur - 1]) { label[cur - 1] = id; stack[sp++] = cur - 1; }
-    if (ci < W - 1 && grid[cur + 1] && !label[cur + 1]) { label[cur + 1] = id; stack[sp++] = cur + 1; }
-    if (cj > 0 && grid[cur - W] && !label[cur - W]) { label[cur - W] = id; stack[sp++] = cur - W; }
-    if (cj < H - 1 && grid[cur + W] && !label[cur + W]) { label[cur + W] = id; stack[sp++] = cur + W; }
+  for (const wpoly of water) fillRing(wpoly.ring, 0);
+  // stamp roads (only carriageway-ish classes cut blocks; footpaths would shred them)
+  const NON_CUTTING = new Set(['footway', 'path', 'pedestrian', 'cycleway', 'steps', 'corridor', 'elevator', 'crossing', 'platform', 'traffic_island']);
+  for (const r of roads) {
+    if (NON_CUTTING.has(r.highway)) continue;
+    const half = Math.max(r.width / 2, 1.5);
+    const pts = [];
+    for (let i = 0; i < r.pts.length; i += 2) pts.push([r.pts[i], r.pts[i + 1]]);
+    for (let s = 0; s + 1 < pts.length; s++) {
+      const [ax, az] = pts[s], [bx, bz] = pts[s + 1];
+      const i0 = Math.max(0, Math.floor((Math.min(ax, bx) - half - gridBbox.minX) / RES)), i1 = Math.min(W - 1, Math.ceil((Math.max(ax, bx) + half - gridBbox.minX) / RES));
+      const j0 = Math.max(0, Math.floor((Math.min(az, bz) - half - gridBbox.minZ) / RES)), j1 = Math.min(H - 1, Math.ceil((Math.max(az, bz) + half - gridBbox.minZ) / RES));
+      const dx = bx - ax, dz = bz - az, L2 = dx * dx + dz * dz || 1e-9, r2 = half * half;
+      for (let j = j0; j <= j1; j++) {
+        const pz = gridBbox.minZ + (j + 0.5) * RES;
+        for (let i = i0; i <= i1; i++) {
+          const k = j * W + i;
+          if (!grid[k]) continue;
+          const px = gridBbox.minX + (i + 0.5) * RES;
+          let t = ((px - ax) * dx + (pz - az) * dz) / L2;
+          t = t < 0 ? 0 : t > 1 ? 1 : t;
+          const ex = ax + t * dx - px, ez = az + t * dz - pz;
+          if (ex * ex + ez * ez <= r2) grid[k] = 0;
+        }
+      }
+    }
   }
-  const area = count * RES * RES;
-  if (area < 400) continue;
-  blocks.push({
-    cx: q(BBOX.minX + ((sx / count) + 0.5) * RES), cz: q(BBOX.minZ + ((sz / count) + 0.5) * RES),
-    area: Math.round(area),
-    bbox: { minX: q(BBOX.minX + ix0 * RES), maxX: q(BBOX.minX + (ix1 + 1) * RES), minZ: q(BBOX.minZ + jz0 * RES), maxZ: q(BBOX.minZ + (jz1 + 1) * RES) },
-  });
+  // label 4-connected components
+  const label = new Int32Array(W * H);
+  const blocks = [];
+  const stack = new Int32Array(W * H);
+  for (let start = 0; start < W * H; start++) {
+    if (!grid[start] || label[start]) continue;
+    let sp = 0, count = 0, sx = 0, sz = 0, ix0 = W, ix1 = 0, jz0 = H, jz1 = 0;
+    const id = blocks.length + 1;
+    stack[sp++] = start; label[start] = id;
+    while (sp) {
+      const cur = stack[--sp];
+      const ci = cur % W, cj = (cur / W) | 0;
+      count++; sx += ci; sz += cj;
+      ix0 = Math.min(ix0, ci); ix1 = Math.max(ix1, ci); jz0 = Math.min(jz0, cj); jz1 = Math.max(jz1, cj);
+      if (ci > 0 && grid[cur - 1] && !label[cur - 1]) { label[cur - 1] = id; stack[sp++] = cur - 1; }
+      if (ci < W - 1 && grid[cur + 1] && !label[cur + 1]) { label[cur + 1] = id; stack[sp++] = cur + 1; }
+      if (cj > 0 && grid[cur - W] && !label[cur - W]) { label[cur - W] = id; stack[sp++] = cur - W; }
+      if (cj < H - 1 && grid[cur + W] && !label[cur + W]) { label[cur + W] = id; stack[sp++] = cur + W; }
+    }
+    const area = count * RES * RES;
+    if (area < 400) continue;
+    blocks.push({
+      cx: q(gridBbox.minX + ((sx / count) + 0.5) * RES), cz: q(gridBbox.minZ + ((sz / count) + 0.5) * RES),
+      area: Math.round(area),
+      bbox: { minX: q(gridBbox.minX + ix0 * RES), maxX: q(gridBbox.minX + (ix1 + 1) * RES), minZ: q(gridBbox.minZ + jz0 * RES), maxZ: q(gridBbox.minZ + (jz1 + 1) * RES) },
+    });
+  }
+  blocks.sort((a, b) => b.area - a.area);
+  return blocks;
 }
-blocks.sort((a, b) => b.area - a.area);
+const inLegacyUnion = (x, z) => LEGACY_BOXES_WORLD.some((b) => x >= b.minX && x <= b.maxX && z >= b.minZ && z <= b.maxZ);
+// New regions for pass B: the 7-south box + the Box A west strip (the
+// part of Box A west of its pre-#258 edge). The strip's south edge and
+// 7-south's north edge share z = 498.5; cells centred exactly on that
+// row belong to pass A, so the 7-south test is strict there.
+const southBox = BOXES_WORLD.find((b) => b.name === '7-south');
+const legacyA = LEGACY_BOXES_WORLD.find((b) => b.name === 'A');
+const newA = BOXES_WORLD.find((b) => b.name === 'A');
+const westStrip = { name: 'A-west-strip', minX: newA.minX, maxX: legacyA.minX, minZ: newA.minZ, maxZ: newA.maxZ };
+const inNewRegions = (x, z) =>
+  (x >= westStrip.minX && x <= westStrip.maxX && z >= westStrip.minZ && z <= westStrip.maxZ) ||
+  (x >= southBox.minX && x <= southBox.maxX && z > southBox.minZ && z <= southBox.maxZ);
+const blocksLegacy = computeBlocks(LEGACY_BBOX, inLegacyUnion);
+const blocksNew = computeBlocks(BBOX, inNewRegions);
+const blocks = [...blocksLegacy, ...blocksNew];
+console.log(`[taipei-geodata] blocks two-pass (#258): ${blocksLegacy.length} legacy + ${blocksNew.length} new = ${blocks.length}`);
 
 // ---- emit ----
 const TAIPEI_GEO = {

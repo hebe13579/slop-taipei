@@ -239,7 +239,9 @@ test('wenhu spec (issue #146): the dive — ramp down after Zhongshan JHS, nothi
   // station twins and throat crossovers) and the terminus tail
   // catch adds the 2 Xihu-bound viaduct lines that carry the
   // alignment out to the airport box's east edge.
-  assert.equal(wenhu.length, 32, 'wenhu deck lines (twin pairs + shared crossovers + the two dive ramps + the #186 north segment and tail)');
+  // Issue #258: 32 -> 38 — the Wenhu guideway extends south
+  // through 7-south (Linguang direction), 6 more guideway lines.
+  assert.equal(wenhu.length, 38, 'wenhu deck lines (twin pairs + shared crossovers + the two dive ramps + the #186 north segment and tail)');
   let sawRamp = false, sawPortalBottom = false, sawFullNorth = false;
   for (const l of wenhu) {
     for (let i = 0; i < l.h.length; i++) {
@@ -675,8 +677,13 @@ test('tracks (issue #139): every deck line carries its track offsets in the data
   // more guideway lines (86 total, 32 Wenhu); the Red Line's 54
   // and the #146 lines' data are unchanged (field diff at the
   // #186 gate).
-  assert.equal(lines.length, 86, '54 Red Line + 32 Wenhu deck lines');
-  assert.equal(lines.filter((l) => l.trackStyle === 'guideway').length, 32, 'wenhu guideway lines');
+  // Issue #258: the Wenhu guideway extends south through 7-south
+  // (Linguang direction) — 6 more guideway lines (92 total, 38
+  // Wenhu); the Red Line's 54 and the older Wenhu lines' data
+  // are unchanged. No new station defs (Linguang station has a
+  // deck but no station model; the digest's station list is fixed).
+  assert.equal(lines.length, 92, '54 Red Line + 38 Wenhu deck lines');
+  assert.equal(lines.filter((l) => l.trackStyle === 'guideway').length, 38, 'wenhu guideway lines');
   for (const l of lines) {
     assert.ok(Array.isArray(l.tracks), `${l.name} carries tracks`);
     if (l.trackStyle === 'guideway') {
@@ -1050,7 +1057,8 @@ test('clearance (issue #139): census by counterfactual, audit exact', (t) => {
     mrtStations: stations.filter((s) => s.kind !== 'at-grade' && s.kind !== 'wenhu' && s.kind !== 'entrance' && s.kind !== 'wenhu-open'),
   });
   // Issue #110: the counterfactual plan loses the same 10 lots as the shipped plan (68,482 -> 68,472).
-  assert.equal(before.lots.length, 69138, 'counterfactual plan reproduces the pre-#139 lot count, less the #144 site lots (7), the #135 parcel exclusions (47), the #165 site exclusions (31) and the #166 site exclusions (143) — on the #124 fine plan composed with the #186 strip (+3,957 measured at the #186 merge gate, incl. the PR2 landmark sites below), per the composition note above; composed with issue #221 at the merge gate: the counterfactual plan loses 6,868 lots to campus clearing (49 more than the real plan figure of 6,819 — without track exclusions the coarse fabric packs 49 extra lots onto campus-adjacent land, which the school exclusion then also clears); re-pinned for #289: −56 registry-site lots, the same 56 the shipped plan loses (the four Xinyi sites are not #139 inputs, so the delta is unchanged)');
+  // Issue #258: the counterfactual 69,138 -> 77,033 (+7,895) — the same net as the shipped plan, because no #139 input touches the south: the #139-family removals stay 666 (77,033 − 76,367).
+  assert.equal(before.lots.length, 77033, 'counterfactual plan reproduces the pre-#139 lot count, less the #144 site lots (7), the #135 parcel exclusions (47), the #165 site exclusions (31) and the #166 site exclusions (143) — on the #124 fine plan composed with the #186 strip (+3,957 measured at the #186 merge gate, incl. the PR2 landmark sites below), per the composition note above; composed with issue #221 at the merge gate: the counterfactual plan loses 6,868 lots to campus clearing (49 more than the real plan figure of 6,819 — without track exclusions the coarse fabric packs 49 extra lots onto campus-adjacent land, which the school exclusion then also clears); re-pinned for #289: −56 registry-site lots, the same 56 the shipped plan loses (the four Xinyi sites are not #139 inputs, so the delta is unchanged)');
   // 463 lots removed on this tree (524 on the pre-expansion
   // tree): 433 inside the Beitou depot + at-grade station sites
   // (398 with centres inside the depot site rect alone; the rest
@@ -1066,7 +1074,8 @@ test('clearance (issue #139): census by counterfactual, audit exact', (t) => {
   // Farglory / A8 / A9 / A11 sites exclude none — their blocks were
   // already lot-free there).
   // Issue #110: shipped plan 68,482 -> 68,472 — the same 10-lot delta as the counterfactual (re-pinned above).
-  assert.equal(plan.lots.length, 68472, 'shipped plan lot count after the #139 removals, the #144 site exclusion, the #135 parcel exclusions, the #146 dive drops, the #165 site exclusions and the #166 site exclusions (141) — re-based on the #124 fine plan composed with the #186 strip (counterfactual 76,068 − 668 #139-family removals on the merged tree; re-pinned at the #186 merge gate) and with issue #226 (counterfactual 76,235 − 715 #139-family removals; re-pinned at the #226 merge gate) and with issue #213 (counterfactual 76,104 − 715; re-pinned at the #227 merge gate) and with issue #221 (counterfactual 69,204 − 666 on the composed tree; re-pinned at the #221 merge gate; re-pinned for #255: −32 registry-site lots, delta 666 unchanged; re-pinned for #289: −56 registry-site lots net, delta 666 unchanged)');
+  // Issue #258: shipped plan 68,472 -> 76,367 (+7,895) — the south expansion; the #139-family removals stay 666 (counterfactual 77,033 − 666).
+  assert.equal(plan.lots.length, 76367, 'shipped plan lot count after the #139 removals, the #144 site exclusion, the #135 parcel exclusions, the #146 dive drops, the #165 site exclusions and the #166 site exclusions (141) — re-based on the #124 fine plan composed with the #186 strip (counterfactual 76,068 − 668 #139-family removals on the merged tree; re-pinned at the #186 merge gate) and with issue #226 (counterfactual 76,235 − 715 #139-family removals; re-pinned at the #226 merge gate) and with issue #213 (counterfactual 76,104 − 715; re-pinned at the #227 merge gate) and with issue #221 (counterfactual 69,204 − 666 on the composed tree; re-pinned at the #221 merge gate; re-pinned for #255: −32 registry-site lots, delta 666 unchanged; re-pinned for #289: −56 registry-site lots net, delta 666 unchanged)');
   // Merged-tree check at the #186 gate: bed drops reproduce
   // main's 28 EXACTLY — probed per bed at the gate, all at
   // the two at-grade Beitou clusters, none in the strip (its

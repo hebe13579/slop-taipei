@@ -159,8 +159,9 @@ test('museum adds no lots and keeps the park setting: site, plaza and park ring'
   // is 47, not 43: #289 adds 4 net entries (A21, Cathay Financial
   // Center, Walsin Lihwa, VieShow Cinemas).
   // Issue #110: plan 68,482 -> 68,472 — 23 bridge links re-admitted + 71 bed-end fusions re-seat 1,282 lots near the changed roadbeds (net -10).
-  assert.equal(plan.lots.length, 68472, 'museum site/plaza must not move the plan');
-  assert.equal(plan.landmarkTowers.length, 47);
+  // Issue #258: plan 68,472 -> 76,367 (+7,895) — the south expansion; the museum itself still moves no lots (0 lots in its site rect, asserted below). Registry 47 -> 49: #258 adds 2 net entries (NTU main campus, NTNU Heping campus).
+  assert.equal(plan.lots.length, 76367, 'museum site/plaza must not move the plan');
+  assert.equal(plan.landmarkTowers.length, 49);
   for (const rect of s.sites) {
     const inside = plan.lots.filter((l) => l.x > rect.minX && l.x < rect.maxX && l.z > rect.minZ && l.z < rect.maxZ);
     assert.equal(inside.length, 0, `lot inside museum exclusion rect ${JSON.stringify(rect)}`);

@@ -41,7 +41,7 @@ function deriveShipped() {
 test('the shipped section re-derives exactly from the park-sports extract', () => {
   const derived = deriveShipped();
   assert.deepEqual(sports, derived.entries, 'geodata.parkSports == deriveParkSports(osm_park_sports.json)');
-  assert.equal(derived.stats.seen, 1788, 'OSM candidate features emitted by the extract (the 0.004 deg margin band around the tile is included; the inside-a-park test below drops them — the pre-build census counted 1,604 strictly in-tile)');
+  assert.equal(derived.stats.seen, 2126, 'OSM candidate features emitted by the extract (the 0.004 deg margin band around the tile is included; the inside-a-park test below drops them — the pre-build census counted 1,604 strictly in-tile; re-pinned for issue #258: the merged extract sees 2,126, the south adding 338)');
 });
 
 test('mapping rules on synthetic data', () => {
