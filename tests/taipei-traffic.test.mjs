@@ -34,16 +34,24 @@ test('chained graph: segment census pins (issue #210, #252)', () => {
   // exactly, so the whole delta is the level rule and nothing else.
   // 1,183 segments / 97.3 km dropped (ramps + |level| >= 2 decks);
   // 518 segments / 47.1 km of level ±1 crossings kept (bridges/tunnels).
-  assert.equal(stats.sourceEdges, 47190);
-  assert.equal(stats.drivableEdges, 24523);
-  assert.equal(stats.links, 11942);
+  // Issue #258: the south expansion grows the graph with the new
+  // streets — 55,515 source edges (+8,325), 27,737 drivable
+  // (+3,214), 13,233 links (+1,291), raw 2,337.1 km (+317.4),
+  // kept 1,311.2 km (+150.2). The level rule's share grows too:
+  // 1,430 dropped (+247 — the Jianguo/Keelung/Xinhai elevated
+  // decks and Wenhu guideway south) and 659 kept level ±1
+  // crossings (+141). loopSplits holds at 2: the new south fabric
+  // adds no closed ring that needs a split.
+  assert.equal(stats.sourceEdges, 55515);
+  assert.equal(stats.drivableEdges, 27737);
+  assert.equal(stats.links, 13233);
   assert.equal(stats.loopSplits, 2);
-  assert.equal(stats.rawKm, 2019.7);
-  assert.equal(stats.keptKm, 1161.0);
-  assert.equal(stats.droppedLevelEdges, 1183);
-  assert.equal(stats.droppedLevelKm, 97.3);
-  assert.equal(stats.keptLevelEdges, 518);
-  assert.equal(stats.keptLevelKm, 47.1);
+  assert.equal(stats.rawKm, 2337.1);
+  assert.equal(stats.keptKm, 1311.2);
+  assert.equal(stats.droppedLevelEdges, 1430);
+  assert.equal(stats.droppedLevelKm, 111.9);
+  assert.equal(stats.keptLevelEdges, 659);
+  assert.equal(stats.keptLevelKm, 57.0);
 });
 
 test('level rule: deck and ramp segments drop, bridge/tunnel crossings stay (issue #252)', () => {
@@ -118,7 +126,8 @@ test('chained graph: link shape and length conservation', () => {
     }
     polyKm += Math.hypot(nodes[b * 2] - px, nodes[b * 2 + 1] - pz) / 1000;
   }
-  assert.equal(oneWay, 5767); // 5,922 before #252; the dropped deck/ramp links were mostly one-way
+  // Issue #258: oneWay 5,767 -> 6,486 (+719) — the south expansion's one-way streets (Gongguan/Guting grid).
+  assert.equal(oneWay, 6486); // 5,922 before #252; the dropped deck/ramp links were mostly one-way
   assert.ok(Math.abs(polyKm - stats.keptKm) < 0.2, `polyline ${polyKm.toFixed(1)} km vs kept ${stats.keptKm} km`);
 });
 
@@ -175,9 +184,13 @@ test('network: generic builder keeps a strongly connected drivable core', () => 
   // builder on THIS geodata reproduces 20,984 / 15,229 / 6,890
   // exactly (asserted in tests/taipei-deck-traffic.test.mjs), so the
   // whole delta is the deck graph and nothing else.
+  // Issue #258: the core grows to 23,495 / 18,036 / 8,318 — the
+  // south expansion's streets join the same strongly connected
+  // core (+2,110 directed edges, +1,708 surviving edges, +825
+  // nodes), including the south deck/ramp fabric through its ramps.
   const env = taipeiTrafficEnv(200);
   const net = buildRoadNetwork([], [], env.networkEnv);
-  assert.equal(net.nodes.length, 7493);
-  assert.equal(net.edges.length, 16328);
-  assert.equal(net.paintEdges.length, 21385);
+  assert.equal(net.nodes.length, 8318);
+  assert.equal(net.edges.length, 18036);
+  assert.equal(net.paintEdges.length, 23495);
 });

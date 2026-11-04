@@ -86,7 +86,14 @@ test('real tile: exactly one cap per grounded multi-arm junction, centres and ar
   // wiring — elevated-interchange deck clusters and lane-warren
   // bed-end artifacts), so the invariant is one cap per GROUNDED
   // eligible junction; the phantom set is pinned by the count.
-  assert.equal(caps.length, eligible.length - 71);
+  // Census re-pinned for issue #258 (south expansion): orphans
+  // 71 -> 97 — the 26 new ones are ALL in the new ground (25 in
+  // 7-south + 1 in the west strip, proven by centre match in the
+  // #258 evidence; the old city's 71 are unchanged), same two
+  // classes as main's: 中正橋 deck clusters (4) and service-alley
+  // lane warrens (Yonghe 竹林路/文化路/光復街， Shida 龍泉街，
+  // NTU service drives).
+  assert.equal(caps.length, eligible.length - 97);
   // Census re-pinned 2026-10-24 for the PR #73 rebase onto the
   // expanded map (PR #70): the station district + Ximending took
   // detected junctions 894 -> 1,158, and every detected junction
@@ -207,13 +214,16 @@ test('real tile: exactly one cap per grounded multi-arm junction, centres and ar
   // 民族東路 x 復興北路 / 濱江街 junction caps (reshaped around
   // the shortened stubs).
   // Issue #110: one fewer junction — the fused bed ends merge two junctions.
-  assert.equal(junctions.length, 2870, `junctions ${junctions.length}`); // merged-tree re-pin at the #186 gate: 2,699 on main, 2,873 pinned by #186 on its stale base, 2,871 measured on the merged tree
+  // Issue #258: junctions 2,870 -> 3,479 (+609) — the south expansion's street junctions.
+  assert.equal(junctions.length, 3479, `junctions ${junctions.length}`); // merged-tree re-pin at the #186 gate: 2,699 on main, 2,873 pinned by #186 on its stale base, 2,871 measured on the merged tree
   // Issue #110: caps 2,793 -> 2,792 — the fused bed ends merge two junctions, so one fewer cap.
-  assert.equal(caps.length, 2792, `caps ${caps.length}`); // merged-tree re-pin at the #186 gate: 2,621 main / 2,795 #186-stale-base / 2,793 merged
+  // Issue #258: caps 2,792 -> 3,375 (+583) — the south expansion's junctions, less the 26 the loop/roundabout rules claim (3,479 − 7 roundabout-claimed − 97 ORPHAN phantoms = 3,375).
+  assert.equal(caps.length, 3375, `caps ${caps.length}`); // merged-tree re-pin at the #186 gate: 2,621 main / 2,795 #186-stale-base / 2,793 merged
   // Issue #110: box caps 586 -> 588 (+2) — the re-admitted links create two more box-cap junctions (fitted caps 2,207 -> 2,204, total 2,793 -> 2,792).
-  assert.equal(caps.filter((c) => c.kind === 'box').length, 588, 'box caps'); // merged-tree re-pin at the #186 gate: 557 main / 588 #186-stale-base / 586 merged
+  // Issue #258: box caps 588 -> 703 (+115) — the south expansion's box-cap junctions (fitted caps 2,204 -> 2,672, total 2,792 -> 3,375).
+  assert.equal(caps.filter((c) => c.kind === 'box').length, 703, 'box caps'); // merged-tree re-pin at the #186 gate: 557 main / 588 #186-stale-base / 586 merged
   // Issue #110: fitted caps 2,207 -> 2,204 (-3) — box 588 + fitted 2,204 = the 2,792 caps.
-  assert.equal(caps.filter((c) => c.kind === 'fitted').length, 2204, 'fitted caps'); // merged-tree re-pin at the #186 gate: 2,064 main / 2,207 merged (box 586 + fitted 2,207 = the 2,793 caps)
+  assert.equal(caps.filter((c) => c.kind === 'fitted').length, 2672, 'fitted caps'); // merged-tree re-pin at the #186 gate: 2,064 main / 2,207 merged (box 586 + fitted 2,207 = the 2,793 caps)
   // Area re-pinned for issue #196: 650,838 -> 650,470 (-368 m²,
   // old-vs-new cap diff by centre): the two mouth caps are gone
   // (north 331.0 m², south 75.0 m²) and the neighbouring junction
@@ -221,9 +231,11 @@ test('real tile: exactly one cap per grounded multi-arm junction, centres and ar
   // 民族東路 x 復興北路 1,016 -> 1,020 m²). Every other cap in
   // the tile is identical; the fitted total below is unchanged.
   // Issue #110: cap area 689,142 -> 686,955 m2 (-2,187) — the fused beds merge two junctions and reshape the caps (fitted area 173,457 -> 169,724; box area 515,685 -> 517,231).
-  assert.equal(Math.round(caps.reduce((s, c) => s + c.area, 0)), 686955, 'cap area census'); // merged-tree re-pin at the #186 gate: 650,470 main / 689,142 merged (+38,672 m² of caps in the #186 strip)
+  // Issue #258: cap area 686,955 -> 801,375 m2 (+114,420) — the south expansion's junction caps (fitted area 169,724 -> 190,499; box area 517,231 -> 610,876).
+  assert.equal(Math.round(caps.reduce((s, c) => s + c.area, 0)), 801375, 'cap area census'); // merged-tree re-pin at the #186 gate: 650,470 main / 689,142 merged (+38,672 m² of caps in the #186 strip)
   // Issue #110: fitted cap area 173,457 -> 169,724 m2 (-3,733).
-  assert.equal(Math.round(caps.filter((c) => c.kind === 'fitted').reduce((s, c) => s + c.area, 0)), 169724, // merged-tree re-pin at the #186 gate: 159,678 main / 173,457 merged
+  // Issue #258: fitted cap area 169,724 -> 190,499 m2 (+20,775).
+  assert.equal(Math.round(caps.filter((c) => c.kind === 'fitted').reduce((s, c) => s + c.area, 0)), 190499, // merged-tree re-pin at the #186 gate: 159,678 main / 173,457 merged
     'fitted cap area census (overlap construction since #145)');
   // Census addition for issue #163 (junction fix v2): the ring
   // counts/areas above are unchanged BY CONSTRUCTION — the #163
@@ -254,9 +266,11 @@ test('real tile: exactly one cap per grounded multi-arm junction, centres and ar
   // Strip census re-pinned for issue #186: 2,479 -> 2,638
   // strips, 122,201 -> 129,177 m2, on the strip-grown tile.
   // Issue #110: extension strips 2,638 -> 2,632 (-6) — the fused beds merge two junctions, so 6 fewer arm-extension strips (area 129,177 -> 127,776 m2).
-  assert.equal(caps.reduce((s, c) => s + (c.extras || []).length, 0), 2632, 'extension strip census');
+  // Issue #258: extension strips 2,632 -> 3,403 (+771) — the south expansion's junction arms.
+  assert.equal(caps.reduce((s, c) => s + (c.extras || []).length, 0), 3403, 'extension strip census');
   // Issue #110: extension strip area 129,177 -> 127,776 m2 (-1,401).
-  assert.equal(caps.reduce((s, c) => s + (c.extraArea || 0), 0), 127776, 'extension strip area census');
+  // Issue #258: extension strip area 127,776 -> 163,263 m2 (+35,487).
+  assert.equal(caps.reduce((s, c) => s + (c.extraArea || 0), 0), 163263, 'extension strip area census');
   for (const c of caps) if (c.kind === 'box') assert.equal((c.extras || []).length, 0, 'box caps carry no strips');
   const capByJ = new Map();
   junctions.forEach((j, ji) => {
@@ -326,7 +340,15 @@ test('real tile: roadGraph cross-check — multi-arm nodes have a cap nearby', (
   // lose their only nearby cap: coverage 94% -> 92.6%
   // (4,975/5,373 measured). The pin stays a loud floor, now at
   // 92% — a detection regression still fails it.
-  assert.ok(covered / checked >= 0.92, `cap coverage ${covered}/${checked}`);
+  // Threshold re-pinned for issue #258 (south expansion):
+  // coverage 92.6% -> 91.8% (6,517/7,097 measured). The drop is
+  // the 26 new orphans (66 uncovered nodes within 60 m of one)
+  // plus the merge-distance effect on the south's dense alley
+  // clusters (92 nodes 30-60 m from a capped junction centre —
+  // detectJunctions merges within 40 m, the test radius is 30 m);
+  // only 2 nodes sit >60 m from any cap. The floor moves to 91%
+  // — a detection regression still fails it.
+  assert.ok(covered / checked >= 0.91, `cap coverage ${covered}/${checked}`);
 });
 
 test('real tile: no painted band, median strip or dash quad centre inside a cap', () => {
@@ -433,10 +455,18 @@ test('real tile: no painted band, median strip or dash quad centre inside a cap'
   // builders still put exactly 0 there.
   const unclipped = buildPaintedBands(beds);
   // Issue #110: 9 fewer unclipped bands inside occluders — the fused beds reshape the junction caps.
-  assert.equal(unclipped.band.filter(inOcc).length, 1647,
+  // Census re-pinned for issue #258 (south expansion): unclipped
+  // bands 1,647 -> 1,825 — the occluder set grows with the 583 new
+  // caps, so more south painted bands fall inside a cap; the clipped
+  // builders still put exactly 0 there (asserted above).
+  assert.equal(unclipped.band.filter(inOcc).length, 1825,
     `unclipped bands inside occluders: ${unclipped.band.filter(inOcc).length}`);
   // Issue #110: unclipped edges 3,262 -> 3,245 — the fused beds reshape the junction caps (same delta class as the unclipped bands, 1,656 -> 1,647).
-  assert.equal(unclipped.edges.filter(inOcc).length, 3245,
+  // Census re-pinned for issue #258 (south expansion): unclipped
+  // edges 3,245 -> 3,583 — same delta class as the bands (the new
+  // caps occlude more south edge quads); the clipped builders still
+  // put exactly 0 inside (asserted above).
+  assert.equal(unclipped.edges.filter(inOcc).length, 3583,
     `unclipped edges inside occluders: ${unclipped.edges.filter(inOcc).length}`);
   // Bite re-pinned for issue #167: deck-flagged beds' strips no
   // longer join the ground lists this census reads (they route to
@@ -460,7 +490,11 @@ test('real tile: no painted band, median strip or dash quad centre inside a cap'
   // put exactly 0 inside (asserted above); band/edge bites are
   // unchanged.
   // Issue #110: unclipped medians 3,064 -> 3,036 (-28) — the fused beds reshape the junction caps, so fewer median strips fall inside occluders.
-  assert.equal([...unclippedMedians.plain, ...unclippedMedians.planted].filter(inOcc).length, 3036, // merged-tree re-pin at the #186 gate: 2,838 on main, 3,066 pinned by #186 on its stale base, 3,064 measured merged
+  // Census re-pinned for issue #258 (south expansion): unclipped
+  // medians 3,036 -> 3,457 — the new caps occlude more south median
+  // strips; the clipped builders still put exactly 0 inside
+  // (asserted above).
+  assert.equal([...unclippedMedians.plain, ...unclippedMedians.planted].filter(inOcc).length, 3457, // merged-tree re-pin at the #186 gate: 2,838 on main, 3,066 pinned by #186 on its stale base, 3,064 measured merged
     'unclipped medians inside occluders');
 });
 
@@ -613,7 +647,11 @@ test('issue #75: every major junction box is covered corner to corner by its box
   // 復北地下道 mouth clusters were majors (their caps were box
   // caps); every surviving major still passes (a)-(c) above.
   // Issue #110: 2 more major junctions audited — the re-admitted links create junctions at the interchanges.
-  assert.equal(major, 607, `major junctions audited ${major}`); // merged-tree re-pin at the #186 gate: 577 main / 607 #186-stale-base / 605 merged
+  // Census re-pinned for issue #258 (south expansion): 607 -> 727
+  // majors — the south's arterial grid （羅斯福路/和平東路/基隆路/
+  // 辛亥路/汀州路/廈門街 + the 中正橋/建國/新生高架 deck majors)
+  // joins; every one still passes (a)-(c) above.
+  assert.equal(major, 727, `major junctions audited ${major}`); // merged-tree re-pin at the #186 gate: 577 main / 607 #186-stale-base / 605 merged
 });
 
 test('issue #75: crosswalk and stop-line centres at major junctions lie on asphalt', () => {
@@ -817,7 +855,13 @@ test('issue #81: box-cap vertices stay near the box — no slab spikes', () => {
   // 敦煌路 26.7 -> 0 (47.3 -> 37.7 m); the tile max was
   // 中山北路五段's 38.4 m corner throw (radius 65.8 -> 31.8 m).
   // Issue #110: 11 cap vertices 20.0-20.1 m past their box (max 20.1 m, none past 25 m) — the caps reshaped around the re-admitted links/fused beds at 6 junctions (ji171, ji533, ji627, ji630, ji654, ji1883); the 20 m threshold is marginal, the 25 m bound is unchanged.
-  assert.ok(over20 <= 11, `cap vertices >20 m past their box: ${over20}`);
+  // Distribution re-pinned for issue #258 (south expansion): 11 ->
+  // 12 vertices past 20 m — the one new offender is a mouth-segment
+  // endpoint at exactly 20.0 m at ji3170 (基隆路四段 x 辛亥路， south),
+  // the same class as the existing 11 (mouth endpoints at the
+  // bed-end slide's crossHalf + 20 cap); over25 stays 0 and maxOver
+  // stays 20.1 m, so no corner-throwing regression.
+  assert.ok(over20 <= 12, `cap vertices >20 m past their box: ${over20}`);
   assert.ok(over25 <= 0, `cap vertices >25 m past their box: ${over25}`);
   assert.ok(maxOver <= 21, `worst cap vertex overshoot ${maxOver.toFixed(1)} m`);
 });
@@ -907,7 +951,10 @@ test('issue #145: every minor junction box is covered by its overlap cap', () =>
   // Re-pinned for issue #186: 2,115 -> 2,259 minors on the
   // strip-grown tile.
   // Issue #110: 3 fewer minor junctions audited.
-  assert.equal(minor, 2256, `minor junctions audited ${minor}`);
+  // Census re-pinned for issue #258 (south expansion): 2,256 ->
+  // 2,745 minors — the south's residential/service grid joins;
+  // every one still passes (a)-(c) above.
+  assert.equal(minor, 2745, `minor junctions audited ${minor}`);
 });
 
 test('issue #163: short fitted arms extend to the box edge — strips, never tongues', () => {
