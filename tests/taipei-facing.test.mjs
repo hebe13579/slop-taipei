@@ -184,27 +184,33 @@ test('facing census: turns land, the #185 pull and heights are untouched', () =>
   // 17,421 — all 17 sampled lots in the 0-2 bucket); no kept lot
   // changed turned/held status.
   // Issue #110: the re-seated lots change the facing census (turned 3,100 -> 3,101; full 1,677 -> 1,673; partial 1,423 -> 1,428; held 19,818 -> 19,823).
-  assert.deepEqual(plan.stats.lotsFacingTurned, 3101);
+  // Issue #258 (south expansion): the south's street grid grows the
+  // facing population (turned 3,101 -> 3,707; held 19,823 -> 22,624;
+  // sample 17,417 -> 19,652) — the new lots face the south's roads
+  // under the same rule; sub-counts still sum exactly (full + partial
+  // = turned; the five held classes = held).
+  assert.deepEqual(plan.stats.lotsFacingTurned, 3707);
   // Issue #110: see the facing-census re-pin above.
-  assert.deepEqual(plan.stats.lotsFacingTurnedFull, 1673);
+  assert.deepEqual(plan.stats.lotsFacingTurnedFull, 1970);
   // Issue #110: see the facing-census re-pin above.
-  assert.deepEqual(plan.stats.lotsFacingTurnedPartial, 1428);
+  assert.deepEqual(plan.stats.lotsFacingTurnedPartial, 1737);
   // Issue #110: see the facing-census re-pin above.
-  assert.deepEqual(plan.stats.lotsFacingHeld, 19823);
+  assert.deepEqual(plan.stats.lotsFacingHeld, 22624);
   // Issue #110: see the facing-census re-pin above.
-  assert.deepEqual(plan.stats.lotsFacingHeldNoFace, 8184);
+  assert.deepEqual(plan.stats.lotsFacingHeldNoFace, 9486);
   // Issue #110: see the facing-census re-pin above.
-  assert.deepEqual(plan.stats.lotsFacingHeldSmallTurn, 7259);
+  assert.deepEqual(plan.stats.lotsFacingHeldSmallTurn, 7871);
   // Issue #110: see the facing-census re-pin above.
-  assert.deepEqual(plan.stats.lotsFacingHeldFacade, 767);
+  assert.deepEqual(plan.stats.lotsFacingHeldFacade, 869);
   // Issue #110: see the facing-census re-pin above.
-  assert.deepEqual(plan.stats.lotsFacingHeldClear, 3596);
-  assert.deepEqual(plan.stats.lotsFacingHeldAlignedMain, 17);
+  assert.deepEqual(plan.stats.lotsFacingHeldClear, 4373);
+  assert.deepEqual(plan.stats.lotsFacingHeldAlignedMain, 25);
   const { sample, buckets } = censusMismatch(plan.lots);
   // Issue #110: sample 17,421 -> 17,417 — 4 fewer lots in the mismatch census (the re-seated lots change which lots the census samples).
-  assert.equal(sample, 17417);
+  assert.equal(sample, 19652);
   // Issue #110: buckets shift with the re-seated lots (0-2: 9,243 -> 9,228; 5-10: 2,021 -> 2,029; 10-20: 1,191 -> 1,197; 20-45: 1,969 -> 1,966; 2-5 unchanged).
-  assert.deepEqual(buckets, { '0-2': 9228, '2-5': 2997, '5-10': 2029, '10-20': 1197, '20-45': 1966 });
+  // Issue #258: buckets grow with the south lots (0-2: 9,228 -> 10,213; 2-5: 2,997 -> 3,388; 5-10: 2,029 -> 2,327; 10-20: 1,197 -> 1,439; 20-45: 1,966 -> 2,285).
+  assert.deepEqual(buckets, { '0-2': 10213, '2-5': 3388, '5-10': 2327, '10-20': 1439, '20-45': 2285 });
 });
 
 function lotCorners(cx, cz, w, d, c, s) {

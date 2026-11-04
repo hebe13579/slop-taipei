@@ -89,7 +89,11 @@ test('hut census on the real plan: selection unchanged, garnish at census', (t) 
   // that single centre lost and none gained). The lot carried a
   // bump too, hence 1,381 -> 1,380. Gable/patches unchanged.
   // Issue #110: 4 more hut lots — the re-seated lots re-roll the hut selection (seeded from lot position/footprint).
-  assert.equal(hutLots, 5895, 'hut selection is the pre-#208 census');
+  // Issue #258 (south expansion): 5,895 -> 6,560 hut lots — the
+  // south's new lots re-roll the hut selection (seeded from lot
+  // position/footprint); gable 2,058 -> 2,292, patches 5,121 ->
+  // 5,647, bumps 1,381 -> 1,560, same +665/+234/+526/+179 class.
+  assert.equal(hutLots, 6560, 'hut selection is the pre-#208 census');
   // Issue #216: the facing pass moves lots, and the garnish rolls
   // are seeded from lot position — 2 gable draws, 14 patch draws
   // and 10 bump draws flip, while the selection (5,892 hut lots)
@@ -97,11 +101,11 @@ test('hut census on the real plan: selection unchanged, garnish at census', (t) 
   // the census returns to exactly 2,056 / 5,149 / 1,371
   // (facing216b-evidence/proof-huts-off.mjs).
   // Issue #110: gable census 2,054 -> 2,058 — 4 more gable-roof lots (the re-seated lots re-roll the gable selection, same +4 as the hut census).
-  assert.equal(gable, 2058, 'gable census');
+  assert.equal(gable, 2292, 'gable census');
   // Issue #110: patch census 5,135 -> 5,121 (-14) — the re-seated lots re-roll the roof-patch selection.
-  assert.equal(patches, 5121, 'patch census');
+  assert.equal(patches, 5647, 'patch census');
   // Issue #110: bump census 1,380 -> 1,381 (+1) — the re-seated lots re-roll the roof-bump selection.
-  assert.equal(bumps, 1381, 'bump census');
+  assert.equal(bumps, 1560, 'bump census');
 });
 
 test('renderer palette mirrors the planner palette', () => {
