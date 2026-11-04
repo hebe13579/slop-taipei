@@ -1652,6 +1652,18 @@ export function planJunctionCaps(roadbeds, junctions, sitesIn = null, clipPolysI
     // What survives the erosion is cap surface over open water
     // with no carriageway on it — the spill. The bridge deck
     // itself (cap ∩ water ∩ ribbon) is preserved by construction.
+    // Sole-crossing guard (#214 R1 fix): if NO ribbon covers any
+    // of the water overlap, the cap is the only paving over the
+    // creek at this junction — a narrow crossing whose butt-ended
+    // ribbons never reach the box interior, so the whole ring
+    // lies inside the arm corridors and on zero ribbons (ji1079
+    // + ji2121: 43/66 creek cells, 0 on any ribbon). Clipping it
+    // would leave a hole in the road and strand a sliver the
+    // ORPHAN pass then drops. Skip the water clip for that
+    // junction entirely; the spill it keeps is the bridge deck
+    // itself — there is no geometric subdivision of deck vs
+    // spill there, it is binary. (0.5 m² is the rounding/graze
+    // tolerance for "no ribbon covers any of it".)
     if (wclip) {
       const bb = bboxOfPts(hull);
       const wIdx = new Set();
@@ -1661,12 +1673,19 @@ export function planJunctionCaps(roadbeds, junctions, sitesIn = null, clipPolysI
       if (wIdx.size) {
         const near = nearRibbons(j, radius + 25);
         const effWater = [];
+        let overlapArea = 0, effWaterArea = 0;
         for (const wi of wIdx) {
           const overlap = clipByConvexPoly(wclip.polys[wi], hull);
           if (overlap.length < 3) continue;
-          for (const piece of subtractPolys(overlap, near.polys)) if (polyArea(piece) > 0.01) effWater.push(piece);
+          overlapArea += polyArea(overlap);
+          for (const piece of subtractPolys(overlap, near.polys)) if (polyArea(piece) > 0.01) { effWater.push(piece); effWaterArea += polyArea(piece); }
         }
-        if (effWater.length) effClips = effClips ? [...effClips, ...effWater] : effWater;
+        // Ribbons cover (overlapArea - effWaterArea) of the water
+        // overlap. If that is within rounding of zero, no
+        // carriageway crosses the creek here — the cap is the
+        // bridge deck, not spill. Skip the clip for this junction.
+        const ribbonCovered = overlapArea - effWaterArea;
+        if (effWater.length && ribbonCovered >= 0.5) effClips = effClips ? [...effClips, ...effWater] : effWater;
       }
     }
     // Ring surface: unclipped (the pre-#171 path, byte-identical)

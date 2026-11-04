@@ -1689,15 +1689,18 @@ export async function buildTaipeiGround(scene, tile, deps = {}) {
   // builder (which used to detect its own copy).
   const junctions = detectJunctions(carriageways);
   const roundabouts = planRoundabouts(carriageways, junctions);
-  // #214 ship: G1 + G2 are ON by default; R1 (waterClip) stays
-  // flag-gated OFF — it drops 2 caps on bridge decks (ji1079 +
-  // ji2121) and its fix is a separate follow-up. cornerClamp seats
-  // diagonal hull corners on the kerb (G2), divided feeds the G1
-  // zebra POC in buildRoadMarkings. deps.poc can still turn either
-  // off (divided: false / cornerClamp: false) for debugging.
+  // #214 ship: G1 + G2 + R1 are ON by default. R1 (waterClip)
+  // ships with the sole-crossing guard (js/taipei-junctions.js):
+  // a cap that is the only paving over a creek — no ribbon
+  // covers its water overlap — is kept whole (ji1079 + ji2121
+  // and the other narrow crossings). cornerClamp seats diagonal
+  // hull corners on the kerb (G2), divided feeds the G1 zebra
+  // POC in buildRoadMarkings. deps.poc can still turn any of them
+  // off (divided: false / cornerClamp: false / waterClip: false)
+  // for debugging.
   const poc = deps.poc || {};
   const caps = planJunctionCaps(carriageways, junctions, roundabouts, capClipPolys(geo),
-    poc.waterClip ? capWaterPolys(geo) : null, { cornerClamp: poc.cornerClamp !== false });
+    poc.waterClip !== false ? capWaterPolys(geo) : null, { cornerClamp: poc.cornerClamp !== false });
   const capPolys = [
     ...caps.flatMap((c) => capSurfacePolys(c)),
     ...roundabouts.flatMap((s) => [s.disc, ...s.aprons]).map((c) => ringPoints(c.ring)),

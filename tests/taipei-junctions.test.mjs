@@ -1100,10 +1100,28 @@ test('POC #214 R1: creek-water clip cuts off-ribbon spill, keeps bridge decks', 
     }
     return { spill, onDeck };
   };
-  const off = measure(planJunctionCaps(beds, junctions, sites, clip));
+  const capsOff = planJunctionCaps(beds, junctions, sites, clip);
+  const off = measure(capsOff);
   assert.ok(off.spill > 100, `flag-off spill present (${off.spill} m2)`);
   assert.ok(off.onDeck > 0, 'flag-off cap covers the bridge deck');
-  const on = measure(planJunctionCaps(beds, junctions, sites, clip, water));
+  const capsOn = planJunctionCaps(beds, junctions, sites, clip, water);
+  const on = measure(capsOn);
   assert.equal(on.spill, 0, 'flag-on: no off-ribbon cap on creek water at ji2244');
   assert.ok(on.onDeck > 0, 'flag-on: bridge-deck cap survives the clip');
+  // Sole-crossing guard (#214 R1 fix): ji1079 + ji2121 are narrow
+  // creek crossings whose rings lie on zero ribbons — the caps are
+  // the only paving over the creek, so the clip must keep them
+  // whole instead of dropping them (the #277 gate found both
+  // vanishing entirely under the clip: 51 m² / 73 m², 112 / 158
+  // raster cells on carriageway ribbons via their strips).
+  const nearestCap = (caps, x, z) => caps.map((c) => ({ c, d: Math.hypot(c.x - x, c.z - z) })).sort((a, b) => a.d - b.d)[0];
+  for (const [id, x, z, area] of [['ji1079', -7972.8, -9768.5, 51], ['ji2121', -6235.4, -12219.2, 73]]) {
+    const offCap = nearestCap(capsOff, x, z);
+    const onCap = nearestCap(capsOn, x, z);
+    assert.ok(offCap.d < 1, `${id} cap found flag-off`);
+    assert.ok(onCap.d < 1, `${id} cap survives the clip flag-on`);
+    assert.equal(onCap.c.area, offCap.c.area, `${id} cap kept whole by the sole-crossing guard`);
+    assert.equal(onCap.c.area, area, `${id} cap area ${area} m2`);
+  }
+  assert.equal(capsOn.length, capsOff.length, 'no cap dropped by the water clip');
 });
