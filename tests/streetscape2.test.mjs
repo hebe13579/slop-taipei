@@ -459,3 +459,55 @@ test('issue #178: with boot-exact exclusions (full cap surface), no tree stands 
   assert.equal(street.trees.length, 3000, 'street trees still at cap');
   assert.equal(park.trees.length, 7500, 'park trees still at cap');
 });
+
+test('issue #272: with the airfield site-ring exclusion, no tree stands on Songshan Airport', () => {
+  // The user reported trees on the Songshan Airport site: the
+  // aerodrome is a special site with no procedural lots, and an
+  // airfield must read clear — no trees on runways, taxiways,
+  // aprons or the terminal surrounds. Neither tree planner knew
+  // about the site: the street planner plants on road bands
+  // (a sidewalk tree on the perimeter service road jittered
+  // inside the ring) and the park planner plants inside the
+  // unnamed green polygons overlapping the site (488 park
+  // trees, spread x[-2663,306] z[-4288,-3565], only 1 of them
+  // on actual pavement — the rest on the grass strips inside
+  // the fence). The boot now passes the airfield site ring to
+  // the two tree planners ONLY, not to the shared exclusions:
+  // that list also feeds the street lamps, and 22 lamps
+  // legitimately stand on the terminal-frontage roads inside
+  // the ring's south edge — a shared exclusion would strip
+  // lamps from the terminal roads. Amenity pads need no
+  // exclusion (0 inside the ring).
+  // Measured on this wiring with the #173 base exclusions
+  // (caps + roundabouts): 489 planned trees inside the ring
+  // (1 street, 488 park); with the ring added: 0, with both
+  // caps still filled — the rejected candidates' slots are
+  // taken by later candidates outside the ring.
+  const geo = TAIPEI_GEO;
+  const plan = planTaipeiBuildings(geo);
+  const beds = geo.roadbeds;
+  const junctions = detectJunctions(beds);
+  const sites = planRoundabouts(beds, junctions);
+  const caps = planJunctionCaps(beds, junctions, sites);
+  const baseExclusions = [
+    ...caps.flatMap((c) => [c.ring, ...(c.extras || []).map((ex) => ex.ring)]),
+    ...sites.flatMap((s) => [s.disc.ring, ...s.aprons.map((a) => a.ring)]),
+  ];
+  const siteRings = (geo.airfield?.site || []).map((s) => s.ring);
+  assert.ok(siteRings.length > 0, 'geodata carries the airfield site ring');
+  const sitePolys = siteRings.map((r) => ringPoints(r));
+  const siteGrid = buildPolyGrid(sitePolys);
+  const inside = (trees) => trees.filter((t) => pointInAnyPoly(siteGrid, sitePolys, [t.x, t.z]));
+  const beforeStreet = planStreetTrees(geo, plan, { exclusions: baseExclusions });
+  const beforePark = planParkTrees(geo, plan, { exclusions: baseExclusions });
+  assert.equal(inside(beforeStreet.trees).length, 1, 'street trees inside the site ring before the exclusion');
+  assert.equal(inside(beforePark.trees).length, 488, 'park trees inside the site ring before the exclusion');
+  const exclusions = [...baseExclusions, ...siteRings];
+  const street = planStreetTrees(geo, plan, { exclusions });
+  const park = planParkTrees(geo, plan, { exclusions });
+  assert.equal(inside(street.trees).length + inside(park.trees).length, 0, 'no tree on the airfield site');
+  // The planting outside the site is untouched: both planners
+  // still fill their caps.
+  assert.equal(street.trees.length, 3000, 'street trees still at cap');
+  assert.equal(park.trees.length, 7500, 'park trees still at cap');
+});

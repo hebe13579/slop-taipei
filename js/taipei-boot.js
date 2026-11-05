@@ -2081,8 +2081,21 @@ export async function buildTaipeiGround(scene, tile, deps = {}) {
     const amenityStart = performance.now();
     const amenityPlan = planParkAmenities(geo, forPlan, { exclusions: treeExclusions });
     const padExclusions = amenityPlan.pads || [];
-    const treeAndPadExclusions = [...treeExclusions, ...padExclusions];
-    const street = planStreetTrees(geo, forPlan, { exclusions: treeExclusions });
+    // Issue #272: the Songshan airfield site ring — trees never
+    // stand on the aerodrome (runways, taxiways, aprons, terminal
+    // surrounds). The ring is appended ONLY to the two tree
+    // planners, not to the shared treeExclusions above: that list
+    // also feeds the street lamps, and 22 lamps legitimately
+    // stand on the terminal-frontage roads inside the ring's
+    // south edge (measured 2026-11-04) — the ring overlaps public
+    // roads there, so a shared exclusion would strip lamps from
+    // the terminal roads. Amenity pads need no exclusion (0
+    // inside the ring). Measured before the exclusion: 489
+    // planned trees inside the ring (1 street, 488 park); after:
+    // 0, with both caps still filled.
+    const treeOnlyExclusions = [...treeExclusions, ...(geo.airfield?.site || []).map((s) => s.ring)];
+    const treeAndPadExclusions = [...treeOnlyExclusions, ...padExclusions];
+    const street = planStreetTrees(geo, forPlan, { exclusions: treeOnlyExclusions });
     const park = planParkTrees(geo, forPlan, { exclusions: treeAndPadExclusions });
     const meshes = [];
     const streetMesh = buildStreetTreeMesh(street.trees, drapeHeight);
