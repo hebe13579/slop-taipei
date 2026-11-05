@@ -39,7 +39,8 @@ test('taiwan108: high-rise residential (12) is banded 40-75 m, outside the cores
   // Re-pinned for issue #258 (south expansion): the south's tall
   // residential takes F12 609 -> 705 (probe: newer-apartments
   // census; same count in both tests).
-  assert.equal(f12.length, 705, 'high-rise residential planted in the hundreds');
+  // Issue #278: F12 705 -> 704 (−1 — one F12 lot removed by the VGH site; same count in the newer-apartments test).
+  assert.equal(f12.length, 704, 'high-rise residential planted in the hundreds');
   for (let i = 0; i < opts.lots.length; i++) {
     const l = opts.lots[i];
     if (l.mat !== 12) continue;
@@ -58,7 +59,8 @@ test('taiwan108: strip-tile mid-rise (13) is banded 9-30 m', () => {
   // Issue #110: F13 4,358 -> 4,377 in the plan itself (same mechanism as F12).
   // Re-pinned for issue #258 (south expansion): the south's mid-rise
   // takes F13 4,377 -> 4,863 (same count in the newer-apartments test).
-  assert.equal(f13.length, 4863, 'strip-tile mid-rise planted in the thousands');
+  // Issue #278: F13 4,863 -> 4,852 (−11 — eleven F13 lots removed by the 3 sites; same count in the newer-apartments test).
+  assert.equal(f13.length, 4852, 'strip-tile mid-rise planted in the thousands');
   for (const l of f13) {
     assert.ok(l.h >= STRIP_TILE_MIN_H && l.h < STRIP_TILE_MAX_H,
       `family 13 only on 9-30 m lots (at ${l.h} m)`);
@@ -121,7 +123,8 @@ test('taiwan108: high-rise lots carry roof tanks at the design rate', () => {
   }
   // Re-pinned for issue #258: F12 roof tanks 87 -> 97 (97/705 = 13.8%,
   // still inside the 10–20% band asserted below).
-  assert.equal(tanks, 97, 'F12 roof tanks planted');
+  // Issue #278: F12 roof tanks 97 -> 96 (96/704 = 13.6%, one tank lot removed with its F12 lot).
+  assert.equal(tanks, 96, 'F12 roof tanks planted');
   assert.ok(tankLots / f12.length > 0.10 && tankLots / f12.length < 0.20,
     `tank share at its ~14% design point (${(tankLots / f12.length).toFixed(3)})`);
 });
@@ -138,7 +141,8 @@ test('taiwan108: strip-tile lots carry vertical signs, high-rise lots carry none
   // Issue #110: signed F13 2,323 -> 2,338 — more F13 lots in the renderer options, same sign rule.
   // Re-pinned for issue #258: signed F13 2,338 -> 2,597 (more F13
   // lots, same sign rule).
-  assert.equal(signed13, 2597, 'strip-tile lots carry vertical signs');
+  // Issue #278: signed F13 2,597 -> 2,590 (−7 — seven signed F13 lots removed with their F13 lots; same sign rule).
+  assert.equal(signed13, 2590, 'strip-tile lots carry vertical signs');
   assert.ok(f12.every((l) => taipeiVerticalSigns(l).length === 0), 'no high-rise lot carries a vertical sign');
 });
 
