@@ -483,6 +483,16 @@ test('issue #272: with the airfield site-ring exclusion, no tree stands on Songs
   // (1 street, 488 park); with the ring added: 0, with both
   // caps still filled — the rejected candidates' slots are
   // taken by later candidates outside the ring.
+  // Issue #273: re-pinned 488 -> 491 park trees before the
+  // exclusion. The Expo Dome registry site shifts the park
+  // planner's candidate sequence (its 66 site trees are
+  // excluded, so later candidates fill those slots), and 3 of
+  // the re-rolled trees land inside the airfield ring in this
+  // before-measurement — measured 491 on the #273 tree vs 488
+  // on pristine main, with the street count still 1, the
+  // after-measurement still 0 and both caps still filled.
+  // The exclusion itself is unchanged; only the before-count
+  // (a hash-placement census) moves with the exclusion set.
   const geo = TAIPEI_GEO;
   const plan = planTaipeiBuildings(geo);
   const beds = geo.roadbeds;
@@ -501,11 +511,54 @@ test('issue #272: with the airfield site-ring exclusion, no tree stands on Songs
   const beforeStreet = planStreetTrees(geo, plan, { exclusions: baseExclusions });
   const beforePark = planParkTrees(geo, plan, { exclusions: baseExclusions });
   assert.equal(inside(beforeStreet.trees).length, 1, 'street trees inside the site ring before the exclusion');
-  assert.equal(inside(beforePark.trees).length, 488, 'park trees inside the site ring before the exclusion');
+  assert.equal(inside(beforePark.trees).length, 491, 'park trees inside the site ring before the exclusion');
   const exclusions = [...baseExclusions, ...siteRings];
   const street = planStreetTrees(geo, plan, { exclusions });
   const park = planParkTrees(geo, plan, { exclusions });
   assert.equal(inside(street.trees).length + inside(park.trees).length, 0, 'no tree on the airfield site');
+  // The planting outside the site is untouched: both planners
+  // still fill their caps.
+  assert.equal(street.trees.length, 3000, 'street trees still at cap');
+  assert.equal(park.trees.length, 7500, 'park trees still at cap');
+});
+
+test('issue #273: with the Expo Dome registry site, no tree stands inside the bowl or under the canopy', () => {
+  // The Expo Dome sits in 圓山公園: before the registry entry,
+  // 66 park trees stood inside its site rect (mostly near the
+  // north edge, the canopy/plaza area) — a tree inside the bowl
+  // or under the folded canopy roof would read as a planting
+  // error. The park planner reads the registry sites from
+  // plan.landmarkTowers, so the site rect excludes them
+  // automatically once the entry exists; the street planner
+  // plants along roads and never put a tree inside the rect.
+  // Measured on this wiring with the #173 base exclusions
+  // (caps + roundabouts): 66 park trees inside the rect with
+  // the expo-dome entry filtered out of the plan, 0 with it
+  // in, with both caps still filled — the rejected candidates'
+  // slots are taken by later candidates outside the rect.
+  const geo = TAIPEI_GEO;
+  const plan = planTaipeiBuildings(geo);
+  const dome = plan.landmarkTowers.find((s) => s.id === 'expo-dome');
+  assert.ok(dome, 'Expo Dome in the registry');
+  assert.equal(dome.sites.length, 1, 'one site rect (bowl + canopy)');
+  const rect = dome.sites[0];
+  const inRect = (t) => t.x > rect.minX && t.x < rect.maxX && t.z > rect.minZ && t.z < rect.maxZ;
+  const beds = geo.roadbeds;
+  const junctions = detectJunctions(beds);
+  const sites = planRoundabouts(beds, junctions);
+  const caps = planJunctionCaps(beds, junctions, sites);
+  const baseExclusions = [
+    ...caps.flatMap((c) => [c.ring, ...(c.extras || []).map((ex) => ex.ring)]),
+    ...sites.flatMap((s) => [s.disc.ring, ...s.aprons.map((a) => a.ring)]),
+  ];
+  const planNoDome = { ...plan, landmarkTowers: plan.landmarkTowers.filter((s) => s.id !== 'expo-dome') };
+  const streetBefore = planStreetTrees(geo, planNoDome, { exclusions: baseExclusions });
+  const parkBefore = planParkTrees(geo, planNoDome, { exclusions: baseExclusions });
+  assert.equal(streetBefore.trees.filter(inRect).length, 0, 'street trees inside the site rect before the entry');
+  assert.equal(parkBefore.trees.filter(inRect).length, 66, 'park trees inside the site rect before the entry');
+  const street = planStreetTrees(geo, plan, { exclusions: baseExclusions });
+  const park = planParkTrees(geo, plan, { exclusions: baseExclusions });
+  assert.equal(street.trees.filter(inRect).length + park.trees.filter(inRect).length, 0, 'no tree inside the Expo Dome site');
   // The planting outside the site is untouched: both planners
   // still fill their caps.
   assert.equal(street.trees.length, 3000, 'street trees still at cap');

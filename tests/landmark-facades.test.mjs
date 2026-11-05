@@ -97,6 +97,9 @@ const EXPECTED_FACADES = {
   // masses, so both take the prewar grid (like the #166 campuses).
   'ntu-main-campus': 'prewar', // brick library + halls
   'ntnu-heping-campus': 'prewar', // pale stone halls + gym
+  // Issue #273: the Expo Dome — a white masonry bowl (like Tianmu
+  // Stadium), so prewar; the orange petal accent is the trim.
+  'expo-dome': 'prewar', // white bowl + orange petal trim
 };
 
 // The only Latin wordmarks a landmark sign may carry — the ones the

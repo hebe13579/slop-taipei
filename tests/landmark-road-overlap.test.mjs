@@ -2,9 +2,11 @@
 //
 // The user's rule is about the modelled footprint — the union of the
 // parts the landmark renderer actually builds (boxes at centre+dx/dz,
-// frustum/ridge plans centred on the axis, cylinders/domes as
-// ellipses; for Taipei 101 the podium rect, its widest part) —
-// against the rendered roadbed polygons: the per-segment butt-cap
+// frustum plans centred on the axis, ridge plans at centre+dx/dz
+// (issue #273: ridges honour dx/dz and rotY like boxes — pre-#273
+// ridges all sit at the anchor with rotY 0, so this changes nothing
+// for them), cylinders/domes as ellipses; for Taipei 101 the podium
+// rect, its widest part) — against the rendered roadbed polygons: the per-segment butt-cap
 // rectangles ribbonsGeometry draws for geo.roadbeds (half-width
 // max(width/2, 0.75)). Intersection is exact Sutherland–Hodgman
 // convex clipping; any part/segment pair over 0.05 m² fails.
@@ -38,7 +40,7 @@ function partPolygons(s) {
     const cx = s.x + (part.dx || 0), cz = s.z + (part.dz || 0);
     if (part.type === 'box') polys.push(rotRect(cx, cz, part.w, part.d, part.rotY || 0));
     else if (part.type === 'frustum') polys.push(rotRect(s.x, s.z, Math.max(part.wB, part.wT), Math.max(part.dB, part.dT), 0));
-    else if (part.type === 'ridge') polys.push(rotRect(s.x, s.z, part.w, part.d, 0));
+    else if (part.type === 'ridge') polys.push(rotRect(cx, cz, part.w, part.d, part.rotY || 0));
     else if (part.type === 'cylinder') polys.push(ellipsePoly(cx, cz, part.r, part.rz || part.r));
     else if (part.type === 'dome') polys.push(ellipsePoly(cx, cz, part.rx, part.rz));
   }

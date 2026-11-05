@@ -81,7 +81,8 @@ test('the four #289 structures are registered with the reference-pack facts', ()
   // structures: the Civic Plaza was already City Hall's `plaza`
   // exclusion, and Songshou was already a geodata park polygon.
   // Issue #258: 47 -> 49 — the south expansion adds 2 net entries (NTU main campus, NTNU Heping campus).
-  assert.equal(plan.landmarkTowers.length, 49, '43 + 4 new structures');
+  // Issue #273: 49 -> 50 — the Expo Dome adds 1 net entry (爭艷館).
+  assert.equal(plan.landmarkTowers.length, 50, '43 + 4 new structures');
 });
 
 test('plan census: four new sites displace only their own lots', () => {

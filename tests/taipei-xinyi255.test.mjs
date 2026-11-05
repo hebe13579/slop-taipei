@@ -75,7 +75,8 @@ test('the five #255 structures are registered with the reference-pack facts', ()
   // base, so 39 + 4 new structures = 43. The four new sites are
   // unchanged (Hall 1, Hyatt, ATT, Bellavita).
   // Issue #258: re-pinned 47 -> 49 — the south expansion adds 2 net entries (NTU main campus, NTNU Heping campus).
-  assert.equal(plan.landmarkTowers.length, 49, '43 + 4 new structures (#289)');
+  // Issue #273: re-pinned 49 -> 50 — the Expo Dome adds 1 net entry (爭艷館).
+  assert.equal(plan.landmarkTowers.length, 50, '43 + 4 new structures (#289)');
 });
 
 test('Grand Hyatt south porte-cochere has columns + canopy as geometry (#294)', () => {
@@ -296,5 +297,6 @@ test('plan census: four new sites displace only their own lots', () => {
   // Gate 2026-10-30: re-pinned 42 -> 43, same reason as above — main's
   // registry is 39 after #257 (museum), + 4 new structures.
   // Issue #258: re-pinned 47 -> 49 — the south expansion adds 2 net entries (NTU main campus, NTNU Heping campus).
-  assert.equal(plan.landmarkTowers.length, 49);
+  // Issue #273: re-pinned 49 -> 50 — the Expo Dome adds 1 net entry (爭艷館).
+  assert.equal(plan.landmarkTowers.length, 50);
 });

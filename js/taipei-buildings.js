@@ -536,6 +536,76 @@ function tianmuStadiumParts() {
   return parts;
 }
 
+// Expo Dome 爭艷館 (issue #273): the former Chungshan Soccer
+// Stadium (中山足球場, built 1989 over the 1923 圓山運動場), renamed
+// Expo Dome for the 2010 Taipei International Flora Exposition, now
+// an exhibition hall in Taipei Expo Park's Yuanshan Park area. Siting
+// measured from Esri z18 satellite (0.541 m/px) via latLonToTile:
+// the bowl is a rounded-rectangle/oval ~193 m E-W × ~204 m N-S,
+// centre tile (-4415, -4048); the main hall's light-grey roof is
+// ~73 × 137 m, centre ~14 m west of the bowl centre; the entrance
+// canopy's white folded roof is ~158 × 45 m, centre ~128 m north
+// of the bowl centre. The published 184 × 300 m figure (Wikipedia)
+// does NOT match the satellite — the 300 m includes the plaza
+// approach, not the bowl — so the satellite measurement governs.
+// Heights are photo-based estimates (no published metric figure):
+// the bowl rim sits just above the ~10 m tree canopy (rim 14 m),
+// the single-storey hall is 10 m, and the folded canopy roof peaks
+// at 17 m (eave 11 m + 6 m fold).
+function expoDomeParts() {
+  const parts = [
+    // Main exhibition hall: light-grey flat roof, shrunk from the
+    // measured 73 × 137 m to 68 × 118 m so its corners stay inside
+    // the bowl's interior opening (the real hall's corners tuck
+    // under the stands).
+    { type: 'box', w: 68, d: 118, h: 10, dx: -10, dz: -4, flat: 0xb7c2b5 },
+    // Courtyard: the tan open ground east of the hall, a flat slab
+    // that slides under the stands at its east edge.
+    { type: 'box', w: 40, d: 100, h: 0.3, y0: 0.02, dx: 38, dz: -4, flat: 0xc2a06b },
+  ];
+  const seg = (a, b, h, d, w, phiDeg, flat, y0 = 0) => {
+    const phi = (phiDeg * Math.PI) / 180;
+    // Ellipse tangent direction (map angle) -> authored rotY.
+    const alphaT = Math.atan2(b * Math.cos(phi), -a * Math.sin(phi));
+    parts.push({ type: 'box', w, d, h, y0, dx: a * Math.cos(phi), dz: -b * Math.sin(phi), rotY: -alphaT, flat });
+  };
+  // Bowl ring: two stepped tiers wrapping the full ellipse (the
+  // real bowl is a complete ring — the grandstands wrap all four
+  // sides), plus a thin railing band on the rim (the traditional
+  // Chinese railing in the photos, white like the bowl).
+  for (let phi = 0; phi < 360; phi += 15) {
+    seg(82, 86, 7, 12, 22, phi, 0xe8e4da);
+    seg(92, 98, 13, 12, 24, phi, 0xefece4);
+    seg(96, 101, 1, 2.5, 24, phi, 0xf7f5ef, 13);
+  }
+  // Entrance canopy: six folded-roof ridges side by side along
+  // E-W (rotY = π/2 turns each ridge to run N-S, slopes facing
+  // E/W, giving the folded zigzag profile 11 → 17 → 11 … along
+  // E-W), plus thin steel columns at the seven eave lines so
+  // the roof does not float. Six folds (not four): the Esri
+  // satellite shows ~6 fold bands across the 160 m roof, and
+  // the narrower folds (26.7 m vs 40 m) steepen the slopes
+  // 17° → 24°, so the folds read from above as alternating
+  // light/dark bands like the satellite; alternate ridges
+  // carry a slightly darker grey to reinforce the banding.
+  // Ridges honour dx/dz and rotY here (issue #273: the
+  // renderer + the #42 overlap audit were extended for
+  // offset/rotated ridges — pre-#273 ridges all sit at the
+  // anchor with rotY 0, so nothing else moves).
+  const foldW = 160 / 6;
+  for (let i = 0; i < 6; i++) {
+    const dx = -64 + foldW * (i + 0.5);
+    parts.push({ type: 'ridge', w: 46, d: foldW, h: 0, ridgeH: 6, y0: 11, dx, dz: -128, rotY: Math.PI / 2, flat: i % 2 === 0 ? 0xd8dde2 : 0xb0bac4 });
+  }
+  for (let i = 0; i <= 6; i++) {
+    const dx = -64 + foldW * i;
+    for (const dz of [-149, -106]) {
+      parts.push({ type: 'box', w: 1.2, d: 1.2, h: 11, dx, dz, flat: 0x8f979e });
+    }
+  }
+  return parts;
+}
+
 const LANDMARK_STRUCTURES = [
   {
     // 272 m, 48F, completed 2018 (Wikipedia / CTBUH). Dark tapered
@@ -3124,6 +3194,32 @@ const LANDMARK_STRUCTURES = [
     site: { w: 190, d: 172, dx: 42, dz: -18 },
     facade: { kind: 'prewar', stoneColor: 0xcfc8bb, trimColor: 0xa9a294, windowGlassColor: 0x2e3a46, windowWidth: 4.5, floorHeight: 4.2, litProbability: 0.15, warmth: 0.5, seed: 57.42 },
     parts: tianmuStadiumParts(),
+  },
+  {
+    // Expo Dome 爭艷館 (issue #273) — the former Chungshan Soccer
+    // Stadium (中山足球場, built 1989 over the 1923 圓山運動場),
+    // renamed Expo Dome for the 2010 Taipei International Flora
+    // Exposition, now an exhibition hall in Taipei Expo Park's
+    // Yuanshan Park area, a 1-minute walk from MRT Yuanshan
+    // Station. Siting measured from Esri z18 satellite (0.541
+    // m/px) via latLonToTile — the measurement log is in
+    // expoDomeParts() above. Heights are photo-based estimates
+    // (no published metric figure): bowl rim 14 m, hall 10 m,
+    // canopy peak 17 m. The site rect covers bowl + entrance
+    // canopy; 0 lots inside it and no roadbed within 12 m of
+    // its edges (玉門街 15.7 m west of the bowl, 民族西路 31.2 m
+    // south), so the plan moves no lots. No farParts (like
+    // Tianmu Stadium): the bowl is 48 segmented tier boxes and
+    // the far test requires every storey-mass part to survive
+    // into the far version exactly, so a merged far silhouette
+    // would be an invention, not a simplification — and
+    // landmarks are exempt from the far fade anyway, so the
+    // dome keeps full detail at any distance.
+    id: 'expo-dome', name: 'Expo Dome', nameZh: '爭艷館',
+    lat: 25.06954, lon: 121.52125, realHeight: 17, estimated: true, color: 0xefece4,
+    site: { w: 200, d: 260, dx: 1, dz: -24 },
+    facade: { kind: 'prewar', stoneColor: 0xefece4, trimColor: 0xd86a2c, windowGlassColor: 0x2e3a46, windowWidth: 4, floorHeight: 4.5, litProbability: 0.15, warmth: 0.5, seed: 57.46 },
+    parts: expoDomeParts(),
   },
   {
     // Shipai Junior High School — the eastern of the two Shipai
@@ -8344,7 +8440,12 @@ export function createTaipeiLandmarkTowers(THREE, plan, factories) {
         mesh.position.set(s.x, y0, s.z);
       } else if (part.type === 'ridge') {
         mesh = new THREE.Mesh(ridgeGeometry(THREE, part), partMaterial(part, true));
-        mesh.position.set(s.x, y0, s.z);
+        mesh.position.set(s.x + (part.dx || 0), y0, s.z + (part.dz || 0));
+        // Issue #273: ridges honour dx/dz and rotY like boxes
+        // (the Expo Dome's entrance canopy is four offset,
+        // N-S folded ridges). All pre-#273 ridges sit at the
+        // anchor with rotY 0, so this changes nothing for them.
+        if (part.rotY) mesh.rotation.y = -part.rotY;
       } else if (part.type === 'wheel') {
         // Ferris wheel (issue #186, Miramar): authored as y0 = the
         // wheel's bottom elevation and h = its diameter, so the
