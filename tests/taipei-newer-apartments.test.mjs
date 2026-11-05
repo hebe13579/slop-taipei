@@ -51,8 +51,9 @@ test('newer apartments: census pins — both families planted, glass untouched',
   // this is a census re-pin, not a moved city.
   // Issue #110: F10 272 -> 274 (+2) — the re-seated lots re-roll the newer-apartment families (2 more lots land in F10).
   // Issue #258: F10 274 -> 303 (+29), F11 220 -> 242 (+22) — the south expansion's 40 m+ lots take the newer-apartment families at their seeded shares.
+  // Issue #278: F10 untouched (303); F11 242 -> 241 (−1 — one F11 lot removed by the VGH site; lot-by-lot diff on this tree).
   assert.equal(fam[10], 303, 'modern slab family planted in the hundreds');
-  assert.equal(fam[11], 242, 'neoclassical stone family planted in the hundreds');
+  assert.equal(fam[11], 241, 'neoclassical stone family planted in the hundreds');
   // Issue #255 gate: the 4 new sites exclude 32 lots; the removed
   // lots' families (lot-by-lot vs pristine main, diff265.mjs) are
   // 0:2, 1:2, 2:3, 3:2, 4:2, 5:3, 6:5, 7:1, 8:6, 9:6 — and the
@@ -95,23 +96,24 @@ test('newer apartments: census pins — both families planted, glass untouched',
   // pre-#108 formulas.
   // Issue #110: F6 10,672 -> 10,652 (-20) — the re-seated lots re-roll the renderer-options families.
   // Issue #258: the south expansion's new lots take their seeded Taiwan/glass shares — F6 10,652 -> 11,902 (+1,250), F8 9,484 -> 10,594 (+1,110), F9 7,243 -> 8,009 (+766), F7 10,037 -> 11,231 (+1,194), F12 609 -> 705 (+96), F13 4,377 -> 4,863 (+486), glass F3 5,126 -> 5,665 (+539), F4 1,062 -> 1,164 (+102), F5 999 -> 1,097 (+98).
-  assert.equal(fam[6], 11902, 'tile shophouse gives up its seeded share');
+  // Issue #278: the 3 registry sites exclude 158 lots net; the removed lots' families (lot-by-lot diff on this tree) are 0:15, 1:12, 2:8, 3:8, 5:2, 6:25, 7:22, 8:35, 9:19, 11:1, 12:1, 13:11, plus 1 added F0 re-seat and 2 kept lots re-rolling into glass (F7->F3, F8->F3) — so F6 −25, F8 −36, F9 −19, F7 −23, F12 −1, F13 −11, F3 −6, F5 −2, F4 0, F10 0, F11 −1.
+  assert.equal(fam[6], 11877, 'tile shophouse gives up its seeded share');
   // Issue #110: F8 9,476 -> 9,484 (+8).
-  assert.equal(fam[8], 10594, 'walk-up slab gives up its seeded share');
+  assert.equal(fam[8], 10558, 'walk-up slab gives up its seeded share');
   // Issue #110: F9 7,249 -> 7,243 (-6).
-  assert.equal(fam[9], 8009, 'pebble-dash gives up its seeded share');
+  assert.equal(fam[9], 7990, 'pebble-dash gives up its seeded share');
   // Issue #110: F7 10,038 -> 10,037 (-1).
-  assert.equal(fam[7], 11231, 'arcade family: #256 never consults it, but #17 slice 2 assigns it the low-band share');
+  assert.equal(fam[7], 11208, 'arcade family: #256 never consults it, but #17 slice 2 assigns it the low-band share');
   // Issue #110: F12 606 -> 609 (+3) — same delta as the taiwan108 test.
-  assert.equal(fam[12], 705, 'high-rise residential planted in the hundreds');
+  assert.equal(fam[12], 704, 'high-rise residential planted in the hundreds');
   // Issue #110: F13 4,358 -> 4,377 (+19) — same delta as the taiwan108 test.
-  assert.equal(fam[13], 4863, 'strip-tile mid-rise planted in the thousands');
+  assert.equal(fam[13], 4852, 'strip-tile mid-rise planted in the thousands');
   // Issue #110: glass F3 5,127 -> 5,126 (-1) — the re-seated lots re-roll the glass accent.
-  assert.equal(fam[3], 5665, 'glass family 3 untouched — the accent roll runs first');
+  assert.equal(fam[3], 5659, 'glass family 3 untouched — the accent roll runs first');
   // Issue #110: glass F4 1,061 -> 1,062 (+1).
   assert.equal(fam[4], 1164, 'glass family 4 untouched');
   // Issue #110: glass F5 1,003 -> 999 (-4).
-  assert.equal(fam[5], 1097, 'glass family 5 untouched');
+  assert.equal(fam[5], 1095, 'glass family 5 untouched');
   t.diagnostic(`families: ${JSON.stringify(fam)}`);
 });
 
