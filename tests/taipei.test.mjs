@@ -635,6 +635,13 @@ test('landmark structures: true positions and heights, sites kept clear', (t) =>
     // Positions are the resolved registry pins.
     'ntu-main-campus': { h: 28, x: -2567.5, z: 1787.9 },
     'ntnu-heping-campus': { h: 30, x: -3874.4, z: 806.4 },
+    // Issue #273: the Expo Dome 爭艷館 — 17 m is ESTIMATED from
+    // photographs (the folded canopy roof peaks ~20% above the 14 m
+    // bowl rim; no published metric height found) and flagged as
+    // such in the registry. Position is the satellite-measured bowl
+    // centre (Esri z18 via latLonToTile), ~16 m ESE of the published
+    // coordinate (25.06944, 121.52111) — see the registry comment.
+    'expo-dome': { h: 17, x: -4415.4, z: -4047.7 },
   };
   assert.equal(plan.landmarkTowers.length, Object.keys(expected).length, 'all verified structures present');
   const partTop = (p) => (p.y0 || 0) + p.h + (p.type === 'ridge' ? p.ridgeH : 0);
@@ -804,6 +811,9 @@ test('landmark batch 3: two-slab Cathay rebuild, W, Songshan, Eslite, Arena', ()
     // levels 4 + the roof stack in the registry), flagged the
     // same way. (Miramar's 100 m wheel apex IS published, so it
     // is not in the exclusion list.)
+    // Issue #273 adds the Expo Dome: its 17 m is a photo-based
+    // estimate (no published metric height found), flagged the
+    // same way.
     if (s.id !== 'eslite-spectrum-songyan' && s.id !== 'taipei-arena'
       && s.id !== 'national-concert-hall' && s.id !== 'national-theater'
       && s.id !== 'beimen'
@@ -814,7 +824,8 @@ test('landmark batch 3: two-slab Cathay rebuild, W, Songshan, Eslite, Arena', ()
       && s.id !== 'jianguo-high-school' && s.id !== 'national-palace-museum'
       && s.id !== 'twtc-exhibition-hall-1' && s.id !== 'att-4-fun'
       && s.id !== 'bellavita' && s.id !== 'vieshow-cinemas-xinyi'
-      && s.id !== 'ntu-main-campus' && s.id !== 'ntnu-heping-campus') {
+      && s.id !== 'ntu-main-campus' && s.id !== 'ntnu-heping-campus'
+      && s.id !== 'expo-dome') {
       assert.equal(s.estimated, false, `${s.id} height is published, not estimated`);
     }
   }
