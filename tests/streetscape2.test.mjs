@@ -564,3 +564,53 @@ test('issue #273: with the Expo Dome registry site, no tree stands inside the bo
   assert.equal(street.trees.length, 3000, 'street trees still at cap');
   assert.equal(park.trees.length, 7500, 'park trees still at cap');
 });
+
+test('issue #278: the three new registry sites carry no park trees and no tree inside a building footprint', () => {
+  // The planetarium ring and the VGH campus are paved / built ground:
+  // 0 street and 0 park trees stand inside either site rect before
+  // the entries, and 0 after. The NTSEC rect carries 1 street tree
+  // before AND after: it stands on the 文昌路 sidewalk at the rect's
+  // east edge (10.3 m from the centreline, roadbed edge 9.6 m),
+  // outside the drum (ellipse value 1.77) and outside the slab — a
+  // legitimate street tree on a public road, not a planting error.
+  // The street planner does not exclude registry sites (it excludes
+  // only the tower site, lots, parks/water and carriageways), so the
+  // tree stays by design; the park planner does exclude registry
+  // sites and plants 0 inside any of the three rects.
+  // Measured on this wiring with the #173 base exclusions
+  // (caps + roundabouts): planetarium 0/0, NTSEC 1 street / 0 park,
+  // VGH 0/0 before; the same after, with both caps still filled.
+  const geo = TAIPEI_GEO;
+  const plan = planTaipeiBuildings(geo);
+  const beds = geo.roadbeds;
+  const junctions = detectJunctions(beds);
+  const sites = planRoundabouts(beds, junctions);
+  const caps = planJunctionCaps(beds, junctions, sites);
+  const baseExclusions = [
+    ...caps.flatMap((c) => [c.ring, ...(c.extras || []).map((ex) => ex.ring)]),
+    ...sites.flatMap((s) => [s.disc.ring, ...s.aprons.map((a) => a.ring)]),
+  ];
+  const expected = {
+    'taipei-astronomical-museum': { street: 0, park: 0 },
+    ntsec: { street: 1, park: 0 },
+    'taipei-veterans-general-hospital': { street: 0, park: 0 },
+  };
+  for (const [id, want] of Object.entries(expected)) {
+    const entry = plan.landmarkTowers.find((s) => s.id === id);
+    assert.ok(entry, `${id} in the registry`);
+    assert.equal(entry.sites.length, 1, `${id} has one site rect`);
+    const rect = entry.sites[0];
+    const inRect = (t) => t.x > rect.minX && t.x < rect.maxX && t.z > rect.minZ && t.z < rect.maxZ;
+    const planNo = { ...plan, landmarkTowers: plan.landmarkTowers.filter((s) => s.id !== id) };
+    const streetBefore = planStreetTrees(geo, planNo, { exclusions: baseExclusions });
+    const parkBefore = planParkTrees(geo, planNo, { exclusions: baseExclusions });
+    assert.equal(streetBefore.trees.filter(inRect).length, want.street, `${id} street trees inside the site rect before the entry`);
+    assert.equal(parkBefore.trees.filter(inRect).length, want.park, `${id} park trees inside the site rect before the entry`);
+    const street = planStreetTrees(geo, plan, { exclusions: baseExclusions });
+    const park = planParkTrees(geo, plan, { exclusions: baseExclusions });
+    assert.equal(street.trees.filter(inRect).length, want.street, `${id} street trees inside the site rect after the entry`);
+    assert.equal(park.trees.filter(inRect).length, want.park, `${id} park trees inside the site rect after the entry`);
+    assert.equal(street.trees.length, 3000, `${id} street trees still at cap`);
+    assert.equal(park.trees.length, 7500, `${id} park trees still at cap`);
+  }
+});

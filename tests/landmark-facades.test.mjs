@@ -100,6 +100,14 @@ const EXPECTED_FACADES = {
   // Issue #273: the Expo Dome — a white masonry bowl (like Tianmu
   // Stadium), so prewar; the orange petal accent is the trim.
   'expo-dome': 'prewar', // white bowl + orange petal trim
+  // Issue #278: the Shilin/Shipai three — the planetarium's white
+  // masonry ring, the NTSEC's grey-tiled drum and the VGH's white
+  // concrete hospital masses are all masonry, so all three take the
+  // prewar grid (the gold dome, the glass atrium and the NTSEC's
+  // grey drum are flat/part-facade overrides).
+  'taipei-astronomical-museum': 'prewar', // white masonry ring
+  'ntsec': 'prewar', // grey-tiled drum + slab
+  'taipei-veterans-general-hospital': 'prewar', // white concrete hospital
 };
 
 // The only Latin wordmarks a landmark sign may carry — the ones the
@@ -133,6 +141,12 @@ const EXPECTED_SIGNS = {
   // Issue #289: the VieShow marquee — the big movie-advertisement
   // board on the south face, a real wordmark the cinema carries.
   'vieshow-cinemas-xinyi': { text: 'VIESHOW' },
+  // Issue #278: the planetarium's red 天文館 roof sign (3 abstract
+  // glyph blocks) and the NTSEC's 'NTSEC' wordmark — both are real
+  // signs the buildings carry. (VGH has no sign: its vertical
+  // 臺北榮民總醫院 tower sign has no horizontal equivalent.)
+  'taipei-astronomical-museum': { glyphs: 3 },
+  'ntsec': { text: 'NTSEC' },
 };
 
 test('every landmark resolves its pinned facade treatment', () => {

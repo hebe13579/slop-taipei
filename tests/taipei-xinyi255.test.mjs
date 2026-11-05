@@ -76,7 +76,8 @@ test('the five #255 structures are registered with the reference-pack facts', ()
   // unchanged (Hall 1, Hyatt, ATT, Bellavita).
   // Issue #258: re-pinned 47 -> 49 — the south expansion adds 2 net entries (NTU main campus, NTNU Heping campus).
   // Issue #273: re-pinned 49 -> 50 — the Expo Dome adds 1 net entry (爭艷館).
-  assert.equal(plan.landmarkTowers.length, 50, '43 + 4 new structures (#289)');
+  // Issue #278: re-pinned 50 -> 53 — the planetarium, NTSEC and VGH add 3 net entries.
+  assert.equal(plan.landmarkTowers.length, 53, '43 + 4 new structures (#289)');
 });
 
 test('Grand Hyatt south porte-cochere has columns + canopy as geometry (#294)', () => {
@@ -293,10 +294,11 @@ test('plan census: four new sites displace only their own lots', () => {
   // reproduces 68,570 — the delta is the sites only).
   // Issue #110: plan 68,482 -> 68,472 — 23 bridge links re-admitted + 71 bed-end fusions re-seat 1,282 lots near the changed roadbeds (net -10).
   // Issue #258: plan 68,472 -> 76,367 (+7,895) — the south expansion (see the schools test for the full lot-diff decomposition).
-  assert.equal(plan.lots.length, 76367, 'lot count re-pinned for the four new sites (#289: 68,538 − 56 site-excluded lots net)');
+  assert.equal(plan.lots.length, 76209, 'lot count re-pinned for the four new sites (#289: 68,538 − 56 site-excluded lots net; #278: 76,367 − 158 site-excluded lots net — the 3 registry sites exclude 160 lots: 153 by body-overlap in the rects, 5 edge drops just outside them, 2 re-seats net 0 — and add 2 re-seats; lot-by-lot diff on this tree)');
   // Gate 2026-10-30: re-pinned 42 -> 43, same reason as above — main's
   // registry is 39 after #257 (museum), + 4 new structures.
   // Issue #258: re-pinned 47 -> 49 — the south expansion adds 2 net entries (NTU main campus, NTNU Heping campus).
   // Issue #273: re-pinned 49 -> 50 — the Expo Dome adds 1 net entry (爭艷館).
-  assert.equal(plan.landmarkTowers.length, 50);
+  // Issue #278: re-pinned 50 -> 53 — the planetarium, NTSEC and VGH add 3 net entries.
+  assert.equal(plan.landmarkTowers.length, 53);
 });

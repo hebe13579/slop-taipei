@@ -37,7 +37,7 @@ test('newer apartments: census pins — both families planted, glass untouched',
   const { plan, opts } = planAndOpts();
   // Issue #110: plan 68,482 -> 68,472 — 23 bridge links re-admitted + 71 bed-end fusions re-seat 1,282 lots near the changed roadbeds (net -10).
   // Issue #258: plan 68,472 -> 76,367 (+7,895) — the south expansion; the new lots take their seeded family shares (see the family re-pins below).
-  assert.equal(plan.lots.length, 76367, 'the rule moves families only — the lot count is the composed plan (issue #255 gate: 68,570 − 32 site-excluded lots; issue #289 gate: 68,538 − 56 site-excluded lots net)');
+  assert.equal(plan.lots.length, 76209, 'the rule moves families only — the lot count is the composed plan (issue #255 gate: 68,570 − 32 site-excluded lots; issue #289 gate: 68,538 − 56 site-excluded lots net; issue #278 gate: 76,367 − 158 site-excluded lots net)');
   const fam = {};
   for (const l of opts.lots) fam[l.mat] = (fam[l.mat] || 0) + 1;
   // Pinned at the #256 gate on the composed tree: 492 tall-Taiwan lots
