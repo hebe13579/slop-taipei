@@ -17,6 +17,7 @@ import { drapeHeight, drapeEnabled, setDrapeEnabled, DRAPE_RECTS, DRAPE_FEATHER,
 import { buildMrtStationGeometry, buildMrtDepotGeometry } from './taipei-mrt-stations.js';
 import { buildBridgeGeometry } from './taipei-bridges.js';
 import { skybridgeChainSlices } from './taipei-skybridges.js';
+import { planDifangWalls, buildDifangWallGeometry, difangChainSlices } from './taipei-difang.js';
 import { buildTerrainSkinGeometry } from './taipei-terrain.js';
 import { buildGreenTintLayers, buildLoopTintLayers, consumeGreenFamilyOverlaps, GREEN_TINT_Y } from './taipei-green.js';
 import { unionExclusionRects, clipRectToBoxes } from './taipei-union.js';
@@ -312,6 +313,37 @@ function buildSkybridgeMeshes(geo) {
   });
   group.userData.chains = g.slices.length;
   group.userData.supports = g.supports.length;
+  group.userData.despawn = entries;
+  return group;
+}
+
+// 堤防 flood walls (issue #271): one vertex-coloured mesh per chain,
+// the skybridge idiom, so each chain despawns on its own when far.
+// Added via addSpecial, so the Special buildings gear toggles the
+// walls and the per-frame update despawns them past DESPAWN_FAR_M.
+function buildDifangWallMeshes(geo, opts = {}) {
+  const { chains, stats } = planDifangWalls(geo);
+  const g = difangChainSlices(chains, buildDifangWallGeometry(chains, opts));
+  if (!g.triCount) return null;
+  const group = new THREE.Group();
+  group.name = 'TaipeiDifang';
+  const material = new THREE.MeshStandardNodeMaterial({ vertexColors: true, roughness: 0.9, metalness: 0.0 });
+  const entries = [];
+  g.slices.forEach((slice, i) => {
+    const bgeo = new THREE.BufferGeometry();
+    bgeo.setAttribute('position', new THREE.BufferAttribute(slice.positions, 3));
+    bgeo.setAttribute('normal', new THREE.BufferAttribute(slice.normals, 3));
+    bgeo.setAttribute('color', new THREE.BufferAttribute(slice.colors, 3));
+    const mesh = new THREE.Mesh(bgeo, material);
+    mesh.name = `TaipeiDifang-${i}`;
+    mesh.castShadow = true;
+    mesh.receiveShadow = true;
+    group.add(mesh);
+    entries.push({ mesh, x: slice.cx, z: slice.cz, shown: true });
+  });
+  group.userData.chains = g.slices.length;
+  group.userData.totalLengthM = stats.totalLengthM;
+  group.userData.byRiver = stats.byRiver;
   group.userData.despawn = entries;
   return group;
 }
@@ -1991,6 +2023,14 @@ export async function buildTaipeiGround(scene, tile, deps = {}) {
     // entries (userData.schoolLod); the per-frame facade update below
     // swaps far campuses to their low-poly trees.
     schoolLodGroup = siteStructures;
+  }
+  // Issue #271: 堤防 flood walls along the riverbanks. A special, so
+  // the Special buildings gear toggles them and the per-frame update
+  // despawns each chain when far.
+  const difangGroup = buildDifangWallMeshes(geo, { groundAt: drapeHeight });
+  if (difangGroup) {
+    addSpecial(difangGroup);
+    console.info(`[taipei-difang] ${difangGroup.userData.chains} wall chains, ${(difangGroup.userData.totalLengthM / 1000).toFixed(1)} km (${Object.entries(difangGroup.userData.byRiver).map(([r, s]) => `${r} ${(s.lengthM / 1000).toFixed(1)} km`).join(', ')})`);
   }
   console.info(`[taipei-buildings] ${plan.lots.length} buildings via upstream building system + Taipei 101 massing (508 m) + ${plan.landmarkTowers.length} landmark structures planned in ${Math.round(performance.now() - buildingsStart)}ms`);
   await completeStage('buildings', `${plan.lots.length} buildings, ${plan.landmarkTowers.length} landmark structures + Taipei 101`);
