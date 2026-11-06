@@ -185,6 +185,7 @@ test('generation is deterministic and the plan counts are pinned', () => {
   assert.equal(plan.lots.length, 76260); // re-pinned for #326: 76,209 -> 76,260 (+51 net: 127 added, 76 removed — lot diff in ntsec326-evidence/lotdiff326.log)
   assert.equal(plan.stats.blocksSkippedSchool, 292);
   // Issue #258: lotsDroppedSchool 3,327 -> 4,267 (+940) — the 37 new south grounds exclude their campus lots.
-  assert.equal(plan.stats.lotsDroppedSchool, 4267);
-  assert.equal(plan.stats.lotsDroppedSchool, 4267);
+  // Issue #326: lotsDroppedSchool 4,267 -> 4,255 (−12) — the re-site frees lots the old (wrong) rects excluded, so 12 fewer lots are dropped on school land; measured on this tree.
+  assert.equal(plan.stats.lotsDroppedSchool, 4255);
+  assert.equal(plan.stats.lotsDroppedSchool, 4255);
 });
