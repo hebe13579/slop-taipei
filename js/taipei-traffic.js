@@ -1,5 +1,6 @@
 import { TAIPEI_GEO } from './taipei-sandbox.js'; // sandbox wrapper: the generated geo, filtered when ?sandbox= is set, untouched otherwise
 import { ASPHALT_LIFT } from './taipei-viaduct.js'; // three-free geometry constants; the sampler below reuses the digest the renderer draws
+import { ROAD_TRENCH_DEPTH_M } from './taipei-airfield.js'; // issue #279: the #196 trench datum the underpass floor agrees with
 
 // js/taipei-traffic.js — issue #210 EXPERIMENT: traffic generation for the Taipei tile.
 //
@@ -212,6 +213,175 @@ function deckEdgeProfile(sampler, edge, ax, az, bx, bz) {
   return { step: len / n, len, values };
 }
 
+// ------------------------------------------------------------------
+// Issue #279: underpass depths, the downward mirror of #254. The
+// rendered underpass geometry is the #196 portal trenches:
+// geodata.airfield.roadTunnels carries one tunnel (復北地下道)
+// with its runs (the bore), its mouths (the portal faces) and the
+// approach cuts (the open trenches whose floors ramp from grade at
+// the cut end to ROAD_TRENCH_DEPTH_M below grade at the face).
+// Cars sample the trench, not a new height table: the depth at a
+// point is a function of its arc position along the tunnel axis
+// (cut ramp -> bore floor -> cut ramp), so a profile is continuous
+// across the shared nodes where an approach edge meets a tunnel
+// edge — the ground and the tunnel join where the ramp meets
+// grade, exactly as a deck ramp joins the street at its foot
+// (#254). Only edges that run along a rendered trench get a
+// profile: the other OSM tunnels (自強隧道, 象山隧道, the 車行地下道s)
+// have no rendered trench to follow, and inventing a depth would
+// bury cars under the flat-rendered road. They stay flat, as
+// today — a disclosed limitation, not a defect this issue can fix
+// without a tile-geometry change.
+// ------------------------------------------------------------------
+const UNDERPASS_SAMPLE_STEP = 4; // m; the north cut ramps 5.35 m over 30 m (17.8%), so an 8 m sample would jump 1.43 m — inside the 1.5 m link-shape bound but with almost no margin
+const UNDERPASS_COVERAGE_MIN = 0.4; // fraction of an edge's samples inside the trench corridor
+const UNDERPASS_ALIGN_MIN = 0.7; // |dot| of the edge chord with the tunnel axis — a road crossing over the tunnel scores ~0
+const underpassSamplerCache = new WeakMap();
+
+function underpassSampler(airfield) {
+  const tunnels = (airfield && airfield.roadTunnels) || [];
+  if (!tunnels.length) return null;
+  const hit = underpassSamplerCache.get(airfield);
+  if (hit) return hit;
+  // One axis per tunnel: the approach-cut end, the bore (run
+  // polyline), the far approach-cut end. Mouths match the run
+  // endpoints by proximity; each mouth's cut.lenM is its ramp.
+  const built = [];
+  for (const t of tunnels) {
+    const runs = t.runs || [];
+    if (!runs.length) continue;
+    const run = runs[0];
+    if (run.length < 4) continue;
+    const faceA = [run[0], run[1]];
+    const faceB = [run[run.length - 2], run[run.length - 1]];
+    const mouthAt = (p) => {
+      let best = null, bd = Infinity;
+      for (const m of t.mouths || []) {
+        const d = Math.hypot(m.x - p[0], m.z - p[1]);
+        if (d < bd) { bd = d; best = m; }
+      }
+      return best;
+    };
+    const mA = mouthAt(faceA), mB = mouthAt(faceB);
+    if (!mA || !mB || !mA.cut || !mB.cut) continue;
+    const cutAEnd = [mA.cut.pts[mA.cut.pts.length - 2], mA.cut.pts[mA.cut.pts.length - 1]];
+    const cutBEnd = [mB.cut.pts[mB.cut.pts.length - 2], mB.cut.pts[mB.cut.pts.length - 1]];
+    const axis = [cutAEnd];
+    for (let i = 0; i + 1 < run.length; i += 2) axis.push([run[i], run[i + 1]]);
+    axis.push(cutBEnd);
+    const segLens = [];
+    for (let i = 0; i + 1 < axis.length; i++) segLens.push(Math.hypot(axis[i + 1][0] - axis[i][0], axis[i + 1][1] - axis[i][1]));
+    const total = segLens.reduce((a, b) => a + b, 0);
+    if (!(total > 0)) continue;
+    const cutA = mA.cut.lenM, cutB = mB.cut.lenM;
+    const boreLen = total - cutA - cutB;
+    const half = (t.width || 0) / 2 + 1.5;
+    const dir = [(axis[axis.length - 1][0] - axis[0][0]) / total, (axis[axis.length - 1][1] - axis[0][1]) / total];
+    // Project (x, z) onto the axis. The end segments extend as rays
+    // so points past a cut end get a negative / over-total arc (and
+    // therefore depth 0) instead of clamping onto the face.
+    const project = (x, z) => {
+      let best = null;
+      let arc0 = 0;
+      for (let i = 0; i + 1 < axis.length; i++) {
+        const ax = axis[i][0], az = axis[i][1];
+        const dx = axis[i + 1][0] - ax, dz = axis[i + 1][1] - az;
+        const L = segLens[i];
+        let tt = L ? ((x - ax) * dx + (z - az) * dz) / (L * L) : 0;
+        if (i > 0 && tt < 0) { arc0 += L; continue; }
+        if (i + 2 < axis.length && tt > 1) { arc0 += L; continue; }
+        const cx = ax + dx * tt, cz = az + dz * tt;
+        const d = Math.hypot(x - cx, z - cz);
+        if (!best || d < best.d) best = { d, arc: arc0 + tt * L };
+        arc0 += L;
+      }
+      return best;
+    };
+    const depthFromArc = (arc) => {
+      if (arc < 0 || arc > total) return 0;
+      if (arc < cutA) return -ROAD_TRENCH_DEPTH_M * (arc / cutA);
+      if (arc <= cutA + boreLen) return -ROAD_TRENCH_DEPTH_M;
+      return -ROAD_TRENCH_DEPTH_M * (1 - (arc - cutA - boreLen) / cutB);
+    };
+    built.push({
+      depthAt(x, z) {
+        const p = project(x, z);
+        if (!p || p.d > half) return 0;
+        return depthFromArc(p.arc);
+      },
+      covers(x, z) {
+        const p = project(x, z);
+        return !!p && p.d <= half;
+      },
+      dir,
+    });
+  }
+  if (!built.length) return null;
+  const out = {
+    // The tunnel the edge (ax, az) -> (bx, bz) follows: the one
+    // whose corridor holds enough of the edge's samples and whose
+    // axis the chord runs along (not across). Null when nothing
+    // fits: the edge is not an underpass approach and stays flat.
+    match(ax, az, bx, bz) {
+      const len = Math.hypot(bx - ax, bz - az);
+      const n = Math.max(1, Math.ceil(len / UNDERPASS_SAMPLE_STEP));
+      const chordLen = len || 1;
+      const cx = (bx - ax) / chordLen, cz = (bz - az) / chordLen;
+      let best = null, bestCov = 0;
+      for (const t of built) {
+        const align = Math.abs(cx * t.dir[0] + cz * t.dir[1]);
+        if (align <= UNDERPASS_ALIGN_MIN) continue;
+        let inCorr = 0;
+        for (let i = 0; i <= n; i++) {
+          const s = i / n;
+          if (t.covers(ax + (bx - ax) * s, az + (bz - az) * s)) inCorr++;
+        }
+        const cov = inCorr / (n + 1);
+        if (cov >= UNDERPASS_COVERAGE_MIN && cov > bestCov) { bestCov = cov; best = t; }
+      }
+      return best;
+    },
+  };
+  underpassSamplerCache.set(airfield, out);
+  return out;
+}
+
+// Depth samples along one roadGraph edge, a -> b order, at most
+// UNDERPASS_SAMPLE_STEP apart plus both endpoints, read off the
+// trench function of the ONE tunnel the edge matches (see
+// underpassSampler.match). Returns null when the edge is flat (no
+// tunnel matches, or every sample is at grade): flat edges need no
+// profile and their links stay 7-tuples, exactly as before.
+// Returns INVALID_PROFILE when the samples are not one continuous
+// descent/cruise/climb — an interior near-zero sample, or a jump
+// over 3 m between adjacent samples, means the match is broken
+// and the profile would teleport a car. The caller drops such
+// edges rather than driving a broken profile (same rule as decks).
+function underpassEdgeProfile(sampler, edge, ax, az, bx, bz) {
+  if (!sampler) return null;
+  if ((edge.level || 0) >= 1) return null; // a deck edge never descends into a trench
+  const t = sampler.match(ax, az, bx, bz);
+  if (!t) return null;
+  const len = Math.hypot(bx - ax, bz - az);
+  const n = Math.max(1, Math.ceil(len / UNDERPASS_SAMPLE_STEP));
+  const values = [];
+  let minH = 0;
+  for (let i = 0; i <= n; i++) {
+    const s = i / n;
+    const h = t.depthAt(ax + (bx - ax) * s, az + (bz - az) * s);
+    values.push(h);
+    if (h < minH) minH = h;
+  }
+  if (!(minH < -0.5)) return null;
+  for (let i = 1; i < values.length; i++) {
+    if (Math.abs(values[i] - values[i - 1]) > 3) return INVALID_PROFILE;
+  }
+  for (let i = 1; i + 1 < values.length; i++) {
+    if (values[i] > -0.5 && values[i - 1] < -0.5 && values[i + 1] < -0.5) return INVALID_PROFILE;
+  }
+  return { step: len / n, len, values };
+}
+
 export function buildTaipeiRoadGraph(source = TAIPEI_GEO, opts = {}) {
   const rg = source.roadGraph;
   const nodes = rg.nodes;
@@ -237,6 +407,22 @@ export function buildTaipeiRoadGraph(source = TAIPEI_GEO, opts = {}) {
       if (!DRIVABLE.has(e.highway) || (e.level || 0) < 1) continue;
       const p = deckEdgeProfile(sampler, e, nodes[e.a * 2], nodes[e.a * 2 + 1], nodes[e.b * 2], nodes[e.b * 2 + 1]);
       if (p === INVALID_PROFILE) invalidProfiles.add(e);
+      else if (p) profiles.set(e, p);
+    }
+  }
+  // Issue #279: underpass profiles ride the same map (a -> b order,
+  // same keying). The sampler is separate (trench geometry, not the
+  // digest) and the option is separate too, so the deck-only graph
+  // is byte-identical to #254 and the ground graph (no opts) is
+  // byte-identical to #252.
+  const includeUnderpass = opts.includeUnderpass === true;
+  const upSampler = includeUnderpass ? underpassSampler(source.airfield) : null;
+  const invalidUnderpassProfiles = new Set();
+  if (upSampler) {
+    for (const e of rg.edges) {
+      if (!DRIVABLE.has(e.highway)) continue;
+      const p = underpassEdgeProfile(upSampler, e, nodes[e.a * 2], nodes[e.a * 2 + 1], nodes[e.b * 2], nodes[e.b * 2 + 1]);
+      if (p === INVALID_PROFILE) invalidUnderpassProfiles.add(e);
       else if (p) profiles.set(e, p);
     }
   }
@@ -276,6 +462,7 @@ export function buildTaipeiRoadGraph(source = TAIPEI_GEO, opts = {}) {
   let keptLevelEdges = 0;
   let keptLevelKm = 0;
   let deckInvalidEdges = 0;
+  let underpassInvalidEdges = 0;
   for (const e of rg.edges) {
     if (!DRIVABLE.has(e.highway)) continue;
     const lv = e.level || 0;
@@ -292,6 +479,17 @@ export function buildTaipeiRoadGraph(source = TAIPEI_GEO, opts = {}) {
         continue;
       }
     } else if (lv !== 0 && (e.highway.endsWith('_link') || Math.abs(lv) >= 2)) {
+      droppedLevelEdges++;
+      droppedLevelKm += e.length || 0;
+      continue;
+    }
+    // Issue #279: a broken underpass profile drops its edge in
+    // underpass mode (same rule as a broken deck profile — driving
+    // it flat through a rendered trench is the defect this issue
+    // fixes). In practice the count is 0: the trench function is
+    // analytic, so a broken profile means the match itself failed.
+    if (includeUnderpass && invalidUnderpassProfiles.has(e)) {
+      underpassInvalidEdges++;
       droppedLevelEdges++;
       droppedLevelKm += e.length || 0;
       continue;
@@ -323,6 +521,8 @@ export function buildTaipeiRoadGraph(source = TAIPEI_GEO, opts = {}) {
   let heightSplits = 0;
   let deckLinks = 0;
   let deckKm = 0;
+  let underpassLinks = 0;
+  let underpassKm = 0;
 
   function emitRun(runEdges, seqNodes) {
     // seqNodes: [start, ...inner, end] node indices in travel order
@@ -366,13 +566,19 @@ export function buildTaipeiRoadGraph(source = TAIPEI_GEO, opts = {}) {
       }
       let maxH = 0;
       for (const h of hs) if (h > maxH) maxH = h;
+      let minH = 0;
+      for (const h of hs) if (h < minH) minH = h;
       // Attach only when some sample is genuinely above ground: a
       // flat bridge samples 0.03 (ASPHALT_LIFT) everywhere, and its
       // link stays a flat 7-tuple like every other ground link.
-      if (maxH > 0.5) {
+      // Issue #279: the mirror — attach when some sample is
+      // genuinely below ground (an underpass profile). A link
+      // counts as a deck link, an underpass link, or both by
+      // which side of grade its profile reaches.
+      if (maxH > 0.5 || minH < -0.5) {
         heights = { s: ss, h: hs };
-        deckLinks++;
-        deckKm += len;
+        if (maxH > 0.5) { deckLinks++; deckKm += len; }
+        if (minH < -0.5) { underpassLinks++; underpassKm += len; }
       }
     }
     const tuple = [seqNodes[0], seqNodes[seqNodes.length - 1], nameId(first.name || ''), width, 0, first.oneway ? 1 : 0, inner];
@@ -471,6 +677,10 @@ export function buildTaipeiRoadGraph(source = TAIPEI_GEO, opts = {}) {
       deckKm: Math.round(deckKm / 100) / 10,
       heightSplits,
       deckInvalidEdges,
+      underpassMode: includeUnderpass,
+      underpassLinks,
+      underpassKm: Math.round(underpassKm / 100) / 10,
+      underpassInvalidEdges,
     },
   };
 }
@@ -479,10 +689,13 @@ const cachedGraphs = new Map();
 
 export function taipeiTrafficEnv(carCount, opts = {}) {
   // Issue #254: the live env always uses the deck graph — cars drive
-  // the decks through the same gear switch as ground traffic. The
-  // ground-only graph stays available from buildTaipeiRoadGraph()
-  // with no options (the #252 pins test it).
-  if (!cachedGraphs.has('deck')) cachedGraphs.set('deck', buildTaipeiRoadGraph(TAIPEI_GEO, { includeDecks: true }));
+  // the decks through the same gear switch as ground traffic. Issue
+  // #279: it also uses the underpass graph — the 復北地下道 cars
+  // descend the rendered trench the same way. The ground-only graph
+  // stays available from buildTaipeiRoadGraph() with no options (the
+  // #252 pins test it), and the deck-only graph from
+  // { includeDecks: true } (the #254 pins test it).
+  if (!cachedGraphs.has('deck')) cachedGraphs.set('deck', buildTaipeiRoadGraph(TAIPEI_GEO, { includeDecks: true, includeUnderpass: true }));
   const cachedGraph = cachedGraphs.get('deck');
   const bb = TAIPEI_GEO.frame.bbox;
   // Spawn range: the radius around the camera the vehicle pool recycles
