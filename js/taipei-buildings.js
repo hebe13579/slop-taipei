@@ -3165,7 +3165,7 @@ const LANDMARK_STRUCTURES = [
     lat: 25.035119, lon: 121.514932, realHeight: 17.4, estimated: true, color: 0x9e2b25,
     site: { w: 34, d: 26, dx: 0, dz: 0 },
     plaza: { w: 68, d: 52, dx: 0, dz: 0 },
-    facade: { kind: 'prewar', stoneColor: 0x9e2b25, trimColor: 0xd8b25a, windowGlassColor: 0x27313d, windowWidth: 3.2, floorHeight: 4.15, litProbability: 0.18, warmth: 0.6, seed: 57.35 },
+    facade: { kind: 'prewar', stoneColor: 0x9e2b25, trimColor: 0xd8b25a, windowGlassColor: 0x27313d, windowWidth: 3.2, floorHeight: 4.15, litProbability: 0.18, warmth: 0.6, seed: 57.50 },
     parts: [
       { type: 'box', w: 11.75, d: 16, h: 5.2, dx: 8.1, dz: 1.1, rotY: 0.131, flat: 0x7a7263 },
       { type: 'box', w: 11.75, d: 16, h: 5.2, dx: -8.1, dz: -1.1, rotY: 0.131, flat: 0x7a7263 },
@@ -3235,7 +3235,7 @@ const LANDMARK_STRUCTURES = [
     lat: 25.039017, lon: 121.517662, realHeight: 16.8, estimated: true, color: 0x9e2b25,
     site: { w: 32, d: 30, dx: 0, dz: 0 },
     plaza: { w: 64, d: 60, dx: 0, dz: 0 },
-    facade: { kind: 'prewar', stoneColor: 0x9e2b25, trimColor: 0xd8b25a, windowGlassColor: 0x27313d, windowWidth: 3.2, floorHeight: 4.15, litProbability: 0.18, warmth: 0.6, seed: 57.36 },
+    facade: { kind: 'prewar', stoneColor: 0x9e2b25, trimColor: 0xd8b25a, windowGlassColor: 0x27313d, windowWidth: 3.2, floorHeight: 4.15, litProbability: 0.18, warmth: 0.6, seed: 57.51 },
     parts: [
       { type: 'box', w: 10.75, d: 18, h: 5.2, dx: -1, dz: -7.6, rotY: -1.702, flat: 0x7a7263 },
       { type: 'box', w: 10.75, d: 18, h: 5.2, dx: 1, dz: 7.6, rotY: -1.702, flat: 0x7a7263 },
@@ -3301,7 +3301,7 @@ const LANDMARK_STRUCTURES = [
     lat: 25.036910, lon: 121.508074, realHeight: 15.6, estimated: true, color: 0x9e2b25,
     site: { w: 30, d: 26, dx: 0, dz: 0 },
     plaza: { w: 60, d: 52, dx: 0, dz: 0 },
-    facade: { kind: 'prewar', stoneColor: 0x9e2b25, trimColor: 0xd8b25a, windowGlassColor: 0x27313d, windowWidth: 3.2, floorHeight: 4.15, litProbability: 0.18, warmth: 0.6, seed: 57.37 },
+    facade: { kind: 'prewar', stoneColor: 0x9e2b25, trimColor: 0xd8b25a, windowGlassColor: 0x27313d, windowWidth: 3.2, floorHeight: 4.15, litProbability: 0.18, warmth: 0.6, seed: 57.52 },
     parts: [
       { type: 'box', w: 8.75, d: 15, h: 5.2, dx: 6.1, dz: 2.7, rotY: 0.419, flat: 0x7a7263 },
       { type: 'box', w: 8.75, d: 15, h: 5.2, dx: -6.1, dz: -2.7, rotY: 0.419, flat: 0x7a7263 },
