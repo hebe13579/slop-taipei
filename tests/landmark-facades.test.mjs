@@ -114,6 +114,12 @@ const EXPECTED_FACADES = {
   'taipei-astronomical-museum': 'prewar', // white masonry block + white dome
   'ntsec': 'prewar', // white masonry ring + glass band
   'taipei-veterans-general-hospital': 'prewar', // white concrete hospital
+  // Issue #327: the three city gates — andesite platforms + red-column
+  // pavilions are masonry masses, so all three take the prewar grid
+  // (the green roofs, white parapets and gold ridges are flat overrides).
+  'nanmen': 'prewar', // andesite platform + red-column pavilion
+  'dongmen': 'prewar', // andesite platform + red-column pavilion
+  'xiaonanmen': 'prewar', // andesite platform + red-column pavilion
 };
 
 // The only Latin wordmarks a landmark sign may carry — the ones the

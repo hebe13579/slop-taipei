@@ -665,6 +665,15 @@ test('landmark structures: true positions and heights, sites kept clear', (t) =>
     'taipei-astronomical-museum': { h: 22, x: -4658.6, z: -6886.8 },
     'ntsec': { h: 20, x: -4843.3, z: -6874.6 },
     'taipei-veterans-general-hospital': { h: 112, x: -4521.4, z: -9647.3 },
+    // Issue #327: the three remaining city gates. Heights are ESTIMATED
+    // (no published metric height exists for any of them) and flagged as
+    // such in the registry — each is the exact sum of its estimated
+    // components, so the massing tops out exactly there. Positions are
+    // the published Wikipedia coordinates (satellite picks agree within
+    // 8–17 m) — see the registry comments and issue327-refs.md.
+    'nanmen': { h: 17.4, x: -5053, z: -234.7 },
+    'dongmen': { h: 16.8, x: -4777.5, z: -666.5 },
+    'xiaonanmen': { h: 15.6, x: -5745.1, z: -433.1 },
   };
   assert.equal(plan.landmarkTowers.length, Object.keys(expected).length, 'all verified structures present');
   const partTop = (p) => (p.y0 || 0) + p.h + (p.type === 'ridge' ? p.ridgeH : 0);
@@ -849,6 +858,7 @@ test('landmark batch 3: two-slab Cathay rebuild, W, Songshan, Eslite, Arena', ()
     if (s.id !== 'eslite-spectrum-songyan' && s.id !== 'taipei-arena'
       && s.id !== 'national-concert-hall' && s.id !== 'national-theater'
       && s.id !== 'beimen'
+      && s.id !== 'nanmen' && s.id !== 'dongmen' && s.id !== 'xiaonanmen' // #327: the three gates' heights are estimates, like beimen's
       && s.id !== 'shin-kong-mitsukoshi-a4' && s.id !== 'shin-kong-mitsukoshi-a8'
       && s.id !== 'shin-kong-mitsukoshi-a9' && s.id !== 'shin-kong-mitsukoshi-a11'
       && s.id !== 'dayeh-takashimaya' && s.id !== 'tianmu-stadium'

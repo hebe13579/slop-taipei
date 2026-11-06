@@ -3133,6 +3133,209 @@ const LANDMARK_STRUCTURES = [
     ],
   },
   {
+    // Issue #327: 南門 (Lijing Gate, 1884, rebuilt 1966) — the old main
+    // gate, at 公園路 / 愛國西路 (the issue's "愛國西路 / 中華路" is
+    // wrong: 中華路 is ~700 m west). NOT a Qing gate like 北門: the 1966
+    // rebuild is a northern-palace gatehouse — grey andesite platform
+    // pierced by ONE arched passage, a WHITE crenellated parapet (its
+    // red-and-gold 麗正門 plaque is NOT modelled: the sign system's
+    // 10 x 2.5 m floor cannot fit a plaque on a 0.9 m parapet band),
+    // an open pavilion (red columns, dark
+    // recessed infill, dark-green bracket band), and a GREEN glazed-tile
+    // DOUBLE-eaved hip roof (重簷歇山式, the grandest of the three gates,
+    // "形制與尺寸最為宏偉"). The 北門 parts pattern is reused (platform
+    // blocks + passage plug + cap slab + stacked roof boxes) with a
+    // parapet + merlons + colonnade pavilion in place of 北門's solid
+    // brick gatehouse and grey roof; the swallow-tail ridge ends and the
+    // green hollow-brick eave decoration are NOT modelled (a straight
+    // gold ridge box and a dark-green bracket band stand in for them).
+    // Orientation: the long axis follows the old south-wall line, which
+    // here parallels 愛國西路 — the road's long segments near the gate
+    // run 7.3–8.4° south of east (geodata), so rotY = 0.131. The
+    // passage cuts across the axis, north into the city along 公園路.
+    // Height: no published figure exists (as with 北門), so the ~17.4 m
+    // estimate is used and flagged estimated, decomposed 5.2 (platform)
+    // + 0.9 (parapet) + 4.5 (pavilion) + 1.0 (bracket band) + 0.8 (eave)
+    // + 1.6 (lower roof) + 0.7 (upper eave) + 1.6 (upper roof) + 1.1
+    // (ridge) = 17.4, and the massing tops out exactly there. Roof plan
+    // from the Esri satellite stitch:
+    // ~18 x 15 m; platform 28 x 16 m. Position: the published gate
+    // point (25.035119, 121.514932) converts to (-5053, -234.7) — the
+    // satellite roof pick is 8 m from it. Audited: every part at
+    // 0.000 m² against every roadbed ribbon (the gate sits inside its
+    // junction island; 愛國西路's ribbon curves around it).
+    id: 'nanmen', name: 'Nanmen (Lijing Gate)', nameZh: '南門',
+    lat: 25.035119, lon: 121.514932, realHeight: 17.4, estimated: true, color: 0x9e2b25,
+    site: { w: 34, d: 26, dx: 0, dz: 0 },
+    plaza: { w: 68, d: 52, dx: 0, dz: 0 },
+    facade: { kind: 'prewar', stoneColor: 0x9e2b25, trimColor: 0xd8b25a, windowGlassColor: 0x27313d, windowWidth: 3.2, floorHeight: 4.15, litProbability: 0.18, warmth: 0.6, seed: 57.50 },
+    parts: [
+      { type: 'box', w: 11.75, d: 16, h: 5.2, dx: 8.1, dz: 1.1, rotY: 0.131, flat: 0x7a7263 },
+      { type: 'box', w: 11.75, d: 16, h: 5.2, dx: -8.1, dz: -1.1, rotY: 0.131, flat: 0x7a7263 },
+      { type: 'box', w: 4.5, d: 13.5, h: 4.6, rotY: 0.131, flat: 0x35302b },
+      { type: 'box', w: 28, d: 16, h: 0.35, y0: 4.85, rotY: 0.131, flat: 0x8d8578 },
+      { type: 'box', w: 28.5, d: 16.5, h: 0.9, y0: 5.2, rotY: 0.131, flat: 0xe8e4d8 },
+      { type: 'box', w: 1.5, d: 0.6, h: 0.6, y0: 6.1, dx: -10.1, dz: 6.7, rotY: 0.131, flat: 0xe8e4d8 },
+      { type: 'box', w: 1.5, d: 0.6, h: 0.6, y0: 6.1, dx: -8, dz: -9.1, rotY: 0.131, flat: 0xe8e4d8 },
+      { type: 'box', w: 1.5, d: 0.6, h: 0.6, y0: 6.1, dx: -5.6, dz: 7.3, rotY: 0.131, flat: 0xe8e4d8 },
+      { type: 'box', w: 1.5, d: 0.6, h: 0.6, y0: 6.1, dx: -3.5, dz: -8.5, rotY: 0.131, flat: 0xe8e4d8 },
+      { type: 'box', w: 1.5, d: 0.6, h: 0.6, y0: 6.1, dx: -1, dz: 7.9, rotY: 0.131, flat: 0xe8e4d8 },
+      { type: 'box', w: 1.5, d: 0.6, h: 0.6, y0: 6.1, dx: 1, dz: -7.9, rotY: 0.131, flat: 0xe8e4d8 },
+      { type: 'box', w: 1.5, d: 0.6, h: 0.6, y0: 6.1, dx: 3.5, dz: 8.5, rotY: 0.131, flat: 0xe8e4d8 },
+      { type: 'box', w: 1.5, d: 0.6, h: 0.6, y0: 6.1, dx: 5.6, dz: -7.3, rotY: 0.131, flat: 0xe8e4d8 },
+      { type: 'box', w: 1.5, d: 0.6, h: 0.6, y0: 6.1, dx: 8, dz: 9.1, rotY: 0.131, flat: 0xe8e4d8 },
+      { type: 'box', w: 1.5, d: 0.6, h: 0.6, y0: 6.1, dx: 10.1, dz: -6.7, rotY: 0.131, flat: 0xe8e4d8 },
+      { type: 'box', w: 17, d: 11, h: 4.5, y0: 6.1, rotY: 0.131, flat: 0x2e2620 },
+      { type: 'box', w: 0.5, d: 0.5, h: 4.5, y0: 6.1, dx: 7.5, dz: 6.3, rotY: 0.131, flat: 0x9e2b25 },
+      { type: 'box', w: 0.5, d: 0.5, h: 4.5, y0: 6.1, dx: 8.9, dz: -4.1, rotY: 0.131, flat: 0x9e2b25 },
+      { type: 'box', w: 0.5, d: 0.5, h: 4.5, y0: 6.1, dx: -8.9, dz: 4.1, rotY: 0.131, flat: 0x9e2b25 },
+      { type: 'box', w: 0.5, d: 0.5, h: 4.5, y0: 6.1, dx: -7.5, dz: -6.3, rotY: 0.131, flat: 0x9e2b25 },
+      { type: 'box', w: 0.5, d: 0.5, h: 4.5, y0: 6.1, dx: -0.7, dz: 5.2, rotY: 0.131, flat: 0x9e2b25 },
+      { type: 'box', w: 0.5, d: 0.5, h: 4.5, y0: 6.1, dx: 0.7, dz: -5.2, rotY: 0.131, flat: 0x9e2b25 },
+      { type: 'box', w: 18, d: 12, h: 1, y0: 10.6, rotY: 0.131, flat: 0x2e4a3a },
+      { type: 'box', w: 20, d: 14, h: 0.8, y0: 11.6, rotY: 0.131, flat: 0x357a58 },
+      { type: 'box', w: 19, d: 13, h: 1.6, y0: 12.4, rotY: 0.131, flat: 0x357a58 },
+      { type: 'box', w: 17, d: 12, h: 0.7, y0: 14, rotY: 0.131, flat: 0x357a58 },
+      { type: 'box', w: 15, d: 11, h: 1.6, y0: 14.7, rotY: 0.131, flat: 0x357a58 },
+      { type: 'box', w: 12, d: 3, h: 1.1, y0: 16.3, rotY: 0.131, flat: 0xc9962e },
+    ],
+  },
+  {
+    // Issue #327: 東門 (Jingfu Gate, 1882, rebuilt 1966) — the east gate,
+    // in the 東門圓環 roundabout where 中山南路 meets 信義路 (the issue's
+    // "中山南路 / 凱達格蘭大道" is wrong: 凱達格蘭大道 is the west
+    // approach into the gate, and the issue's coordinate is ~230 m off).
+    // Same 1966 northern-palace vocabulary as 南門 — andesite platform,
+    // white crenellated parapet (its red-and-gold 景福門 plaque is
+    // NOT modelled, as with 南門 — the sign system's floor cannot fit
+    // a plaque on a 0.9 m parapet band), open pavilion
+    // (red columns, dark infill, dark-green bracket band), green
+    // glazed-tile hip roof with swallow-tail ridge — but SINGLE-eaved,
+    // and "建築結構和北門很類似" (a closed blockhouse-like stone base
+    // under the pavilion). The ridge is a straight gold box (no
+    // swallow-tail ends) and the green hollow-brick eave decoration is
+    // a dark-green bracket band, as with 南門.
+    // Orientation: the long axis follows the old EAST-wall line, which
+    // is perpendicular to the south wall's 7.5° — 7.5° east of south,
+    // confirmed by the satellite roof's long axis (~7.8° east of south
+    // on the z19 stitch). rotY = -1.702. The gate is NOT parallel to
+    // modern 中山南路 (15° WEST of south) — it is tilted ~23° relative
+    // to it; that is a checkable identity fact, not a mistake. The
+    // passage cuts across the axis, west into the city along 凱達格蘭
+    // 大道 (the old 東門街) and east toward 松山 / 基隆.
+    // Height: no published figure, so the ~16.8 m estimate is used and
+    // flagged estimated, decomposed 5.2 (platform) + 0.9 (parapet) +
+    // 4.5 (pavilion) + 1.0 (bracket band) + 0.8 (eave) + 1.7 (roof) +
+    // 1.6 (roof) + 1.1 (ridge) = 16.8, and the massing tops out exactly
+    // there. Roof plan from the Esri
+    // satellite stitch: ~18 x 16 m, nearly square; platform 26 x 18 m.
+    // Position: the published gate point (25.039017, 121.517662)
+    // converts to (-4777.5, -666.5) — two independent satellite roof
+    // picks are <15 m from it. Audited: every part at 0.000 m² against
+    // every roadbed ribbon (the gate sits in the roundabout island;
+    // the 東門圓環 ribbon clears the eave by 1.8 m).
+    id: 'dongmen', name: 'Dongmen (Jingfu Gate)', nameZh: '東門',
+    lat: 25.039017, lon: 121.517662, realHeight: 16.8, estimated: true, color: 0x9e2b25,
+    site: { w: 32, d: 30, dx: 0, dz: 0 },
+    plaza: { w: 64, d: 60, dx: 0, dz: 0 },
+    facade: { kind: 'prewar', stoneColor: 0x9e2b25, trimColor: 0xd8b25a, windowGlassColor: 0x27313d, windowWidth: 3.2, floorHeight: 4.15, litProbability: 0.18, warmth: 0.6, seed: 57.51 },
+    parts: [
+      { type: 'box', w: 10.75, d: 18, h: 5.2, dx: -1, dz: -7.6, rotY: -1.702, flat: 0x7a7263 },
+      { type: 'box', w: 10.75, d: 18, h: 5.2, dx: 1, dz: 7.6, rotY: -1.702, flat: 0x7a7263 },
+      { type: 'box', w: 4.5, d: 15.5, h: 4.6, rotY: -1.702, flat: 0x35302b },
+      { type: 'box', w: 26, d: 18, h: 0.35, y0: 4.85, rotY: -1.702, flat: 0x8d8578 },
+      { type: 'box', w: 26.5, d: 18.5, h: 0.9, y0: 5.2, rotY: -1.702, flat: 0xe8e4d8 },
+      { type: 'box', w: 1.5, d: 0.6, h: 0.6, y0: 6.1, dx: 10, dz: 7.2, rotY: -1.702, flat: 0xe8e4d8 },
+      { type: 'box', w: 1.5, d: 0.6, h: 0.6, y0: 6.1, dx: -7.8, dz: 9.6, rotY: -1.702, flat: 0xe8e4d8 },
+      { type: 'box', w: 1.5, d: 0.6, h: 0.6, y0: 6.1, dx: 9.4, dz: 3, rotY: -1.702, flat: 0xe8e4d8 },
+      { type: 'box', w: 1.5, d: 0.6, h: 0.6, y0: 6.1, dx: -8.3, dz: 5.4, rotY: -1.702, flat: 0xe8e4d8 },
+      { type: 'box', w: 1.5, d: 0.6, h: 0.6, y0: 6.1, dx: 8.9, dz: -1.2, rotY: -1.702, flat: 0xe8e4d8 },
+      { type: 'box', w: 1.5, d: 0.6, h: 0.6, y0: 6.1, dx: -8.9, dz: 1.2, rotY: -1.702, flat: 0xe8e4d8 },
+      { type: 'box', w: 1.5, d: 0.6, h: 0.6, y0: 6.1, dx: 8.3, dz: -5.4, rotY: -1.702, flat: 0xe8e4d8 },
+      { type: 'box', w: 1.5, d: 0.6, h: 0.6, y0: 6.1, dx: -9.4, dz: -3, rotY: -1.702, flat: 0xe8e4d8 },
+      { type: 'box', w: 1.5, d: 0.6, h: 0.6, y0: 6.1, dx: 7.8, dz: -9.6, rotY: -1.702, flat: 0xe8e4d8 },
+      { type: 'box', w: 1.5, d: 0.6, h: 0.6, y0: 6.1, dx: -10, dz: -7.2, rotY: -1.702, flat: 0xe8e4d8 },
+      { type: 'box', w: 16, d: 12, h: 4.5, y0: 6.1, rotY: -1.702, flat: 0x2e2620 },
+      { type: 'box', w: 0.5, d: 0.5, h: 4.5, y0: 6.1, dx: 4.7, dz: -8.4, rotY: -1.702, flat: 0x9e2b25 },
+      { type: 'box', w: 0.5, d: 0.5, h: 4.5, y0: 6.1, dx: -6.7, dz: -6.9, rotY: -1.702, flat: 0x9e2b25 },
+      { type: 'box', w: 0.5, d: 0.5, h: 4.5, y0: 6.1, dx: 6.7, dz: 6.9, rotY: -1.702, flat: 0x9e2b25 },
+      { type: 'box', w: 0.5, d: 0.5, h: 4.5, y0: 6.1, dx: -4.7, dz: 8.4, rotY: -1.702, flat: 0x9e2b25 },
+      { type: 'box', w: 0.5, d: 0.5, h: 4.5, y0: 6.1, dx: 5.7, dz: -0.8, rotY: -1.702, flat: 0x9e2b25 },
+      { type: 'box', w: 0.5, d: 0.5, h: 4.5, y0: 6.1, dx: -5.7, dz: 0.8, rotY: -1.702, flat: 0x9e2b25 },
+      { type: 'box', w: 17, d: 13, h: 1, y0: 10.6, rotY: -1.702, flat: 0x2e4a3a },
+      { type: 'box', w: 19, d: 15, h: 0.8, y0: 11.6, rotY: -1.702, flat: 0x357a58 },
+      { type: 'box', w: 18, d: 14, h: 1.7, y0: 12.4, rotY: -1.702, flat: 0x357a58 },
+      { type: 'box', w: 15, d: 11.5, h: 1.6, y0: 14.1, rotY: -1.702, flat: 0x357a58 },
+      { type: 'box', w: 12, d: 3, h: 1.1, y0: 15.7, rotY: -1.702, flat: 0xc9962e },
+    ],
+  },
+  {
+    // Issue #327: 小南門 (Chongxi Gate, rebuilt 1966) — the little south
+    // gate, at 延平南路 / 愛國西路 (the issue's "愛國西路 / 中華路
+    // further west" is wrong on both counts: the gate is on 延平南路,
+    // ~160 m EAST of 中華路, and the issue's coordinate is ~460 m SE).
+    // The smallest of the five gates and the only 廊柱式 (colonnade-style)
+    // one: a single-eaved hip roof (單簷歇山式) over a colonnade pavilion,
+    // on the same andesite platform + white crenellated parapet (its
+    // red-and-gold 重熙門 plaque is NOT modelled, as with the other two
+    // — the sign system's floor cannot fit a plaque on a 0.9 m parapet
+    // band) as the other two 1966 rebuilds. The pavilion is columns +
+    // dark infill (no solid brick walls at all) — the furthest of the
+    // three from 北門's closed blockhouse, and the reason the 北門 model
+    // is adapted rather than copied. The passage runs 24° west of south,
+    // toward 板橋, as the history says.
+    // Orientation: the long axis follows the old south-wall line, which
+    // bends at the city's west end — 愛國西路's long segments near the
+    // gate run 22–24.5° south of east (geodata), and the satellite roof
+    // tilt (~29° parapet band) agrees, so rotY = 0.419. (At 南門 the
+    // same road runs 7.5° — the wall is a curve, not one straight line.)
+    // Height: no published figure, so the ~15.6 m estimate is used and
+    // flagged estimated, decomposed 5.2 (platform) + 0.9 (parapet) +
+    // 4.0 (pavilion) + 0.9 (bracket band) + 0.7 (eave) + 1.5 (roof) +
+    // 1.4 (roof) + 1.0 (ridge) = 15.6, and the massing tops out exactly
+    // there. Roof plan from the Esri
+    // satellite stitch: ~16 x 14 m; platform 22 x 15 m. Position: the
+    // published gate point (25.036910, 121.508074) converts to
+    // (-5745.1, -433.1) — the satellite roof in the centred z19 stitch
+    // is 17 m from it. Audited: every part at 0.000 m² against every
+    // roadbed ribbon (the gate sits in its junction traffic circle;
+    // 延平南路 and 愛國西路 ribbons curve around it).
+    id: 'xiaonanmen', name: 'Xiaonanmen (Chongxi Gate)', nameZh: '小南門',
+    lat: 25.036910, lon: 121.508074, realHeight: 15.6, estimated: true, color: 0x9e2b25,
+    site: { w: 30, d: 26, dx: 0, dz: 0 },
+    plaza: { w: 60, d: 52, dx: 0, dz: 0 },
+    facade: { kind: 'prewar', stoneColor: 0x9e2b25, trimColor: 0xd8b25a, windowGlassColor: 0x27313d, windowWidth: 3.2, floorHeight: 4.15, litProbability: 0.18, warmth: 0.6, seed: 57.52 },
+    parts: [
+      { type: 'box', w: 8.75, d: 15, h: 5.2, dx: 6.1, dz: 2.7, rotY: 0.419, flat: 0x7a7263 },
+      { type: 'box', w: 8.75, d: 15, h: 5.2, dx: -6.1, dz: -2.7, rotY: 0.419, flat: 0x7a7263 },
+      { type: 'box', w: 4.5, d: 12.5, h: 4.6, rotY: 0.419, flat: 0x35302b },
+      { type: 'box', w: 22, d: 15, h: 0.35, y0: 4.85, rotY: 0.419, flat: 0x8d8578 },
+      { type: 'box', w: 22.5, d: 15.5, h: 0.9, y0: 5.2, rotY: 0.419, flat: 0xe8e4d8 },
+      { type: 'box', w: 1.5, d: 0.6, h: 0.6, y0: 6.1, dx: -9.6, dz: 3.9, rotY: 0.419, flat: 0xe8e4d8 },
+      { type: 'box', w: 1.5, d: 0.6, h: 0.6, y0: 6.1, dx: -3.5, dz: -9.7, rotY: 0.419, flat: 0xe8e4d8 },
+      { type: 'box', w: 1.5, d: 0.6, h: 0.6, y0: 6.1, dx: -6.3, dz: 5.3, rotY: 0.419, flat: 0xe8e4d8 },
+      { type: 'box', w: 1.5, d: 0.6, h: 0.6, y0: 6.1, dx: -0.3, dz: -8.3, rotY: 0.419, flat: 0xe8e4d8 },
+      { type: 'box', w: 1.5, d: 0.6, h: 0.6, y0: 6.1, dx: -3, dz: 6.8, rotY: 0.419, flat: 0xe8e4d8 },
+      { type: 'box', w: 1.5, d: 0.6, h: 0.6, y0: 6.1, dx: 3, dz: -6.8, rotY: 0.419, flat: 0xe8e4d8 },
+      { type: 'box', w: 1.5, d: 0.6, h: 0.6, y0: 6.1, dx: 0.3, dz: 8.3, rotY: 0.419, flat: 0xe8e4d8 },
+      { type: 'box', w: 1.5, d: 0.6, h: 0.6, y0: 6.1, dx: 6.3, dz: -5.3, rotY: 0.419, flat: 0xe8e4d8 },
+      { type: 'box', w: 1.5, d: 0.6, h: 0.6, y0: 6.1, dx: 3.5, dz: 9.7, rotY: 0.419, flat: 0xe8e4d8 },
+      { type: 'box', w: 1.5, d: 0.6, h: 0.6, y0: 6.1, dx: 9.6, dz: -3.9, rotY: 0.419, flat: 0xe8e4d8 },
+      { type: 'box', w: 14, d: 10, h: 4, y0: 6.1, rotY: 0.419, flat: 0x2e2620 },
+      { type: 'box', w: 0.5, d: 0.5, h: 4, y0: 6.1, dx: 4.2, dz: 7.1, rotY: 0.419, flat: 0x9e2b25 },
+      { type: 'box', w: 0.5, d: 0.5, h: 4, y0: 6.1, dx: 8.1, dz: -1.6, rotY: 0.419, flat: 0x9e2b25 },
+      { type: 'box', w: 0.5, d: 0.5, h: 4, y0: 6.1, dx: -8.1, dz: 1.6, rotY: 0.419, flat: 0x9e2b25 },
+      { type: 'box', w: 0.5, d: 0.5, h: 4, y0: 6.1, dx: -4.2, dz: -7.1, rotY: 0.419, flat: 0x9e2b25 },
+      { type: 'box', w: 0.5, d: 0.5, h: 4, y0: 6.1, dx: -1.9, dz: 4.3, rotY: 0.419, flat: 0x9e2b25 },
+      { type: 'box', w: 0.5, d: 0.5, h: 4, y0: 6.1, dx: 1.9, dz: -4.3, rotY: 0.419, flat: 0x9e2b25 },
+      { type: 'box', w: 15, d: 11, h: 0.9, y0: 10.1, rotY: 0.419, flat: 0x2e4a3a },
+      { type: 'box', w: 17, d: 13, h: 0.7, y0: 11, rotY: 0.419, flat: 0x357a58 },
+      { type: 'box', w: 16, d: 12.5, h: 1.5, y0: 11.7, rotY: 0.419, flat: 0x357a58 },
+      { type: 'box', w: 13, d: 10, h: 1.4, y0: 13.2, rotY: 0.419, flat: 0x357a58 },
+      { type: 'box', w: 10, d: 2.8, h: 1, y0: 14.6, rotY: 0.419, flat: 0xc9962e },
+    ],
+  },
+  {
     // Batch 6 (issue #103, northern phase 2): 圓山大飯店 — the
     // 1973 palace hotel on the Jiantan hill in the Red Line
     // corridor. 87 m PUBLISHED (EN/ZH Wikipedia: the main
