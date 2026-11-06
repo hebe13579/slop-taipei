@@ -272,7 +272,8 @@ test('real tile: exactly one cap per grounded multi-arm junction, centres and ar
   // strips, 122,201 -> 129,177 m2, on the strip-grown tile.
   // Issue #110: extension strips 2,638 -> 2,632 (-6) — the fused beds merge two junctions, so 6 fewer arm-extension strips (area 129,177 -> 127,776 m2).
   // Issue #258: extension strips 2,632 -> 3,403 (+771) — the south expansion's junction arms.
-  assert.equal(caps.reduce((s, c) => s + (c.extras || []).length, 0), 3403, 'extension strip census');
+  // Issue #326: extension strips 3,403 -> 3,402 (−1) — the dropped interior drive's junction cap carried one arm-extension strip.
+  assert.equal(caps.reduce((s, c) => s + (c.extras || []).length, 0), 3402, 'extension strip census');
   // Issue #110: extension strip area 129,177 -> 127,776 m2 (-1,401).
   // Issue #258: extension strip area 127,776 -> 163,263 m2 (+35,487).
   assert.equal(caps.reduce((s, c) => s + (c.extraArea || 0), 0), 163263, 'extension strip area census');
