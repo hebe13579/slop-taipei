@@ -606,125 +606,123 @@ function expoDomeParts() {
   return parts;
 }
 
-// Issue #278: 台北天文館 (Taipei Astronomical Museum) — the
-// planetarium in Shilin. Siting measured from Esri z18 satellite
-// (0.541 m/px) via latLonToTile; the measurement log is in
-// specials278-evidence/ (anchors.mjs, site-probe.mjs, lots-probe.mjs).
-// The exhibition building is a circular ring ~127 m across (white
-// ring wall, glass atrium block inside, cylindrical tower with the
-// red 天文館 roof sign) and the signature is the 35 m gold dome
-// (published diameter; gold-covered aluminium, faceted panels) east
-// of it, with a small white observatory dome between ring and gold
-// dome. The ring is built as 24 tangent segments (the Expo Dome
-// bowl pattern) so the green courtyard inside stays open — a solid
-// disc would fill it. Heights are photo/floor-based estimates (ring
-// 4 storeys, dome 35 m sphere on a 4.5 m drum = 22 m total). The
-// site's drape is 0 at the ring and ~2.5 m at the gold dome (the
-// corridor terrain-grid edge), so the dome drum is partly buried by
-// the drape while the hemisphere reads fully.
+// Issue #326: 台北天文館 (Taipei Astronomical Museum) — the
+// planetarium in Shilin (No. 363 Jihe Rd), opened 1996/1997, a
+// 4-storey museum on a 1.8 ha site with Asia's biggest
+// planetarium (325 seats, 180° screen). RE-SITED and REBUILT:
+// #278 built the RING as the planetarium and the DRUM+SLAB as the
+// NTSEC, but the user's 2026-11-06 report + Google 3D screenshots
+// prove it is the other way round — the RING is the 科教館 (NTSEC,
+// west) and the planetarium (east) is the rectangular exhibition
+// block + dome. Re-measured from Esri z18 satellite (0.541 m/px)
+// via latLonToTile; the measurement log is in ntsec326-evidence/
+// (measure326.mjs, anchors326.json). The exhibition block is a
+// ~95x65 m rectangle, long axis NW-SE at ~36 deg (rotY -0.62), 4
+// storeys (~20 m, estimated). The signature is the 35 m dome
+// (published diameter) on a 4.5 m drum = 22 m total — and it is
+// WHITE (0xf4f1ea), not gold: the user's Google 3D screenshots show
+// it white in both views (the Esri imagery is stale — the dome
+// still shows yellow/gold there). A small white observatory dome
+// (~10 m) sits beside it. The whole group is shifted ~6 m SE along
+// the block's long axis from the satellite-measured centre: the
+// geodata's 美崙街 roadbed passes 24 m from the measured centre and
+// the 17.5 m dome + 3.2 m ribbon would overlap it by ~6 m, so the
+// group sits 6 m SE (inside the ~5 m measurement scatter plus a
+// 1 m margin) to clear the roadbed (issue #42 audit). The site's
+// drape is 2.57-3.13 m (group lift ~2.62 m at the anchor), so the
+// block carries no skirt — the drape lift puts the group base at
+// the local ground, and the block's south edge stays seated.
 function planetariumParts() {
   const parts = [];
-  // Ring wall: tangent segments around r=63 (wall ~12 m thick),
-  // leaving the courtyard (r < 57) open for the atrium block. The
-  // segment math is the Expo Dome bowl's (ellipse tangent direction
-  // -> authored rotY), with a = b = 63 for the circle. Segments are
-  // OMITTED where the geodata draws a road straight through the
-  // museum grounds (the real roads curve around the building):
-  // phi 30 and 45 — the 基河路396巷 entrance drive enters radially
-  // at phi ~36 and runs to the central atrium, so the ring has an
-  // entrance opening there; phi 150 and 165 — the geodata's 士商路
-  // is drawn as a straight diagonal chord through the ring (it
-  // passes 25 m from the ring centre; the real 士商路 runs east-west
-  // south of the museum and turns the corner); phi 240 — a 5 m
-  // service drive in the south interior crosses the wall there;
-  // phi 270 and 285 — the same 士商路 chord crosses the south wall.
-  // The ring is therefore 17 of 24 segments, with openings at the
-  // north-east entrance, the west, the south-west and the south.
-  const seg = (phiDeg, w, d, h, flat) => {
-    const phi = (phiDeg * Math.PI) / 180;
-    const alphaT = Math.atan2(63 * Math.cos(phi), -63 * Math.sin(phi));
-    parts.push({
-      type: 'box', w, d, h,
-      dx: 63 * Math.cos(phi), dz: -63 * Math.sin(phi), rotY: -alphaT, flat,
-    });
-  };
-  for (let phi = 0; phi < 360; phi += 15) {
-    if (phi === 30 || phi === 45 || phi === 150 || phi === 165 || phi === 240 || phi === 270 || phi === 285) continue;
-    seg(phi, 17, 12, 16, 0xe8e4da);
-  }
-  // Glass atrium block inside the ring (south-east of centre). It is
-  // modelled at 30 x 40 m, not the satellite-measured 40 x 51 m at
-  // (+9, -25.5), and not at that north-of-centre spot: the geodata
-  // draws three roads straight through the ring's interior — the
-  // 基河路396巷 12.8 m drive (north-east to centre), the 士商路 8 m
-  // chord (south-east to north-west through the centre's south-west)
-  // and two 5 m service drives (south-west and south) — and the
-  // full 40 x 51 m hall at its true spot straddles the 基河路396巷
-  // band, while the north-west pocket that clears it is too small
-  // and too curved for a hall. The real drives curve around the
-  // hall; the straight geodata lines are an artefact. So the hall
-  // is modelled at a reduced footprint in the south-east of the
-  // courtyard, the one clear pocket that fits a hall-sized block,
-  // keeping its glass curtain reading and its position inside the
-  // ring (issue #42 audit).
-  parts.push({
-    type: 'box', w: 30, d: 40, h: 16, dx: 25, dz: 20,
-    facade: { kind: 'curtain', glassTint: 0x2e4a5a, frameTint: 0x8a929a, windowWidth: 3, floorHeight: 4, litProbability: 0.3, warmth: 0.5, reflectivity: 0.9, seed: 57.472 },
-  });
-  // Cylindrical tower with small square windows (north of the
-  // atrium block, attached to its north edge). It sits with the
-  // hall in the clear south-east pocket, clear of the drive bands.
-  parts.push({ type: 'cylinder', r: 8, h: 20, dx: 28, dz: -2, flat: 0xd8d2c4 });
-  // Gold dome: 35 m sphere (published) on a 4.5 m drum, 182 m east
-  // and 71 m north of the ring centre. Top 4.5 + 17.5 = 22 m. The
-  // centre is placed 3.5 m south-west of the satellite-measured
-  // centre (tile (-4670.3, -6931.9)) to clear the 美崙街 roadbed:
-  // the road centreline passes 18.7 m from the measured centre, so
-  // the 17.5 m dome + 3.2 m ribbon would overlap by ~2 m — the
-  // measurement scatter between two independent satellite picks is
-  // ~5 m, so the 3.5 m shift is inside the error bar and the road
-  // clearance (no landmark may overlap a roadbed) is a hard rule.
+  // Exhibition block: 95x65 m, 4 storeys (~20 m, estimated), long
+  // axis NW-SE (rotY -0.62). Shifted ~6 m SE (dx+5, dz+3.5) to clear
+  // 美崙街 (see the header comment). Uses the structure facade
+  // (prewar windows) — no flat override, so it reads as a museum
+  // block with windows, not a blank white box.
+  parts.push({ type: 'box', w: 95, d: 65, h: 20, dx: 5, dz: 3.5, rotY: -0.62 });
+  // Big dome: 35 m sphere (published) on a 4.5 m drum. Top 4.5 +
+  // 17.5 = 22 m. WHITE (the user's screenshots govern; Esri is
+  // stale). Positioned relative to the shifted block centre
+  // (dx-9, dz-35.5 = measured dx-14, dz-39 plus the +5/+3.5 shift).
   // The drum is r=17, a plinth the sphere overhangs.
-  parts.push({ type: 'cylinder', r: 17, h: 4.5, dx: 181.9, dz: -71.1, flat: 0x8a6d2f });
+  parts.push({ type: 'cylinder', r: 17, h: 4.5, dx: -9, dz: -35.5, flat: 0xf4f1ea });
   parts.push({
-    type: 'dome', rx: 17.5, rz: 17.5, h: 17.5, y0: 4.5, dx: 181.9, dz: -71.1,
-    flat: { color: 0xc9962e, roughness: 0.35, metalness: 0.6 },
+    type: 'dome', rx: 17.5, rz: 17.5, h: 17.5, y0: 4.5, dx: -9, dz: -35.5,
+    flat: { color: 0xf4f1ea, roughness: 0.6, metalness: 0.05 },
   });
-  // Small white observatory dome between the ring and the gold dome.
-  parts.push({ type: 'cylinder', r: 9.5, h: 3, dx: 93.9, dz: -13.3, flat: 0xd8d2c4 });
+  // Small white observatory dome beside the big dome (measured
+  // dx+3, dz-25 from the true block centre, plus the +5/+3.5 shift).
+  parts.push({ type: 'cylinder', r: 5, h: 3, dx: 8, dz: -21.5, flat: 0xf4f1ea });
   parts.push({
-    type: 'dome', rx: 9, rz: 9, h: 9, y0: 3, dx: 93.9, dz: -13.3,
+    type: 'dome', rx: 5, rz: 5, h: 5, y0: 3, dx: 8, dz: -21.5,
     flat: { color: 0xf4f1ea, roughness: 0.6, metalness: 0.05 },
   });
   return parts;
 }
 
-// Issue #278: 科教館 (National Taiwan Science Education Center) —
-// the 11-storey science museum in Shilin, next to the planetarium.
-// Siting measured from Esri z18 satellite via latLonToTile. The
-// form is a large curved drum (grey tiled, horizontal bands, rooftop
-// pergola ring) with a taller rectangular slab behind it to the
-// north-east carrying the NTSEC logo. Heights are floor-based
-// estimates (slab 11 × 4 m = 44 m; drum ~26 m). The site sits on a
-// drape slope (4.3–7.7 m, up to the north-east; lift 5.88 m at the
-// anchor), so the drum carries a 2 m skirt below the group origin
-// (y0 −2) — without it the drum's south edge would float ~1.6 m
-// above the draped ground.
+// Issue #326: 科教館 (National Taiwan Science Education Center) —
+// the science museum in Shilin (No. 189 Shishang Rd), moved to its
+// current building in 2003. RE-SITED and REBUILT: #278 built the
+// DRUM+SLAB as the NTSEC, but the user's 2026-11-06 report + Google
+// 3D screenshots prove the RING is the NTSEC (west) and the drum+
+// slab belonged to the planetarium's grounds (a separate beige
+// complex east of the planetarium). Re-measured from Esri z18
+// satellite (0.541 m/px) via latLonToTile; the measurement log is in
+// ntsec326-evidence/ (measure326.mjs, anchors326.json). The form is
+// a COMPLETE circular ring ~114 m across (outer r~57, wall ~12 m
+// thick, centreline r~51), 4 storeys (~16 m), white, with a glass
+// band at the top rim (the top 2 m), a long bar/slab running across
+// it E-W slightly south of centre (~149x15 m, ~14 m tall, estimated,
+// tilted ~6 deg), a glass atrium block in the centre (~49x49 m,
+// ~14 m tall, estimated, ~15 m NORTH of the ring centre), and a
+// cylindrical tower at the south-east (~22 m diameter, ~20 m tall,
+// estimated). The ring is built as 24 tangent segments (the Expo
+// Dome bowl pattern) — a COMPLETE circle, no omissions. The geodata
+// road chords through the ring (士商路 straight chord, 基河路396巷
+// drive, a 5 m service drive) are artefacts; the real roads curve
+// around the building. The roadbeds are re-routed/cleared in the
+// generation map (see build-generation-map.mjs, issue #326 rule),
+// NOT by cutting the ring — the ring stays complete (issue #42
+// audit). The site's drape is 0.00 everywhere, so no lift or skirt.
 function ntsecParts() {
-  return [
-    // Curved drum: elliptical cylinder, 135 m E-W × 70 m N-S.
-    { type: 'cylinder', r: 67, rz: 35, h: 28, y0: -2 },
-    // Rooftop pergola ring: a thin rim just proud of the drum.
-    { type: 'cylinder', r: 70, rz: 37, h: 1.5, y0: 26, flat: 0x8f979e },
-    // Tall slab behind the drum (north-east): 11 storeys, 44 m. It
-    // is placed 12 m west of the satellite-measured centre (dx +41.4
-    // -> +29.4): the geodata's 文昌路 is drawn 19.2 m wide and its
-    // ribbon reaches the slab's east edge at the satellite position,
-    // so the slab is shifted west to clear the roadbed (issue #42
-    // audit) — the 12 m shift is inside the satellite measurement
-    // scatter for this block.
-    { type: 'box', w: 70, d: 43, h: 44, dx: 29.4, dz: -27.7 },
-  ];
+  const parts = [];
+  // Ring wall: 24 tangent segments around r=51 (wall ~12 m thick),
+  // leaving the courtyard (r < 45) open for the atrium block. The
+  // segment math is the Expo Dome bowl's (ellipse tangent direction
+  // -> authored rotY), with a = b = 51 for the circle. The white
+  // wall is 14 m tall; the top 2 m is a glass band (a separate
+  // segment on top, y0 14, h 2), so the ring reads 16 m total with
+  // the glass rim the user's screenshots show.
+  const seg = (phiDeg, w, d, h, y0, flat) => {
+    const phi = (phiDeg * Math.PI) / 180;
+    const alphaT = Math.atan2(51 * Math.cos(phi), -51 * Math.sin(phi));
+    parts.push({
+      type: 'box', w, d, h, y0,
+      dx: 51 * Math.cos(phi), dz: -51 * Math.sin(phi), rotY: -alphaT, flat,
+    });
+  };
+  for (let phi = 0; phi < 360; phi += 15) {
+    seg(phi, 14, 12, 14, 0, 0xe8e4da);
+    seg(phi, 14, 12, 2, 14, 0x2e4a5a);
+  }
+  // Long bar/slab across the ring (E-W, slightly south of centre).
+  // ~149 m long, ~15 m wide, ~14 m tall (estimated), tilted ~6 deg
+  // (east end south, rotY -0.09). It passes through the ring wall
+  // on both sides (the real slab extends ~20 m beyond the ring) —
+  // the bar and the ring intersect, which is real (the slab is
+  // attached to / passes through the ring).
+  parts.push({ type: 'box', w: 149, d: 15, h: 14, dx: 1, dz: 25, rotY: -0.09, flat: 0xe8e4da });
+  // Glass atrium block in the centre (~49x49 m, ~14 m tall,
+  // estimated), ~15 m NORTH of the ring centre (dx+3, dz-15). NOT
+  // south-east as #278 placed it — the satellite puts it north.
+  parts.push({
+    type: 'box', w: 49, d: 49, h: 14, dx: 3, dz: -15,
+    facade: { kind: 'curtain', glassTint: 0x2e4a5a, frameTint: 0x8a929a, windowWidth: 3, floorHeight: 4, litProbability: 0.3, warmth: 0.5, reflectivity: 0.9, seed: 57.472 },
+  });
+  // Cylindrical tower at the south-east (~22 m diameter, ~20 m tall,
+  // estimated), a standalone cylinder ~16 m east of the ring wall.
+  parts.push({ type: 'cylinder', r: 11, h: 20, dx: 84, dz: -4, flat: 0xd8d2c4 });
+  return parts;
 }
 
 // Issue #278: 台北榮總 (Taipei Veterans General Hospital) — the
@@ -3403,61 +3401,55 @@ const LANDMARK_STRUCTURES = [
     parts: expoDomeParts(),
   },
   {
-    // Issue #278: 台北天文館 (Taipei Astronomical Museum) — the
+    // Issue #326: 台北天文館 (Taipei Astronomical Museum) — the
     // planetarium in Shilin (No. 363 Jihe Rd), opened 1996/1997, a
     // 4-storey museum on a 1.8 ha site with Asia's biggest
-    // planetarium (325 seats, 180° screen). Siting measured from
-    // Esri z18 satellite via latLonToTile: the exhibition ring is
-    // ~127 m across, centred on the anchor; the gold dome (35 m
-    // sphere, published) sits 182 m east and 62 m north of the ring
-    // centre, and a small white observatory dome sits between them.
-    // Heights are photo/floor-based estimates (ring 4 storeys ≈
-    // 16 m; dome drum 4.5 m + 17.5 m hemisphere = 22 m total), so
-    // estimated: true. The site rect covers ring + both domes; it
-    // clears 8 procedural lots on the museum grounds (measured on
-    // the pre-#278 plan). The site's drape is 0 at the ring and
-    // ~2.5 m at the gold dome (corridor terrain-grid edge), so the
-    // dome drum is partly buried by the drape while the hemisphere
-    // reads fully. No farParts (like Tianmu Stadium / Expo Dome):
-    // the ring is 24 segments and the far test requires every
-    // storey-mass part to survive into the far version exactly, so
-    // a merged far silhouette would be an invention, not a
-    // simplification — and landmarks are exempt from the far fade
-    // anyway, so the museum keeps full detail at any distance. The
-    // red 天文館 roof sign is 3 abstract glyph blocks on the ring's
-    // south face (the real sign sits on the exhibition block's roof
-    // parapet behind the dome; the ring face is its readable
-    // equivalent from the south approach).
+    // planetarium (325 seats, 180° screen). RE-SITED: #278 put the
+    // anchor on the NTSEC's grounds (lon 121.51690); the true anchor
+    // is the exhibition block centre, lat 25.09517, lon 121.51884
+    // (re-measured from Esri z18 satellite via latLonToTile;
+    // ntsec326-evidence/measure326.mjs). The exhibition block is
+    // ~95x65 m (rotY -0.62), the WHITE dome (35 m sphere, published)
+    // sits at its north-east corner, and a small white dome sits
+    // beside it. Heights are photo/floor-based estimates (block 4
+    // storeys ≈ 20 m; dome drum 4.5 m + 17.5 m hemisphere = 22 m
+    // total), so estimated: true. The site rect covers block + both
+    // domes. The site's drape is 2.57-3.13 m (group lift ~2.62 m at
+    // the anchor). No farParts (like Tianmu Stadium / Expo Dome):
+    // landmarks are exempt from the far fade anyway, so the museum
+    // keeps full detail at any distance. The red 天文館 roof sign is
+    // 3 abstract glyph blocks on the block's south-east face (the
+    // real sign sits on the exhibition block's roof parapet behind
+    // the dome).
     id: 'taipei-astronomical-museum', name: 'Taipei Astronomical Museum', nameZh: '台北天文館',
-    lat: 25.09496, lon: 121.51690, realHeight: 22, estimated: true, color: 0xe8e4da,
-    site: { w: 280, d: 160, dx: 68, dz: 0 },
-    facade: { kind: 'prewar', stoneColor: 0xe8e4da, trimColor: 0xc9962e, windowGlassColor: 0x2e4a5a, windowWidth: 4, floorHeight: 4, litProbability: 0.15, warmth: 0.5, seed: 57.47 },
-    sign: { glyphs: 3, w: 18, h: 3, y: 14.5, dx: 0, dz: 63.5, bg: '#3a3f45', fg: '#d21f1f' },
+    lat: 25.09517, lon: 121.51884, realHeight: 22, estimated: true, color: 0xe8e4da,
+    site: { w: 140, d: 130, dx: 0, dz: -10 },
+    facade: { kind: 'prewar', stoneColor: 0xe8e4da, trimColor: 0x8a929a, windowGlassColor: 0x2e4a5a, windowWidth: 4, floorHeight: 4, litProbability: 0.15, warmth: 0.5, seed: 57.47 },
+    sign: { glyphs: 3, w: 18, h: 3, y: 16, dx: 44, dz: 31, rotY: 0.96, bg: '#3a3f45', fg: '#d21f1f' },
     parts: planetariumParts(),
   },
   {
-    // Issue #278: 科教館 (National Taiwan Science Education Center)
+    // Issue #326: 科教館 (National Taiwan Science Education Center)
     // — the science museum in Shilin (No. 189 Shishang Rd), moved
-    // to its current building in 2003. Siting measured from Esri
-    // z18 satellite via latLonToTile: the curved drum is ~135 m
-    // E-W × ~77 m N-S, centred on the anchor, and the 11-storey
-    // slab stands ~44 m north-east of the drum centre. Heights are
-    // floor-based estimates (slab 11 × 4 m = 44 m; drum ~26 m), so
-    // estimated: true. The site rect covers drum + slab; it clears
-    // 34 procedural lots on the museum grounds (measured on the
-    // pre-#278 plan). The site sits on a drape slope (4.3–7.7 m,
-    // up to the north-east; lift 5.88 m at the anchor) and the drum
-    // carries a 2 m skirt below the group origin so its south edge
-    // does not float above the draped ground. No farParts (like
-    // Tianmu Stadium / Expo Dome): the drum is an elliptical
-    // cylinder and the far test requires every storey-mass part to
-    // survive into the far version exactly — and landmarks are
-    // exempt from the far fade anyway.
+    // to its current building in 2003. RE-SITED: #278 put the anchor
+    // on the planetarium's grounds (lon 121.52071 — a beige complex
+    // east of the planetarium); the true anchor is the ring centre,
+    // lat 25.09506, lon 121.51701 (re-measured from Esri z18
+    // satellite via latLonToTile; ntsec326-evidence/measure326.mjs).
+    // The form is a COMPLETE circular ring ~114 m across (outer
+    // r~57), 4 storeys (~16 m), with a glass band at the top rim, a
+    // long bar/slab across it, a glass atrium in the centre, and a
+    // cylindrical tower at the south-east. Heights are photo/floor-
+    // based estimates (ring 4 storeys ≈ 16 m; tower ~20 m), so
+    // estimated: true. The site rect covers ring + bar + tower. The
+    // site's drape is 0.00 everywhere. No farParts (like Tianmu
+    // Stadium / Expo Dome): landmarks are exempt from the far fade
+    // anyway, so the museum keeps full detail at any distance.
     id: 'ntsec', name: 'National Taiwan Science Education Center', nameZh: '國立臺灣科學教育館',
-    lat: 25.09503, lon: 121.52071, realHeight: 44, estimated: true, color: 0x9a9a94,
-    site: { w: 160, d: 110, dx: 0, dz: 0 },
-    facade: { kind: 'prewar', stoneColor: 0x9a9a94, trimColor: 0x6d7885, windowGlassColor: 0x2e3a46, windowWidth: 4, floorHeight: 4, litProbability: 0.2, warmth: 0.5, seed: 57.48 },
-    sign: { text: 'NTSEC', w: 20, h: 3, y: 20, dx: 0, dz: 35.5, bg: '#3a3f45', fg: '#ece5d3' },
+    lat: 25.09506, lon: 121.51701, realHeight: 20, estimated: true, color: 0xe8e4da,
+    site: { w: 180, d: 130, dx: 10, dz: 0 },
+    facade: { kind: 'prewar', stoneColor: 0xe8e4da, trimColor: 0x2e4a5a, windowGlassColor: 0x2e3a46, windowWidth: 4, floorHeight: 4, litProbability: 0.2, warmth: 0.5, seed: 57.48 },
+    sign: { text: 'NTSEC', w: 20, h: 3, y: 14, dx: 0, dz: 57.5, bg: '#3a3f45', fg: '#ece5d3' },
     parts: ntsecParts(),
   },
   {
