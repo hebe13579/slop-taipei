@@ -235,7 +235,8 @@ test('real tile: exactly one cap per grounded multi-arm junction, centres and ar
   // the tile is identical; the fitted total below is unchanged.
   // Issue #110: cap area 689,142 -> 686,955 m2 (-2,187) — the fused beds merge two junctions and reshape the caps (fitted area 173,457 -> 169,724; box area 515,685 -> 517,231).
   // Issue #258: cap area 686,955 -> 801,375 m2 (+114,420) — the south expansion's junction caps (fitted area 169,724 -> 190,499; box area 517,231 -> 610,876).
-  assert.equal(Math.round(caps.reduce((s, c) => s + c.area, 0)), 801375, 'cap area census'); // merged-tree re-pin at the #186 gate: 650,470 main / 689,142 merged (+38,672 m² of caps in the #186 strip)
+  // Issue #326: cap area 801,375 -> 801,337 m2 (−38) — the dropped interior drive's junction cap is gone (fitted area 190,499 -> 190,461; box area unchanged).
+  assert.equal(Math.round(caps.reduce((s, c) => s + c.area, 0)), 801337, 'cap area census'); // merged-tree re-pin at the #186 gate: 650,470 main / 689,142 merged (+38,672 m² of caps in the #186 strip)
   // Issue #110: fitted cap area 173,457 -> 169,724 m2 (-3,733).
   // Issue #258: fitted cap area 169,724 -> 190,499 m2 (+20,775).
   assert.equal(Math.round(caps.filter((c) => c.kind === 'fitted').reduce((s, c) => s + c.area, 0)), 190499, // merged-tree re-pin at the #186 gate: 159,678 main / 173,457 merged
