@@ -223,9 +223,10 @@ test('real tile: exactly one cap per grounded multi-arm junction, centres and ar
   assert.equal(caps.length, 3374, `caps ${caps.length}`); // merged-tree re-pin at the #186 gate: 2,621 main / 2,795 #186-stale-base / 2,793 merged
   // Issue #110: box caps 586 -> 588 (+2) — the re-admitted links create two more box-cap junctions (fitted caps 2,207 -> 2,204, total 2,793 -> 2,792).
   // Issue #258: box caps 588 -> 703 (+115) — the south expansion's box-cap junctions (fitted caps 2,204 -> 2,672, total 2,792 -> 3,375).
+  // Issue #326: fitted caps 2,672 -> 2,671 (−1) — the dropped interior drive's junction had a fitted cap (box 703 + fitted 2,671 = the 3,374 caps).
   assert.equal(caps.filter((c) => c.kind === 'box').length, 703, 'box caps'); // merged-tree re-pin at the #186 gate: 557 main / 588 #186-stale-base / 586 merged
   // Issue #110: fitted caps 2,207 -> 2,204 (-3) — box 588 + fitted 2,204 = the 2,792 caps.
-  assert.equal(caps.filter((c) => c.kind === 'fitted').length, 2672, 'fitted caps'); // merged-tree re-pin at the #186 gate: 2,064 main / 2,207 merged (box 586 + fitted 2,207 = the 2,793 caps)
+  assert.equal(caps.filter((c) => c.kind === 'fitted').length, 2671, 'fitted caps'); // merged-tree re-pin at the #186 gate: 2,064 main / 2,207 merged (box 586 + fitted 2,207 = the 2,793 caps)
   // Area re-pinned for issue #196: 650,838 -> 650,470 (-368 m²,
   // old-vs-new cap diff by centre): the two mouth caps are gone
   // (north 331.0 m², south 75.0 m²) and the neighbouring junction
