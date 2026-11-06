@@ -274,7 +274,8 @@ test('ground network unchanged: beds, junctions and caps exactly as before decks
   // 2,699 (the two portal-mouth stub clusters dissolve).
   // Issue #110: +24 beds — 23 re-admitted links produce 24 runs (one link way yields 2 runs).
   // Issue #258: roadbeds 14,570 -> 17,292 (+2,722) — the south expansion's streets (7-south + Box A west strip); the 113 seam re-merges replace their old beds in place (see the geodata composition note), so the count grows by the truly-new beds only.
-  assert.equal(TAIPEI_GEO.roadbeds.length, 17292, 'roadbed count on the merged tree (13,577 on main + 969 beds in the #186 airport-north strip; the one remaining #186-signature bed is a zero-point stub the post-#196 builder routes to roadTunnels instead)');
+  // Issue #326: roadbeds 17,292 -> 17,291 (−1) — generation-map Rework v7 drops the unnamed interior drive (way 783920042) whose ribbon cuts the NTSEC ring; the 5 re-routed beds keep their count (they are re-routes, not additions).
+  assert.equal(TAIPEI_GEO.roadbeds.length, 17291, 'roadbed count on the merged tree (13,577 on main + 969 beds in the #186 airport-north strip; the one remaining #186-signature bed is a zero-point stub the post-#196 builder routes to roadTunnels instead)');
   const junctions = detectJunctions(carriageways);
     // Issue #110: junctions 2,871 -> 2,870 — the fused bed ends merge two junctions (same delta as the junctions test).
     // Issue #258: junctions 2,870 -> 3,479 (+609) — the south expansion's street junctions (Gongguan/Guting grid + the NTU/Shida campus approaches).
