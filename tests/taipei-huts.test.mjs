@@ -98,7 +98,14 @@ test('hut census on the real plan: selection unchanged, garnish at census', (t) 
   // re-seat — lot-by-lot diff on this tree); the garnish moves with
   // the selection (gable 2,292 -> 2,286, patches 5,647 -> 5,624,
   // bumps 1,560 -> 1,553, measured on this tree).
-  assert.equal(hutLots, 6539, 'hut selection is the pre-#208 census');
+  // Issue #282: hut 6,539 -> 6,552 (+13) — the re-faced lots
+  // re-roll the hut selection (seeded from lot position/footprint);
+  // the garnish moves with the selection (gable 2,286 -> 2,292,
+  // patches 5,624 -> 5,667, bumps 1,553 -> 1,546, measured on this
+  // tree). Proven by cross-run: with { facing: false } the census
+  // returns to exactly 6,536 / 2,285 / 5,641 / 1,544 on BOTH this
+  // tree and pristine main (facing282-evidence/proof-crossrun.mjs).
+  assert.equal(hutLots, 6552, 'hut selection is the pre-#208 census');
   // Issue #216: the facing pass moves lots, and the garnish rolls
   // are seeded from lot position — 2 gable draws, 14 patch draws
   // and 10 bump draws flip, while the selection (5,892 hut lots)
@@ -107,13 +114,16 @@ test('hut census on the real plan: selection unchanged, garnish at census', (t) 
   // (facing216b-evidence/proof-huts-off.mjs).
   // Issue #110: gable census 2,054 -> 2,058 — 4 more gable-roof lots (the re-seated lots re-roll the gable selection, same +4 as the hut census).
   // Issue #278: gable 2,292 -> 2,286 (−6, measured on this tree — the garnish moves with the hut selection).
-  assert.equal(gable, 2286, 'gable census');
+  // Issue #282: gable 2,286 -> 2,292 (+6 — the re-faced lots re-roll the gable selection, same +13 class as the hut census; proven by the facing:false cross-run).
+  assert.equal(gable, 2292, 'gable census');
   // Issue #110: patch census 5,135 -> 5,121 (-14) — the re-seated lots re-roll the roof-patch selection.
   // Issue #278: patches 5,647 -> 5,624 (−23, measured on this tree).
-  assert.equal(patches, 5624, 'patch census');
+  // Issue #282: patches 5,624 -> 5,667 (+43 — the re-faced lots re-roll the roof-patch selection; proven by the facing:false cross-run).
+  assert.equal(patches, 5667, 'patch census');
   // Issue #110: bump census 1,380 -> 1,381 (+1) — the re-seated lots re-roll the roof-bump selection.
   // Issue #278: bumps 1,560 -> 1,553 (−7, measured on this tree).
-  assert.equal(bumps, 1553, 'bump census');
+  // Issue #282: bumps 1,553 -> 1,546 (−7 — the re-faced lots re-roll the roof-bump selection; proven by the facing:false cross-run).
+  assert.equal(bumps, 1546, 'bump census');
 });
 
 test('renderer palette mirrors the planner palette', () => {

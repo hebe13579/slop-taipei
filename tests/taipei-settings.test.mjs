@@ -128,7 +128,8 @@ test('density fine (default): the shipped plan, byte-identical', () => {
   // Issue #258: plan 68,472 -> 76,367 (+7,895) — the south expansion (see the schools test for the full lot-diff decomposition); the hash moves with the new lots (fingerprint is over every lot's rounded fields). blocksFine 2,897 -> 3,388 (+491 fine-classified south blocks).
   assert.equal(implicit.lots, 76209); // re-pinned for #278: the 3 new registry sites exclude 158 lots net (see the fine test)
   // Issue #110: the plan hash moves with the re-seated lots (fingerprint is over every lot's rounded fields).
-  assert.equal(implicit.hash, '669c6459'); // re-pinned for #278: measured on the merged tree
+  // Issue #282: the plan hash moves with the re-faced lots (the fingerprint mixes every lot's rounded x/z/w/d/h/rot/color, so turning 2,729 lots moves it; counts, blocksFine and lotsFine are unchanged). Proven by cross-run: with { facing: false } the fine hash is exactly c396d999 on BOTH this tree and pristine main (facing282-evidence/proof-crossrun.mjs).
+  assert.equal(implicit.hash, 'b7248559'); // re-pinned for #282: measured on this tree
   assert.equal(implicit.stats.blocksFine, 3388);
   // Issue #110: lotsFine 44,923 -> 44,907.
   // Issue #258: lotsFine 44,907 -> 50,803 (+5,896 fine south lots).
@@ -142,7 +143,8 @@ test('density coarse: the pre-#124 rule (fine classifier never fires)', () => {
   // Issue #258: coarse 36,107 -> 39,574 (+3,467) — the south expansion plans coarse too.
   assert.equal(fp.lots, 39433); // re-pinned for #278: the 3 new registry sites exclude 141 lots net at coarse density (see the fine test)
   // Issue #110: the coarse-plan hash moves with the re-seated lots.
-  assert.equal(fp.hash, '14011746'); // re-pinned for #278: measured on the merged tree
+  // Issue #282: the coarse-plan hash moves with the re-faced lots (the facing pass turns lots at every density; counts unchanged). Proven by cross-run: with { facing: false } the coarse hash is exactly 13647a59 on BOTH this tree and pristine main.
+  assert.equal(fp.hash, '77ee5afe'); // re-pinned for #282: measured on this tree
   assert.equal(fp.stats.blocksFine, 0);
   assert.equal(fp.stats.lotsFine, 0);
 });
@@ -153,7 +155,8 @@ test('density dense: the #124 study draft at ~100k lots', () => {
   // Issue #258: dense 93,142 -> 104,349 (+11,207) — the south expansion at the dense pitch.
   assert.equal(fp.lots, 104178); // re-pinned for #278: the 3 new registry sites exclude 171 lots net at dense density (see the fine test)
   // Issue #110: the dense-plan hash moves with the re-seated lots.
-  assert.equal(fp.hash, '9facedd7'); // re-pinned for #278: measured on the merged tree
+  // Issue #282: the dense-plan hash moves with the re-faced lots (counts unchanged). Proven by cross-run: with { facing: false } the dense hash is exactly 6f43c70e on BOTH this tree and pristine main.
+  assert.equal(fp.hash, 'e586e5b4'); // re-pinned for #282: measured on this tree
   assert.equal(fp.stats.blocksFine, 3388, 'dense keeps the fine classifier — only the pitch tightens');
   // Issue #110: dense lotsFine 69,581 -> 69,577.
   // Issue #258: dense lotsFine 69,577 -> 78,785 (+9,208 fine south lots at the dense pitch).
@@ -167,7 +170,8 @@ test('density unknown value plans as fine', () => {
   // Issue #258: plan 68,472 -> 76,367 (+7,895) — the south expansion; the hash moves with the new lots.
   assert.equal(fp.lots, 76209); // re-pinned for #278: the 3 new registry sites exclude 158 lots net at every density (see the fine test)
   // Issue #110: the plan hash moves with the re-seated lots (unknown plans as fine).
-  assert.equal(fp.hash, '669c6459'); // re-pinned for #278: measured on the merged tree (unknown plans as fine)
+  // Issue #282: the plan hash moves with the re-faced lots (unknown plans as fine — same hash as the fine preset, b7248559).
+  assert.equal(fp.hash, 'b7248559'); // re-pinned for #282: measured on this tree (unknown plans as fine)
 });
 
 // Source contracts for the UI surface (the browser evidence in the
