@@ -194,30 +194,64 @@ test('facing census: turns land, the #185 pull and heights are untouched', () =>
   // kept lot flips full -> partial when its neighbours leave);
   // held 22,624 -> 22,613 (−11: noFace −9, smallTurn −1, clear −1,
   // facade and alignedMain unchanged); sub-counts still sum exactly.
-  assert.deepEqual(plan.stats.lotsFacingTurned, 3707);
-  // Issue #110: see the facing-census re-pin above.
-  assert.deepEqual(plan.stats.lotsFacingTurnedFull, 1969);
-  // Issue #110: see the facing-census re-pin above.
-  assert.deepEqual(plan.stats.lotsFacingTurnedPartial, 1738);
-  // Issue #110: see the facing-census re-pin above.
-  assert.deepEqual(plan.stats.lotsFacingHeld, 22613);
-  // Issue #110: see the facing-census re-pin above.
-  assert.deepEqual(plan.stats.lotsFacingHeldNoFace, 9477);
-  // Issue #110: see the facing-census re-pin above.
-  assert.deepEqual(plan.stats.lotsFacingHeldSmallTurn, 7870);
-  // Issue #110: see the facing-census re-pin above.
-  assert.deepEqual(plan.stats.lotsFacingHeldFacade, 869);
-  // Issue #110: see the facing-census re-pin above.
-  assert.deepEqual(plan.stats.lotsFacingHeldClear, 4372);
-  assert.deepEqual(plan.stats.lotsFacingHeldAlignedMain, 25);
+  // Issue #282: the facing pass stops pairing faces with path
+  // segments (footway/steps — their angles are not road directions)
+  // and prefers the longest segment among near-tied candidates (a
+  // short segment's angle is unreliable — the merged 忠孝西路一段
+  // bed's 6.8 m kink at 31.8° sat 1.3 m closer than the 17.5 m
+  // straight stretch at 13.9°). Turned 3,707 -> 3,023 (full 1,969 ->
+  // 1,726, partial 1,738 -> 1,297); held 22,613 -> 23,297 (noFace
+  // 9,477 -> 12,753 — faces that only a path fronted now measure
+  // null and keep the grid angle; smallTurn 7,870 -> 6,714, facade
+  // 869 -> 705, clear 4,372 -> 3,111, alignedMain 25 -> 14). The
+  // census improves anyway (0-2 bucket +230, every worse bucket
+  // down) — the lots that lose a turn were turning toward path
+  // angles, not their road. Sub-counts still sum exactly.
+  assert.deepEqual(plan.stats.lotsFacingTurned, 3023);
+  // Issue #282: see the facing-census re-pin above.
+  assert.deepEqual(plan.stats.lotsFacingTurnedFull, 1726);
+  // Issue #282: see the facing-census re-pin above.
+  assert.deepEqual(plan.stats.lotsFacingTurnedPartial, 1297);
+  // Issue #282: see the facing-census re-pin above.
+  assert.deepEqual(plan.stats.lotsFacingHeld, 23297);
+  // Issue #282: see the facing-census re-pin above.
+  assert.deepEqual(plan.stats.lotsFacingHeldNoFace, 12753);
+  // Issue #282: see the facing-census re-pin above.
+  assert.deepEqual(plan.stats.lotsFacingHeldSmallTurn, 6714);
+  // Issue #282: see the facing-census re-pin above.
+  assert.deepEqual(plan.stats.lotsFacingHeldFacade, 705);
+  // Issue #282: see the facing-census re-pin above.
+  assert.deepEqual(plan.stats.lotsFacingHeldClear, 3111);
+  assert.deepEqual(plan.stats.lotsFacingHeldAlignedMain, 14);
   const { sample, buckets } = censusMismatch(plan.lots);
   // Issue #110: sample 17,421 -> 17,417 — 4 fewer lots in the mismatch census (the re-seated lots change which lots the census samples).
   // Issue #278: sample 19,652 -> 19,648 (−4 — the removed lots change which lots the census samples, measured on this tree).
-  assert.equal(sample, 19648);
+  // Issue #282: sample 19,648 -> 19,655 (+7 — the re-faced lots change which lots the census samples, measured on this tree).
+  assert.equal(sample, 19655);
   // Issue #110: buckets shift with the re-seated lots (0-2: 9,243 -> 9,228; 5-10: 2,021 -> 2,029; 10-20: 1,191 -> 1,197; 20-45: 1,969 -> 1,966; 2-5 unchanged).
   // Issue #258: buckets grow with the south lots (0-2: 9,228 -> 10,213; 2-5: 2,997 -> 3,388; 5-10: 2,029 -> 2,327; 10-20: 1,197 -> 1,439; 20-45: 1,966 -> 2,285).
   // Issue #278: buckets shift with the removed lots (0-2: 10,213 -> 10,212; 5-10: 2,327 -> 2,328; 10-20: 1,439 -> 1,436; 20-45: 2,285 -> 2,284; 2-5 unchanged) — measured on this tree.
-  assert.deepEqual(buckets, { '0-2': 10212, '2-5': 3388, '5-10': 2328, '10-20': 1436, '20-45': 2284 });
+  // Issue #282: buckets shift with the re-faced lots (0-2: 10,212 -> 10,442; 2-5: 3,388 -> 3,267; 5-10: 2,328 -> 2,264; 10-20: 1,436 -> 1,410; 20-45: 2,284 -> 2,272) — measured on this tree; the 0-2 bucket grows and every worse bucket shrinks.
+  assert.deepEqual(buckets, { '0-2': 10442, '2-5': 3267, '5-10': 2264, '10-20': 1410, '20-45': 2272 });
+  // Issue #282: the three 忠孝西路一段 corner lots face the road in
+  // front of them (the ~15° straight stretch), not the footway stub
+  // (the lot at (-4608,-1444) was turned 8° toward the stub, rot
+  // 14.6° -> 6.6°) and not the merged bed's 31.8° kink (a bed-fusion
+  // artefact — all five OSM source ways run straight at 7–17°).
+  // On pristine main the (-4608,-1444) lot reads 6.56°, so this
+  // fails there and passes here.
+  const cornerDeg = (x, z) => {
+    let best = null, bd = Infinity;
+    for (const lot of plan.lots) {
+      const d = Math.hypot(lot.x - x, lot.z - z);
+      if (d < bd) { bd = d; best = lot; }
+    }
+    return ((best.rot || 0) * 180) / Math.PI;
+  };
+  for (const [cx, cz] of [[-4608, -1444], [-4621, -1444], [-4604, -1459]]) {
+    const r = cornerDeg(cx, cz);
+    assert.ok(Math.abs(r - 14.63) < 0.5, `corner lot near (${cx},${cz}) faces ${r.toFixed(2)}°, expected ~14.63° (the 忠孝西路一段 straight stretch)`);
+  }
 });
 
 function lotCorners(cx, cz, w, d, c, s) {

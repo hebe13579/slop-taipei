@@ -6262,9 +6262,9 @@ export function planTaipeiBuildings(geodata, opts = {}) {
     const FRONT_CELL = 48;
     const cellKey = (gx, gz) => gx * 100003 + gz;
     const frontGrid = new Map();
-    const frontAdd = (pts, half, rank, band) => {
+    const frontAdd = (pts, half, rank, band, isPath) => {
       for (let i = 0; i + 3 < pts.length; i += 2) {
-        const sg = { ax: pts[i], az: pts[i + 1], bx: pts[i + 2], bz: pts[i + 3], half, rank, band };
+        const sg = { ax: pts[i], az: pts[i + 1], bx: pts[i + 2], bz: pts[i + 3], half, rank, band, path: !!isPath };
         const gx0 = Math.floor((Math.min(sg.ax, sg.bx) - 22) / FRONT_CELL), gx1 = Math.floor((Math.max(sg.ax, sg.bx) + 22) / FRONT_CELL);
         const gz0 = Math.floor((Math.min(sg.az, sg.bz) - 22) / FRONT_CELL), gz1 = Math.floor((Math.max(sg.az, sg.bz) + 22) / FRONT_CELL);
         for (let gx = gx0; gx <= gx1; gx++) for (let gz = gz0; gz <= gz1; gz++) {
@@ -6281,7 +6281,7 @@ export function planTaipeiBuildings(geodata, opts = {}) {
       frontAdd(bed.pts || [], Math.max((bed.width || 3) / 2, 0.75), CLASS_RANK[bed.highway] || 1, band);
     }
     for (const way of paths) {
-      frontAdd(way.pts || [], Math.max((way.width || 3) / 2, 0.75), FRONTAGE_BED_MIN_RANK, 0);
+      frontAdd(way.pts || [], Math.max((way.width || 3) / 2, 0.75), FRONTAGE_BED_MIN_RANK, 0, true);
     }
     // The gap between a face (centre fx/fz, outward unit normal
     // nx/nz, unit tangent tx/tz, length len) and the street
@@ -6710,9 +6710,47 @@ export function planTaipeiBuildings(geodata, opts = {}) {
         const sx = fx + tx * f * len, sz = fz + tz * f * len;
         const bucket = frontGrid.get(cellKey(Math.floor(sx / FRONT_CELL), Math.floor(sz / FRONT_CELL)));
         if (!bucket) continue;
-        let sBest = null, sBestC = null;
+        // Issue #282, second half: among near-tied segments prefer
+        // the LONGEST. A short segment's angle is not a road
+        // direction — the merged 忠孝西路一段 bed's centreline
+        // zigzags where its member carriageways join (a 6.8 m kink
+        // at 31.8°, a 12.3 m jog at 178.1°), and the kink sat 1.3 m
+        // closer to the corner lot's face than the 17.5 m straight
+        // stretch at 13.9°, so the lot turned a 0.4 partial toward
+        // the phantom bend (rot 14.6° -> 21.5°). The gap margin is
+        // 2 m: the face samples at ±40% already move the gap by
+        // metres on a skewed face, so a 2 m difference is noise
+        // and the longer segment is the better estimate of the
+        // road's direction. Rank still breaks the tie first (the
+        // census's rule), then length, then the smallest gap.
+        const pickSeg = (list) => {
+          if (!list.length) return null;
+          let gMin = Infinity;
+          for (const c of list) if (c.gap < gMin) gMin = c.gap;
+          let rMax = -Infinity;
+          for (const c of list) if (c.gap <= gMin + 2 && c.seg.rank > rMax) rMax = c.seg.rank;
+          let best = null;
+          for (const c of list) {
+            if (c.gap > gMin + 2 || c.seg.rank !== rMax) continue;
+            if (!best || c.len > best.len + 1 || (Math.abs(c.len - best.len) <= 1 && c.gap < best.gap)) best = c;
+          }
+          return best;
+        };
+        const cands = [], candsC = [];
         for (const sg of bucket) {
           if (sg.rank < FRONTAGE_BED_MIN_RANK) continue;
+          // Issue #282: a face's ANGLE is measured against the
+          // carriageway it fronts, never a footway/steps path. The
+          // paths are in this grid so the pull can measure its gap
+          // to a sidewalk's outer edge — but a path segment's angle
+          // is not a road direction: the 忠孝西路天橋 steps run
+          // across the road at 154.6° and a 2.3 m footway stub at
+          // 72.3°, and the corner lot at (-4608,-1444) was turned
+          // 8° toward the stub (rot 14.6° -> 6.6°) because the
+          // stub sat 0.4 m closer than the steps the other face
+          // paired with. Skipping paths here leaves the pull's gap
+          // measurement (frontGapAt) untouched.
+          if (sg.path) continue;
           const dx = sg.bx - sg.ax, dz = sg.bz - sg.az, L2 = dx * dx + dz * dz || 1e-9;
           let t = ((sx - sg.ax) * dx + (sz - sg.az) * dz) / L2;
           t = Math.max(0, Math.min(1, t));
@@ -6725,20 +6763,18 @@ export function planTaipeiBuildings(geodata, opts = {}) {
           if (along < 0.5) continue; // crosses the face, not along it
           const gap = d - sg.half - sg.band;
           if (gap < -0.5 || gap > 30) continue;       // face past the edge, or beyond measure
-          const cand = { gap, segAng: Math.atan2(dz, dx), seg: sg };
-          if (sBest === null || gap < sBest.gap) sBest = cand;
+          const cand = { gap, segAng: Math.atan2(dz, dx), seg: sg, len: sl };
+          cands.push(cand);
           // The segment the census would pair this face point
-          // with (its gates: along >= 0.7, gap <= 26, rank wins
-          // near-ties) — preferred whenever one exists, so the
-          // turn targets the same segment the census scores.
-          // Without this, a closer-but-steeper segment wins the
-          // relaxed gates and the lot turns away from the road
-          // the census (and the eye) scores it against.
-          if (along >= 0.7 && gap <= 26) {
-            if (sBestC === null || gap < sBestC.gap - 0.5 || (Math.abs(gap - sBestC.gap) <= 0.5 && sg.rank > sBestC.seg.rank)) sBestC = cand;
-          }
+          // with (its gates: along >= 0.7, gap <= 26) — preferred
+          // whenever one exists, so the turn targets the same
+          // segment the census scores. Without this, a
+          // closer-but-steeper segment wins the relaxed gates and
+          // the lot turns away from the road the census (and the
+          // eye) scores it against.
+          if (along >= 0.7 && gap <= 26) candsC.push(cand);
         }
-        const pick = sBestC || sBest;
+        const pick = pickSeg(candsC) || pickSeg(cands);
         if (f === 0) mid = pick;
         if (pick && (best === null || pick.gap < best.gap)) best = pick;
       }
