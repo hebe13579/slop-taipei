@@ -219,7 +219,8 @@ test('real tile: exactly one cap per grounded multi-arm junction, centres and ar
   assert.equal(junctions.length, 3478, `junctions ${junctions.length}`); // merged-tree re-pin at the #186 gate: 2,699 on main, 2,873 pinned by #186 on its stale base, 2,871 measured on the merged tree
   // Issue #110: caps 2,793 -> 2,792 — the fused bed ends merge two junctions, so one fewer cap.
   // Issue #258: caps 2,792 -> 3,375 (+583) — the south expansion's junctions, less the 26 the loop/roundabout rules claim (3,479 − 7 roundabout-claimed − 97 ORPHAN phantoms = 3,375).
-  assert.equal(caps.length, 3375, `caps ${caps.length}`); // merged-tree re-pin at the #186 gate: 2,621 main / 2,795 #186-stale-base / 2,793 merged
+  // Issue #326: caps 3,375 -> 3,374 (−1) — the dropped interior drive's junction had a cap (3,478 − 7 roundabout-claimed − 97 ORPHAN phantoms = 3,374); same count as the decks test.
+  assert.equal(caps.length, 3374, `caps ${caps.length}`); // merged-tree re-pin at the #186 gate: 2,621 main / 2,795 #186-stale-base / 2,793 merged
   // Issue #110: box caps 586 -> 588 (+2) — the re-admitted links create two more box-cap junctions (fitted caps 2,207 -> 2,204, total 2,793 -> 2,792).
   // Issue #258: box caps 588 -> 703 (+115) — the south expansion's box-cap junctions (fitted caps 2,204 -> 2,672, total 2,792 -> 3,375).
   assert.equal(caps.filter((c) => c.kind === 'box').length, 703, 'box caps'); // merged-tree re-pin at the #186 gate: 557 main / 588 #186-stale-base / 586 merged
