@@ -429,6 +429,12 @@ test('issue #178: with boot-exact exclusions (full cap surface), no tree stands 
   // the Xinyi sentinel's slot lands clear of the cap surface.
   // Same counterfactual class as above; the boot-exact
   // invariant below still measures 0 on this tree.
+  // Re-pinned for issue #326: the count is 1 again. The re-site
+  // (+51 lots) and the Rework v7 road changes reshuffle the
+  // candidate stream once more, and one sidewalk candidate lands
+  // on a clipped cap piece under the OLD exclusions. Same
+  // counterfactual class as above; the boot-exact invariant
+  // below still measures 0 on this tree.
   const { groundContactPolys } = await import('../js/taipei-viaduct.js');
   const geo = TAIPEI_GEO;
   const plan = planTaipeiBuildings(geo);
@@ -445,8 +451,8 @@ test('issue #178: with boot-exact exclusions (full cap surface), no tree stands 
   ];
   const before = [...planStreetTrees(geo, plan, { exclusions: oldExclusions }).trees,
     ...planParkTrees(geo, plan, { exclusions: oldExclusions }).trees];
-  assert.equal(before.filter((t) => pointInAnyPoly(surfGrid, surfPolys, [t.x, t.z])).length, 0,
-    'no tree stands on the full surface under the old ring+extras exclusions (the #226 candidate reshuffle rolled the #186 sentinel back out — see the comment above)');
+  assert.equal(before.filter((t) => pointInAnyPoly(surfGrid, surfPolys, [t.x, t.z])).length, 1,
+    'trees on the full surface under the old ring+extras exclusions (counterfactual — the old wiring\'s luck; the boot-exact invariant below still measures 0)');
   const exclusions = [
     ...caps.flatMap((c) => capSurfacePolys(c).map((p) => p.flatMap((pt) => pt))),
     ...sites.flatMap((s) => [s.disc.ring, ...s.aprons.map((a) => a.ring)]),
@@ -493,6 +499,12 @@ test('issue #272: with the airfield site-ring exclusion, no tree stands on Songs
   // after-measurement still 0 and both caps still filled.
   // The exclusion itself is unchanged; only the before-count
   // (a hash-placement census) moves with the exclusion set.
+  // Issue #326: re-pinned 1 -> 3 street trees before the
+  // exclusion. The re-site and the Rework v7 road changes shift
+  // the street planner's candidate sequence, and 2 more
+  // sidewalk candidates land inside the airfield ring in this
+  // before-measurement — the after-measurement is still 0 and
+  // both caps still fill.
   const geo = TAIPEI_GEO;
   const plan = planTaipeiBuildings(geo);
   const beds = geo.roadbeds;
@@ -510,7 +522,7 @@ test('issue #272: with the airfield site-ring exclusion, no tree stands on Songs
   const inside = (trees) => trees.filter((t) => pointInAnyPoly(siteGrid, sitePolys, [t.x, t.z]));
   const beforeStreet = planStreetTrees(geo, plan, { exclusions: baseExclusions });
   const beforePark = planParkTrees(geo, plan, { exclusions: baseExclusions });
-  assert.equal(inside(beforeStreet.trees).length, 1, 'street trees inside the site ring before the exclusion');
+  assert.equal(inside(beforeStreet.trees).length, 3, 'street trees inside the site ring before the exclusion');
   assert.equal(inside(beforePark.trees).length, 491, 'park trees inside the site ring before the exclusion');
   const exclusions = [...baseExclusions, ...siteRings];
   const street = planStreetTrees(geo, plan, { exclusions });
@@ -568,17 +580,20 @@ test('issue #273: with the Expo Dome registry site, no tree stands inside the bo
 test('issue #278: the three new registry sites carry no park trees and no tree inside a building footprint', () => {
   // The planetarium ring and the VGH campus are paved / built ground:
   // 0 street and 0 park trees stand inside either site rect before
-  // the entries, and 0 after. The NTSEC rect carries 1 street tree
-  // before AND after: it stands on the 文昌路 sidewalk at the rect's
-  // east edge (10.3 m from the centreline, roadbed edge 9.6 m),
-  // outside the drum (ellipse value 1.77) and outside the slab — a
-  // legitimate street tree on a public road, not a planting error.
-  // The street planner does not exclude registry sites (it excludes
-  // only the tower site, lots, parks/water and carriageways), so the
-  // tree stays by design; the park planner does exclude registry
+  // the entries, and 0 after. The NTSEC rect carried 1 street tree
+  // before AND after on the #278 tree: it stood on the 文昌路 sidewalk
+  // at the rect's east edge (10.3 m from the centreline, roadbed edge
+  // 9.6 m), outside the drum (ellipse value 1.77) and outside the
+  // slab — a legitimate street tree on a public road, not a planting
+  // error. Issue #326 moves the NTSEC rect ~190 m west to the ring,
+  // so that tree is no longer inside the rect: the new rect carries
+  // 0 street and 0 park trees before AND after. The street planner
+  // does not exclude registry sites (it excludes only the tower site,
+  // lots, parks/water and carriageways), so a tree inside a rect
+  // would stay by design; the park planner does exclude registry
   // sites and plants 0 inside any of the three rects.
   // Measured on this wiring with the #173 base exclusions
-  // (caps + roundabouts): planetarium 0/0, NTSEC 1 street / 0 park,
+  // (caps + roundabouts): planetarium 0/0, NTSEC 0 street / 0 park,
   // VGH 0/0 before; the same after, with both caps still filled.
   const geo = TAIPEI_GEO;
   const plan = planTaipeiBuildings(geo);
@@ -592,7 +607,7 @@ test('issue #278: the three new registry sites carry no park trees and no tree i
   ];
   const expected = {
     'taipei-astronomical-museum': { street: 0, park: 0 },
-    ntsec: { street: 1, park: 0 },
+    ntsec: { street: 0, park: 0 },
     'taipei-veterans-general-hospital': { street: 0, park: 0 },
   };
   for (const [id, want] of Object.entries(expected)) {
