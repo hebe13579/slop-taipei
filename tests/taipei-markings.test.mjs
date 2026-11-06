@@ -908,7 +908,8 @@ test('geodata: tile-wide centre-line census is the audited rule (issue #249)', (
   assert.equal(r.stats.centerDashBeds, 2523, `dashed beds ${r.stats.centerDashBeds}`);
   // Issue #326: double km 157.74 -> 157.49 (−0.25 km) — the 基河路396巷 truncation (156.6 m -> 55.8 m) shortens the double-yellow run on that 12.8 m road.
   assert.ok(Math.abs(r.stats.centerDoubleKm - 157.49) < 0.05, `double km ${r.stats.centerDoubleKm}`);
-  assert.ok(Math.abs(r.stats.centerDashKm - 132.65) < 0.05, `dashed km ${r.stats.centerDashKm}`);
+  // Issue #326: dashed km 132.65 -> 132.73 (+0.08 km) — the 士商路 re-route (238.7 m -> 277.1 m + 208.4 m -> 283.0 m) lengthens the dashed-centre-line run on that 8 m road.
+  assert.ok(Math.abs(r.stats.centerDashKm - 132.73) < 0.05, `dashed km ${r.stats.centerDashKm}`);
   // Issue #110: double quads 94,852 -> 94,848 (-4) — the fused beds shorten the double centre-line runs.
   assert.equal(r.stats.centerDoubleQuads, 105859, `double quads ${r.stats.centerDoubleQuads}`);
   // Issue #110: dashed quads 80,603 -> 80,601 (-2) — the fused beds shorten the dashed centre-line runs.
