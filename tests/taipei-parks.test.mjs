@@ -123,7 +123,10 @@ test('amenity census: the shipped totals are pinned', () => {
     // Re-pinned for issue #273: large 12,607 -> 12,497 (the Expo
     // Dome site's −110, see the census re-pin above); other
     // classes unchanged.
-    { large: 12497, medium: 8637, small: 2124, tiny: 60 },
+    // Re-pinned for issue #327: small 2,124 -> 2,122 (the 東門 gate
+    // removes 1 lamp + 1 bush from the 東門圓環 island, a 'small'
+    // park — see the census re-pin above); other classes unchanged.
+    { large: 12497, medium: 8637, small: 2122, tiny: 60 },
     'items by area class',
   );
   // Every park eligible for a restroom got one (81 of 81).
