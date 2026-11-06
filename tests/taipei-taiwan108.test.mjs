@@ -145,7 +145,8 @@ test('taiwan108: strip-tile lots carry vertical signs, high-rise lots carry none
   // Re-pinned for issue #258: signed F13 2,338 -> 2,597 (more F13
   // lots, same sign rule).
   // Issue #278: signed F13 2,597 -> 2,590 (−7 — seven signed F13 lots removed with their F13 lots; same sign rule).
-  assert.equal(signed13, 2590, 'strip-tile lots carry vertical signs');
+  // Issue #282: signed F13 2,590 -> 2,591 (+1 — one of the 3 new F13 lots carries a sign; same sign rule, and no F12 lot carries one). Proven by cross-run: with { facing: false } signed13 is exactly 2,602 on BOTH this tree and pristine main (facing282-evidence/proof-signs.mjs).
+  assert.equal(signed13, 2591, 'strip-tile lots carry vertical signs');
   assert.ok(f12.every((l) => taipeiVerticalSigns(l).length === 0), 'no high-rise lot carries a vertical sign');
 });
 
