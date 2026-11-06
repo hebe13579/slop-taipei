@@ -288,7 +288,8 @@ test('ground network unchanged: beds, junctions and caps exactly as before decks
   // remove a single cap — the delta is #77's, documented in its audit.
   // Issue #110: caps 2,793 -> 2,792 — the fused bed ends merge two junctions (same delta as the junctions test).
   // Issue #258: caps 2,792 -> 3,375 (+583) — the south expansion's junctions, less the 26 the loop/roundabout rules claim (3,479 − 7 roundabout-claimed − 97 groundless phantoms dropped by the #178 ORPHAN rule = 3,375).
-  assert.equal(caps.length, 3375, 'junction caps still planned over the full bed set, deck beds included (2,871 detected − 7 roundabout-claimed, #77; − 71 groundless phantoms dropped by the issue #178 ORPHAN rule — merged-tree re-pin at the #186 gate: 2,621 on main, 2,795 pinned by #186 on its stale base, 2,793 measured merged)');
+  // Issue #326: caps 3,375 -> 3,374 (−1) — the dropped interior drive's junction had a cap; same delta as the junctions test (3,478 − 7 roundabout-claimed − 97 groundless phantoms = 3,374).
+  assert.equal(caps.length, 3374, 'junction caps still planned over the full bed set, deck beds included (2,871 detected − 7 roundabout-claimed, #77; − 71 groundless phantoms dropped by the issue #178 ORPHAN rule — merged-tree re-pin at the #186 gate: 2,621 on main, 2,795 pinned by #186 on its stale base, 2,793 measured merged)');
 });
 
 test('viaduct renderer: synthetic box section with parapets', () => {
