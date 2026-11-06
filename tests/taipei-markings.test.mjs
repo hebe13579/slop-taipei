@@ -396,7 +396,8 @@ test('geodata: tile-wide marking counts are in the audited bands', () => {
   // identical code: every changed dash/signal/stop-line lies at
   // those two junctions; signalized stays 392, crossPairs 258.
   // Issue #110: dash quads 169,213 -> 169,830 (+617) — the 24 re-admitted link beds and the 71 fused connectors carry dashes.
-  assert.equal(r.stats.dashQuads, 196615, `dash quads ${r.stats.dashQuads}`); // merged-tree re-pin at the #186 gate: 157,083 main / 169,211 #186-stale-base / 169,213 merged
+  // Issue #326: dash quads 196,615 -> 196,600 (−15) — the generation-map Rework v7 re-routes and the dropped interior drive shorten the dashed runs (the 基河路396巷 truncation and the 士商路 re-route).
+  assert.equal(r.stats.dashQuads, 196600, `dash quads ${r.stats.dashQuads}`); // merged-tree re-pin at the #186 gate: 157,083 main / 169,211 #186-stale-base / 169,213 merged
   // Issue #110: X pairs culled 262 -> 284 (+22) — the 24 re-admitted link beds and the fused connectors create more braided crossings for the X-cull.
   assert.equal(r.stats.crossPairs, 704, `X pairs culled ${r.stats.crossPairs}`); // merged-tree re-pin at the #186 gate: 258 main / 262 #186 branch / 262 merged
   assert.equal(r.stats.dividerBeds, 1241, `divider beds ${r.stats.dividerBeds}`); // merged-tree re-pin at the #186 gate: 1,009 main / 1,076 #186-stale-base / 1,075 merged — the stale base predates #196, whose approach cut removes exactly one divider bed （復北地下道， ways 95015334/137317902, routed to roadTunnels); a per-bed set diff vs the PR tree shows no other change
@@ -905,7 +906,8 @@ test('geodata: tile-wide centre-line census is the audited rule (issue #249)', (
   // Issue #110: double beds 599 -> 600 (+1) — a re-admitted link bed carries a double centre line.
   assert.equal(r.stats.centerDoubleBeds, 656, `double beds ${r.stats.centerDoubleBeds}`);
   assert.equal(r.stats.centerDashBeds, 2523, `dashed beds ${r.stats.centerDashBeds}`);
-  assert.ok(Math.abs(r.stats.centerDoubleKm - 157.74) < 0.05, `double km ${r.stats.centerDoubleKm}`);
+  // Issue #326: double km 157.74 -> 157.49 (−0.25 km) — the 基河路396巷 truncation (156.6 m -> 55.8 m) shortens the double-yellow run on that 12.8 m road.
+  assert.ok(Math.abs(r.stats.centerDoubleKm - 157.49) < 0.05, `double km ${r.stats.centerDoubleKm}`);
   assert.ok(Math.abs(r.stats.centerDashKm - 132.65) < 0.05, `dashed km ${r.stats.centerDashKm}`);
   // Issue #110: double quads 94,852 -> 94,848 (-4) — the fused beds shorten the double centre-line runs.
   assert.equal(r.stats.centerDoubleQuads, 105859, `double quads ${r.stats.centerDoubleQuads}`);
