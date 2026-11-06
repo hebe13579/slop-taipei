@@ -2,24 +2,107 @@
 
 How a PR gets merged to `main`, and the traps the gate has already caught.
 This is the durable home for gate mechanics; the merge policy itself is the
-maintainer's call (currently: verify on a merged tree, two independent check
-passes — tests/boot and frames/live — and the maintainer keeps the final
-merge call; workers open PRs unmerged).
+maintainer's call.
 
-## The gate recipe
+**Batch merge mode (adopted 2026-11-06, maintainer's decision):** PRs merge
+in batches with no per-PR gate coordinator — the full gate was retired
+because it still let glitches through (see "Why the gate was retired"
+below). The builder still verifies its own branch before opening the PR
+(battery + validate + boot-smoke + frames, same as the old gate recipe);
+the merge happens on that evidence, and the detailed batch check below
+runs on the MERGED tree after the batch lands. A breakage found by the
+batch check is fixed afterward (fix issue, or revert) — it does not block
+the batch.
+
+## Batch merge flow
+
+1. Builders open PRs unmerged, each verified on its own branch (battery +
+   validate + boot-smoke SOLO + frames read by the builder).
+2. Merge the batch in FIFO order via the API (simple merge). If a PR's
+   base is stale and GitHub reports a conflict, re-base that branch onto
+   current main (or build a Data-API merge commit from the locally merged
+   tree, asserting remote tree SHA == locally merged tree SHA) and retry.
+   A docs-only commit on main never blocks a merge — it just makes the
+   base stale.
+3. After the batch lands, run the **detailed batch check** on the merged
+   tree (below). Only then close the issues with evidence comments,
+   append one plain line per merge to `docs/release-notes/YYYY-MM-DD.md`,
+   and confirm Pages shows "built".
+4. `tests/landmark-road-overlap.test.mjs` must pass UNEDITED on the
+   merged tree.
+
+## The detailed batch check (runs on the merged tree, after the batch)
+
+This check is deliberately MORE detailed than the old per-PR gate,
+because the old gate verified numbers and still shipped visual glitches.
+It has two halves: the numbers, and the truth of what is on screen.
+
+**Numbers (same as the old gate, on the merged tree):**
+- Full battery from the per-file logs (exclude aggregate/control logs
+  when recounting); only the pre-existing `boot.test.cjs` failure is
+  allowed, re-proven identical on pristine main.
+- `node tools/taipei/validate.mjs` ALL CHECKS PASSED.
+- Boot-smoke SOLO PASS (run with nothing else on the machine).
+- Plan/lot/registry censuses re-measured on the merged tree; a PR that
+  proved "plan byte-identical" on its branch can still move lots on the
+  merged tree (see the #264 trap below) — re-prove byte-identity
+  (full-field diff, not key-only) on the MERGED tree.
+
+**Truth of what is on screen (the part the old gate missed):**
+- **Identity audit — one building at a time, by name.** For every
+  new/changed landmark in the batch, verify name ↔ location ↔ form ↔
+  colour against its real-world reference (map label, satellite, photo).
+  A box check ("anchors inside the 3-corridor box") CANNOT catch a swap
+  — the #278 gate passed two swapped buildings that way. Check each
+  building individually: is THIS building at ITS place, with ITS shape
+  and ITS colour?
+- **Reference-vs-render for every visual change.** Before/after frames at
+  every site the batch touched, compared against the reference images —
+  not just "does it look like a building". The main agent reads the
+  decisive frames itself.
+- **Read the mass, not just the signature feature.** The VieShow/A9 cubes
+  passed the old gate because the marquee sign was there — but the mass
+  read as a plain red box. When the user reads the mass and the gate read
+  the feature, the user is right; the rework bar is the mass.
+- **Frame the full ground line AND the roofline for tall buildings.**
+  The Hyatt floating roof was missed because the probe camera was too
+  close/low to show either. A tall building's frame must show where it
+  meets the ground and where its roof ends.
+- **Both sides of a two-sided object.** The #319 gate shot the 堤防
+  from one side only and shipped a one-sided wall. Frame both sides.
+
+## Why the gate was retired (2026-11-06)
+
+The per-PR gate (two independent check workers, full battery + frames,
+maintainer keeps the final call) caught test failures but shipped
+visual glitches the maintainer then found live: the #278
+planetarium/NTSEC swap (ring built as the planetarium, anchors swapped,
+gold dome instead of white — the gate checked "anchors in a box", which
+cannot catch a swap), the VieShow/A9 red cubes (gate read the marquee
+feature, the user read the mass), the Grand Hyatt floating roof (probe
+camera too close/low). The gate was also the throughput bottleneck: one
+full battery + boot-smoke + frame shoot per PR, at most 2 heavy legs at
+once on this 2-CPU VM, so ~2 PRs/day. Batch merge trades per-PR gating
+for a detailed check on the merged tree.
+
+## The gate recipe (retired per-PR gate — kept as the builder's
+## pre-PR verification and the batch check's numbers half)
 
 1. Verify the PR on GitHub (open, head SHA, mergeable).
 2. Fresh clone of current main; merge the PR head (two-parent commit
-   `[PR head, main head]` when the PR's base is stale).
+   `[PR head, main head]` when the PR's base is stale) — this is how the
+   builder verifies its branch, and how a conflicted batch merge is
+   resolved.
 3. Run the relevant `tests/*.test.*` — the FULL battery for any change that
    moves the plan or geodata (see the composition-sensitive list below).
 4. `node tools/taipei/validate.mjs` must print ALL CHECKS PASSED.
 5. Standard boot-smoke is mandatory: `node tools/taipei/boot-smoke.mjs`
    exit 0 (1 = fail, 2 = inconclusive — retry once, never pass on 2).
-6. Push the gated tree via the GitHub Data API (blobs → tree with
-   `base_tree` → **assert the remote tree SHA == the locally gated tree
+6. When a merged tree must be pushed (batch conflict resolution):
+   push via the GitHub Data API (blobs → tree with
+   `base_tree` → **assert the remote tree SHA == the locally merged tree
    SHA** → commit → update ref), then API-merge.
-7. Verify main's tree == the gated tree, close the issue with an evidence
+7. Verify main's tree == the merged tree, close the issue with an evidence
    comment, confirm Pages shows "built", append one plain line per merge to
    `docs/release-notes/YYYY-MM-DD.md`.
 8. `tests/landmark-road-overlap.test.mjs` must pass UNEDITED.
