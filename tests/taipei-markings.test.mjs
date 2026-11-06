@@ -922,7 +922,7 @@ test('geodata: tile-wide centre-line census is the audited rule (issue #249)', (
   // Re-pinned for issue #258: narrow 6,361 -> 7,798, excluded-class
   // 301 -> 471, deck 25 -> 32 (the south's narrow lanes and deck
   // beds join the skip census; the accounted sum still equals the
-  // 17,292 roadbeds exactly).
+  // 17,291 roadbeds exactly — issue #326 drops one lane bed).
   const accounted = r.stats.centerBeds + r.stats.centerOnewayBedsSkipped + r.stats.centerMergedBedsSkipped
     + r.stats.centerNarrowBedsSkipped + r.stats.centerExcludedBedsSkipped + r.stats.centerDeckBedsSkipped;
   assert.equal(accounted, TAIPEI_GEO.roadbeds.length, `every bed accounted for (${accounted} vs ${TAIPEI_GEO.roadbeds.length})`);

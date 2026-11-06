@@ -87,7 +87,10 @@ test('geodata: class populations cover every roadbed exactly once', () => {
   // south's roads take deck 220 -> 299, arterial 1,183 -> 1,388,
   // collector 1,057 -> 1,154, lane 12,110 -> 14,451 (sums to the
   // 17,292 roadbeds).
-  assert.deepEqual(counts, { deck: 299, arterial: 1388, collector: 1154, lane: 14451 }); // merged-tree re-pin at the #186 gate: main {207,1129,1015,11226} + the #186 strip beds (deck/collector/lane exactly the #186 branch pins; arterial 1,180 — one strip way is routed to roadTunnels by the post-#196 builder); sums to the 14,546 roadbeds
+  // Issue #326: lane 14,451 -> 14,450 (−1) — generation-map Rework v7
+  // drops the unnamed interior drive (way 783920042), a lane-class
+  // service drive; the sum is now the 17,291 roadbeds.
+  assert.deepEqual(counts, { deck: 299, arterial: 1388, collector: 1154, lane: 14450 }); // merged-tree re-pin at the #186 gate: main {207,1129,1015,11226} + the #186 strip beds (deck/collector/lane exactly the #186 branch pins; arterial 1,180 — one strip way is routed to roadTunnels by the post-#196 builder); sums to the 14,546 roadbeds
 });
 
 test('medianKind: merged + width rule, planted only on wide secondary', () => {
