@@ -276,7 +276,8 @@ test('real tile: exactly one cap per grounded multi-arm junction, centres and ar
   assert.equal(caps.reduce((s, c) => s + (c.extras || []).length, 0), 3402, 'extension strip census');
   // Issue #110: extension strip area 129,177 -> 127,776 m2 (-1,401).
   // Issue #258: extension strip area 127,776 -> 163,263 m2 (+35,487).
-  assert.equal(caps.reduce((s, c) => s + (c.extraArea || 0), 0), 163263, 'extension strip area census');
+  // Issue #326: extension strip area 163,263 -> 163,134 m2 (−129) — the dropped interior drive's junction cap carried one strip of ~129 m².
+  assert.equal(caps.reduce((s, c) => s + (c.extraArea || 0), 0), 163134, 'extension strip area census');
   for (const c of caps) if (c.kind === 'box') assert.equal((c.extras || []).length, 0, 'box caps carry no strips');
   const capByJ = new Map();
   junctions.forEach((j, ji) => {
