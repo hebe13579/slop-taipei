@@ -83,7 +83,8 @@ test('the four #289 structures are registered with the reference-pack facts', ()
   // Issue #258: 47 -> 49 — the south expansion adds 2 net entries (NTU main campus, NTNU Heping campus).
   // Issue #273: 49 -> 50 — the Expo Dome adds 1 net entry (爭艷館).
   // Issue #278: 50 -> 53 — the planetarium, NTSEC and VGH add 3 net entries.
-  assert.equal(plan.landmarkTowers.length, 53, '43 + 4 new structures');
+  // Issue #327: 53 -> 56 — 南門, 東門 and 小南門 add 3 net entries.
+  assert.equal(plan.landmarkTowers.length, 56, '43 + 4 new structures');
 });
 
 test('plan census: four new sites displace only their own lots', () => {

@@ -77,7 +77,8 @@ test('the five #255 structures are registered with the reference-pack facts', ()
   // Issue #258: re-pinned 47 -> 49 — the south expansion adds 2 net entries (NTU main campus, NTNU Heping campus).
   // Issue #273: re-pinned 49 -> 50 — the Expo Dome adds 1 net entry (爭艷館).
   // Issue #278: re-pinned 50 -> 53 — the planetarium, NTSEC and VGH add 3 net entries.
-  assert.equal(plan.landmarkTowers.length, 53, '43 + 4 new structures (#289)');
+  // Issue #327: re-pinned 53 -> 56 — 南門, 東門 and 小南門 add 3 net entries.
+  assert.equal(plan.landmarkTowers.length, 56, '43 + 4 new structures (#289)');
 });
 
 test('Grand Hyatt south porte-cochere has columns + canopy as geometry (#294)', () => {
@@ -300,5 +301,6 @@ test('plan census: four new sites displace only their own lots', () => {
   // Issue #258: re-pinned 47 -> 49 — the south expansion adds 2 net entries (NTU main campus, NTNU Heping campus).
   // Issue #273: re-pinned 49 -> 50 — the Expo Dome adds 1 net entry (爭艷館).
   // Issue #278: re-pinned 50 -> 53 — the planetarium, NTSEC and VGH add 3 net entries.
-  assert.equal(plan.landmarkTowers.length, 53);
+  // Issue #327: re-pinned 53 -> 56 — 南門, 東門 and 小南門 add 3 net entries (their junction-island site rects move no lots, so the lot count above is unchanged).
+  assert.equal(plan.landmarkTowers.length, 56);
 });
