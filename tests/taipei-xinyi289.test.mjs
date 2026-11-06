@@ -106,7 +106,7 @@ test('plan census: four new sites displace only their own lots', () => {
   // Issue #110: plan 68,482 -> 68,472 — 23 bridge links re-admitted + 71 bed-end fusions re-seat 1,282 lots near the changed roadbeds (net -10).
   // Issue #258: plan 68,472 -> 76,367 (+7,895) — the south expansion (see the schools test for the full lot-diff decomposition).
   // Issue #278: plan 76,367 -> 76,209 (-158 net) — the 3 new registry sites exclude 160 lots (153 by body-overlap in the rects, 5 edge drops just outside them, 2 re-seats net 0) and add 2 re-seats; 84 lots change height via the #128 field blend, all within 100 m of a rect (lot-by-lot diff on this tree).
-  assert.equal(plan.lots.length, 76209, 'lot count re-pinned for the four new sites');
+  assert.equal(plan.lots.length, 76260, 'lot count re-pinned for the four new sites'); // re-pinned for #326: 76,209 -> 76,260 (+51 net: 127 added, 76 removed — lot-by-lot diff in ntsec326-evidence/lotdiff326.log; the re-site frees the old wrong rects and the old road chords, the correct rects + re-routed roads exclude lots in their place)
 });
 
 test('Civic Plaza: already registered, already lot-free, still paved', () => {

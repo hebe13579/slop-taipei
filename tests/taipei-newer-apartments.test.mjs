@@ -37,7 +37,7 @@ test('newer apartments: census pins — both families planted, glass untouched',
   const { plan, opts } = planAndOpts();
   // Issue #110: plan 68,482 -> 68,472 — 23 bridge links re-admitted + 71 bed-end fusions re-seat 1,282 lots near the changed roadbeds (net -10).
   // Issue #258: plan 68,472 -> 76,367 (+7,895) — the south expansion; the new lots take their seeded family shares (see the family re-pins below).
-  assert.equal(plan.lots.length, 76209, 'the rule moves families only — the lot count is the composed plan (issue #255 gate: 68,570 − 32 site-excluded lots; issue #289 gate: 68,538 − 56 site-excluded lots net; issue #278 gate: 76,367 − 158 site-excluded lots net)');
+  assert.equal(plan.lots.length, 76260, 'the rule moves families only — the lot count is the composed plan (issue #255 gate: 68,570 − 32 site-excluded lots; issue #289 gate: 68,538 − 56 site-excluded lots net; issue #278 gate: 76,367 − 158 site-excluded lots net); Issue #326: 76,209 -> 76,260 (+51 net: 127 lots added, 76 removed — lot-by-lot diff in ntsec326-evidence/lotdiff326.log; the re-site frees the old (wrong) site rects — the 280x160 ring rect and the 160x110 drum rect at the beige complex — and the old road chords, while the correct site rects + re-routed roads exclude lots in their place)');
   const fam = {};
   for (const l of opts.lots) fam[l.mat] = (fam[l.mat] || 0) + 1;
   // Pinned at the #256 gate on the composed tree: 492 tall-Taiwan lots
@@ -104,28 +104,36 @@ test('newer apartments: census pins — both families planted, glass untouched',
   // Issue #258: the south expansion's new lots take their seeded Taiwan/glass shares — F6 10,652 -> 11,902 (+1,250), F8 9,484 -> 10,594 (+1,110), F9 7,243 -> 8,009 (+766), F7 10,037 -> 11,231 (+1,194), F12 609 -> 705 (+96), F13 4,377 -> 4,863 (+486), glass F3 5,126 -> 5,665 (+539), F4 1,062 -> 1,164 (+102), F5 999 -> 1,097 (+98).
   // Issue #278: the 3 registry sites exclude 158 lots net; the removed lots' families (lot-by-lot diff on this tree) are 0:15, 1:12, 2:8, 3:8, 5:2, 6:25, 7:22, 8:35, 9:19, 11:1, 12:1, 13:11, plus 1 added F0 re-seat and 2 kept lots re-rolling into glass (F7->F3, F8->F3) — so F6 −25, F8 −36, F9 −19, F7 −23, F12 −1, F13 −11, F3 −6, F5 −2, F4 0, F10 0, F11 −1.
   // Issue #282: the re-faced lots re-roll their renderer-options families (seeded from lot position/geometry) — F6 −3, F7 −2, F8 +3, F9 −6, F12 +8, F13 +3, glass F3/F4/F5 untouched. Proven by cross-run: with { facing: false } the whole histogram agrees exactly between this tree and pristine main (facing282-evidence/proof-families.mjs).
-  assert.equal(fam[6], 11874, 'tile shophouse gives up its seeded share');
+  assert.equal(fam[6], 11884, 'tile shophouse gives up its seeded share'); // BATCH: measured on the merged tree = #282's 11,874 + #326's +10
   // Issue #110: F8 9,476 -> 9,484 (+8).
   // Issue #282: F8 10,558 -> 10,561 (+3 — the re-faced lots re-roll the renderer-options families; proven by the facing:false cross-run).
-  assert.equal(fam[8], 10561, 'walk-up slab gives up its seeded share');
+  assert.equal(fam[8], 10574, 'walk-up slab gives up its seeded share'); // BATCH: measured on the merged tree = #282's 10,561 + #326's +13
   // Issue #110: F9 7,249 -> 7,243 (-6).
   // Issue #282: F9 7,990 -> 7,984 (−6 — same re-roll; proven by the facing:false cross-run).
-  assert.equal(fam[9], 7984, 'pebble-dash gives up its seeded share');
+  assert.equal(fam[9], 7990, 'pebble-dash gives up its seeded share'); // BATCH: measured on the merged tree = #282's 7,984 + #326's +6
   // Issue #110: F7 10,038 -> 10,037 (-1).
   // Issue #282: F7 11,208 -> 11,206 (−2 — same re-roll; proven by the facing:false cross-run).
-  assert.equal(fam[7], 11206, 'arcade family: #256 never consults it, but #17 slice 2 assigns it the low-band share');
+  assert.equal(fam[7], 11215, 'arcade family: #256 never consults it, but #17 slice 2 assigns it the low-band share'); // BATCH: measured on the merged tree = #282's 11,206 + #326's +9
   // Issue #110: F12 606 -> 609 (+3) — same delta as the taiwan108 test.
   // Issue #282: F12 704 -> 712 (+8 — same re-roll; proven by the facing:false cross-run).
-  assert.equal(fam[12], 712, 'high-rise residential planted in the hundreds');
+  assert.equal(fam[12], 713, 'high-rise residential planted in the hundreds'); // BATCH: measured on the merged tree = #282's 712 + #326's +1 (same count in the taiwan108 test)
   // Issue #110: F13 4,358 -> 4,377 (+19) — same delta as the taiwan108 test.
   // Issue #282: F13 4,852 -> 4,855 (+3 — same re-roll; proven by the facing:false cross-run).
-  assert.equal(fam[13], 4855, 'strip-tile mid-rise planted in the thousands');
+  assert.equal(fam[13], 4857, 'strip-tile mid-rise planted in the thousands'); // BATCH: measured on the merged tree = #282's 4,855 + #326's +2 (same count in the taiwan108 test)
+  // Issue #326: the re-site re-seats lots near the two sites; the re-seated lots re-roll their families at their final positions (measured on this tree via famprobe326.mjs) — F6 +10, F8 +13, F9 +6, F7 +9, F12 +1, F13 +2, F3 +1, F4 +6, F5 +3; F10/F11 unchanged.
+  // Issue #110: F8 9,476 -> 9,484 (+8).
+  // Issue #110: F9 7,249 -> 7,243 (-6).
+  // Issue #110: F7 10,038 -> 10,037 (-1).
+  // Issue #110: F12 606 -> 609 (+3) — same delta as the taiwan108 test.
+  // Issue #110: F13 4,358 -> 4,377 (+19) — same delta as the taiwan108 test.
+  // BATCH (merge of #329 + #332): composed values MEASURED on the merged tree.
+
   // Issue #110: glass F3 5,127 -> 5,126 (-1) — the re-seated lots re-roll the glass accent.
-  assert.equal(fam[3], 5659, 'glass family 3 untouched — the accent roll runs first');
+  assert.equal(fam[3], 5660, 'glass family 3 untouched — the accent roll runs first');
   // Issue #110: glass F4 1,061 -> 1,062 (+1).
-  assert.equal(fam[4], 1164, 'glass family 4 untouched');
+  assert.equal(fam[4], 1170, 'glass family 4 untouched');
   // Issue #110: glass F5 1,003 -> 999 (-4).
-  assert.equal(fam[5], 1095, 'glass family 5 untouched');
+  assert.equal(fam[5], 1098, 'glass family 5 untouched');
   t.diagnostic(`families: ${JSON.stringify(fam)}`);
 });
 

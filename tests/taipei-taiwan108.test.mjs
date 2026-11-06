@@ -41,7 +41,10 @@ test('taiwan108: high-rise residential (12) is banded 40-75 m, outside the cores
   // census; same count in both tests).
   // Issue #278: F12 705 -> 704 (−1 — one F12 lot removed by the VGH site; same count in the newer-apartments test).
   // Issue #282: F12 704 -> 712 (+8 — the re-faced lots re-roll their renderer-options families; same count in the newer-apartments test; proven by the facing:false cross-run, F12 exactly 702 on both trees).
-  assert.equal(f12.length, 712, 'high-rise residential planted in the hundreds');
+  assert.equal(f12.length, 713, 'high-rise residential planted in the hundreds'); // BATCH: measured = #282's 712 + #326's +1
+  // Issue #326: F12 704 -> 705 (+1 — one F12 lot added by the re-site; same count in the newer-apartments test).
+  // BATCH (merge of #329 + #332): composed value MEASURED on the merged tree.
+
   for (let i = 0; i < opts.lots.length; i++) {
     const l = opts.lots[i];
     if (l.mat !== 12) continue;
@@ -62,7 +65,10 @@ test('taiwan108: strip-tile mid-rise (13) is banded 9-30 m', () => {
   // takes F13 4,377 -> 4,863 (same count in the newer-apartments test).
   // Issue #278: F13 4,863 -> 4,852 (−11 — eleven F13 lots removed by the 3 sites; same count in the newer-apartments test).
   // Issue #282: F13 4,852 -> 4,855 (+3 — same re-roll; same count in the newer-apartments test; proven by the facing:false cross-run, F13 exactly 4,860 on both trees).
-  assert.equal(f13.length, 4855, 'strip-tile mid-rise planted in the thousands');
+  assert.equal(f13.length, 4857, 'strip-tile mid-rise planted in the thousands'); // BATCH: measured = #282's 4,855 + #326's +2
+  // Issue #326: F13 4,852 -> 4,854 (+2 — two F13 lots added by the re-site; same count in the newer-apartments test).
+  // BATCH (merge of #329 + #332): composed value MEASURED on the merged tree.
+
   for (const l of f13) {
     assert.ok(l.h >= STRIP_TILE_MIN_H && l.h < STRIP_TILE_MAX_H,
       `family 13 only on 9-30 m lots (at ${l.h} m)`);
@@ -127,7 +133,10 @@ test('taiwan108: high-rise lots carry roof tanks at the design rate', () => {
   // still inside the 10–20% band asserted below).
   // Issue #278: F12 roof tanks 97 -> 96 (96/704 = 13.6%, one tank lot removed with its F12 lot).
   // Issue #282: F12 roof tanks 96 -> 99 (99/712 = 13.9%, still inside the 10–20% band — the re-faced F12 lots re-roll their tanks; proven by the facing:false cross-run, tanks exactly 95 on both trees).
-  assert.equal(tanks, 99, 'F12 roof tanks planted');
+  assert.equal(tanks, 100, 'F12 roof tanks planted'); // BATCH: measured = #282's 99 + #326's +1
+  // Issue #326: F12 roof tanks 96 -> 97 (97/705 = 13.8%, one tank lot added with its F12 lot).
+  // BATCH (merge of #329 + #332): composed value MEASURED on the merged tree.
+
   assert.ok(tankLots / f12.length > 0.10 && tankLots / f12.length < 0.20,
     `tank share at its ~14% design point (${(tankLots / f12.length).toFixed(3)})`);
 });
@@ -146,7 +155,10 @@ test('taiwan108: strip-tile lots carry vertical signs, high-rise lots carry none
   // lots, same sign rule).
   // Issue #278: signed F13 2,597 -> 2,590 (−7 — seven signed F13 lots removed with their F13 lots; same sign rule).
   // Issue #282: signed F13 2,590 -> 2,591 (+1 — one of the 3 new F13 lots carries a sign; same sign rule, and no F12 lot carries one). Proven by cross-run: with { facing: false } signed13 is exactly 2,602 on BOTH this tree and pristine main (facing282-evidence/proof-signs.mjs).
-  assert.equal(signed13, 2591, 'strip-tile lots carry vertical signs');
+  assert.equal(signed13, 2589, 'strip-tile lots carry vertical signs'); // BATCH: measured = #282's 2,591 + #326's −2
+  // Issue #326: signed F13 2,590 -> 2,588 (−2 — two signed F13 lots removed by the re-site; same sign rule).
+  // BATCH (merge of #329 + #332): composed value MEASURED on the merged tree.
+
   assert.ok(f12.every((l) => taipeiVerticalSigns(l).length === 0), 'no high-rise lot carries a vertical sign');
 });
 

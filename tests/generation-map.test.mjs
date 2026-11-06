@@ -122,7 +122,7 @@ test('link policy: elevated ramps are kept, short ground links stay excluded (is
   assert.ok(gm.roadbeds.some((rb) => rb.sourceWayIds.includes(301)), 'elevated ramp under 120 m is rendered');
   assert.ok(!gm.roadbeds.some((rb) => rb.sourceWayIds.includes(302)), 'ground link under 120 m stays excluded');
   const s = gm.stats;
-  const delta = Math.abs(s.roadbedLength + s.excludedLinkLength + s.mergedConstituentOverlapLength - s.mergedLength + s.droppedScrapLength - s.carriagewayLength);
+  const delta = Math.abs(s.roadbedLength + s.excludedLinkLength + s.mergedConstituentOverlapLength - s.mergedLength + s.droppedScrapLength - (s.issue326RerouteDeltaM || 0) - s.carriagewayLength);
   assert.ok(delta < 5, `length identity still closes on synthetic data (delta ${delta})`);
 });
 
@@ -174,6 +174,6 @@ test('bed-end fusion: a same-name collinear gap is joined, a genuine dead end is
     'no fusion touches the dead-end bed');
   // Length identity still closes with the fusion term.
   const s = gm.stats;
-  const delta = Math.abs((s.roadbedLength + s.excludedLinkLength + s.mergedConstituentOverlapLength - s.mergedLength + s.droppedScrapLength + (s.suppressedLength || 0) + (s.parkServiceExcludedLength || 0) + (s.airfieldTunnelLength || 0) + (s.approachCutLength || 0) + (s.simplificationShorteningM || 0) - (s.fusionAddedLength || 0)) - s.carriagewayLength);
+  const delta = Math.abs((s.roadbedLength + s.excludedLinkLength + s.mergedConstituentOverlapLength - s.mergedLength + s.droppedScrapLength + (s.suppressedLength || 0) + (s.parkServiceExcludedLength || 0) + (s.airfieldTunnelLength || 0) + (s.approachCutLength || 0) + (s.simplificationShorteningM || 0) - (s.fusionAddedLength || 0) - (s.issue326RerouteDeltaM || 0)) - s.carriagewayLength);
   assert.ok(delta < 5, `length identity still closes with fusion (delta ${delta})`);
 });

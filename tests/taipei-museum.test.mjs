@@ -162,7 +162,7 @@ test('museum adds no lots and keeps the park setting: site, plaza and park ring'
   // Issue #258: plan 68,472 -> 76,367 (+7,895) — the south expansion; the museum itself still moves no lots (0 lots in its site rect, asserted below). Registry 47 -> 49: #258 adds 2 net entries (NTU main campus, NTNU Heping campus).
   // Issue #273: registry 49 -> 50 — the Expo Dome adds 1 net entry (爭艷館); the museum itself still moves no lots.
   // Issue #278: registry 50 -> 53 — the planetarium, NTSEC and VGH add 3 net entries; the museum itself still moves no lots.
-  assert.equal(plan.lots.length, 76209, 'museum site/plaza must not move the plan');
+  assert.equal(plan.lots.length, 76260, 'museum site/plaza must not move the plan'); // re-pinned for #326: 76,209 -> 76,260 (+51 net — the museum itself still moves no lots; the delta is the #326 re-site + road moves, see the xinyi289 test)
   assert.equal(plan.landmarkTowers.length, 53);
   for (const rect of s.sites) {
     const inside = plan.lots.filter((l) => l.x > rect.minX && l.x < rect.maxX && l.z > rect.minZ && l.z < rect.maxZ);

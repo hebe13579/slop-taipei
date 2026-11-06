@@ -105,7 +105,11 @@ test('hut census on the real plan: selection unchanged, garnish at census', (t) 
   // tree). Proven by cross-run: with { facing: false } the census
   // returns to exactly 6,536 / 2,285 / 5,641 / 1,544 on BOTH this
   // tree and pristine main (facing282-evidence/proof-crossrun.mjs).
-  assert.equal(hutLots, 6552, 'hut selection is the pre-#208 census');
+  assert.equal(hutLots, 6549, 'hut selection is the pre-#208 census'); // BATCH: measured on the merged tree — NOT the additive 6,551 (6,539 +13 −1); the re-seated lots re-roll hut status under the new facing rule (interaction −2)
+  // Issue #326: hut 6,539 -> 6,538 (−1 — one hut lot removed by the
+  // re-site; measured on this tree).
+  // BATCH (merge of #329 + #332): composed values MEASURED on the merged tree.
+
   // Issue #216: the facing pass moves lots, and the garnish rolls
   // are seeded from lot position — 2 gable draws, 14 patch draws
   // and 10 bump draws flip, while the selection (5,892 hut lots)
@@ -119,11 +123,20 @@ test('hut census on the real plan: selection unchanged, garnish at census', (t) 
   // Issue #110: patch census 5,135 -> 5,121 (-14) — the re-seated lots re-roll the roof-patch selection.
   // Issue #278: patches 5,647 -> 5,624 (−23, measured on this tree).
   // Issue #282: patches 5,624 -> 5,667 (+43 — the re-faced lots re-roll the roof-patch selection; proven by the facing:false cross-run).
-  assert.equal(patches, 5667, 'patch census');
+  assert.equal(patches, 5668, 'patch census'); // BATCH: measured on the merged tree = #282's 5,667 + 1
   // Issue #110: bump census 1,380 -> 1,381 (+1) — the re-seated lots re-roll the roof-bump selection.
   // Issue #278: bumps 1,560 -> 1,553 (−7, measured on this tree).
   // Issue #282: bumps 1,553 -> 1,546 (−7 — the re-faced lots re-roll the roof-bump selection; proven by the facing:false cross-run).
-  assert.equal(bumps, 1546, 'bump census');
+  assert.equal(bumps, 1548, 'bump census'); // BATCH: measured on the merged tree = #282's 1,546 + 2
+  // Issue #326: gable 2,286 -> 2,288 (+2, measured on this tree — the re-seated lots re-roll the gable selection).
+  // Issue #110: patch census 5,135 -> 5,121 (-14) — the re-seated lots re-roll the roof-patch selection.
+  // Issue #278: patches 5,647 -> 5,624 (−23, measured on this tree).
+  // Issue #326: patches 5,624 -> 5,627 (+3, measured on this tree — the re-seated lots re-roll the roof-patch selection).
+  // Issue #110: bump census 1,380 -> 1,381 (+1) — the re-seated lots re-roll the roof-bump selection.
+  // Issue #278: bumps 1,560 -> 1,553 (−7, measured on this tree).
+  // Issue #326: bumps 1,553 -> 1,555 (+2, measured on this tree — the re-seated lots re-roll the roof-bump selection).
+  // BATCH (merge of #329 + #332): composed values MEASURED on the merged tree.
+
 });
 
 test('renderer palette mirrors the planner palette', () => {
