@@ -921,7 +921,8 @@ test('geodata: tile-wide centre-line census is the audited rule (issue #249)', (
   // Issue #110: one-way skipped 4,232 -> 4,255 (+23) — the 24 re-admitted link beds are one-way ramps, so 23 more one-way beds skip the centre line.
   assert.equal(r.stats.centerOnewayBedsSkipped, 4909, `one-way skipped ${r.stats.centerOnewayBedsSkipped}`);
   assert.equal(r.stats.centerMergedBedsSkipped, 903, `merged skipped ${r.stats.centerMergedBedsSkipped}`);
-  assert.equal(r.stats.centerNarrowBedsSkipped, 7798, `narrow skipped ${r.stats.centerNarrowBedsSkipped}`);
+  // Issue #326: narrow 7,798 -> 7,797 (−1) — the dropped interior drive (way 783920042) was a narrow 5 m service bed; the accounted sum still equals the 17,291 roadbeds exactly.
+  assert.equal(r.stats.centerNarrowBedsSkipped, 7797, `narrow skipped ${r.stats.centerNarrowBedsSkipped}`);
   assert.equal(r.stats.centerExcludedBedsSkipped, 471, `excluded-class skipped ${r.stats.centerExcludedBedsSkipped}`);
   assert.equal(r.stats.centerDeckBedsSkipped, 32, `deck skipped ${r.stats.centerDeckBedsSkipped}`);
   // Re-pinned for issue #258: narrow 6,361 -> 7,798, excluded-class
