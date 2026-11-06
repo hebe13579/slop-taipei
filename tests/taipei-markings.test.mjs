@@ -914,7 +914,8 @@ test('geodata: tile-wide centre-line census is the audited rule (issue #249)', (
   // Issue #326: double quads 105,859 -> 105,696 (−163) — the 基河路396巷 truncation shortens the double-yellow run.
   assert.equal(r.stats.centerDoubleQuads, 105696, `double quads ${r.stats.centerDoubleQuads}`);
   // Issue #110: dashed quads 80,603 -> 80,601 (-2) — the fused beds shorten the dashed centre-line runs.
-  assert.equal(r.stats.centerDashQuads, 89390, `dashed quads ${r.stats.centerDashQuads}`);
+  // Issue #326: dashed quads 89,390 -> 89,443 (+53) — the 士商路 re-route lengthens the dashed-centre-line run.
+  assert.equal(r.stats.centerDashQuads, 89443, `dashed quads ${r.stats.centerDashQuads}`);
   assert.equal(r.centerQuads.length, r.stats.centerDoubleQuads + r.stats.centerDashQuads, 'quads array matches the split census');
   // Skip census: every bed is accounted for exactly once.
   // Issue #110: one-way skipped 4,232 -> 4,255 (+23) — the 24 re-admitted link beds are one-way ramps, so 23 more one-way beds skip the centre line.
