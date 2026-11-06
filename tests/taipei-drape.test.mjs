@@ -289,11 +289,20 @@ test('plan: lifts appear only with groundAt, and only the hotel + three more lif
   // the foothill slope (drape 4.3–7.7 m across the site); the drum
   // carries a 2 m skirt so its south edge does not float. The
   // planetarium (lift 0) and VGH (lift 0) do NOT lift.
-  assert.deepEqual(lifted.map((s) => s.id).sort(), ['grand-hotel', 'miramar-entertainment-park', 'ntsec', 'qingjiang-elementary', 'taipei-performing-arts-center']);
+  // Issue #326 RE-PINS this: the #278 NTSEC anchor was on the
+  // planetarium's grounds (the beige complex), so the 5.88 m lift
+  // belonged to the wrong site. Re-sited, the NTSEC ring sits on
+  // flat ground (drape 0.00 across its site — no lift, no skirt)
+  // and the PLANETARIUM lifts 2.62 m (drape 2.57–3.13 m across its
+  // site; the block carries no skirt — the drape lift seats it).
+  // VGH still does NOT lift.
+  assert.deepEqual(lifted.map((s) => s.id).sort(), ['grand-hotel', 'miramar-entertainment-park', 'qingjiang-elementary', 'taipei-astronomical-museum', 'taipei-performing-arts-center']);
   const hotel = drapedPlan.landmarkTowers.find((s) => s.id === 'grand-hotel');
   assert.ok(Math.abs(hotel.lift - 40.2) < 0.5, `hotel lift ${hotel.lift}`);
+  const planetarium = drapedPlan.landmarkTowers.find((s) => s.id === 'taipei-astronomical-museum');
+  assert.ok(Math.abs(planetarium.lift - 2.62) < 0.5, `planetarium lift ${planetarium.lift}`);
   const ntsec = drapedPlan.landmarkTowers.find((s) => s.id === 'ntsec');
-  assert.ok(Math.abs(ntsec.lift - 5.88) < 0.5, `ntsec lift ${ntsec.lift}`);
+  assert.equal(ntsec.lift, undefined, 'the re-sited NTSEC ring sits on flat ground and must not lift');
   assert.equal(drapedPlan.lots.length, flatPlan.lots.length);
 });
 

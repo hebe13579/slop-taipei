@@ -126,7 +126,7 @@ test('density fine (default): the shipped plan, byte-identical', () => {
   // survive — counts compose, hashes do not).
   // Issue #110: plan 68,482 -> 68,472 — 23 bridge links re-admitted + 71 bed-end fusions re-seat 1,282 lots near the changed roadbeds (net -10).
   // Issue #258: plan 68,472 -> 76,367 (+7,895) — the south expansion (see the schools test for the full lot-diff decomposition); the hash moves with the new lots (fingerprint is over every lot's rounded fields). blocksFine 2,897 -> 3,388 (+491 fine-classified south blocks).
-  assert.equal(implicit.lots, 76209); // re-pinned for #278: the 3 new registry sites exclude 158 lots net (see the fine test)
+  assert.equal(implicit.lots, 76260); // re-pinned for #326: 76,209 -> 76,260 (+51 net: 127 added, 76 removed — lot diff in ntsec326-evidence/lotdiff326.log)
   // Issue #110: the plan hash moves with the re-seated lots (fingerprint is over every lot's rounded fields).
   assert.equal(implicit.hash, '669c6459'); // re-pinned for #278: measured on the merged tree
   assert.equal(implicit.stats.blocksFine, 3388);
@@ -165,7 +165,7 @@ test('density unknown value plans as fine', () => {
   const fp = fingerprint(planTaipeiBuildings(TAIPEI_GEO, { density: 'huge' }));
   // Issue #110: plan 68,482 -> 68,472 — 23 bridge links re-admitted + 71 bed-end fusions re-seat 1,282 lots near the changed roadbeds (net -10).
   // Issue #258: plan 68,472 -> 76,367 (+7,895) — the south expansion; the hash moves with the new lots.
-  assert.equal(fp.lots, 76209); // re-pinned for #278: the 3 new registry sites exclude 158 lots net at every density (see the fine test)
+  assert.equal(fp.lots, 76260); // re-pinned for #326: 76,209 -> 76,260 (+51 net: 127 added, 76 removed — lot diff in ntsec326-evidence/lotdiff326.log)
   // Issue #110: the plan hash moves with the re-seated lots (unknown plans as fine).
   assert.equal(fp.hash, '669c6459'); // re-pinned for #278: measured on the merged tree (unknown plans as fine)
 });

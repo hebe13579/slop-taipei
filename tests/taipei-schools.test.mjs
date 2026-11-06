@@ -182,7 +182,7 @@ test('generation is deterministic and the plan counts are pinned', () => {
     JSON.stringify(campuses), 'same geodata, same campuses, byte for byte');
   // Issue #258: plan 68,472 -> 76,367 (+7,895) — the south expansion adds 1,356 blocks (7-south + Box A west strip). Lot diff vs main (proven by cross-run): identical 67,450, changed 632, missing 390, added 8,285 (south 6,972 + west strip 922 + old-interior 234 + seam 157). The old-interior delta (changed 433 + missing 235 + added 234 = 902 lots, 1.3%) is the justified seam-road boundary effect: the seam roads extend south, so their roadbeds were re-merged, which legitimately changes frontage angles along those roads; heights are preserved (only 59 height-only changes).
   // Issue #278: plan 76,367 -> 76,209 (-158 net) — the 3 new registry sites exclude 160 lots (153 by body-overlap in the rects, 5 edge drops just outside them, 2 re-seats net 0) and add 2 re-seats; 84 lots change height via the #128 field blend, all within 100 m of a rect (lot-by-lot diff on this tree).
-  assert.equal(plan.lots.length, 76209);
+  assert.equal(plan.lots.length, 76260); // re-pinned for #326: 76,209 -> 76,260 (+51 net: 127 added, 76 removed — lot diff in ntsec326-evidence/lotdiff326.log)
   assert.equal(plan.stats.blocksSkippedSchool, 292);
   // Issue #258: lotsDroppedSchool 3,327 -> 4,267 (+940) — the 37 new south grounds exclude their campus lots.
   assert.equal(plan.stats.lotsDroppedSchool, 4267);

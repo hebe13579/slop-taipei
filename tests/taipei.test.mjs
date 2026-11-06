@@ -650,8 +650,20 @@ test('landmark structures: true positions and heights, sites kept clear', (t) =>
     // resolved registry pins (planetarium: satellite-measured ring
     // centre; NTSEC: satellite-measured drum centre; VGH: OSM
     // Chung-cheng footprint centroid) — see the registry comments.
-    'taipei-astronomical-museum': { h: 22, x: -4854.4, z: -6863.5 },
-    'ntsec': { h: 44, x: -4469.9, z: -6871.3 },
+    // Issue #326 RE-PINS the planetarium and NTSEC: #278 had them
+    // SWAPPED (the ring was built as the planetarium and the drum+
+    // slab as the NTSEC). Re-measured from Esri z18 satellite via
+    // latLonToTile + the user's Google 3D screenshots: the RING is
+    // the NTSEC (west, 25.09506/121.51701) and the planetarium is the
+    // rectangular block + WHITE dome (east, 25.09517/121.51884). The
+    // NTSEC's realHeight is now 20 m (the tower — the tallest part;
+    // the ring is 16 m), not 44 m (the old drum+slab estimate, which
+    // described the wrong building). The planetarium stays 22 m (the
+    // white dome + drum). VGH is untouched. The new pins must FAIL
+    // on pristine main (which still has the swapped anchors) and
+    // PASS here.
+    'taipei-astronomical-museum': { h: 22, x: -4658.6, z: -6886.8 },
+    'ntsec': { h: 20, x: -4843.3, z: -6874.6 },
     'taipei-veterans-general-hospital': { h: 112, x: -4521.4, z: -9647.3 },
   };
   assert.equal(plan.landmarkTowers.length, Object.keys(expected).length, 'all verified structures present');
@@ -830,6 +842,10 @@ test('landmark batch 3: two-slab Cathay rebuild, W, Songshan, Eslite, Arena', ()
     // published metric heights found), flagged the same way. (VGH's
     // 112 m IS published — OSM 24 floors — so it is not in the
     // exclusion list.)
+    // Issue #326 re-pins the NTSEC to 20 m (the tower — the tallest
+    // part of the ring; the ring is 16 m), not 44 m (the old drum+
+    // slab estimate, which described the wrong building). Both are
+    // still estimates, so both stay in the exclusion list.
     if (s.id !== 'eslite-spectrum-songyan' && s.id !== 'taipei-arena'
       && s.id !== 'national-concert-hall' && s.id !== 'national-theater'
       && s.id !== 'beimen'

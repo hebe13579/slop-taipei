@@ -105,8 +105,14 @@ const EXPECTED_FACADES = {
   // concrete hospital masses are all masonry, so all three take the
   // prewar grid (the gold dome, the glass atrium and the NTSEC's
   // grey drum are flat/part-facade overrides).
-  'taipei-astronomical-museum': 'prewar', // white masonry ring
-  'ntsec': 'prewar', // grey-tiled drum + slab
+  // Issue #326 RE-PINS the forms (the #278 forms were swapped):
+  // the planetarium is now the rectangular exhibition block + WHITE
+  // dome (not a ring; the dome is white, not gold) and the NTSEC is
+  // the white masonry RING (not a grey drum + slab). Both are still
+  // masonry masses, so both still take the prewar grid; the white
+  // dome and the ring's glass band are flat/part-facade overrides.
+  'taipei-astronomical-museum': 'prewar', // white masonry block + white dome
+  'ntsec': 'prewar', // white masonry ring + glass band
   'taipei-veterans-general-hospital': 'prewar', // white concrete hospital
 };
 
