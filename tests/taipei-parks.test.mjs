@@ -88,12 +88,20 @@ test('amenity census: the shipped totals are pinned', () => {
   // expodome273-evidence/amenity-diff.mjs (pristine main vs the
   // #273 tree). The rect kits drop by the same mechanism: seeded
   // court 11 -> 10, seeded pavilion 6 -> 5; mapped kits unchanged.
+  // Re-pinned for issue #327 (three city gates): the 東門 gate's site
+  // + plaza rects join the planner's hard exclusions, so the furniture
+  // spots inside the 東門圓環 island are removed — 2 items (1 lamp at
+  // (-4776,-665), 1 bush at (-4776,-670)), both inside the gate's
+  // rects, proven by the before/after item diff in
+  // gates327-evidence/amenity-diff.mjs; zero removals anywhere else
+  // and zero refills (the per-park caps do not refill them). Net
+  // lamp −1, bush −1 (grand total 23,318 -> 23,316).
   assert.deepEqual(counts, {
-    bench: 4772, lamp: 4392, bin: 2729, vending: 353,
-    restroom: 93, sculpture: 23, fountain: 15, bush: 10362,
+    bench: 4772, lamp: 4391, bin: 2729, vending: 353,
+    restroom: 93, sculpture: 23, fountain: 15, bush: 10361,
     playground: 159, picnic: 88, court: 121, pavilion: 211,
   });
-  assert.equal(Object.values(counts).reduce((s, v) => s + v, 0), 23318, 'grand total');
+  assert.equal(Object.values(counts).reduce((s, v) => s + v, 0), 23316, 'grand total');
   assert.equal(stats.parksTotal, 2268);
   assert.equal(stats.parksPlaza, 35);
   assert.equal(stats.parksPathless, 1625);
@@ -192,7 +200,10 @@ test('placement invariants: inside a park, off water and off paths', () => {
   // Re-pinned for issue #273: checked 22,847 -> 22,739 (grand total
   // 23,318 minus the 579 rect-kit items — the Expo Dome site removes
   // 110 furniture spots, see the census re-pin above).
-  assert.equal(checked, 22739); // −9 for #257: the museum forecourt spots (see the census re-pin above); +31 for #289: the newly-dressed Songshou Plaza Park (7 benches, 8 lamps, 6 bins, 1 vending machine, 9 bushes — all inside the park, off water and off paths, as this test proves).
+  // Re-pinned for issue #327: checked 22,739 -> 22,737 (grand total
+  // 23,316 minus the 579 rect-kit items — the 東門 gate removes 1 lamp
+  // + 1 bush from the 東門圓環 island, see the census re-pin above).
+  assert.equal(checked, 22737); // −9 for #257: the museum forecourt spots (see the census re-pin above); +31 for #289: the newly-dressed Songshou Plaza Park (7 benches, 8 lamps, 6 bins, 1 vending machine, 9 bushes — all inside the park, off water and off paths, as this test proves); −2 for #327: the 東門 gate's lamp + bush.
 });
 
 test('placement invariants, rect kits: pads inside a park, off water and carriageways, cores off paths', () => {
