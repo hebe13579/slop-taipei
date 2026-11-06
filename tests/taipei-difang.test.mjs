@@ -118,7 +118,9 @@ test('difang geometry: 6 m body, cap, green foot strip', () => {
   }
   assert.ok(Math.abs(minY - -0.05) < 1e-6, `minY ${minY}`);
   assert.ok(Math.abs(maxY - 6.2) < 1e-6, `maxY ${maxY}`);
-  // Colours: concrete body, lighter cap, ivy-green foot strip.
+  // Colours: grey concrete body (#323: user asked for grey; was
+  // grey-brown 0x8a8178), lighter grey cap (was 0xa39a8c),
+  // ivy-green foot strip (unchanged — planting, not the wall).
   // The green strip sits at the foot (y <= 0.95) on the land side;
   // the cap reaches the top (y 6.20).
   const rgb = (hex) => [((hex >> 16) & 255) / 255, ((hex >> 8) & 255) / 255, (hex & 255) / 255];
@@ -130,8 +132,8 @@ test('difang geometry: 6 m body, cap, green foot strip', () => {
   for (let i = 0; i < geo.colors.length; i += 3) {
     const y = geo.positions[(i / 3) * 3 + 1];
     if (isCol(i, 0x5a7a4a)) { green++; greenTop = Math.max(greenTop, y); }
-    else if (isCol(i, 0xa39a8c)) { cap++; capTop = Math.max(capTop, y); }
-    else if (isCol(i, 0x8a8178)) concrete++;
+    else if (isCol(i, 0xa3a3a3)) { cap++; capTop = Math.max(capTop, y); }
+    else if (isCol(i, 0x8a8a8a)) concrete++;
   }
   assert.ok(green > 0, 'green foot strip present');
   assert.ok(Math.abs(greenTop - 0.95) < 1e-6, `greenTop ${greenTop}`);
@@ -143,6 +145,57 @@ test('difang geometry: 6 m body, cap, green foot strip', () => {
   assert.equal(slices.length, chains.length);
   assert.equal(triCount, geo.triCount);
   assert.equal(slices.reduce((s, x) => s + x.triCount, 0), geo.triCount);
+});
+
+test('difang winding: every wall face winds outward (#323)', () => {
+  // The old box helper used the same vertex order for the river and
+  // land faces, so both got the same computed normal (s x up) and
+  // exactly one face per segment was back-face-culled: 167/199
+  // chains showed only the river face, 6 only the land face, 26
+  // mixed — the wall was invisible from the road side at the
+  // Huanhebei photo site. The sign flips along a chain (the
+  // chain-averaged land normal is not perpendicular to every
+  // segment), so the fix must be per-face. This test walks the
+  // emitted geometry in emission order (per segment: body, cap, ivy
+  // boxes; per box: river, land, top, bottom, start, end faces) and
+  // checks each quad's stored normal against the face's outward
+  // direction: river -n, land +n, top +up, bottom -up, start -s,
+  // end +s (n = the box's land normal, s = the segment direction).
+  // Side/cap dots can be as small as 0.0056 where a segment runs
+  // nearly parallel to the chain normal (28 segments under 0.1),
+  // so the check is the sign, not the magnitude.
+  const FACES = ['river', 'land', 'top', 'bottom', 'start', 'end'];
+  const bad = Object.fromEntries(FACES.map((f) => [f, 0]));
+  let v = 0, quads = 0;
+  for (const ch of chains) {
+    const n = ch.landNormal || [0, 0];
+    for (let i = 0; i + 2 < ch.pts.length; i += 2) {
+      const dx = ch.pts[i + 2] - ch.pts[i], dz = ch.pts[i + 3] - ch.pts[i + 1];
+      const L = Math.hypot(dx, dz) || 1;
+      const nn = (n[0] || n[1]) ? n : [-dz / L, dx / L];
+      const s = [dx / L, dz / L];
+      const out = {
+        river: [-nn[0], 0, -nn[1]],
+        land: [nn[0], 0, nn[1]],
+        top: [0, 1, 0],
+        bottom: [0, -1, 0],
+        start: [-s[0], 0, -s[1]],
+        end: [s[0], 0, s[1]],
+      };
+      for (let b = 0; b < 3; b++) {
+        for (let f = 0; f < 6; f++) {
+          const o = out[FACES[f]];
+          const dot = geo.normals[v * 3] * o[0] + geo.normals[v * 3 + 1] * o[1] + geo.normals[v * 3 + 2] * o[2];
+          quads++;
+          if (dot <= 0) bad[FACES[f]]++;
+          v += 6;
+        }
+      }
+    }
+  }
+  assert.equal(quads, 43056, `quads checked ${quads}`);
+  assert.equal(v * 3, geo.normals.length, 'walk consumed the whole normals array');
+  assert.deepEqual(bad, { river: 0, land: 0, top: 0, bottom: 0, start: 0, end: 0 }, `inward faces ${JSON.stringify(bad)}`);
 });
 
 test('difang clearance: every wall point clears every roadbed by >= 1.5 m', () => {
