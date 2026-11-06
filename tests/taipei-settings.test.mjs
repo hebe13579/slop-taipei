@@ -126,22 +126,23 @@ test('density fine (default): the shipped plan, byte-identical', () => {
   // survive — counts compose, hashes do not).
   // Issue #110: plan 68,482 -> 68,472 — 23 bridge links re-admitted + 71 bed-end fusions re-seat 1,282 lots near the changed roadbeds (net -10).
   // Issue #258: plan 68,472 -> 76,367 (+7,895) — the south expansion (see the schools test for the full lot-diff decomposition); the hash moves with the new lots (fingerprint is over every lot's rounded fields). blocksFine 2,897 -> 3,388 (+491 fine-classified south blocks).
-  assert.equal(implicit.lots, 76367); // re-pinned for #289: the 4 new registry sites exclude 56 lots net (see the fine test)
+  assert.equal(implicit.lots, 76209); // re-pinned for #278: the 3 new registry sites exclude 158 lots net (see the fine test)
   // Issue #110: the plan hash moves with the re-seated lots (fingerprint is over every lot's rounded fields).
-  assert.equal(implicit.hash, 'd6e88991'); // re-pinned for #289: measured on the merged tree
+  assert.equal(implicit.hash, '669c6459'); // re-pinned for #278: measured on the merged tree
   assert.equal(implicit.stats.blocksFine, 3388);
   // Issue #110: lotsFine 44,923 -> 44,907.
   // Issue #258: lotsFine 44,907 -> 50,803 (+5,896 fine south lots).
-  assert.equal(implicit.stats.lotsFine, 50803);
+  // Issue #278: lotsFine 50,803 -> 50,779 (-24 fine lots in the 3 new registry sites).
+  assert.equal(implicit.stats.lotsFine, 50779);
 });
 
 test('density coarse: the pre-#124 rule (fine classifier never fires)', () => {
   const fp = fingerprint(planTaipeiBuildings(TAIPEI_GEO, { density: 'coarse' }));
   // Issue #110: coarse 36,103 -> 36,107 — the roadbed change moves lots at every density.
   // Issue #258: coarse 36,107 -> 39,574 (+3,467) — the south expansion plans coarse too.
-  assert.equal(fp.lots, 39574); // re-pinned for #289: the 4 new registry sites exclude 56 lots net at every density (see the fine test)
+  assert.equal(fp.lots, 39433); // re-pinned for #278: the 3 new registry sites exclude 141 lots net at coarse density (see the fine test)
   // Issue #110: the coarse-plan hash moves with the re-seated lots.
-  assert.equal(fp.hash, '9c34bd1e'); // re-pinned for #289: measured on the merged tree
+  assert.equal(fp.hash, '14011746'); // re-pinned for #278: measured on the merged tree
   assert.equal(fp.stats.blocksFine, 0);
   assert.equal(fp.stats.lotsFine, 0);
 });
@@ -150,22 +151,23 @@ test('density dense: the #124 study draft at ~100k lots', () => {
   const fp = fingerprint(planTaipeiBuildings(TAIPEI_GEO, { density: 'dense' }));
   // Issue #110: dense 93,140 -> 93,142 — the roadbed change moves lots at every density.
   // Issue #258: dense 93,142 -> 104,349 (+11,207) — the south expansion at the dense pitch.
-  assert.equal(fp.lots, 104349); // re-pinned for #289: the 4 new registry sites exclude 56 lots net at every density (see the fine test)
+  assert.equal(fp.lots, 104178); // re-pinned for #278: the 3 new registry sites exclude 171 lots net at dense density (see the fine test)
   // Issue #110: the dense-plan hash moves with the re-seated lots.
-  assert.equal(fp.hash, '38252794'); // re-pinned for #289: measured on the merged tree
+  assert.equal(fp.hash, '9facedd7'); // re-pinned for #278: measured on the merged tree
   assert.equal(fp.stats.blocksFine, 3388, 'dense keeps the fine classifier — only the pitch tightens');
   // Issue #110: dense lotsFine 69,581 -> 69,577.
   // Issue #258: dense lotsFine 69,577 -> 78,785 (+9,208 fine south lots at the dense pitch).
-  assert.equal(fp.stats.lotsFine, 78785);
+  // Issue #278: dense lotsFine 78,785 -> 78,748 (-37 fine lots in the 3 new registry sites).
+  assert.equal(fp.stats.lotsFine, 78748);
 });
 
 test('density unknown value plans as fine', () => {
   const fp = fingerprint(planTaipeiBuildings(TAIPEI_GEO, { density: 'huge' }));
   // Issue #110: plan 68,482 -> 68,472 — 23 bridge links re-admitted + 71 bed-end fusions re-seat 1,282 lots near the changed roadbeds (net -10).
   // Issue #258: plan 68,472 -> 76,367 (+7,895) — the south expansion; the hash moves with the new lots.
-  assert.equal(fp.lots, 76367); // re-pinned for #289: the 4 new registry sites exclude 56 lots net at every density (see the fine test)
+  assert.equal(fp.lots, 76209); // re-pinned for #278: the 3 new registry sites exclude 158 lots net at every density (see the fine test)
   // Issue #110: the plan hash moves with the re-seated lots (unknown plans as fine).
-  assert.equal(fp.hash, 'd6e88991'); // re-pinned for #289: measured on the merged tree (unknown plans as fine)
+  assert.equal(fp.hash, '669c6459'); // re-pinned for #278: measured on the merged tree (unknown plans as fine)
 });
 
 // Source contracts for the UI surface (the browser evidence in the

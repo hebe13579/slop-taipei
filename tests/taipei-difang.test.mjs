@@ -267,5 +267,5 @@ test('difang photo site: a wall stands at 環河北路 near 重陽橋', () => {
 
 test('difang plan: the walls displace zero buildings', () => {
   const plan = planTaipeiBuildings(TAIPEI_GEO);
-  assert.equal(plan.lots.length, 76367);
+  assert.equal(plan.lots.length, 76209); // re-pinned for #278: the 3 new registry sites exclude 158 lots net (see the xinyi289 test)
 });

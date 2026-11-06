@@ -285,9 +285,15 @@ test('plan: lifts appear only with groundAt, and only the hotel + three more lif
   // store would otherwise lift 24.9 m and float up to 9.7 m).
   // The 國立故宮博物院 does not lift either — the npm flat site keeps
   // its grounds at 0 (see the flat-site test above).
-  assert.deepEqual(lifted.map((s) => s.id).sort(), ['grand-hotel', 'miramar-entertainment-park', 'qingjiang-elementary', 'taipei-performing-arts-center']);
+  // Issue #278: the NTSEC newly lifts 5.88 m — its Shilin site sits on
+  // the foothill slope (drape 4.3–7.7 m across the site); the drum
+  // carries a 2 m skirt so its south edge does not float. The
+  // planetarium (lift 0) and VGH (lift 0) do NOT lift.
+  assert.deepEqual(lifted.map((s) => s.id).sort(), ['grand-hotel', 'miramar-entertainment-park', 'ntsec', 'qingjiang-elementary', 'taipei-performing-arts-center']);
   const hotel = drapedPlan.landmarkTowers.find((s) => s.id === 'grand-hotel');
   assert.ok(Math.abs(hotel.lift - 40.2) < 0.5, `hotel lift ${hotel.lift}`);
+  const ntsec = drapedPlan.landmarkTowers.find((s) => s.id === 'ntsec');
+  assert.ok(Math.abs(ntsec.lift - 5.88) < 0.5, `ntsec lift ${ntsec.lift}`);
   assert.equal(drapedPlan.lots.length, flatPlan.lots.length);
 });
 

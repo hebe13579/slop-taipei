@@ -606,6 +606,187 @@ function expoDomeParts() {
   return parts;
 }
 
+// Issue #278: 台北天文館 (Taipei Astronomical Museum) — the
+// planetarium in Shilin. Siting measured from Esri z18 satellite
+// (0.541 m/px) via latLonToTile; the measurement log is in
+// specials278-evidence/ (anchors.mjs, site-probe.mjs, lots-probe.mjs).
+// The exhibition building is a circular ring ~127 m across (white
+// ring wall, glass atrium block inside, cylindrical tower with the
+// red 天文館 roof sign) and the signature is the 35 m gold dome
+// (published diameter; gold-covered aluminium, faceted panels) east
+// of it, with a small white observatory dome between ring and gold
+// dome. The ring is built as 24 tangent segments (the Expo Dome
+// bowl pattern) so the green courtyard inside stays open — a solid
+// disc would fill it. Heights are photo/floor-based estimates (ring
+// 4 storeys, dome 35 m sphere on a 4.5 m drum = 22 m total). The
+// site's drape is 0 at the ring and ~2.5 m at the gold dome (the
+// corridor terrain-grid edge), so the dome drum is partly buried by
+// the drape while the hemisphere reads fully.
+function planetariumParts() {
+  const parts = [];
+  // Ring wall: tangent segments around r=63 (wall ~12 m thick),
+  // leaving the courtyard (r < 57) open for the atrium block. The
+  // segment math is the Expo Dome bowl's (ellipse tangent direction
+  // -> authored rotY), with a = b = 63 for the circle. Segments are
+  // OMITTED where the geodata draws a road straight through the
+  // museum grounds (the real roads curve around the building):
+  // phi 30 and 45 — the 基河路396巷 entrance drive enters radially
+  // at phi ~36 and runs to the central atrium, so the ring has an
+  // entrance opening there; phi 150 and 165 — the geodata's 士商路
+  // is drawn as a straight diagonal chord through the ring (it
+  // passes 25 m from the ring centre; the real 士商路 runs east-west
+  // south of the museum and turns the corner); phi 240 — a 5 m
+  // service drive in the south interior crosses the wall there;
+  // phi 270 and 285 — the same 士商路 chord crosses the south wall.
+  // The ring is therefore 17 of 24 segments, with openings at the
+  // north-east entrance, the west, the south-west and the south.
+  const seg = (phiDeg, w, d, h, flat) => {
+    const phi = (phiDeg * Math.PI) / 180;
+    const alphaT = Math.atan2(63 * Math.cos(phi), -63 * Math.sin(phi));
+    parts.push({
+      type: 'box', w, d, h,
+      dx: 63 * Math.cos(phi), dz: -63 * Math.sin(phi), rotY: -alphaT, flat,
+    });
+  };
+  for (let phi = 0; phi < 360; phi += 15) {
+    if (phi === 30 || phi === 45 || phi === 150 || phi === 165 || phi === 240 || phi === 270 || phi === 285) continue;
+    seg(phi, 17, 12, 16, 0xe8e4da);
+  }
+  // Glass atrium block inside the ring (south-east of centre). It is
+  // modelled at 30 x 40 m, not the satellite-measured 40 x 51 m at
+  // (+9, -25.5), and not at that north-of-centre spot: the geodata
+  // draws three roads straight through the ring's interior — the
+  // 基河路396巷 12.8 m drive (north-east to centre), the 士商路 8 m
+  // chord (south-east to north-west through the centre's south-west)
+  // and two 5 m service drives (south-west and south) — and the
+  // full 40 x 51 m hall at its true spot straddles the 基河路396巷
+  // band, while the north-west pocket that clears it is too small
+  // and too curved for a hall. The real drives curve around the
+  // hall; the straight geodata lines are an artefact. So the hall
+  // is modelled at a reduced footprint in the south-east of the
+  // courtyard, the one clear pocket that fits a hall-sized block,
+  // keeping its glass curtain reading and its position inside the
+  // ring (issue #42 audit).
+  parts.push({
+    type: 'box', w: 30, d: 40, h: 16, dx: 25, dz: 20,
+    facade: { kind: 'curtain', glassTint: 0x2e4a5a, frameTint: 0x8a929a, windowWidth: 3, floorHeight: 4, litProbability: 0.3, warmth: 0.5, reflectivity: 0.9, seed: 57.472 },
+  });
+  // Cylindrical tower with small square windows (north of the
+  // atrium block, attached to its north edge). It sits with the
+  // hall in the clear south-east pocket, clear of the drive bands.
+  parts.push({ type: 'cylinder', r: 8, h: 20, dx: 28, dz: -2, flat: 0xd8d2c4 });
+  // Gold dome: 35 m sphere (published) on a 4.5 m drum, 182 m east
+  // and 71 m north of the ring centre. Top 4.5 + 17.5 = 22 m. The
+  // centre is placed 3.5 m south-west of the satellite-measured
+  // centre (tile (-4670.3, -6931.9)) to clear the 美崙街 roadbed:
+  // the road centreline passes 18.7 m from the measured centre, so
+  // the 17.5 m dome + 3.2 m ribbon would overlap by ~2 m — the
+  // measurement scatter between two independent satellite picks is
+  // ~5 m, so the 3.5 m shift is inside the error bar and the road
+  // clearance (no landmark may overlap a roadbed) is a hard rule.
+  // The drum is r=17, a plinth the sphere overhangs.
+  parts.push({ type: 'cylinder', r: 17, h: 4.5, dx: 181.9, dz: -71.1, flat: 0x8a6d2f });
+  parts.push({
+    type: 'dome', rx: 17.5, rz: 17.5, h: 17.5, y0: 4.5, dx: 181.9, dz: -71.1,
+    flat: { color: 0xc9962e, roughness: 0.35, metalness: 0.6 },
+  });
+  // Small white observatory dome between the ring and the gold dome.
+  parts.push({ type: 'cylinder', r: 9.5, h: 3, dx: 93.9, dz: -13.3, flat: 0xd8d2c4 });
+  parts.push({
+    type: 'dome', rx: 9, rz: 9, h: 9, y0: 3, dx: 93.9, dz: -13.3,
+    flat: { color: 0xf4f1ea, roughness: 0.6, metalness: 0.05 },
+  });
+  return parts;
+}
+
+// Issue #278: 科教館 (National Taiwan Science Education Center) —
+// the 11-storey science museum in Shilin, next to the planetarium.
+// Siting measured from Esri z18 satellite via latLonToTile. The
+// form is a large curved drum (grey tiled, horizontal bands, rooftop
+// pergola ring) with a taller rectangular slab behind it to the
+// north-east carrying the NTSEC logo. Heights are floor-based
+// estimates (slab 11 × 4 m = 44 m; drum ~26 m). The site sits on a
+// drape slope (4.3–7.7 m, up to the north-east; lift 5.88 m at the
+// anchor), so the drum carries a 2 m skirt below the group origin
+// (y0 −2) — without it the drum's south edge would float ~1.6 m
+// above the draped ground.
+function ntsecParts() {
+  return [
+    // Curved drum: elliptical cylinder, 135 m E-W × 70 m N-S.
+    { type: 'cylinder', r: 67, rz: 35, h: 28, y0: -2 },
+    // Rooftop pergola ring: a thin rim just proud of the drum.
+    { type: 'cylinder', r: 70, rz: 37, h: 1.5, y0: 26, flat: 0x8f979e },
+    // Tall slab behind the drum (north-east): 11 storeys, 44 m. It
+    // is placed 12 m west of the satellite-measured centre (dx +41.4
+    // -> +29.4): the geodata's 文昌路 is drawn 19.2 m wide and its
+    // ribbon reaches the slab's east edge at the satellite position,
+    // so the slab is shifted west to clear the roadbed (issue #42
+    // audit) — the 12 m shift is inside the satellite measurement
+    // scatter for this block.
+    { type: 'box', w: 70, d: 43, h: 44, dx: 29.4, dz: -27.7 },
+  ];
+}
+
+// Issue #278: 台北榮總 (Taipei Veterans General Hospital) — the
+// Shipai hospital campus. Siting measured from the OSM footprints
+// (tools/taipei/data/osm_heights.json) via latLonToTile; the
+// measurement log is in specials278-evidence/ (ring2.py). The
+// 中正樓 (Chung-cheng Building) OSM ring is a U: a north slab
+// ~164 × 30 m (the 24-storey tower, published height 112 m) with a
+// west leg ~26 × 117 m and an east leg ~21 × 104 m; the tower is
+// modelled as a 104 m slab + an 8 m stepped crown = 112 m. The
+// other modelled masses are the 思源樓 (Shih-yuan Building, bent
+// slab, 12 floors ≈ 40 m) and the east ward block (11 floors ≈
+// 38 m). The outpatient podium is omitted (see vghParts). Main
+// buildings only — not every ward block. Drape is 0 across the
+// whole campus.
+//
+// The Chung-cheng U is modelled NARROWER than the OSM ring (130 m
+// instead of 164 m, legs moved inward to the slab's ends): the
+// geodata draws the campus's internal service drives as straight
+// lines that cut through the OSM footprints — a north-south drive
+// at x ≈ -4600 and another at x ≈ -4455 bracket a 139 m clear gap,
+// so the 164 m U cannot fit clear of them, and the same drives run
+// along the legs. The real drives run between the buildings; the
+// straight geodata lines are an artefact. The U keeps its form
+// (tower + crown + two legs) at a reduced width (issue #42 audit).
+// The outpatient podium is shifted 30 m south for the same reason
+// (a west-east service drive runs through its OSM spot).
+function vghParts() {
+  return [
+    // Chung-cheng tower slab (north slab of the U), 104 m.
+    // Narrowed 164 -> 130 m to fit the clear gap between the two
+    // north-south service drives (x ≈ -4600 and x ≈ -4455), and
+    // shifted 5 m north (dz 27 -> 22) to clear the east-west service
+    // drive that runs along its south face (the tower's entrance
+    // drive; the real drive sits against the face, the model sets
+    // the slab back so the footprint clears the roadbed).
+    { type: 'box', w: 130, d: 30, h: 104, dx: -4, dz: 22 },
+    // Stepped crown on the tower: 104 + 8 = 112 m (published).
+    { type: 'box', w: 60, d: 20, h: 8, y0: 104, dx: -4, dz: 22, flat: 0xd8d2c4 },
+    // West leg of the U (south from the tower's west end). Moved
+    // east (dx -76 -> -56) to the narrowed slab's west end, clear
+    // of the x ≈ -4600 service drive.
+    { type: 'box', w: 26, d: 117, h: 40, dx: -56, dz: -42.5 },
+    // East leg of the U (south from the tower's east end). Moved
+    // west (dx +64.5 -> +50) to the narrowed slab's east end, clear
+    // of the x ≈ -4448 service drive.
+    { type: 'box', w: 21, d: 104, h: 40, dx: 50, dz: -31 },
+    // Shih-yuan Building: a bent slab, two boxes.
+    { type: 'box', w: 80, d: 70, h: 40, dx: -130, dz: -125, rotY: -0.35 },
+    { type: 'box', w: 55, d: 40, h: 40, dx: -160, dz: -85, rotY: 0.45 },
+    // The outpatient podium (68 x 33 m, 4 floors, south of the
+    // tower) is OMITTED: the geodata draws two parallel east-west
+    // service drives 23 m apart across its OSM spot (z ≈ -9778 and
+    // z ≈ -9801), leaving no 33 m deep slot for it clear of the
+    // roadbeds, and moving it north puts it on the tower legs while
+    // moving it south puts it on the southern drive. The real drives
+    // run around the podium; the straight geodata lines bracket it.
+    // East ward block.
+    { type: 'box', w: 85, d: 55, h: 38, dx: 125, dz: -19.5 },
+  ];
+}
+
 const LANDMARK_STRUCTURES = [
   {
     // 272 m, 48F, completed 2018 (Wikipedia / CTBUH). Dark tapered
@@ -3220,6 +3401,91 @@ const LANDMARK_STRUCTURES = [
     site: { w: 200, d: 260, dx: 1, dz: -24 },
     facade: { kind: 'prewar', stoneColor: 0xefece4, trimColor: 0xd86a2c, windowGlassColor: 0x2e3a46, windowWidth: 4, floorHeight: 4.5, litProbability: 0.15, warmth: 0.5, seed: 57.46 },
     parts: expoDomeParts(),
+  },
+  {
+    // Issue #278: 台北天文館 (Taipei Astronomical Museum) — the
+    // planetarium in Shilin (No. 363 Jihe Rd), opened 1996/1997, a
+    // 4-storey museum on a 1.8 ha site with Asia's biggest
+    // planetarium (325 seats, 180° screen). Siting measured from
+    // Esri z18 satellite via latLonToTile: the exhibition ring is
+    // ~127 m across, centred on the anchor; the gold dome (35 m
+    // sphere, published) sits 182 m east and 62 m north of the ring
+    // centre, and a small white observatory dome sits between them.
+    // Heights are photo/floor-based estimates (ring 4 storeys ≈
+    // 16 m; dome drum 4.5 m + 17.5 m hemisphere = 22 m total), so
+    // estimated: true. The site rect covers ring + both domes; it
+    // clears 8 procedural lots on the museum grounds (measured on
+    // the pre-#278 plan). The site's drape is 0 at the ring and
+    // ~2.5 m at the gold dome (corridor terrain-grid edge), so the
+    // dome drum is partly buried by the drape while the hemisphere
+    // reads fully. No farParts (like Tianmu Stadium / Expo Dome):
+    // the ring is 24 segments and the far test requires every
+    // storey-mass part to survive into the far version exactly, so
+    // a merged far silhouette would be an invention, not a
+    // simplification — and landmarks are exempt from the far fade
+    // anyway, so the museum keeps full detail at any distance. The
+    // red 天文館 roof sign is 3 abstract glyph blocks on the ring's
+    // south face (the real sign sits on the exhibition block's roof
+    // parapet behind the dome; the ring face is its readable
+    // equivalent from the south approach).
+    id: 'taipei-astronomical-museum', name: 'Taipei Astronomical Museum', nameZh: '台北天文館',
+    lat: 25.09496, lon: 121.51690, realHeight: 22, estimated: true, color: 0xe8e4da,
+    site: { w: 280, d: 160, dx: 68, dz: 0 },
+    facade: { kind: 'prewar', stoneColor: 0xe8e4da, trimColor: 0xc9962e, windowGlassColor: 0x2e4a5a, windowWidth: 4, floorHeight: 4, litProbability: 0.15, warmth: 0.5, seed: 57.47 },
+    sign: { glyphs: 3, w: 18, h: 3, y: 14.5, dx: 0, dz: 63.5, bg: '#3a3f45', fg: '#d21f1f' },
+    parts: planetariumParts(),
+  },
+  {
+    // Issue #278: 科教館 (National Taiwan Science Education Center)
+    // — the science museum in Shilin (No. 189 Shishang Rd), moved
+    // to its current building in 2003. Siting measured from Esri
+    // z18 satellite via latLonToTile: the curved drum is ~135 m
+    // E-W × ~77 m N-S, centred on the anchor, and the 11-storey
+    // slab stands ~44 m north-east of the drum centre. Heights are
+    // floor-based estimates (slab 11 × 4 m = 44 m; drum ~26 m), so
+    // estimated: true. The site rect covers drum + slab; it clears
+    // 34 procedural lots on the museum grounds (measured on the
+    // pre-#278 plan). The site sits on a drape slope (4.3–7.7 m,
+    // up to the north-east; lift 5.88 m at the anchor) and the drum
+    // carries a 2 m skirt below the group origin so its south edge
+    // does not float above the draped ground. No farParts (like
+    // Tianmu Stadium / Expo Dome): the drum is an elliptical
+    // cylinder and the far test requires every storey-mass part to
+    // survive into the far version exactly — and landmarks are
+    // exempt from the far fade anyway.
+    id: 'ntsec', name: 'National Taiwan Science Education Center', nameZh: '國立臺灣科學教育館',
+    lat: 25.09503, lon: 121.52071, realHeight: 44, estimated: true, color: 0x9a9a94,
+    site: { w: 160, d: 110, dx: 0, dz: 0 },
+    facade: { kind: 'prewar', stoneColor: 0x9a9a94, trimColor: 0x6d7885, windowGlassColor: 0x2e3a46, windowWidth: 4, floorHeight: 4, litProbability: 0.2, warmth: 0.5, seed: 57.48 },
+    sign: { text: 'NTSEC', w: 20, h: 3, y: 20, dx: 0, dz: 35.5, bg: '#3a3f45', fg: '#ece5d3' },
+    parts: ntsecParts(),
+  },
+  {
+    // Issue #278: 台北榮總 (Taipei Veterans General Hospital) —
+    // the Shipai hospital campus (No. 201 Sec. 2 Shipai Rd), founded
+    // 1958/1959, 30 hectares, ~3,000 beds. Siting measured from the
+    // OSM footprints (tools/taipei/data/osm_heights.json) via
+    // latLonToTile. The 中正樓 (Chung-cheng Building) is a U: the
+    // north slab is the 24-storey tower (published height 112 m),
+    // modelled as a 104 m slab + an 8 m stepped crown; the 思源樓
+    // (Shih-yuan Building) is a bent 12-storey slab west of the
+    // tower, the outpatient podium is low and wide south of it, and
+    // one east ward block (11 storeys) completes the campus. Main
+    // buildings only — not every ward block. The 112 m is a
+    // published OSM figure, so estimated is false. The site rect
+    // covers the whole campus; it clears 97 procedural lots on the
+    // hospital grounds (measured on the pre-#278 plan). Drape is 0
+    // across the campus. No farParts (like Tianmu Stadium / Expo
+    // Dome): the tower is a U of four masses and the far test
+    // requires every storey-mass part to survive into the far
+    // version exactly — and landmarks are exempt from the far fade
+    // anyway. No sign: the tower's vertical 臺北榮民總醫院 sign has
+    // no horizontal equivalent in the sign system.
+    id: 'taipei-veterans-general-hospital', name: 'Taipei Veterans General Hospital', nameZh: '台北榮民總醫院',
+    lat: 25.12009, lon: 121.52020, realHeight: 112, color: 0xd8d2c4,
+    site: { w: 370, d: 224, dx: -5, dz: -61 }, // d 220 -> 224 to cover the tower slab shifted north
+    facade: { kind: 'prewar', stoneColor: 0xd8d2c4, trimColor: 0xb0a58e, windowGlassColor: 0x2e3a46, windowWidth: 3, floorHeight: 4, litProbability: 0.25, warmth: 0.55, seed: 57.49 },
+    parts: vghParts(),
   },
   {
     // Shipai Junior High School — the eastern of the two Shipai

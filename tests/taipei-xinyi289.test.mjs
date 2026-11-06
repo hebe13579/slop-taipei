@@ -82,7 +82,8 @@ test('the four #289 structures are registered with the reference-pack facts', ()
   // exclusion, and Songshou was already a geodata park polygon.
   // Issue #258: 47 -> 49 — the south expansion adds 2 net entries (NTU main campus, NTNU Heping campus).
   // Issue #273: 49 -> 50 — the Expo Dome adds 1 net entry (爭艷館).
-  assert.equal(plan.landmarkTowers.length, 50, '43 + 4 new structures');
+  // Issue #278: 50 -> 53 — the planetarium, NTSEC and VGH add 3 net entries.
+  assert.equal(plan.landmarkTowers.length, 53, '43 + 4 new structures');
 });
 
 test('plan census: four new sites displace only their own lots', () => {
@@ -104,7 +105,8 @@ test('plan census: four new sites displace only their own lots', () => {
   // four rects + those 9 re-seats.
   // Issue #110: plan 68,482 -> 68,472 — 23 bridge links re-admitted + 71 bed-end fusions re-seat 1,282 lots near the changed roadbeds (net -10).
   // Issue #258: plan 68,472 -> 76,367 (+7,895) — the south expansion (see the schools test for the full lot-diff decomposition).
-  assert.equal(plan.lots.length, 76367, 'lot count re-pinned for the four new sites');
+  // Issue #278: plan 76,367 -> 76,209 (-158 net) — the 3 new registry sites exclude 160 lots (153 by body-overlap in the rects, 5 edge drops just outside them, 2 re-seats net 0) and add 2 re-seats; 84 lots change height via the #128 field blend, all within 100 m of a rect (lot-by-lot diff on this tree).
+  assert.equal(plan.lots.length, 76209, 'lot count re-pinned for the four new sites');
 });
 
 test('Civic Plaza: already registered, already lot-free, still paved', () => {
