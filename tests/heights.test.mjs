@@ -233,7 +233,8 @@ test('join census: every lot labelled, per-source counts pinned', (t) => {
   // Issue #110: real-signal lots 25,473 -> 25,464 (-9) — the re-seated lots lose 9 real-signal (permit/osm-height/door) labels.
   // Issue #258: real-signal lots 25,464 -> 28,213 (+2,749; 36.9% of the plan) — the south expansion's real stock.
   // Issue #278: real-signal lots 28,213 -> 28,177 (-36) — the 3 registry sites exclude 32 permit + 1 osm-height + 3 osm-levels lots, 0 door lots (lot-by-lot diff).
-  assert.equal(real, 28177, 'real-signal lots (27,005 before issue #221 cleared 1,492 real-signal lots off campus land; issue #255 clears 11 permit lots; issue #289 clears 17 permit + 12 osm-height lots; issue #278 clears 32 permit + 1 osm-height + 3 osm-levels lots)');
+  // Issue #326: real-signal lots 28,177 -> 28,200 (+23) — the re-site adds 21 permit + 1 osm-height + 1 osm-levels lots, 0 door lots (the per-source net deltas).
+  assert.equal(real, 28200, 'real-signal lots (27,005 before issue #221 cleared 1,492 real-signal lots off campus land; issue #255 clears 11 permit lots; issue #289 clears 17 permit + 12 osm-height lots; issue #278 clears 32 permit + 1 osm-height + 3 osm-levels lots; issue #326 adds 21 permit + 1 osm-height + 1 osm-levels lots)');
   assert.ok(real / lots.length > 0.35 && real / lots.length < 0.50, 'real coverage in the measured band');
 });
 
