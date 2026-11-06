@@ -842,6 +842,7 @@ test('landmark batch 3: two-slab Cathay rebuild, W, Songshan, Eslite, Arena', ()
     if (s.id !== 'eslite-spectrum-songyan' && s.id !== 'taipei-arena'
       && s.id !== 'national-concert-hall' && s.id !== 'national-theater'
       && s.id !== 'beimen'
+      && s.id !== 'nanmen' && s.id !== 'dongmen' && s.id !== 'xiaonanmen' // #327: the three gates' heights are estimates, like beimen's
       && s.id !== 'shin-kong-mitsukoshi-a4' && s.id !== 'shin-kong-mitsukoshi-a8'
       && s.id !== 'shin-kong-mitsukoshi-a9' && s.id !== 'shin-kong-mitsukoshi-a11'
       && s.id !== 'dayeh-takashimaya' && s.id !== 'tianmu-stadium'
