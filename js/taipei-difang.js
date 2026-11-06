@@ -610,8 +610,8 @@ export function buildDifangWallGeometry(chains, opts = {}) {
   const pos = [], nor = [], col = [];
   const rgb = (hex) => [((hex >> 16) & 255) / 255, ((hex >> 8) & 255) / 255, (hex & 255) / 255];
   const C = {
-    concrete: 0x8a8178, // weathered concrete grey-brown (user's photo)
-    cap: 0xa39a8c,      // lighter coping
+    concrete: 0x8a8a8a, // plain grey concrete (#323: user asked for grey, was grey-brown 0x8a8178)
+    cap: 0xa3a3a3,      // lighter grey coping (#323: was 0xa39a8c)
     green: 0x5a7a4a,    // ivy at the foot, land side
   };
   const quad = (a, b, c, d, hex) => {
@@ -623,9 +623,32 @@ export function buildDifangWallGeometry(chains, opts = {}) {
     const [r, g, bl] = rgb(hex);
     for (const p of [a, b, c, a, c, d]) { pos.push(p[0], p[1], p[2]); nor.push(nx, ny, nz); col.push(r, g, bl); }
   };
+  // Emit a quad whose stored normal points along `out` (the face's
+  // outward direction). The plain quad's normal is (b-a)x(c-a); if
+  // it points the wrong way, reverse the winding instead of emitting
+  // a back-facing quad. #323: the old box helper used the same
+  // vertex order for the river and land faces, so both got the same
+  // computed normal (s x up) and exactly one face per segment was
+  // back-face-culled (167/199 chains showed only the river face,
+  // 6 only the land face, 26 mixed) — the wall was invisible from
+  // the road side at the Huanhebei photo site. The sign flips along
+  // a chain (the chain-averaged land normal is not perpendicular to
+  // every segment), so the choice must be per-face, not a global
+  // flip. The same flaw inverted the top face wherever the land
+  // face was the correct one.
+  const quadOut = (a, b, c, d, hex, out) => {
+    const ux = b[0] - a[0], uy = b[1] - a[1], uz = b[2] - a[2];
+    const vx = c[0] - a[0], vy = c[1] - a[1], vz = c[2] - a[2];
+    const nx = uy * vz - uz * vy, ny = uz * vx - ux * vz, nz = ux * vy - uy * vx;
+    if (nx * out[0] + ny * out[1] + nz * out[2] < 0) quad(a, d, c, b, hex);
+    else quad(a, b, c, d, hex);
+  };
   // Closed box along plan segment (p0, p1), cross-section w (side) x
   // (y1 - y0) vertical, centred on the segment; n is the land-side
   // unit normal in plan. y0/y1 are [at p0, at p1] endpoint heights.
+  // Every face is wound outward (see quadOut): river face -n, land
+  // face +n, top +up, bottom -up, start cap -s, end cap +s, where s
+  // is the segment direction in plan.
   const box = (p0, p1, w, y0, y1, hex, n) => {
     const hw = w / 2;
     const lx = n[0] * hw, lz = n[1] * hw;
@@ -633,12 +656,18 @@ export function buildDifangWallGeometry(chains, opts = {}) {
     const c = [p1[0] + lx, y0[1], p1[1] + lz], d = [p0[0] + lx, y0[0], p0[1] + lz];
     const aT = [a[0], y1[0], a[2]], bT = [b[0], y1[1], b[2]];
     const cT = [c[0], y1[1], c[2]], dT = [d[0], y1[0], d[2]];
-    quad(a, b, bT, aT, hex);       // river face
-    quad(d, c, cT, dT, hex);       // land face
-    quad(aT, bT, cT, dT, hex);     // top
-    quad(a, d, c, b, hex);         // bottom (hidden, keeps the box closed)
-    quad(a, aT, dT, d, hex);       // start cap
-    quad(b, c, cT, bT, hex);       // end cap
+    const dx = p1[0] - p0[0], dz = p1[1] - p0[1];
+    const sL = Math.hypot(dx, dz) || 1;
+    const s = [dx / sL, dz / sL];
+    const landOut = [n[0], 0, n[1]], riverOut = [-n[0], 0, -n[1]];
+    const upOut = [0, 1, 0], downOut = [0, -1, 0];
+    const startOut = [-s[0], 0, -s[1]], endOut = [s[0], 0, s[1]];
+    quadOut(a, b, bT, aT, hex, riverOut);   // river face
+    quadOut(d, c, cT, dT, hex, landOut);    // land face
+    quadOut(aT, bT, cT, dT, hex, upOut);    // top
+    quadOut(a, d, c, b, hex, downOut);      // bottom (hidden, keeps the box closed)
+    quadOut(a, aT, dT, d, hex, startOut);   // start cap
+    quadOut(b, c, cT, bT, hex, endOut);     // end cap
   };
   const outChains = [];
   let triCount = 0;
