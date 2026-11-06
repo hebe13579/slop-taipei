@@ -3517,6 +3517,56 @@ const LANDMARK_STRUCTURES = [
       ...trackCapsuleParts(-8.1, -45.4, 44, 48, 40, -2.107, 0xa04a30, 0x4e7d32),
       { type: 'box', w: 38.5, d: 57.3, h: 0.25, y0: 0.02, dx: -70.7, dz: -3.3, rotY: -0.419, flat: 0x3f6d8e },
       { type: 'box', w: 43.7, d: 29.3, h: 0.35, y0: 0.02, dx: 82.7, dz: 68.7, rotY: 1.117, flat: 0x3f8fbf },
+      // Perimeter fence (#328): the generator's schoolFenceParts output for
+      // this OSM ring (relation 4630268), precomputed by planSchoolCampuses
+      // with the registry skip lifted and pasted as static parts — registry
+      // campuses are skipped by the generator, which is why the fence was
+      // missing. Gate + posts + lintel + 14 fence-line trees.
+      { type: 'box', w: 93.8, d: 0.35, h: 2.5, dx: -98.2, dz: -1.6, rotY: 1.449, flat: 0xd8d4c8 },
+      { type: 'box', w: 68.95, d: 0.35, h: 2.5, dx: -76, dz: 75.3, rotY: 1.0734, flat: 0xd8d4c8 },
+      { type: 'box', w: 52.67, d: 0.35, h: 2.5, dx: -47, dz: 128.8, rotY: 1.074, flat: 0xd8d4c8 },
+      { type: 'box', w: 107.35, d: 0.35, h: 2.5, dx: 14, dz: 128.9, rotY: -0.4428, flat: 0xd8d4c8 },
+      { type: 'box', w: 51.89, d: 0.35, h: 2.5, dx: 86, dz: 94.8, rotY: -0.4421, flat: 0xd8d4c8 },
+      { type: 'box', w: 47.51, d: 0.35, h: 2.5, dx: 98.2, dz: 62.8, rotY: -2.0617, flat: 0xd8d4c8 },
+      { type: 'box', w: 64.85, d: 0.35, h: 2.5, dx: 69.9, dz: 14.3, rotY: -2.1263, flat: 0xd8d4c8 },
+      { type: 'box', w: 67.09, d: 0.35, h: 2.5, dx: 34.9, dz: -41.7, rotY: -2.1319, flat: 0xd8d4c8 },
+      { type: 'box', w: 48.92, d: 0.35, h: 2.5, dx: 4.2, dz: -90.8, rotY: -2.1287, flat: 0xd8d4c8 },
+      { type: 'box', w: 48.11, d: 0.35, h: 2.5, dx: -21.5, dz: -132, rotY: -2.1294, flat: 0xd8d4c8 },
+      { type: 'box', w: 0.9, d: 0.9, h: 3.4, dx: -42.8, dz: -122.5, flat: 0xb9b2a2 },
+      { type: 'box', w: 0.9, d: 0.9, h: 3.4, dx: -44.4, dz: -117.1, flat: 0xb9b2a2 },
+      { type: 'box', w: 7.44, d: 1, h: 0.8, dx: -43.6, dz: -119.8, y0: 3.2, rotY: 1.8495, flat: 0xb9b2a2 },
+      { type: 'box', w: 31.07, d: 0.35, h: 2.5, dx: -38.6, dz: -137.5, rotY: 1.8495, flat: 0xd8d4c8 },
+      { type: 'box', w: 3.04, d: 0.35, h: 2.5, dx: -43.3, dz: -116, rotY: 0.8086, flat: 0xd8d4c8 },
+      { type: 'box', w: 67.98, d: 0.35, h: 2.5, dx: -47.1, dz: -81.2, rotY: 1.7125, flat: 0xd8d4c8 },
+      { type: 'box', w: 52, d: 0.35, h: 2.5, dx: -77.9, dz: -47.8, rotY: -3.132, flat: 0xd8d4c8 },
+      { type: 'cylinder', r: 0.16, h: 2.1, dx: -100.3, dz: -31.6, flat: 0x6b4f35 },
+      { type: 'dome', rx: 2.15, rz: 2.15, h: 2.3, y0: 1.9, dx: -100.3, dz: -31.6, flat: 0x4a7038 },
+      { type: 'cylinder', r: 0.16, h: 2.1, dx: -97, dz: -5.9, flat: 0x6b4f35 },
+      { type: 'dome', rx: 2.13, rz: 2.13, h: 2.2, y0: 1.9, dx: -97, dz: -5.9, flat: 0x557c40 },
+      { type: 'cylinder', r: 0.16, h: 2.1, dx: -93.8, dz: 19.7, flat: 0x6b4f35 },
+      { type: 'dome', rx: 2.66, rz: 2.66, h: 2.8, y0: 1.9, dx: -93.8, dz: 19.7, flat: 0x3d6335 },
+      { type: 'cylinder', r: 0.16, h: 2.1, dx: -85, dz: 55.1, flat: 0x6b4f35 },
+      { type: 'dome', rx: 2.23, rz: 2.23, h: 2.3, y0: 1.9, dx: -85, dz: 55.1, flat: 0x4a7038 },
+      { type: 'cylinder', r: 0.16, h: 2.1, dx: -75.1, dz: 73.7, flat: 0x6b4f35 },
+      { type: 'dome', rx: 2.6, rz: 2.6, h: 2.7, y0: 1.9, dx: -75.1, dz: 73.7, flat: 0x557c40 },
+      { type: 'cylinder', r: 0.16, h: 2.1, dx: -65.1, dz: 92.5, flat: 0x6b4f35 },
+      { type: 'dome', rx: 1.94, rz: 1.94, h: 2, y0: 1.9, dx: -65.1, dz: 92.5, flat: 0x3d6335 },
+      { type: 'cylinder', r: 0.16, h: 2.1, dx: -52.1, dz: 117, flat: 0x6b4f35 },
+      { type: 'dome', rx: 2.38, rz: 2.38, h: 2.5, y0: 1.9, dx: -52.1, dz: 117, flat: 0x4a7038 },
+      { type: 'cylinder', r: 0.16, h: 2.1, dx: -40.4, dz: 138.8, flat: 0x6b4f35 },
+      { type: 'dome', rx: 2.77, rz: 2.77, h: 2.9, y0: 1.9, dx: -40.4, dz: 138.8, flat: 0x557c40 },
+      { type: 'cylinder', r: 0.16, h: 2.1, dx: -21.7, dz: 144, flat: 0x6b4f35 },
+      { type: 'dome', rx: 2.06, rz: 2.06, h: 2.2, y0: 1.9, dx: -21.7, dz: 144, flat: 0x3d6335 },
+      { type: 'cylinder', r: 0.16, h: 2.1, dx: -0.7, dz: 133.9, flat: 0x6b4f35 },
+      { type: 'dome', rx: 2.61, rz: 2.61, h: 2.7, y0: 1.9, dx: -0.7, dz: 133.9, flat: 0x4a7038 },
+      { type: 'cylinder', r: 0.16, h: 2.1, dx: 20.4, dz: 123.9, flat: 0x6b4f35 },
+      { type: 'dome', rx: 2.9, rz: 2.9, h: 3, y0: 1.9, dx: 20.4, dz: 123.9, flat: 0x557c40 },
+      { type: 'cylinder', r: 0.16, h: 2.1, dx: 41.4, dz: 113.9, flat: 0x6b4f35 },
+      { type: 'dome', rx: 2.76, rz: 2.76, h: 2.9, y0: 1.9, dx: 41.4, dz: 113.9, flat: 0x3d6335 },
+      { type: 'cylinder', r: 0.16, h: 2.1, dx: 73.9, dz: 98.6, flat: 0x6b4f35 },
+      { type: 'dome', rx: 1.96, rz: 1.96, h: 2.1, y0: 1.9, dx: 73.9, dz: 98.6, flat: 0x4a7038 },
+      { type: 'cylinder', r: 0.16, h: 2.1, dx: 94.8, dz: 88.8, flat: 0x6b4f35 },
+      { type: 'dome', rx: 2.31, rz: 2.31, h: 2.4, y0: 1.9, dx: 94.8, dz: 88.8, flat: 0x557c40 },
     ],
   },
   {
@@ -3527,8 +3577,9 @@ const LANDMARK_STRUCTURES = [
     // rects: 丹鳳樓 (way 224819890), 陽明樓 (224823940, the only
     // one with an OSM levels tag: 4), 觀音樓 (224825864), 七星樓
     // (224826063), 大屯樓 (224826217), plus 活動中心 (224828172),
-    // 幼兒園 (224826611) and the 小操場 (224826678) as a flat
-    // painted field. Blocks at 4F × 3.6 m following 陽明樓's tag.
+    // 幼兒園 (224826611). The 小操場 way (224826678) is the basketball
+    // court (see the parts below, #328), not the running track. Blocks
+    // at 4F × 3.6 m following 陽明樓's tag.
     id: 'qingjiang-elementary', name: 'Qingjiang Elementary School', nameZh: '清江國小',
     lat: 25.12645, lon: 121.50705, realHeight: 14.4, estimated: true, color: 0xd6c8b4,
     site: { w: 152, d: 168, dx: -5, dz: 3 },
@@ -3541,8 +3592,65 @@ const LANDMARK_STRUCTURES = [
       { type: 'box', w: 43.8, d: 10.2, h: 14.4, dx: -10.1, dz: -63.1, rotY: -0.555 },
       { type: 'box', w: 44.8, d: 27.6, h: 10, dx: -51.5, dz: 61, rotY: -0.55 },
       { type: 'box', w: 29.4, d: 7.2, h: 7.2, dx: 14.1, dz: 31.2, rotY: -0.616 },
-      { type: 'box', w: 36, d: 30, h: 0.25, y0: 0.02, dx: 31.3, dz: -3.3, rotY: 0.601, flat: 0xa04a30 },
-      { type: 'box', w: 31, d: 25, h: 0.32, y0: 0.02, dx: 31.3, dz: -3.3, rotY: 0.601, flat: 0x4e7d32 },
+      // The 小操場 way (224826678) outlines the basketball court, not the
+      // running track — the #166 build modelled it as a rust-red/green
+      // rectangle track. The real oval track (Esri satellite: centre 62 m
+      // west of the anchor, 98 m long, axis -0.55 rad) is the capsule below,
+      // and the way's rectangle is a blue court slab at its measured rotation.
+      ...trackCapsuleParts(-62, -1, 54, 44, 36, -0.55, 0xa04a30, 0x4e7d32),
+      { type: 'box', w: 36, d: 30, h: 0.25, y0: 0.02, dx: 31.3, dz: -3.3, rotY: -0.6, flat: 0x3f6d8e },
+      // Perimeter fence (#328): as for Shipai — the generator's fence for
+      // this OSM ring (relation 4793835), precomputed and pasted as static
+      // parts. Gate + posts + lintel + guard house + 14 fence-line trees.
+      { type: 'box', w: 94.22, d: 0.35, h: 2.5, dx: 10.8, dz: -86.1, rotY: 2.6095, flat: 0xd8d4c8 },
+      { type: 'box', w: 14.03, d: 0.35, h: 2.5, dx: -35.9, dz: -58.7, rotY: 2.611, flat: 0xd8d4c8 },
+      { type: 'box', w: 9.64, d: 0.35, h: 2.5, dx: -46, dz: -52.7, rotY: 2.6083, flat: 0xd8d4c8 },
+      { type: 'box', w: 0.9, d: 0.9, h: 3.4, dx: -50.2, dz: -50.2, flat: 0xb9b2a2 },
+      { type: 'box', w: 0.9, d: 0.9, h: 3.4, dx: -56.2, dz: -46.4, flat: 0xb9b2a2 },
+      { type: 'box', w: 8.85, d: 1, h: 0.8, dx: -53.2, dz: -48.3, y0: 3.2, rotY: 2.5753, flat: 0xb9b2a2 },
+      { type: 'box', w: 3.2, d: 3, h: 3, dx: -58.3, dz: -40.1, rotY: 2.5753, flat: 0xcfc8b8 },
+      { type: 'box', w: 111.68, d: 0.35, h: 2.5, dx: -103.3, dz: -16.5, rotY: 2.5753, flat: 0xd8d4c8 },
+      { type: 'box', w: 107.43, d: 0.35, h: 2.5, dx: -123, dz: 59.7, rotY: 1.0355, flat: 0xd8d4c8 },
+      { type: 'box', w: 83.69, d: 0.35, h: 2.5, dx: -60.5, dz: 83.2, rotY: -0.5734, flat: 0xd8d4c8 },
+      { type: 'box', w: 33.94, d: 0.35, h: 2.5, dx: -10.9, dz: 51.6, rotY: -0.552, flat: 0xd8d4c8 },
+      { type: 'box', w: 29.65, d: 0.35, h: 2.5, dx: 16, dz: 34.5, rotY: -0.5861, flat: 0xd8d4c8 },
+      { type: 'box', w: 67.77, d: 0.35, h: 2.5, dx: 58, dz: 9.9, rotY: -0.5052, flat: 0xd8d4c8 },
+      // The two east walls below are set back 0.5 m west of the ring: the
+      // OSM ring grazes the 公舘路 roadbed there (the ring's closest vertex
+      // is 4.47 m from the road centreline) and the fence on the ring
+      // overlaps it by up to 0.28 m — the landmark/road overlap rule (#42)
+      // allows 0.05 m². The setback clears it with ~0.2 m to spare.
+      { type: 'box', w: 49.02, d: 0.35, h: 2.5, dx: 79.2, dz: -29.7, rotY: -1.899, flat: 0xd8d4c8 },
+      { type: 'box', w: 60.84, d: 0.35, h: 2.5, dx: 61.5, dz: -81.7, rotY: -1.8988, flat: 0xd8d4c8 },
+      { type: 'box', w: 0.94, d: 0.35, h: 2.5, dx: 51.8, dz: -110.2, rotY: 2.583, flat: 0xd8d4c8 },
+      { type: 'cylinder', r: 0.16, h: 2.1, dx: 38.7, dz: -101.5, flat: 0x6b4f35 },
+      { type: 'dome', rx: 1.98, rz: 1.98, h: 2.1, y0: 1.9, dx: 38.7, dz: -101.5, flat: 0x4a7038 },
+      { type: 'cylinder', r: 0.16, h: 2.1, dx: 19.2, dz: -89.9, flat: 0x6b4f35 },
+      { type: 'dome', rx: 2.35, rz: 2.35, h: 2.5, y0: 1.9, dx: 19.2, dz: -89.9, flat: 0x557c40 },
+      { type: 'cylinder', r: 0.16, h: 2.1, dx: -0.2, dz: -78.2, flat: 0x6b4f35 },
+      { type: 'dome', rx: 2.75, rz: 2.75, h: 2.9, y0: 1.9, dx: -0.2, dz: -78.2, flat: 0x3d6335 },
+      { type: 'cylinder', r: 0.16, h: 2.1, dx: -19.4, dz: -66.6, flat: 0x6b4f35 },
+      { type: 'dome', rx: 2.02, rz: 2.02, h: 2.1, y0: 1.9, dx: -19.4, dz: -66.6, flat: 0x4a7038 },
+      { type: 'cylinder', r: 0.16, h: 2.1, dx: -60.6, dz: -41.5, flat: 0x6b4f35 },
+      { type: 'dome', rx: 2.65, rz: 2.65, h: 2.8, y0: 1.9, dx: -60.6, dz: -41.5, flat: 0x557c40 },
+      { type: 'cylinder', r: 0.16, h: 2.1, dx: -79.7, dz: -29.6, flat: 0x6b4f35 },
+      { type: 'dome', rx: 1.93, rz: 1.93, h: 2, y0: 1.9, dx: -79.7, dz: -29.6, flat: 0x3d6335 },
+      { type: 'cylinder', r: 0.16, h: 2.1, dx: -99, dz: -17.7, flat: 0x6b4f35 },
+      { type: 'dome', rx: 2.13, rz: 2.13, h: 2.2, y0: 1.9, dx: -99, dz: -17.7, flat: 0x4a7038 },
+      { type: 'cylinder', r: 0.16, h: 2.1, dx: -118.5, dz: -5.6, flat: 0x6b4f35 },
+      { type: 'dome', rx: 1.96, rz: 1.96, h: 2.1, y0: 1.9, dx: -118.5, dz: -5.6, flat: 0x557c40 },
+      { type: 'cylinder', r: 0.16, h: 2.1, dx: -138, dz: 6.6, flat: 0x6b4f35 },
+      { type: 'dome', rx: 2.82, rz: 2.82, h: 3, y0: 1.9, dx: -138, dz: 6.6, flat: 0x3d6335 },
+      { type: 'cylinder', r: 0.16, h: 2.1, dx: -141.1, dz: 25.8, flat: 0x6b4f35 },
+      { type: 'dome', rx: 2.4, rz: 2.4, h: 2.5, y0: 1.9, dx: -141.1, dz: 25.8, flat: 0x4a7038 },
+      { type: 'cylinder', r: 0.16, h: 2.1, dx: -128.6, dz: 46.7, flat: 0x6b4f35 },
+      { type: 'dome', rx: 2.39, rz: 2.39, h: 2.5, y0: 1.9, dx: -128.6, dz: 46.7, flat: 0x557c40 },
+      { type: 'cylinder', r: 0.16, h: 2.1, dx: -116.3, dz: 67.6, flat: 0x6b4f35 },
+      { type: 'dome', rx: 2.23, rz: 2.23, h: 2.3, y0: 1.9, dx: -116.3, dz: 67.6, flat: 0x3d6335 },
+      { type: 'cylinder', r: 0.16, h: 2.1, dx: -103.9, dz: 88.5, flat: 0x6b4f35 },
+      { type: 'dome', rx: 2.71, rz: 2.71, h: 2.8, y0: 1.9, dx: -103.9, dz: 88.5, flat: 0x4a7038 },
+      { type: 'cylinder', r: 0.16, h: 2.1, dx: -84.3, dz: 97.7, flat: 0x6b4f35 },
+      { type: 'dome', rx: 2.11, rz: 2.11, h: 2.2, y0: 1.9, dx: -84.3, dz: 97.7, flat: 0x557c40 },
     ],
   },
   {

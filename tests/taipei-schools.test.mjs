@@ -188,3 +188,56 @@ test('generation is deterministic and the plan counts are pinned', () => {
   assert.equal(plan.stats.lotsDroppedSchool, 4267);
   assert.equal(plan.stats.lotsDroppedSchool, 4267);
 });
+
+test('issue #328: the two registry campuses have perimeter fences; Qingjiang track is an oval capsule', () => {
+  const FENCE = 0xd8d4c8, GATE = 0xb9b2a2, GUARD = 0xcfc8b8, TRUNK = 0x6b4f35;
+  const CANOPY = [0x4a7038, 0x557c40, 0x3d6335];
+  const TRACK_RED = 0xa04a30, FIELD_GREEN = 0x4e7d32, COURT_BLUE = 0x3f6d8e;
+  const towers = plan.landmarkTowers || [];
+  const shipai = towers.find((s) => s.id === 'shipai-junior-high');
+  const qingjiang = towers.find((s) => s.id === 'qingjiang-elementary');
+  assert.ok(shipai, 'Shipai Junior High is a registry landmark');
+  assert.ok(qingjiang, 'Qingjiang Elementary is a registry landmark');
+  // Fences: the generator's schoolFenceParts output for each OSM ring,
+  // precomputed (planSchoolCampuses with the registry skip lifted) and
+  // pasted as static parts. Registry campuses are skipped by the
+  // generator, so the fence was missing entirely on both. Counts are
+  // exact — the fence is static data, not generated at boot.
+  const fenceParts = (s) => s.parts.filter((p) => p.flat === FENCE || p.flat === GATE || p.flat === GUARD ||
+    (p.type === 'cylinder' && p.flat === TRUNK) ||
+    (p.type === 'dome' && CANOPY.includes(p.flat)));
+  assert.equal(fenceParts(shipai).length, 45, 'Shipai fence: 14 walls + gate (3) + 28 tree parts');
+  assert.equal(fenceParts(qingjiang).length, 44, 'Qingjiang fence: 12 walls + gate (3) + guard house (1) + 28 tree parts');
+  for (const [s, name, osmId] of [[shipai, '石牌國中', 4630268], [qingjiang, '清江國小', 4793835]]) {
+    const ring = (TAIPEI_GEO.schools || []).find((g) => g.osmId === osmId).ring;
+    const walls = s.parts.filter((p) => p.flat === FENCE);
+    assert.ok(walls.length >= 4, `${name}: perimeter fence present (${walls.length} segments)`);
+    for (const w of walls) {
+      const d = distToRing(ring, s.x + (w.dx || 0), s.z + (w.dz || 0));
+      assert.ok(d < 1, `${name}: fence wall centre on the OSM ring (got ${d.toFixed(2)} m at ${w.dx}, ${w.dz})`);
+    }
+    assert.ok(s.parts.some((p) => p.flat === GATE && p.h === 0.8 && p.y0 === 3.2), `${name}: gate lintel present`);
+  }
+  // Qingjiang track: the 小操場 way (224826678) outlines the basketball
+  // court, not the running track — the #166 build modelled it as two
+  // flat rectangles (rust-red 36x30 over green 31x25). The real track
+  // is the oval capsule below (box + two end cylinders, rust-red;
+  // green infield the same), and the way's rectangle is a blue court slab.
+  const capBox = qingjiang.parts.find((p) => p.type === 'box' && p.flat === TRACK_RED && p.w === 54 && p.d === 44);
+  assert.ok(capBox, 'Qingjiang capsule straight section (54 x 44) present');
+  assert.equal(capBox.dx, -62, 'capsule centre 62 m west of the anchor');
+  assert.equal(capBox.dz, -1, 'capsule centre 1 m north of the anchor');
+  assert.equal(capBox.rotY, -0.55, 'capsule axis -0.55 rad (NE-SW, the campus diagonal)');
+  const capEnds = qingjiang.parts.filter((p) => p.type === 'cylinder' && p.flat === TRACK_RED);
+  assert.equal(capEnds.length, 2, 'capsule has two rust-red end caps (oval, not a rectangle)');
+  const fieldEnds = qingjiang.parts.filter((p) => p.type === 'cylinder' && p.flat === FIELD_GREEN);
+  assert.equal(fieldEnds.length, 2, 'green infield has two end caps');
+  const court = qingjiang.parts.find((p) => p.type === 'box' && p.flat === COURT_BLUE);
+  assert.ok(court, 'basketball court is a blue slab');
+  assert.equal(court.dx, 31.3, 'court at the OSM way footprint');
+  assert.equal(court.dz, -3.3, 'court at the OSM way footprint');
+  assert.ok(Math.abs(court.rotY - (-0.6)) < 0.001, `court rotation corrected to -0.6 (was +0.601), got ${court.rotY}`);
+  // Shipai's track was already an oval capsule — it is untouched.
+  const shipaiCaps = shipai.parts.filter((p) => p.type === 'cylinder' && p.flat === TRACK_RED);
+  assert.equal(shipaiCaps.length, 2, 'Shipai track keeps its two end caps');
+});
