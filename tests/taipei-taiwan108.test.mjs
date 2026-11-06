@@ -40,7 +40,8 @@ test('taiwan108: high-rise residential (12) is banded 40-75 m, outside the cores
   // residential takes F12 609 -> 705 (probe: newer-apartments
   // census; same count in both tests).
   // Issue #278: F12 705 -> 704 (−1 — one F12 lot removed by the VGH site; same count in the newer-apartments test).
-  assert.equal(f12.length, 704, 'high-rise residential planted in the hundreds');
+  // Issue #282: F12 704 -> 712 (+8 — the re-faced lots re-roll their renderer-options families; same count in the newer-apartments test; proven by the facing:false cross-run, F12 exactly 702 on both trees).
+  assert.equal(f12.length, 712, 'high-rise residential planted in the hundreds');
   for (let i = 0; i < opts.lots.length; i++) {
     const l = opts.lots[i];
     if (l.mat !== 12) continue;
@@ -60,7 +61,8 @@ test('taiwan108: strip-tile mid-rise (13) is banded 9-30 m', () => {
   // Re-pinned for issue #258 (south expansion): the south's mid-rise
   // takes F13 4,377 -> 4,863 (same count in the newer-apartments test).
   // Issue #278: F13 4,863 -> 4,852 (−11 — eleven F13 lots removed by the 3 sites; same count in the newer-apartments test).
-  assert.equal(f13.length, 4852, 'strip-tile mid-rise planted in the thousands');
+  // Issue #282: F13 4,852 -> 4,855 (+3 — same re-roll; same count in the newer-apartments test; proven by the facing:false cross-run, F13 exactly 4,860 on both trees).
+  assert.equal(f13.length, 4855, 'strip-tile mid-rise planted in the thousands');
   for (const l of f13) {
     assert.ok(l.h >= STRIP_TILE_MIN_H && l.h < STRIP_TILE_MAX_H,
       `family 13 only on 9-30 m lots (at ${l.h} m)`);
@@ -124,7 +126,8 @@ test('taiwan108: high-rise lots carry roof tanks at the design rate', () => {
   // Re-pinned for issue #258: F12 roof tanks 87 -> 97 (97/705 = 13.8%,
   // still inside the 10–20% band asserted below).
   // Issue #278: F12 roof tanks 97 -> 96 (96/704 = 13.6%, one tank lot removed with its F12 lot).
-  assert.equal(tanks, 96, 'F12 roof tanks planted');
+  // Issue #282: F12 roof tanks 96 -> 99 (99/712 = 13.9%, still inside the 10–20% band — the re-faced F12 lots re-roll their tanks; proven by the facing:false cross-run, tanks exactly 95 on both trees).
+  assert.equal(tanks, 99, 'F12 roof tanks planted');
   assert.ok(tankLots / f12.length > 0.10 && tankLots / f12.length < 0.20,
     `tank share at its ~14% design point (${(tankLots / f12.length).toFixed(3)})`);
 });
