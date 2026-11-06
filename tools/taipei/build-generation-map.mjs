@@ -116,6 +116,47 @@
 //      the renderer draws the descending trench floor + retaining
 //      walls in their place. A bed crossing the corridor mid-bed
 //      stays whole — it bridges the cut. See the v6 block below.
+
+// Rework v7 (issue #326 — Shilin museum road corrections):
+//  13. MUSEUM ROAD RE-ROUTES — the geodata draws straight chords
+//      through the NTSEC ring and the planetarium block; the real
+//      roads curve around the buildings (Esri z18 satellite + the
+//      user's Google 3D screenshots). OSM centreline nodes are
+//      sparse here (2-point ways), so the straight chords are survey
+//      artefacts, not the real roads. The ring must stay a COMPLETE
+//      circle (issue #326) and no landmark footprint may overlap a
+//      roadbed (issue #42), so the roadbeds are re-routed /
+//      truncated here, in the generation map (the render layer) —
+//      the routing layer (roads / roadGraph) is deliberately NOT
+//      affected (see build-taipei-geodata.mjs: routing stays exactly
+//      as extracted). The corrections, by source way id:
+//        士商路 300090398 + 244501974: the diagonal chord SE
+//          (-4731,-6658) -> junction (-4875,-6849) -> NW (-5001,-7015)
+//          cuts through the NTSEC ring. The real 士商路 runs E-W
+//          south of the ring (tile z~-6732) then N-S west of it
+//          (tile x~-5000); both ways are re-routed to meet at the
+//          SW bend (-4998,-6732).
+//        基河路396巷 137324318: the entrance drive genuinely enters
+//          the ring through an opening on the east side and ends at
+//          the atrium, but the ring is complete, so the drive is
+//          truncated at the ring's east wall (r=60 from the ring
+//          centre (-4843,-6875), 3 m clear of the 57 m outer wall).
+//        Unnamed service 1214949357: the SW drive crosses the ring
+//          wall; truncated at the SW wall (r=60).
+//        美崙街 137318242: the straight first segment (-4700,-6883)
+//          -> (-4624,-6946) cuts through the planetarium block and
+//          the dome. The real 美崙街 curves around the block's NW
+//          side; the first segment is re-routed via (-4735,-6915)
+//          and (-4700,-6960), the rest of the way unchanged.
+//      The interior 5 m drive (way 783920042) runs from the ring's
+//      west wall (its first endpoint is at r=53 m, ON the wall) to
+//      the atrium's west edge (r=32 m) — it overlaps two ring
+//      segments by ~58 m2 in total, so the roadbed is DROPPED
+//      entirely (the drive exists only inside/on the ring; the ring
+//      must stay a complete circle, and the drive is a dead-end
+//      service road, so dropping its render ribbon does not affect
+//      connectivity — the routing layer keeps it). See the v7 block
+//      before the stats section.
 //
 // usage: node tools/taipei/build-generation-map.mjs
 import fs from 'node:fs';
@@ -1786,6 +1827,83 @@ const censusAfter110 = connectivityCensus110();
 console.log(`[generation-map] connectivity repair (issue #110): ${readmittedLinks.length} bridge links re-admitted, ${fusionReport.length} bed-end fusions in ${fusionPasses} passes (+${Math.round(fusionAddedLength)} m of connector pavement)`);
 console.log(`[generation-map] connectivity census (issue #110): dangling trunk/trunk_link ends ${censusBefore110.danglingTrunk} -> ${censusAfter110.danglingTrunk}; uncapped collinear same-name gaps ${censusBefore110.uncappedSameName} -> ${censusAfter110.uncappedSameName}`);
 
+// ---- Rework v7 (issue #326): Shilin museum road corrections --------
+// Post-processing on the final roadbed list (after merging,
+// simplification and fusion): replace the centrelines of the five
+// artefact roadbeds listed in the v7 header comment, and drop the
+// one bed that exists only inside the NTSEC ring. Matched by single
+// source way id; the replacement centrelines are in tile metres (the
+// same frame as the emitted centrelines). The net length change is
+// booked into issue326RerouteDeltaM and subtracted in the length
+// identity below (the re-routes add pavement beyond the OSM
+// carriageways, like fusionAddedLength; a dropped bed contributes
+// -oldLen, which keeps the identity balanced because roadbedLength
+// drops by the same amount).
+const ISSUE326_REROUTES = [
+  // 士商路 SE half: chord -> south leg to the SW bend.
+  { way: 300090398, centreline: [[-4731, -6658], [-4998, -6732]] },
+  // 士商路 NW half: chord -> west leg from the SW bend.
+  { way: 244501974, centreline: [[-4998, -6732], [-5000, -7015]] },
+  // 基河路396巷: truncate at the ring's east wall (r=60).
+  { way: 137324318, centreline: [[-4749, -6942], [-4794, -6909]] },
+  // Unnamed SW service drive: truncate at the ring's SW wall (r=60).
+  { way: 1214949357, centreline: [[-4869, -6821], [-4889, -6805], [-4877, -6790]] },
+  // 美崙街: first segment re-routed around the planetarium block's NW
+  // side; the tail of the way (from (-4624,-6946) on) is unchanged.
+  { way: 137318242, centreline: [[-4700, -6883], [-4735, -6915], [-4700, -6960], [-4624, -6946], [-4620, -6952], [-4606, -7078], [-4580, -7084], [-4523, -7073], [-4442, -7068], [-4409, -7071], [-4357, -7090]] },
+];
+// Roadbeds dropped entirely (not re-routed): the bed exists only
+// inside a landmark footprint, so no centreline can clear it.
+const ISSUE326_DROPS = [
+  // Interior 5 m drive: both endpoints inside/on the NTSEC ring wall
+  // (r=53 m and r=32 m from the ring centre); the ring is complete,
+  // so the drive's render ribbon is dropped.
+  { way: 783920042 },
+];
+let issue326RerouteDeltaM = 0;
+const issue326Report = [];
+// The five ways are real OSM ids in the Taipei extract. The synthetic
+// extracts in tests/generation-map.test.mjs contain none of them, so
+// zero matches means "not the Taipei extract" — skip the whole rule.
+// A partial match (some but not all) is a data problem on the real
+// extract and throws, so a deleted/renumbered way cannot silently
+// un-fix the ring (the #42 audit would also catch the overlap).
+const issue326Found = ISSUE326_REROUTES.map((r) => roadbeds.find((b) => b.sourceWayIds && b.sourceWayIds.length === 1 && b.sourceWayIds[0] === r.way));
+const issue326DropFound = ISSUE326_DROPS.map((r) => roadbeds.find((b) => b.sourceWayIds && b.sourceWayIds.length === 1 && b.sourceWayIds[0] === r.way));
+const issue326FoundCount = issue326Found.filter(Boolean).length + issue326DropFound.filter(Boolean).length;
+const issue326Total = ISSUE326_REROUTES.length + ISSUE326_DROPS.length;
+if (issue326FoundCount === 0) {
+  console.log('[generation-map] issue #326 museum re-routes: skipped (none of the six ways in this extract)');
+} else if (issue326FoundCount !== issue326Total) {
+  throw new Error(`[generation-map] issue #326: only ${issue326FoundCount}/${issue326Total} museum ways found (partial match — the extract changed?)`);
+} else {
+  for (let i = 0; i < ISSUE326_REROUTES.length; i++) {
+    const r = ISSUE326_REROUTES[i];
+    const bed = issue326Found[i];
+    const oldLen = flatLength(bed.centreline);
+    bed.centreline = r.centreline.flatMap(([x, z]) => [q(x), q(z)]);
+    const newLen = flatLength(bed.centreline);
+    issue326RerouteDeltaM += newLen - oldLen;
+    issue326Report.push({ way: r.way, name: bed.name || '(unnamed)', oldLenM: Math.round(oldLen * 10) / 10, newLenM: Math.round(newLen * 10) / 10 });
+  }
+  for (let i = 0; i < ISSUE326_DROPS.length; i++) {
+    const bed = issue326DropFound[i];
+    const oldLen = flatLength(bed.centreline);
+    const idx = roadbeds.indexOf(bed);
+    roadbeds.splice(idx, 1);
+    // Do NOT subtract oldLen from roadbedLength here: the
+    // `roadbedLength += issue326RerouteDeltaM` below applies the delta
+    // (which includes -oldLen), so roadbedLength drops by oldLen
+    // exactly once. Subtracting here as well would double-count it
+    // (the identity delta moved by -36.5 m on the first attempt).
+    issue326RerouteDeltaM -= oldLen;
+    issue326Report.push({ way: ISSUE326_DROPS[i].way, name: bed.name || '(unnamed)', oldLenM: Math.round(oldLen * 10) / 10, newLenM: 0, dropped: true });
+  }
+}
+roadbedLength += issue326RerouteDeltaM;
+issue326RerouteDeltaM = Math.round(issue326RerouteDeltaM * 10) / 10;
+console.log(`[generation-map] issue #326 museum re-routes: ${issue326Report.length} beds, net ${issue326RerouteDeltaM >= 0 ? '+' : ''}${issue326RerouteDeltaM} m`);
+
 // ---- stats + output ----------------------------------------------------------
 const stats = {
   carriagewayRuns: segments.length,
@@ -1816,6 +1934,8 @@ const stats = {
   deckBeds: roadbeds.filter((b) => b.deck).length,
   roadbedLength: Math.round(roadbedLength * 10) / 10,
   fusionAddedLength: Math.round(fusionAddedLength * 10) / 10,
+  issue326RerouteDeltaM,
+  issue326Reroutes: issue326Report,
   fusionPasses,
   fusionBeds: fusionReport,
   readmittedLinks,
@@ -1824,8 +1944,8 @@ const stats = {
   overrides: [...overrideMatched.entries()].map(([name, matchedWays]) => ({ name, width: OVERRIDES[name], matchedWays })),
   mergedRoads: mergedReport,
 };
-const identity = stats.roadbedLength + stats.excludedLinkLength + stats.mergedConstituentOverlapLength - stats.mergedLength + stats.droppedScrapLength + stats.suppressedLength + stats.parkServiceExcludedLength + stats.airfieldTunnelLength + stats.approachCutLength + stats.simplificationShorteningM - stats.fusionAddedLength;
-console.log(`[generation-map] length identity: roadbeds ${stats.roadbedLength} + excludedLinks ${stats.excludedLinkLength} + mergedOverlap ${stats.mergedConstituentOverlapLength} - merged ${stats.mergedLength} + scrap ${stats.droppedScrapLength} + suppressed ${stats.suppressedLength} + parkService ${stats.parkServiceExcludedLength} + airfieldTunnel ${stats.airfieldTunnelLength} + approachCut ${stats.approachCutLength} + simplifyShortening ${stats.simplificationShorteningM} - fusion ${stats.fusionAddedLength} = ${identity.toFixed(1)} vs carriageway ${stats.carriagewayLength} (delta ${(identity - stats.carriagewayLength).toFixed(1)} m)`);
+const identity = stats.roadbedLength + stats.excludedLinkLength + stats.mergedConstituentOverlapLength - stats.mergedLength + stats.droppedScrapLength + stats.suppressedLength + stats.parkServiceExcludedLength + stats.airfieldTunnelLength + stats.approachCutLength + stats.simplificationShorteningM - stats.fusionAddedLength - (stats.issue326RerouteDeltaM || 0);
+console.log(`[generation-map] length identity: roadbeds ${stats.roadbedLength} + excludedLinks ${stats.excludedLinkLength} + mergedOverlap ${stats.mergedConstituentOverlapLength} - merged ${stats.mergedLength} + scrap ${stats.droppedScrapLength} + suppressed ${stats.suppressedLength} + parkService ${stats.parkServiceExcludedLength} + airfieldTunnel ${stats.airfieldTunnelLength} + approachCut ${stats.approachCutLength} + simplifyShortening ${stats.simplificationShorteningM} - fusion ${stats.fusionAddedLength} - issue326 ${stats.issue326RerouteDeltaM || 0} = ${identity.toFixed(1)} vs carriageway ${stats.carriagewayLength} (delta ${(identity - stats.carriagewayLength).toFixed(1)} m)`);
 const out = {
   version: 1,
   generatedBy: 'tools/taipei/build-generation-map.mjs',

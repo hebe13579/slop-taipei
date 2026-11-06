@@ -617,44 +617,49 @@ function expoDomeParts() {
 // block + dome. Re-measured from Esri z18 satellite (0.541 m/px)
 // via latLonToTile; the measurement log is in ntsec326-evidence/
 // (measure326.mjs, anchors326.json). The exhibition block is a
-// ~95x65 m rectangle, long axis NW-SE at ~36 deg (rotY -0.62), 4
+// ~85x40 m rectangle, long axis NW-SE at ~36 deg (rotY +0.62), 4
 // storeys (~20 m, estimated). The signature is the 35 m dome
 // (published diameter) on a 4.5 m drum = 22 m total — and it is
 // WHITE (0xf4f1ea), not gold: the user's Google 3D screenshots show
 // it white in both views (the Esri imagery is stale — the dome
 // still shows yellow/gold there). A small white observatory dome
-// (~10 m) sits beside it. The whole group is shifted ~6 m SE along
-// the block's long axis from the satellite-measured centre: the
-// geodata's 美崙街 roadbed passes 24 m from the measured centre and
-// the 17.5 m dome + 3.2 m ribbon would overlap it by ~6 m, so the
-// group sits 6 m SE (inside the ~5 m measurement scatter plus a
-// 1 m margin) to clear the roadbed (issue #42 audit). The site's
-// drape is 2.57-3.13 m (group lift ~2.62 m at the anchor), so the
-// block carries no skirt — the drape lift puts the group base at
-// the local ground, and the block's south edge stays seated.
+// (~10 m) sits beside it. The 85x40 size is the satellite fit: the
+// block's measured diagonal is ~93 m, which matches an 85x40
+// rectangle (94 m), not the 95x65 first estimate (115 m — that
+// double-counted the forecourt). The whole group is shifted ~10 m
+// SE (dx+8, dz+6) from the satellite-measured centre: the Jihe Rd
+// / Meilun St junction sits only ~2 m from the block's NW edge at
+// the measured spot, and a 12.8 m roadbed there clips the block
+// unless the group sits ~10 m SE (issue #42 audit; the shift is
+// inside the ~5 m measurement scatter plus the junction's own
+// placement uncertainty). The site's drape is 2.57-3.13 m (group
+// lift ~2.62 m at the anchor), so the block carries no skirt — the
+// drape lift puts the group base at the local ground, and the
+// block's south edge stays seated.
 function planetariumParts() {
   const parts = [];
-  // Exhibition block: 95x65 m, 4 storeys (~20 m, estimated), long
-  // axis NW-SE (rotY -0.62). Shifted ~6 m SE (dx+5, dz+3.5) to clear
-  // 美崙街 (see the header comment). Uses the structure facade
-  // (prewar windows) — no flat override, so it reads as a museum
-  // block with windows, not a blank white box.
-  parts.push({ type: 'box', w: 95, d: 65, h: 20, dx: 5, dz: 3.5, rotY: -0.62 });
+  // Exhibition block: 85x40 m, 4 storeys (~20 m, estimated), long
+  // axis NW-SE (rotY +0.62). Shifted ~10 m SE (dx+8, dz+6) to clear
+  // the Jihe Rd / Meilun St junction (see the header comment). Uses
+  // the structure facade (prewar windows) — no flat override, so it
+  // reads as a museum block with windows, not a blank white box.
+  parts.push({ type: 'box', w: 85, d: 40, h: 20, dx: 8, dz: 6, rotY: 0.62 });
   // Big dome: 35 m sphere (published) on a 4.5 m drum. Top 4.5 +
   // 17.5 = 22 m. WHITE (the user's screenshots govern; Esri is
-  // stale). Positioned relative to the shifted block centre
-  // (dx-9, dz-35.5 = measured dx-14, dz-39 plus the +5/+3.5 shift).
-  // The drum is r=17, a plinth the sphere overhangs.
-  parts.push({ type: 'cylinder', r: 17, h: 4.5, dx: -9, dz: -35.5, flat: 0xf4f1ea });
+  // stale). The domes move with the block (whole building shifts as
+  // a unit): dx-6, dz-33 = measured dx-14, dz-39 from the block
+  // centre plus the +8/+6 shift. The drum is r=17, a plinth the
+  // sphere overhangs.
+  parts.push({ type: 'cylinder', r: 17, h: 4.5, dx: -6, dz: -33, flat: 0xf4f1ea });
   parts.push({
-    type: 'dome', rx: 17.5, rz: 17.5, h: 17.5, y0: 4.5, dx: -9, dz: -35.5,
+    type: 'dome', rx: 17.5, rz: 17.5, h: 17.5, y0: 4.5, dx: -6, dz: -33,
     flat: { color: 0xf4f1ea, roughness: 0.6, metalness: 0.05 },
   });
   // Small white observatory dome beside the big dome (measured
-  // dx+3, dz-25 from the true block centre, plus the +5/+3.5 shift).
-  parts.push({ type: 'cylinder', r: 5, h: 3, dx: 8, dz: -21.5, flat: 0xf4f1ea });
+  // dx+3, dz-21 from the true block centre, plus the +8/+6 shift).
+  parts.push({ type: 'cylinder', r: 5, h: 3, dx: 11, dz: -15, flat: 0xf4f1ea });
   parts.push({
-    type: 'dome', rx: 5, rz: 5, h: 5, y0: 3, dx: 8, dz: -21.5,
+    type: 'dome', rx: 5, rz: 5, h: 5, y0: 3, dx: 11, dz: -15,
     flat: { color: 0xf4f1ea, roughness: 0.6, metalness: 0.05 },
   });
   return parts;
@@ -707,11 +712,11 @@ function ntsecParts() {
   }
   // Long bar/slab across the ring (E-W, slightly south of centre).
   // ~149 m long, ~15 m wide, ~14 m tall (estimated), tilted ~6 deg
-  // (east end south, rotY -0.09). It passes through the ring wall
+  // (east end south, rotY +0.09). It passes through the ring wall
   // on both sides (the real slab extends ~20 m beyond the ring) —
   // the bar and the ring intersect, which is real (the slab is
   // attached to / passes through the ring).
-  parts.push({ type: 'box', w: 149, d: 15, h: 14, dx: 1, dz: 25, rotY: -0.09, flat: 0xe8e4da });
+  parts.push({ type: 'box', w: 149, d: 15, h: 14, dx: 1, dz: 25, rotY: 0.09, flat: 0xe8e4da });
   // Glass atrium block in the centre (~49x49 m, ~14 m tall,
   // estimated), ~15 m NORTH of the ring centre (dx+3, dz-15). NOT
   // south-east as #278 placed it — the satellite puts it north.
@@ -3423,7 +3428,7 @@ const LANDMARK_STRUCTURES = [
     // the dome).
     id: 'taipei-astronomical-museum', name: 'Taipei Astronomical Museum', nameZh: '台北天文館',
     lat: 25.09517, lon: 121.51884, realHeight: 22, estimated: true, color: 0xe8e4da,
-    site: { w: 140, d: 130, dx: 0, dz: -10 },
+    site: { w: 100, d: 110, dx: 8, dz: 0 },
     facade: { kind: 'prewar', stoneColor: 0xe8e4da, trimColor: 0x8a929a, windowGlassColor: 0x2e4a5a, windowWidth: 4, floorHeight: 4, litProbability: 0.15, warmth: 0.5, seed: 57.47 },
     sign: { glyphs: 3, w: 18, h: 3, y: 16, dx: 44, dz: 31, rotY: 0.96, bg: '#3a3f45', fg: '#d21f1f' },
     parts: planetariumParts(),
