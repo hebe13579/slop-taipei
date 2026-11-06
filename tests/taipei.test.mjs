@@ -1798,7 +1798,8 @@ test('rooftop AC census on the real plan: one roof in three keeps AC', (t) => {
   // 5,891, kept 20,993 -> 20,973 and dropped 41,653 -> 41,618.
   // Issue #110: kept AC lots 20,973 -> 20,937 (-36) — the re-seated lots re-roll the rooftop-AC selection (random subset of roofs).
   // Issue #278: kept AC lots 23,270 -> 23,228 (-42) — the 3 registry sites exclude 158 lots net; of the removed lots 42 kept AC (20 hut, 97 dropped — lot-by-lot diff on this tree); the 1 added re-seat is dropped, and 1 lot flips hut -> dropped on the field re-seat at (-4345,-6853).
-  assert.equal(kept, 23228, 'kept AC lots on this tree');
+  // Issue #326: kept AC lots 23,228 -> 23,247 (+19) — the re-site's re-seated lots re-roll the rooftop-AC selection (random subset of roofs).
+  assert.equal(kept, 23247, 'kept AC lots on this tree');
   // Issue #110: dropped AC lots 41,618 -> 41,640 (+22) — the re-seated lots re-roll the rooftop-AC selection (the kept + dropped deltas are the same re-roll: kept -36, dropped +22, net -14 AC lots).
   // Issue #278: dropped AC lots 46,537 -> 46,442 (-95) — 97 dropped lots removed, +1 added re-seat (dropped), +1 flipped in from hut at (-4345,-6853) — lot-by-lot diff on this tree.
   assert.equal(dropped, 46442, 'dropped AC lots on this tree');
