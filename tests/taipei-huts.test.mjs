@@ -98,7 +98,9 @@ test('hut census on the real plan: selection unchanged, garnish at census', (t) 
   // re-seat — lot-by-lot diff on this tree); the garnish moves with
   // the selection (gable 2,292 -> 2,286, patches 5,647 -> 5,624,
   // bumps 1,560 -> 1,553, measured on this tree).
-  assert.equal(hutLots, 6539, 'hut selection is the pre-#208 census');
+  // Issue #326: hut 6,539 -> 6,538 (−1 — one hut lot removed by the
+  // re-site; measured on this tree).
+  assert.equal(hutLots, 6538, 'hut selection is the pre-#208 census');
   // Issue #216: the facing pass moves lots, and the garnish rolls
   // are seeded from lot position — 2 gable draws, 14 patch draws
   // and 10 bump draws flip, while the selection (5,892 hut lots)
@@ -107,13 +109,16 @@ test('hut census on the real plan: selection unchanged, garnish at census', (t) 
   // (facing216b-evidence/proof-huts-off.mjs).
   // Issue #110: gable census 2,054 -> 2,058 — 4 more gable-roof lots (the re-seated lots re-roll the gable selection, same +4 as the hut census).
   // Issue #278: gable 2,292 -> 2,286 (−6, measured on this tree — the garnish moves with the hut selection).
-  assert.equal(gable, 2286, 'gable census');
+  // Issue #326: gable 2,286 -> 2,288 (+2, measured on this tree — the re-seated lots re-roll the gable selection).
+  assert.equal(gable, 2288, 'gable census');
   // Issue #110: patch census 5,135 -> 5,121 (-14) — the re-seated lots re-roll the roof-patch selection.
   // Issue #278: patches 5,647 -> 5,624 (−23, measured on this tree).
-  assert.equal(patches, 5624, 'patch census');
+  // Issue #326: patches 5,624 -> 5,627 (+3, measured on this tree — the re-seated lots re-roll the roof-patch selection).
+  assert.equal(patches, 5627, 'patch census');
   // Issue #110: bump census 1,380 -> 1,381 (+1) — the re-seated lots re-roll the roof-bump selection.
   // Issue #278: bumps 1,560 -> 1,553 (−7, measured on this tree).
-  assert.equal(bumps, 1553, 'bump census');
+  // Issue #326: bumps 1,553 -> 1,555 (+2, measured on this tree — the re-seated lots re-roll the roof-bump selection).
+  assert.equal(bumps, 1555, 'bump census');
 });
 
 test('renderer palette mirrors the planner palette', () => {

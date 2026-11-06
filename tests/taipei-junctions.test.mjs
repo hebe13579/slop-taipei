@@ -215,7 +215,8 @@ test('real tile: exactly one cap per grounded multi-arm junction, centres and ar
   // the shortened stubs).
   // Issue #110: one fewer junction — the fused bed ends merge two junctions.
   // Issue #258: junctions 2,870 -> 3,479 (+609) — the south expansion's street junctions.
-  assert.equal(junctions.length, 3479, `junctions ${junctions.length}`); // merged-tree re-pin at the #186 gate: 2,699 on main, 2,873 pinned by #186 on its stale base, 2,871 measured on the merged tree
+  // Issue #326: junctions 3,479 -> 3,478 (−1) — generation-map Rework v7 drops the unnamed interior drive (way 783920042), removing its junction; the 士商路 re-route moves its junction to the SW bend (a move, not a removal).
+  assert.equal(junctions.length, 3478, `junctions ${junctions.length}`); // merged-tree re-pin at the #186 gate: 2,699 on main, 2,873 pinned by #186 on its stale base, 2,871 measured on the merged tree
   // Issue #110: caps 2,793 -> 2,792 — the fused bed ends merge two junctions, so one fewer cap.
   // Issue #258: caps 2,792 -> 3,375 (+583) — the south expansion's junctions, less the 26 the loop/roundabout rules claim (3,479 − 7 roundabout-claimed − 97 ORPHAN phantoms = 3,375).
   assert.equal(caps.length, 3375, `caps ${caps.length}`); // merged-tree re-pin at the #186 gate: 2,621 main / 2,795 #186-stale-base / 2,793 merged
@@ -459,7 +460,10 @@ test('real tile: no painted band, median strip or dash quad centre inside a cap'
   // bands 1,647 -> 1,825 — the occluder set grows with the 583 new
   // caps, so more south painted bands fall inside a cap; the clipped
   // builders still put exactly 0 there (asserted above).
-  assert.equal(unclipped.band.filter(inOcc).length, 1825,
+  // Issue #326: unclipped bands 1,825 -> 1,826 (+1) — the re-routed
+  // 士商路 and the dropped drive reshape the junction caps, so one more
+  // painted band falls inside a cap; measured on this tree.
+  assert.equal(unclipped.band.filter(inOcc).length, 1826,
     `unclipped bands inside occluders: ${unclipped.band.filter(inOcc).length}`);
   // Issue #110: unclipped edges 3,262 -> 3,245 — the fused beds reshape the junction caps (same delta class as the unclipped bands, 1,656 -> 1,647).
   // Census re-pinned for issue #258 (south expansion): unclipped
@@ -954,7 +958,10 @@ test('issue #145: every minor junction box is covered by its overlap cap', () =>
   // Census re-pinned for issue #258 (south expansion): 2,256 ->
   // 2,745 minors — the south's residential/service grid joins;
   // every one still passes (a)-(c) above.
-  assert.equal(minor, 2745, `minor junctions audited ${minor}`);
+  // Issue #326: minors 2,745 -> 2,744 (−1) — the dropped interior
+  // drive (way 783920042) removes one minor junction; measured on
+  // this tree.
+  assert.equal(minor, 2744, `minor junctions audited ${minor}`);
 });
 
 test('issue #163: short fitted arms extend to the box edge — strips, never tongues', () => {
