@@ -279,7 +279,8 @@ test('ground network unchanged: beds, junctions and caps exactly as before decks
   const junctions = detectJunctions(carriageways);
     // Issue #110: junctions 2,871 -> 2,870 — the fused bed ends merge two junctions (same delta as the junctions test).
     // Issue #258: junctions 2,870 -> 3,479 (+609) — the south expansion's street junctions (Gongguan/Guting grid + the NTU/Shida campus approaches).
-  assert.equal(junctions.length, 3479, 'ground junction detection on the merged tree (2,699 main + 172 in the #186 strip; re-pinned at the #186 gate)');
+    // Issue #326: junctions 3,479 -> 3,478 (−1) — generation-map Rework v7 drops the unnamed interior drive (way 783920042), removing its junction; same count as the junctions test.
+  assert.equal(junctions.length, 3478, 'ground junction detection on the merged tree (2,699 main + 172 in the #186 strip; re-pinned at the #186 gate)');
   const caps = planJunctionCaps(carriageways, junctions);
   // Gate re-pin (PR #78 onto post-#77 main): caps = junctions minus the 7
   // junctions claimed by #77's handcrafted roundabout sites (Renai 4 +
