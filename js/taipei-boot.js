@@ -508,7 +508,8 @@ function drapedRibbonsGeometry(roads, y, jointFrames = null) {
 // buildAdaptiveDrapeGround, pure) returns the pale block surface
 // (DEM + 0.02, gentle ground) and the vertex-coloured terrain
 // surface (DEM - 0.02, steep ground) as non-indexed triangle
-// positions; this wraps them in meshes. The block mesh is named
+// positions with per-vertex colours and smooth DEM-gradient
+// normals; this wraps them in meshes. The block mesh is named
 // TaipeiBlocks and is MERGED with the flat block layer outside the
 // footprint by the caller (addBlockLayer), so there is exactly one
 // TaipeiBlocks mesh. The terrain meshes keep the old patch names
@@ -534,8 +535,14 @@ function buildAdaptiveDrapeGroundMeshes(geo) {
     const bgeo = new THREE.BufferGeometry();
     bgeo.setAttribute('position', new THREE.BufferAttribute(p.positions, 3));
     bgeo.setAttribute('color', new THREE.BufferAttribute(p.colors, 3));
-    bgeo.computeVertexNormals();
-    const mesh = new THREE.Mesh(bgeo, new THREE.MeshStandardNodeMaterial({ vertexColors: true, roughness: 1.0, metalness: 0.0, flatShading: true }));
+    // Smooth normals from the DEM gradient (issue #297): the
+    // builder emits one per vertex, a pure function of (x, z), so
+    // the two triangles sharing an edge agree exactly and the
+    // shading is continuous. computeVertexNormals on this
+    // non-indexed mesh gives face normals instead, and flatShading
+    // lights every triangle as a facet — the triangle patchwork.
+    bgeo.setAttribute('normal', new THREE.BufferAttribute(p.normals, 3));
+    const mesh = new THREE.Mesh(bgeo, new THREE.MeshStandardNodeMaterial({ vertexColors: true, roughness: 1.0, metalness: 0.0 }));
     mesh.name = `TaipeiDrapeTerrain-${p.name}`;
     mesh.receiveShadow = true;
     meshes.push(mesh);

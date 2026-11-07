@@ -142,7 +142,7 @@ test('geometry: counts, upward faces, fades, Guandu flat in the mesh', () => {
   assert.equal(g.triCount, expectTris);
   assert.equal(g.positions.length, expectTris * 9);
   for (let i = 0; i < g.positions.length; i++) assert.ok(Number.isFinite(g.positions[i]), 'finite positions');
-  for (let i = 1; i < g.normals.length; i += 3) assert.ok(g.normals[i] > 0, 'every face normal points up');
+  for (let i = 1; i < g.normals.length; i += 3) assert.ok(g.normals[i] > 0, 'every normal points up');
   for (let i = 0; i < g.colors.length; i++) assert.ok(g.colors[i] >= 0 && g.colors[i] <= 1, 'colours in range');
   // South edges fade to the sink level; the north massif does not fade.
   const southY = [], northY = [];
@@ -162,6 +162,39 @@ test('geometry: counts, upward faces, fades, Guandu flat in the mesh', () => {
     if (x >= gx0 && x <= gx1 && z >= gz0 && z <= gz1) { cnt++; if (y > max) max = y; }
   }
   assert.ok(cnt > 1000 && max <= 0.2, `Guandu mesh max ${max.toFixed(2)} m over ${cnt} verts`);
+});
+
+test('geometry: skin normals are smooth across shared postings (issue #297)', () => {
+  const g = buildTerrainSkinGeometry(T);
+  // Unit length, pointing up.
+  for (let i = 0; i < g.normals.length; i += 3) {
+    const len = Math.hypot(g.normals[i], g.normals[i + 1], g.normals[i + 2]);
+    assert.ok(Math.abs(len - 1) < 1e-5, `normal ${i / 3} not unit (${len})`);
+    assert.ok(g.normals[i + 1] > 0, `normal ${i / 3} does not point up`);
+  }
+  // Shared-posting agreement, exact, within each grid's slice of the
+  // soup (the soup is emitted grid by grid, in g.grids order): the
+  // same posting must give the same normal in every triangle that
+  // uses it, so the shading is continuous across posting cells.
+  // Per-face normals made the whole massif read as flat triangles.
+  let triOff = 0, checked = 0, worst = 0;
+  for (const gr of g.grids) {
+    const byPos = new Map();
+    for (let t = 0; t < gr.triCount; t++) {
+      for (let v = 0; v < 3; v++) {
+        const i = (triOff + t) * 9 + v * 3;
+        const k = `${g.positions[i].toFixed(2)},${g.positions[i + 1].toFixed(2)},${g.positions[i + 2].toFixed(2)}`;
+        const n = [g.normals[i], g.normals[i + 1], g.normals[i + 2]];
+        if (!byPos.has(k)) { byPos.set(k, n); continue; }
+        const prev = byPos.get(k);
+        worst = Math.max(worst, Math.hypot(n[0] - prev[0], n[1] - prev[1], n[2] - prev[2]));
+        checked++;
+      }
+    }
+    triOff += gr.triCount;
+  }
+  assert.ok(checked > 1000, `shared-posting normal pairs ${checked}`);
+  assert.equal(worst, 0, `worst shared-posting normal difference ${worst}`);
 });
 
 test('palette: hill colours are deep forest green, not the prototype mint', () => {
