@@ -33,7 +33,9 @@ test('underpass census: 6 links descend, decks and ground unchanged (issue #279)
   // is broken (underpassInvalidEdges 0: the trench function is
   // analytic, so a broken profile would mean the match failed).
   // The deck census is byte-identical to #254 and the ground
-  // census to #252.
+  // census to #252 (re-pinned for #284: five two-way level-2 spans
+  // return — drivable 27,737 -> 27,742, links 13,233 -> 13,237,
+  // keptKm 1,311.2 -> 1,311.7, droppedLevelEdges 1,430 -> 1,425).
   assert.equal(live.stats.underpassMode, true);
   assert.equal(live.stats.underpassLinks, 6);
   assert.equal(live.stats.underpassKm, 1.3);
@@ -48,10 +50,10 @@ test('underpass census: 6 links descend, decks and ground unchanged (issue #279)
   assert.equal(deck.stats.deckLinks, 372);
   assert.equal(ground.stats.underpassMode, false);
   assert.equal(ground.stats.underpassLinks, 0);
-  assert.equal(ground.stats.drivableEdges, 27737);
-  assert.equal(ground.stats.links, 13233);
-  assert.equal(ground.stats.keptKm, 1311.2);
-  assert.equal(ground.stats.droppedLevelEdges, 1430);
+  assert.equal(ground.stats.drivableEdges, 27742);
+  assert.equal(ground.stats.links, 13237);
+  assert.equal(ground.stats.keptKm, 1311.7);
+  assert.equal(ground.stats.droppedLevelEdges, 1425);
 });
 
 test('profiles: the 復北地下道 descends to the trench floor (issue #279)', () => {

@@ -50,12 +50,17 @@ test('deck census: profiles ride the graph, ground pins unchanged (issue #254)',
   // 11,942 -> 13,233 (+1,291), keptKm 1,161.0 -> 1,311.2 (+150.2),
   // droppedLevelEdges 1,183 -> 1,430 (+247, the south decks),
   // keptLevelEdges 518 -> 659 (+141, the south level ±1 crossings).
+  // Issue #284: five two-way level-2 spans return to the ground
+  // graph (the 台北大橋 main span + four dead-end stubs) — drivable
+  // 27,737 -> 27,742, links 13,233 -> 13,237, keptKm 1,311.2 ->
+  // 1,311.7, droppedLevelEdges 1,430 -> 1,425, keptLevelEdges
+  // 659 -> 664. The deck graph is untouched by #284.
   assert.equal(ground.stats.deckMode, false);
-  assert.equal(ground.stats.drivableEdges, 27737);
-  assert.equal(ground.stats.links, 13233);
-  assert.equal(ground.stats.keptKm, 1311.2);
-  assert.equal(ground.stats.droppedLevelEdges, 1430);
-  assert.equal(ground.stats.keptLevelEdges, 659);
+  assert.equal(ground.stats.drivableEdges, 27742);
+  assert.equal(ground.stats.links, 13237);
+  assert.equal(ground.stats.keptKm, 1311.7);
+  assert.equal(ground.stats.droppedLevelEdges, 1425);
+  assert.equal(ground.stats.keptLevelEdges, 664);
   assert.equal(ground.stats.deckLinks, 0);
 });
 
@@ -246,12 +251,15 @@ test('ground core: the #252 network is unchanged (issue #254)', () => {
   // core grows with the south streets — nodes 6,890 -> 7,563,
   // edges 15,229 -> 16,676, paintEdges 20,984 -> 22,988. The
   // ground edges still carry no heights (asserted below).
+  // Re-pinned for issue #284: the 台北大橋 span rejoins the 810-node
+  // Sanchong / 環河北路二段 component — nodes 7,563 -> 7,832,
+  // edges 16,676 -> 17,342, paintEdges 22,988 -> 22,991.
   const env = taipeiTrafficEnv(200);
   const g = buildTaipeiRoadGraph(TAIPEI_GEO);
   const net = buildRoadNetwork([], [], { ...env.networkEnv, roadGraph: g.roadGraph });
-  assert.equal(net.nodes.length, 7563);
-  assert.equal(net.edges.length, 16676);
-  assert.equal(net.paintEdges.length, 22988);
+  assert.equal(net.nodes.length, 7832);
+  assert.equal(net.edges.length, 17342);
+  assert.equal(net.paintEdges.length, 22991);
   for (const e of net.edges) {
     assert.equal(e.y0 || 0, 0, 'ground edges carry no heights');
     assert.equal(e.y1 || 0, 0, 'ground edges carry no heights');
@@ -275,12 +283,17 @@ test('pocket: the NW Huanhe pocket rejoins the core, both directions, deck at he
   // are straight chords), 51 northbound + 63 southbound
   // ground-loop edges through the pocket box, 15 deck edges >= 5 m
   // within 300 m of the 重陽橋 east landing, 1 approach edge
-  // climbing > 3 m in the 三段 box. The ground network on the same
-  // tree covers 22/141 with 0 northbound / 1 southbound loop edge
-  // — the pocket stays stranded there, which is #274's separate
-  // height-independent defect, not this test's. Floors below are
-  // the census baselines, not the measured values, so the test
-  // fails only if the pocket actually strands again.
+  // climbing > 3 m in the 三段 box. Issue #284 fixed the ground
+  // network on the same tree (the 台北大橋 two-way level-2 span
+  // rejoins the pocket's ground component): the ground network now
+  // covers 66/141 with 49 northbound / 62 southbound loop edges
+  // (huanhe284-evidence/measure284-after.log) — the remaining
+  // uncovered nodes sit on the elevated bridge deck and ramps
+  // (no ground road there; deck mode's job) or on one-way stubs
+  // that dead-end at the bridge approaches (the no-dead-end rule's
+  // job). Floors below are the census baselines, not the measured
+  // values, so the test fails only if the pocket actually strands
+  // again.
   const rg = TAIPEI_GEO.roadGraph;
   const gNodes = rg.nodes;
   const pocket = new Set();
@@ -328,6 +341,65 @@ test('pocket: the NW Huanhe pocket rejoins the core, both directions, deck at he
   assert.ok(north >= 10 && south >= 10, `bend loop drives both directions: north ${north}, south ${south}`);
   assert.ok(landingDeck >= 5, `bridge deck at height by the east landing: ${landingDeck} edges`);
   assert.ok(approach >= 1, '三段 approach climbs onto the deck');
+});
+
+test('pocket: the NW Huanhe pocket rejoins the core in the GROUND network too (issue #284)', () => {
+  // The deck test above proves the pocket in deck mode; this one proves
+  // it in the DEFAULT ground-only mode. Before #284 the ground network
+  // covered 22/141 with 0 northbound / 1 southbound loop edge: the
+  // 台北大橋 main span (primary, level 2, two-way, 215 m) was dropped
+  // by the |level| >= 2 rule, stranding the 810-node Sanchong /
+  // 環河北路二段 component behind it — its only connection to the main
+  // network in either direction. The fix keeps two-way level-2 spans
+  // (single-carriageway bridge spans, not divided expressway decks):
+  // measured on this tree (huanhe284-evidence/measure284-after.log)
+  // the ground network now covers 66/141 with 49 northbound / 62
+  // southbound loop edges. The uncovered remainder sits on the elevated
+  // bridge deck and ramps (deck mode's job) or on one-way stubs that
+  // dead-end at the bridge approaches (the no-dead-end rule's job).
+  // Floors below are baselines, not the measured values, so the test
+  // fails only if the pocket strands again.
+  const rg = TAIPEI_GEO.roadGraph;
+  const gNodes = rg.nodes;
+  const pocket = new Set();
+  for (const e of rg.edges) {
+    const n = e.name || '';
+    if (!n.includes('環河北') && !n.includes('重陽')) continue;
+    if (gNodes[e.a * 2] < -6200 || gNodes[e.b * 2] < -6200) { pocket.add(e.a); pocket.add(e.b); }
+  }
+  assert.equal(pocket.size, 141, 'pocket node set matches the census definition');
+  const env = taipeiTrafficEnv(200);
+  const g = buildTaipeiRoadGraph(TAIPEI_GEO);
+  const net = buildRoadNetwork([], [], { ...env.networkEnv, roadGraph: g.roadGraph });
+  const distToSeg = (px, pz, ax, az, bx, bz) => {
+    const dx = bx - ax, dz = bz - az;
+    const L2 = dx * dx + dz * dz;
+    let t = L2 ? ((px - ax) * dx + (pz - az) * dz) / L2 : 0;
+    t = Math.max(0, Math.min(1, t));
+    return Math.hypot(px - (ax + t * dx), pz - (az + t * dz));
+  };
+  let covered = 0;
+  for (const i of pocket) {
+    const x = gNodes[i * 2], z = gNodes[i * 2 + 1];
+    let best = Infinity;
+    for (const e of net.edges) {
+      const d = distToSeg(x, z, e.sx, e.sz, e.sx + e.dx * e.len, e.sz + e.dz * e.len);
+      if (d < best) best = d;
+      if (best <= 20) break;
+    }
+    if (best <= 20) covered++;
+  }
+  assert.ok(covered >= 60, `ground pocket rejoins the core: ${covered}/141 covered, baseline 60`);
+  let north = 0, south = 0;
+  for (const e of net.edges) {
+    const mx = e.sx + e.dx * e.len / 2, mz = e.sz + e.dz * e.len / 2;
+    const hi = Math.max(e.y0 || 0, e.y1 || 0);
+    if (mx < -6200 && mz >= -6170 && mz <= -4580 && hi <= 0.5 && Math.abs(e.dz) > Math.abs(e.dx)) {
+      if (e.dz < 0) north++;
+      else south++;
+    }
+  }
+  assert.ok(north >= 40 && south >= 50, `ground bend loop drives both directions: north ${north}, south ${south}`);
 });
 
 test('synthetic: ramp joins levels, false joins do not, unplaced decks drop (issue #254)', () => {  // A ground street (nodes 0-1-2), an on-ramp (1-4, digest 0 ->

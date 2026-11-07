@@ -452,6 +452,23 @@ export function buildTaipeiRoadGraph(source = TAIPEI_GEO, opts = {}) {
   // to the span, documented here — and are removed by the height-aware
   // deck work in issue #254. Dropped edges stay in the geodata (with
   // their level) for that work.
+  // Issue #284: one exception to the |level| >= 2 drop — a two-way
+  // level-2 span. Divided expressway decks are one-way pairs; a
+  // two-way level-2 way is a single-carriageway bridge span, the same
+  // kind of crossing as the kept level-1 bridges, and the L1/L2 split
+  // is OSM layer tagging (the main span sits higher than its
+  // approaches), not a difference in kind. Dropping the 台北大橋 main
+  // span (primary, level 2, 215 m, digest 10–12 m) stranded a whole
+  // 810-node component — the Sanchong street grid plus 環河北路二段 /
+  // 環河南路 — behind it: it was that component's ONLY connection to
+  // the main network in either direction (measured in
+  // huanhe284-evidence/measure284c.mjs; 84 stranded SCCs on this tree,
+  // and this is the only one whose cut to the main is a single edge).
+  // Exactly five such edges exist on this tree (台北大橋, 永福橋 x2,
+  // 天母西路, 磺溪橋); the other four are dead-end stubs the network's
+  // largest-SCC cut removes again, so only the 台北大橋 span changes
+  // the network. The span drives flat at y=0 like the level-1 spans
+  // of the same bridge — under the rendered deck, across the river.
   // Issue #254: in deck mode the rule above is replaced — ramps and
   // decks return, and the only drop is a level >= 2 edge the digest
   // cannot place at all (it would drive flat under its own deck).
@@ -478,7 +495,7 @@ export function buildTaipeiRoadGraph(source = TAIPEI_GEO, opts = {}) {
         droppedLevelKm += e.length || 0;
         continue;
       }
-    } else if (lv !== 0 && (e.highway.endsWith('_link') || Math.abs(lv) >= 2)) {
+    } else if (lv !== 0 && (e.highway.endsWith('_link') || Math.abs(lv) >= 2) && !(Math.abs(lv) === 2 && !e.oneway && !e.highway.endsWith('_link'))) {
       droppedLevelEdges++;
       droppedLevelKm += e.length || 0;
       continue;
