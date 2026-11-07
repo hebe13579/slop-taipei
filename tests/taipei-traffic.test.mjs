@@ -42,16 +42,25 @@ test('chained graph: segment census pins (issue #210, #252)', () => {
   // decks and Wenhu guideway south) and 659 kept level ±1
   // crossings (+141). loopSplits holds at 2: the new south fabric
   // adds no closed ring that needs a split.
+  // Re-pinned for issue #284 (two-way level-2 spans stay): five
+  // edges return — the 台北大橋 main span (215 m) plus four dead-end
+  // stubs （永福橋 x2, 天母西路， 磺溪橋） — drivable 27,737 -> 27,742,
+  // links 13,233 -> 13,237 (one stub chains), kept 1,311.2 -> 1,311.7,
+  // dropped 1,430 -> 1,425, kept level 659 -> 664. loopSplits 2 -> 1:
+  // the re-admitted span changes the junction degrees on a ring the
+  // chaining previously split. The span rejoins the 810-node Sanchong
+  // / 環河北路二段 component to the main network (see the pocket test
+  // in tests/taipei-deck-traffic.test.mjs).
   assert.equal(stats.sourceEdges, 55515);
-  assert.equal(stats.drivableEdges, 27737);
-  assert.equal(stats.links, 13233);
-  assert.equal(stats.loopSplits, 2);
+  assert.equal(stats.drivableEdges, 27742);
+  assert.equal(stats.links, 13237);
+  assert.equal(stats.loopSplits, 1);
   assert.equal(stats.rawKm, 2337.1);
-  assert.equal(stats.keptKm, 1311.2);
-  assert.equal(stats.droppedLevelEdges, 1430);
-  assert.equal(stats.droppedLevelKm, 111.9);
-  assert.equal(stats.keptLevelEdges, 659);
-  assert.equal(stats.keptLevelKm, 57.0);
+  assert.equal(stats.keptKm, 1311.7);
+  assert.equal(stats.droppedLevelEdges, 1425);
+  assert.equal(stats.droppedLevelKm, 111.4);
+  assert.equal(stats.keptLevelEdges, 664);
+  assert.equal(stats.keptLevelKm, 57.5);
 });
 
 test('level rule: deck and ramp segments drop, bridge/tunnel crossings stay (issue #252)', () => {
@@ -59,6 +68,10 @@ test('level rule: deck and ramp segments drop, bridge/tunnel crossings stay (iss
   // a level-1 ramp B-D, and a level-1 bridge A-B carrying a second name.
   // The deck and the ramp must leave the graph; the bridge must stay and
   // chain with nothing (different name from the street).
+  // Issue #284: a two-way level-2 span C-D (a single-carriageway bridge
+  // span, unlike the one-way deck chord) must ALSO stay — it is the same
+  // kind of crossing as the level-1 bridge, and dropping it would strand
+  // the component behind it.
   const nodes = [0, 0, 100, 0, 200, 0, 100, 100];
   const edge = (a, b, name, highway, level, oneway = false) => ({
     a, b, name, highway, oneway, width: 8, pedestrianLayout: 'sidewalk', length: 100, level,
@@ -72,16 +85,18 @@ test('level rule: deck and ramp segments drop, bridge/tunnel crossings stay (iss
         edge(0, 2, 'Expressway', 'trunk', 2, true),
         edge(1, 3, 'Ramp', 'trunk_link', 1, true),
         edge(0, 1, 'Bridge', 'primary', 1),
+        edge(2, 3, 'Span', 'primary', 2),
       ],
     },
     frame: { bbox: { minX: -500, maxX: 500, minZ: -500, maxZ: 500 } },
   };
   const built = buildTaipeiRoadGraph(source);
   assert.equal(built.stats.droppedLevelEdges, 2);
-  assert.equal(built.stats.keptLevelEdges, 1);
+  assert.equal(built.stats.keptLevelEdges, 2);
   const names = built.roadGraph.names;
   assert.ok(names.includes('Street'), 'ground street survives');
   assert.ok(names.includes('Bridge'), 'level-1 bridge survives');
+  assert.ok(names.includes('Span'), 'two-way level-2 span survives (issue #284)');
   assert.ok(!names.includes('Expressway'), 'level-2 deck drops');
   assert.ok(!names.includes('Ramp'), 'level-1 ramp drops');
   // The dropped deck chord must not shortcut the street: no link spans
@@ -127,7 +142,13 @@ test('chained graph: link shape and length conservation', () => {
     polyKm += Math.hypot(nodes[b * 2] - px, nodes[b * 2 + 1] - pz) / 1000;
   }
   // Issue #258: oneWay 5,767 -> 6,486 (+719) — the south expansion's one-way streets (Gongguan/Guting grid).
-  assert.equal(oneWay, 6486); // 5,922 before #252; the dropped deck/ramp links were mostly one-way
+  // Re-pinned for issue #284: oneWay 6,486 -> 6,487. The re-admitted
+  // 台北大橋 span joins the west-end junction (-5687,-3363), raising
+  // its degree from 2 to 3, so the one-way 台北大橋 run that used to
+  // chain through it now stops there — one link becomes two. The span
+  // itself is two-way, and the other four re-admitted edges are
+  // two-way too, so no other one-way link appears.
+  assert.equal(oneWay, 6487); // 5,922 before #252; the dropped deck/ramp links were mostly one-way
   assert.ok(Math.abs(polyKm - stats.keptKm) < 0.2, `polyline ${polyKm.toFixed(1)} km vs kept ${stats.keptKm} km`);
 });
 
