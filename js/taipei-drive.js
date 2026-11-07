@@ -272,6 +272,14 @@ export function structureColliders(structures, groundAt = null) {
         out.push(aabbCollider(s.x - part.wB / 2, s.x + part.wB / 2, s.z - part.dB / 2, s.z + part.dB / 2, y0 + part.h, y0));
       } else if (part.type === 'ridge') {
         out.push(aabbCollider(s.x - part.w / 2, s.x + part.w / 2, s.z - part.d / 2, s.z + part.d / 2, y0 + part.h + (part.ridgeH || 0), y0));
+      } else if (part.type === 'mesh') {
+        // Issue #333: baked-vertex mesh — the OBB of its authored
+        // footprint (w x d at rotY), floored at its lowest baked
+        // vertex (y0) and topped at its highest (y0 + h). The box
+        // over-covers the stadium's rounded ends, as the flat
+        // capsule's cylinder AABBs did in the other direction.
+        const hx = part.w / 2, hz = part.d / 2;
+        out.push(obbCollider(cx, cz, hx, hz, Math.cos(part.rotY || 0), -Math.sin(part.rotY || 0), y0 + part.h, y0));
       }
       // 'shell' and other purely decorative part types carry no
       // collider: the 101 podium shell is a roof over an open
