@@ -25,12 +25,18 @@
 //   postings along it, so the meshes meet seamlessly) and the north
 //   edge keeps its height — it is the horizon massif.
 //
-// Colours are per-vertex, flat-shaded by face normals: deep forest
-// greens matched to the Esri satellite read of the Datun slopes
-// (the #117 prototype's pale mint bands were explicitly corrected
-// in #129), with a dark rock tint on steep faces. The palette sits
-// in the game's hex discipline — deeper than park lawn 0x56854a and
-// the median shrub 0x4c5c33, as befits a backdrop.
+// Colours are per-vertex, and the normals are per-vertex from the
+// rendered heightfield's gradient (issue #297): deep forest greens
+// matched to the Esri satellite read of the Datun slopes (the #117
+// prototype's pale mint bands were explicitly corrected in #129),
+// with a dark rock tint on steep faces. The palette sits in the
+// game's hex discipline — deeper than park lawn 0x56854a and the
+// median shrub 0x4c5c33, as befits a backdrop. The normals were
+// per-face until #297, which made the whole massif read as flat
+// triangles under the midday sun; a normal from the heightfield
+// gradient is a pure function of the posting, so the triangles
+// sharing a posting agree exactly and the shading is continuous
+// across posting cells.
 
 export const TERRAIN_GAIN_LO = 15;   // DEM at/below this stays at floor level
 export const TERRAIN_GAIN_HI = 45;   // DEM at/above this rises at full height
@@ -92,7 +98,13 @@ function vertexColor(grid, r, c, dx, dz) {
 //   positions, normals, colors (Float32Arrays, non-indexed triangles),
 //   triCount, grids: [{ box, triCount, maxY }] }
 // One triangle soup across all grids; winding gives outward (+y-ish)
-// face normals, computed per face so the shading is flat.
+// faces. Normals are per-vertex from the rendered heightfield's
+// gradient (central difference over the grid step, clamped at the
+// edges), so the shading is continuous across posting cells —
+// per-face normals made the massif read as flat triangles (#297).
+// The gradient is of the rendered height (DEM x gain x mask x fade),
+// not the raw DEM, so road-mask cliffs and edge fades get the normal
+// of the surface actually drawn.
 export function buildTerrainSkinGeometry(terrain) {
   const pos = [], nor = [], col = [];
   const grids = [];
@@ -118,16 +130,23 @@ export function buildTerrainSkinGeometry(terrain) {
         if (yy > maxY) maxY = yy;
       }
     }
-    const P = (i) => [vx[i * 3], vx[i * 3 + 1], vx[i * 3 + 2]];
+    // Per-posting smooth normals from the rendered heightfield's
+    // gradient (issue #297): a pure function of the posting, so the
+    // triangles sharing a posting agree exactly.
+    const Y = (r, c) => vx[(Math.max(0, Math.min(rows - 1, r)) * cols + Math.max(0, Math.min(cols - 1, c))) * 3 + 1];
+    const vn = new Float32Array(cols * rows * 3);
+    for (let r = 0; r < rows; r++) {
+      for (let c = 0; c < cols; c++) {
+        const i = r * cols + c;
+        const gx = (Y(r, c + 1) - Y(r, c - 1)) / (2 * dx);
+        const gz = (Y(r + 1, c) - Y(r - 1, c)) / (2 * dz);
+        const L = Math.hypot(gx, 1, gz);
+        vn[i * 3] = -gx / L; vn[i * 3 + 1] = 1 / L; vn[i * 3 + 2] = -gz / L;
+      }
+    }
     const quad = (a, b, c2, d) => { // two triangles (a, c2, b) + (b, c2, d) in grid order
       for (const tri of [[a, c2, b], [b, c2, d]]) {
-        const A = P(tri[0]), B = P(tri[1]), Cc = P(tri[2]);
-        const ux = B[0] - A[0], uy = B[1] - A[1], uz = B[2] - A[2];
-        const wx = Cc[0] - A[0], wy = Cc[1] - A[1], wz = Cc[2] - A[2];
-        let nx = uy * wz - uz * wy, ny = uz * wx - ux * wz, nz = ux * wy - uy * wx;
-        const L = Math.hypot(nx, ny, nz) || 1;
-        nx /= L; ny /= L; nz /= L;
-        for (const i of tri) { pos.push(vx[i * 3], vx[i * 3 + 1], vx[i * 3 + 2]); nor.push(nx, ny, nz); col.push(vc[i * 3], vc[i * 3 + 1], vc[i * 3 + 2]); }
+        for (const i of tri) { pos.push(vx[i * 3], vx[i * 3 + 1], vx[i * 3 + 2]); nor.push(vn[i * 3], vn[i * 3 + 1], vn[i * 3 + 2]); col.push(vc[i * 3], vc[i * 3 + 1], vc[i * 3 + 2]); }
         triCount++;
       }
     };

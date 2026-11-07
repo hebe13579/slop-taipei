@@ -271,7 +271,12 @@ export function buildDrapePatchGrids(waterRings) {
 //   - triangles are assigned by slope: gentle ground wears the pale
 //     block tone, steep ground the terrain colours (the patch's own
 //     colour rule), so the hillsides keep their green while the
-//     streets keep their pale ground.
+//     streets keep their pale ground. The patch colour blends from
+//     the pale tone across the slope band [0.30, 0.45] (issue #297):
+//     a hard per-triangle step at the split reads as a patchwork of
+//     pale and green triangles on bare mountain slopes, so a vertex
+//     at the split wears exactly the pale tone and the colour ramps
+//     smoothly to the terrain rule.
 // The result stays below the road ribbons everywhere a road runs:
 // the block surface is DEM + 0.02 with over-error <= 0.02, the patch
 // surface DEM - 0.02. Pure and node-testable (no THREE).
@@ -280,6 +285,10 @@ export const DRAPE_GROUND_TOL_M = 0.02;
 export const DRAPE_GROUND_TOL_UNDER_M = 0.10;
 export const DRAPE_GROUND_MAX_DEPTH = 4;
 export const DRAPE_GROUND_PALE_SLOPE = 0.30;
+// Above this slope the patch wears its full terrain colour; between
+// DRAPE_GROUND_PALE_SLOPE and here it blends from the pale block
+// tone (issue #297).
+export const DRAPE_GROUND_BLEND_SLOPE = 0.45;
 export const DRAPE_GROUND_BLOCK_Y = 0.02;
 export const DRAPE_GROUND_PATCH_Y = -0.02;
 
@@ -297,6 +306,10 @@ const DRAPE_TERRAIN_LOW = srgbHexToLinear(0x77875c);
 const DRAPE_TERRAIN_MID = srgbHexToLinear(0x46683d);
 const DRAPE_TERRAIN_HIGH = srgbHexToLinear(0x6f7d68);
 const DRAPE_TERRAIN_ROCK = srgbHexToLinear(0x8a8578);
+// The pale tone the block surface wears — must stay equal to
+// SURFACE_TONES.block in js/taipei-surfaces.js (0x8f8b80); the
+// drape test pins the match so the two cannot drift apart.
+const DRAPE_GROUND_PALE_TONE = srgbHexToLinear(0x8f8b80);
 function lerp3(a, b, t) {
   return [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t, a[2] + (b[2] - a[2]) * t];
 }
@@ -306,6 +319,26 @@ export function drapeTerrainColor(slope, hgt) {
   if (slope > 0.55) return [...DRAPE_TERRAIN_ROCK];
   if (hgt < 18) return lerp3(DRAPE_TERRAIN_LOW, DRAPE_TERRAIN_MID, Math.max(0, hgt) / 18);
   return lerp3(DRAPE_TERRAIN_MID, DRAPE_TERRAIN_HIGH, Math.min(1, (hgt - 18) / 90));
+}
+// The colour a patch vertex actually wears (issue #297): the terrain
+// rule blended toward the pale block tone across the slope band
+// [DRAPE_GROUND_PALE_SLOPE, DRAPE_GROUND_BLEND_SLOPE], so the
+// block/patch split is continuous instead of a hard step. The split
+// is per-triangle by the triangle's own plane slope; the colour is
+// per-vertex by the DEM gradient slope. Without the blend the two
+// surfaces meet in a hard step — measured on the real tile,
+// block/patch adjacencies differ by ΔRGB 0.19 on average (18,263
+// pairs, 99.8% above 0.10) while patch/patch adjacencies differ by
+// 0.003 — that hard step is the triangle patchwork the user sees on
+// bare mountain slopes, not chord error (the patch surface sits on
+// the DEM to 0.004 m mean over-error). With the blend a vertex at
+// the split wears exactly the pale tone, and the colour ramps
+// smoothly (smoothstep, so no kink at either end of the band) to
+// the terrain rule by 0.45. Pure.
+export function drapePatchColor(slope, hgt) {
+  const t = Math.max(0, Math.min(1, (slope - DRAPE_GROUND_PALE_SLOPE) / (DRAPE_GROUND_BLEND_SLOPE - DRAPE_GROUND_PALE_SLOPE)));
+  const s = t * t * (3 - 2 * t);
+  return lerp3(DRAPE_GROUND_PALE_TONE, drapeTerrainColor(slope, hgt), s);
 }
 
 // Plane through three vertices, evaluated at (x, z). Vertices are
@@ -504,24 +537,37 @@ export function buildAdaptiveDrapeGround(waterRings, opts = {}) {
   const blockPos = [], patchByRegion = [];
   // Leaves are emitted straight into the position arrays (never collected):
   // the builder holds O(depth) live triangles, not O(leaves).
-  const emit = (tri, patchPositions, patchColors) => {
+  const emit = (tri, patchPositions, patchColors, patchNormals) => {
     if (groundTriSlope(tri) < DRAPE_GROUND_PALE_SLOPE) {
       for (const v of tri) blockPos.push(v[0], v[1] + DRAPE_GROUND_BLOCK_Y, v[2]);
       stats.blockTris++;
     } else {
       for (const v of tri) {
         patchPositions.push(v[0], v[1] + DRAPE_GROUND_PATCH_Y, v[2]);
-        const slope = Math.hypot(
-          drapeHeight(v[0] + DRAPE_GROUND_STEP_M, v[2]) - drapeHeight(v[0] - DRAPE_GROUND_STEP_M, v[2]),
-          drapeHeight(v[0], v[2] + DRAPE_GROUND_STEP_M) - drapeHeight(v[0], v[2] - DRAPE_GROUND_STEP_M),
-        ) / (2 * DRAPE_GROUND_STEP_M);
-        const [cr, cg, cb] = drapeTerrainColor(slope, Math.max(0, v[1]));
+        // One ±14 m central-difference gradient per vertex, shared
+        // by the colour slope and the smooth normal below.
+        const dhx = drapeHeight(v[0] + DRAPE_GROUND_STEP_M, v[2]) - drapeHeight(v[0] - DRAPE_GROUND_STEP_M, v[2]);
+        const dhz = drapeHeight(v[0], v[2] + DRAPE_GROUND_STEP_M) - drapeHeight(v[0], v[2] - DRAPE_GROUND_STEP_M);
+        const slope = Math.hypot(dhx, dhz) / (2 * DRAPE_GROUND_STEP_M);
+        const [cr, cg, cb] = drapePatchColor(slope, Math.max(0, v[1]));
         patchColors.push(cr, cg, cb);
+        // Smooth normal from the DEM gradient (issue #297): the
+        // patch mesh is non-indexed, so computeVertexNormals gives
+        // face normals and flat shading lights every triangle as a
+        // facet — measured, adjacent triangles differ by 6.4° at
+        // block/patch boundaries and 1.1° within the patch. A normal
+        // from the DEM gradient is a pure function of (x, z), so
+        // the two triangles sharing an edge agree exactly and the
+        // shading is continuous across it. The boot sets this
+        // attribute and drops flatShading.
+        const gx = dhx / (2 * DRAPE_GROUND_STEP_M), gz = dhz / (2 * DRAPE_GROUND_STEP_M);
+        const nl = Math.hypot(gx, 1, gz);
+        patchNormals.push(-gx / nl, 1 / nl, -gz / nl);
       }
       stats.patchTris++;
     }
   };
-  const splitTri = (x0, z0, x1, z1, depth, patchPositions, patchColors) => {
+  const splitTri = (x0, z0, x1, z1, depth, patchPositions, patchColors, patchNormals) => {
     // Quadtree subdivision of one posting-aligned quad (never a
     // skinny triangle: every leaf is a square-ish quad, so the
     // chord error falls ~4x per level and the refinement converges
@@ -544,8 +590,8 @@ export function buildAdaptiveDrapeGround(waterRings, opts = {}) {
         stats.maxDepth = Math.max(stats.maxDepth, depth);
         return;
       }
-      emit(t1, patchPositions, patchColors);
-      emit(t2, patchPositions, patchColors);
+      emit(t1, patchPositions, patchColors, patchNormals);
+      emit(t2, patchPositions, patchColors, patchNormals);
       stats.maxDepth = Math.max(stats.maxDepth, depth);
       if (depth >= DRAPE_GROUND_MAX_DEPTH) {
         if (over > stats.maxResidualOver) {
@@ -559,10 +605,10 @@ export function buildAdaptiveDrapeGround(waterRings, opts = {}) {
     }
     stats.splits++;
     const mx = (x0 + x1) / 2, mz = (z0 + z1) / 2;
-    splitTri(x0, z0, mx, mz, depth + 1, patchPositions, patchColors);
-    splitTri(mx, z0, x1, mz, depth + 1, patchPositions, patchColors);
-    splitTri(x0, mz, mx, z1, depth + 1, patchPositions, patchColors);
-    splitTri(mx, mz, x1, z1, depth + 1, patchPositions, patchColors);
+    splitTri(x0, z0, mx, mz, depth + 1, patchPositions, patchColors, patchNormals);
+    splitTri(mx, z0, x1, mz, depth + 1, patchPositions, patchColors, patchNormals);
+    splitTri(x0, mz, mx, z1, depth + 1, patchPositions, patchColors, patchNormals);
+    splitTri(mx, mz, x1, z1, depth + 1, patchPositions, patchColors, patchNormals);
   };
   for (const r of DRAPE_RECTS) {
     const minX = r.minX - DRAPE_FEATHER, maxX = r.maxX + DRAPE_FEATHER;
@@ -574,7 +620,7 @@ export function buildAdaptiveDrapeGround(waterRings, opts = {}) {
     const i1 = Math.floor((maxX - DRAPE_POSTING_X0) / DRAPE_POSTING_STEP_X);
     const j0 = Math.floor((minZ - DRAPE_POSTING_Z0) / DRAPE_POSTING_STEP_Z);
     const j1 = Math.floor((maxZ - DRAPE_POSTING_Z0) / DRAPE_POSTING_STEP_Z);
-    const positions = [], colors = [];
+    const positions = [], colors = [], normals = [];
     let triCount = 0;
     const beforePatch = stats.patchTris;
     for (let j = j0; j <= j1; j++) {
@@ -590,7 +636,7 @@ export function buildAdaptiveDrapeGround(waterRings, opts = {}) {
         // or a sign. Refined cells split until within tolerance.
         if (refineAt((x0 + x1) / 2, (z0 + z1) / 2)) {
           stats.refinedCells++;
-          splitTri(x0, z0, x1, z1, 0, positions, colors);
+          splitTri(x0, z0, x1, z1, 0, positions, colors, normals);
         } else if (quadIntersectsSlot(x0, z0, x1, z1)) {
           // A coarse cell over a trench slot is skipped whole (it
           // still counts as a coarse cell, so the stats invariant
@@ -602,13 +648,13 @@ export function buildAdaptiveDrapeGround(waterRings, opts = {}) {
           stats.coarseCells++;
           const t1 = [vert(x0, z0), vert(x1, z1), vert(x1, z0)];
           const t2 = [vert(x0, z0), vert(x0, z1), vert(x1, z1)];
-          emit(t1, positions, colors); emit(t2, positions, colors);
+          emit(t1, positions, colors, normals); emit(t2, positions, colors, normals);
           stats.coarseTris += 2;
         }
       }
     }
     triCount = stats.patchTris - beforePatch;
-    patchByRegion.push({ name: r.name, positions: new Float32Array(positions), colors: new Float32Array(colors), triCount });
+    patchByRegion.push({ name: r.name, positions: new Float32Array(positions), colors: new Float32Array(colors), normals: new Float32Array(normals), triCount });
   }
   stats.totalTris = stats.blockTris + stats.patchTris;
   return { block: new Float32Array(blockPos), patch: patchByRegion, stats };

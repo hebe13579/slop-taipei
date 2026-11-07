@@ -9,7 +9,8 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { TAIPEI_GEO } from '../js/taipei-geodata.js';
-import { drapeHeight, drapeDem, drapeWeight, drapeEnabled, setDrapeEnabled, flatSiteFactor, buildDrapePatchGrids, buildAdaptiveDrapeGround, buildDrapeRefineMask, drapeTerrainColor, DRAPE_GROUND_TOL_M, DRAPE_GROUND_MAX_DEPTH, DRAPE_RECTS, DRAPE_FLAT_SITES, DRAPE_FEATHER } from '../js/taipei-drape.js';
+import { drapeHeight, drapeDem, drapeWeight, drapeEnabled, setDrapeEnabled, flatSiteFactor, buildDrapePatchGrids, buildAdaptiveDrapeGround, buildDrapeRefineMask, drapeTerrainColor, drapePatchColor, DRAPE_GROUND_TOL_M, DRAPE_GROUND_MAX_DEPTH, DRAPE_GROUND_PALE_SLOPE, DRAPE_GROUND_BLEND_SLOPE, DRAPE_RECTS, DRAPE_FLAT_SITES, DRAPE_FEATHER } from '../js/taipei-drape.js';
+import { SURFACE_TONES } from '../js/taipei-surfaces.js';
 import { portalTrenchSlots } from '../js/taipei-viaduct.js';
 import { roadTrenchSlots } from '../js/taipei-airfield.js';
 import { buildDeckGeometry, LOW_BED_H, PARAPET_H } from '../js/taipei-viaduct.js';
@@ -395,6 +396,34 @@ test('adaptive ground: colour rule matches the patch THREE colours', () => {
   close(mid, [0.122861, 0.190357, 0.076844]);
 });
 
+test('adaptive ground: patch colour blends to the pale block tone at the split (issue #297)', () => {
+  // The block/patch split is per-triangle by plane slope; without a
+  // blend the two surfaces meet in a hard step — measured on the
+  // real tile, block/patch adjacencies differ by ΔRGB 0.19 on
+  // average while patch/patch adjacencies differ by 0.003 — and
+  // that step is the triangle patchwork on bare mountain slopes.
+  // The blend makes a vertex at the split wear exactly the pale
+  // block tone and ramps smoothly to the terrain rule by the top
+  // of the band; steep ground keeps its rock.
+  const close = (got, want) => { for (let i = 0; i < 3; i++) assert.ok(Math.abs(got[i] - want[i]) < 1e-5, `${got} vs ${want}`); };
+  const lin = (c) => { const s = c / 255; return s <= 0.04045 ? s / 12.92 : Math.pow((s + 0.055) / 1.055, 2.4); };
+  const pale = [lin((SURFACE_TONES.block >> 16) & 0xff), lin((SURFACE_TONES.block >> 8) & 0xff), lin(SURFACE_TONES.block & 0xff)];
+  // At and below the split the patch wears exactly the pale tone —
+  // the colour field is continuous across the block/patch boundary.
+  close(drapePatchColor(DRAPE_GROUND_PALE_SLOPE, 50), pale);
+  close(drapePatchColor(0, 50), pale);
+  // At the top of the band the patch wears its full terrain colour.
+  close(drapePatchColor(DRAPE_GROUND_BLEND_SLOPE, 50), drapeTerrainColor(DRAPE_GROUND_BLEND_SLOPE, 50));
+  // Steep ground is untouched by the blend (rock rule above 0.55).
+  close(drapePatchColor(0.6, 10), drapeTerrainColor(0.6, 10));
+  // Mid-band is a genuine blend: strictly between pale and terrain.
+  const mid = drapePatchColor(0.375, 50);
+  const terrain = drapeTerrainColor(0.375, 50);
+  for (let i = 0; i < 3; i++) {
+    assert.ok(mid[i] > Math.min(pale[i], terrain[i]) && mid[i] < Math.max(pale[i], terrain[i]), `mid-band channel ${i}: ${mid} vs pale ${pale} vs terrain ${terrain}`);
+  }
+});
+
 // The real-tile adaptive ground, built once and shared by the
 // seating tests below (the build takes a few seconds; the plan
 // below it takes minutes, as the rest of this file already does).
@@ -428,6 +457,57 @@ test('adaptive ground: stats pin the build (counts, depth, residual)', () => {
   assert.ok(s.maxResidualUnder <= 0.3, `maxResidualUnder ${s.maxResidualUnder}`);
   assert.ok(s.refinedCells > 20000 && s.coarseCells > 1000);
   assert.ok(s.blockTris > s.patchTris, 'most of the ground is the pale block tone');
+});
+
+test('adaptive ground: patch normals are smooth across shared edges (issue #297)', () => {
+  // The patch mesh is non-indexed, so computeVertexNormals gives
+  // face normals and flat shading lights every triangle as a facet
+  // (measured: adjacent triangles differ by 6.4° at block/patch
+  // boundaries, 1.1° within the patch). The builder instead emits
+  // one normal per vertex from the DEM gradient — a pure function
+  // of (x, z) — so the two triangles sharing an edge must agree
+  // exactly at both shared vertices, and the shading is continuous.
+  for (const p of adaptiveGround.patch) {
+    assert.equal(p.normals.length, p.positions.length, `${p.name}: normals length`);
+    for (let b = 0; b < p.normals.length; b += 3) {
+      const len = Math.hypot(p.normals[b], p.normals[b + 1], p.normals[b + 2]);
+      assert.ok(Math.abs(len - 1) < 1e-5, `${p.name}: normal ${b / 3} not unit (${len})`);
+      assert.ok(p.normals[b + 1] > 0, `${p.name}: normal ${b / 3} does not point up`);
+    }
+  }
+  // Shared-edge agreement, exact: the same (x, z) must give the
+  // same normal in both triangles (matched by vertex position, so
+  // edge order in each triangle does not matter).
+  const key = (x, z) => `${x.toFixed(2)},${z.toFixed(2)}`;
+  let checked = 0, worst = 0;
+  for (const p of adaptiveGround.patch) {
+    const edgeMap = new Map();
+    const nTri = p.positions.length / 9;
+    for (let t = 0; t < nTri; t++) {
+      const v = (k) => [p.positions[t * 9 + k * 3], p.positions[t * 9 + k * 3 + 1], p.positions[t * 9 + k * 3 + 2]];
+      const n = (k) => [p.normals[t * 9 + k * 3], p.normals[t * 9 + k * 3 + 1], p.normals[t * 9 + k * 3 + 2]];
+      for (let e = 0; e < 3; e++) {
+        const a = v(e), b = v((e + 1) % 3);
+        const ka = key(a[0], a[2]), kb = key(b[0], b[2]);
+        const k = ka < kb ? ka + '|' + kb : kb + '|' + ka;
+        if (!edgeMap.has(k)) edgeMap.set(k, []);
+        edgeMap.get(k).push({ [ka]: n(e), [kb]: n((e + 1) % 3) });
+      }
+    }
+    for (const list of edgeMap.values()) {
+      if (list.length < 2) continue;
+      for (let a = 0; a < list.length; a++) for (let b = a + 1; b < list.length; b++) {
+        for (const vk of Object.keys(list[a])) {
+          const na = list[a][vk], nb = list[b][vk];
+          const d = Math.hypot(na[0] - nb[0], na[1] - nb[1], na[2] - nb[2]);
+          worst = Math.max(worst, d);
+          checked++;
+        }
+      }
+    }
+  }
+  assert.ok(checked > 100000, `shared-edge normal pairs ${checked}`);
+  assert.equal(worst, 0, `worst shared-edge normal difference ${worst}`);
 });
 
 // Spatial hash over the adaptive triangle soup for point lookups.
