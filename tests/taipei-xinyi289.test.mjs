@@ -66,16 +66,39 @@ test('the four #289 structures are registered with the reference-pack facts', ()
   assert.equal(vieshow.estimated, true, 'heights estimated (5+6+9 / 5+9), flagged');
   assert.ok(vieshow.sign && vieshow.sign.text === 'VIESHOW', 'the big movie-advertisement board');
   assert.equal(vieshow.sign.w, 24, 'marquee board is 24 m wide');
-  assert.equal(vieshow.sign.h, 7, 'marquee board is 7 m tall');
-  assert.ok(vieshow.parts.some((p) => p.type === 'box' && p.w === 36 && p.d === 92 && p.h === 20),
-    'west (A16) block, 3 floors');
+  assert.equal(vieshow.sign.h, 4, 'marquee board is 4 m tall (#300: was 7 — the old board filled the frame zone)');
+  assert.equal(vieshow.sign.y, 9, 'marquee board sits below the blue frame (#300: was 12)');
+  assert.ok(vieshow.parts.some((p) => p.type === 'box' && p.w === 36 && p.d === 92 && p.h === 19.5),
+    'west (A16) block, 3 floors (#300: 19.5 + the 0.5 m roof cap = the 20 m realHeight)');
   assert.ok(vieshow.parts.some((p) => p.type === 'box' && p.w === 46 && p.d === 83 && p.h === 14),
     'east (A17) block, 2 floors');
-  assert.ok(vieshow.parts.some((p) => p.type === 'box' && p.w === 20 && p.d === 5 && p.y0 === 7),
-    '2F skybridge across the courtyard');
-  assert.ok(vieshow.parts.every((p) => p.type !== 'box' || p.flat === undefined || [0xa82318, 0x8c1d14, 0x1e1a14, 0xf5e6c8].includes(p.flat.color ?? p.flat)),
-    'red masses + dark shopfront + poster board, no other colours');
-  assert.ok(vieshow.farParts && vieshow.farParts.length === 3, 'far version keeps both blocks + skybridge');
+  assert.ok(vieshow.parts.some((p) => p.type === 'box' && p.w === 20 && p.d === 6 && p.y0 === 6.5),
+    '2F skybridge across the courtyard (#300: white, 6 m deep, was dark red 5 m)');
+  // Issue #300: the user's live read was "big red cube" — the real
+  // building is red AND white, so the blocks are warm white with red
+  // bands, a blue-framed marquee sculpture, colourful poster boards
+  // and grey roof caps (references in vieshow300-evidence/refs/).
+  assert.ok(vieshow.parts.some((p) => p.type === 'box' && p.w === 36 && p.d === 92 && p.h === 19.5
+    && (p.flat.color ?? p.flat) === 0xefe9dc), 'west block is warm white, not solid red');
+  assert.ok(vieshow.parts.some((p) => p.type === 'box' && p.w === 46 && p.d === 83 && p.h === 14
+    && (p.flat.color ?? p.flat) === 0xefe9dc), 'east block is warm white, not solid red');
+  assert.equal(vieshow.parts.filter((p) => p.type === 'box' && p.flat === 0xa82318
+    && (p.w === 36.6 || p.w === 46.6)).length, 4, 'four red wrap bands (two per block)');
+  assert.ok(vieshow.parts.some((p) => p.type === 'box' && p.w === 24 && p.h === 2.5 && p.flat === 0xd21f1f),
+    'red film-strip in the marquee frame');
+  assert.ok(vieshow.parts.some((p) => p.type === 'box' && p.w === 3 && p.h === 3 && p.flat === 0xf5f2ea),
+    'white reel hub on the film-strip');
+  assert.equal(vieshow.parts.filter((p) => p.type === 'box' && p.flat === 0x1d4e9e).length, 4,
+    'blue marquee frame (4 bars)');
+  assert.equal(vieshow.parts.filter((p) => p.type === 'box' && p.w === 0.4 && p.d === 5.5 && p.h === 6).length, 6,
+    'six colourful poster boards (three per courtyard face)');
+  assert.ok(vieshow.parts.some((p) => p.type === 'box' && p.w === 34 && p.d === 90 && p.h === 0.5 && p.y0 === 19.5),
+    'grey roof cap on the west block (roofs were flat red planes)');
+  assert.ok(vieshow.parts.some((p) => p.type === 'box' && p.w === 44 && p.d === 81 && p.h === 0.5 && p.y0 === 14),
+    'grey roof cap on the east block');
+  assert.ok(vieshow.parts.every((p) => p.type !== 'box' || p.flat === undefined || [0xefe9dc, 0xf2ede2, 0xa82318, 0x8c1d14, 0x1e1a14, 0x1d4e9e, 0xd21f1f, 0xf5f2ea, 0x2c3540, 0xc23a2e, 0xe07b2a, 0x2a5a9e, 0x3a3f45, 0xcfc9bb, 0x8a8a8a].includes(p.flat.color ?? p.flat)),
+    'red-and-white palette + marquee + poster colours, no other colours');
+  assert.ok(vieshow.farParts && vieshow.farParts.length === 10, 'far version keeps both blocks + skybridge + trim + 4 bands + 2 caps');
 
   // 43 (post-#265) + 4 new structures = 47. The two plazas add no
   // structures: the Civic Plaza was already City Hall's `plaza`

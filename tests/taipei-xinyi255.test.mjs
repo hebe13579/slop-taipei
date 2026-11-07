@@ -137,6 +137,34 @@ test('A8 carries the red exoskeleton (the user-photo correction)', () => {
     'far A8 is the bare slab — the frame is sub-pixel past 700 m');
 });
 
+test('A9 gains the terrace read: lantern strips, awnings, longer arcade, glyph band (#300)', () => {
+  const a9 = byId.get('shin-kong-mitsukoshi-a9');
+  assert.ok(a9, 'Shin Kong Mitsukoshi A9 registered');
+  assert.equal(a9.realHeight, 49.5, '9 floors x 5.5 m, estimated');
+  assert.equal(a9.estimated, true, 'height estimated, flagged');
+  assert.ok(a9.sign && a9.sign.glyphs === 4, 'glyph band for 新光三越 on the east face');
+  assert.equal(a9.sign.rotY, Math.PI / 2, 'glyph band faces east (Xiangti Ave plaza)');
+  assert.equal(a9.sign.y, 44, 'glyph band at the top of the east face');
+  // The NEWT plaza photo (vieshow300-evidence/refs/ref-a9-newt.jpg):
+  // dark-framed open terraces with warm glowing lantern columns and
+  // red awnings — the old slab had thin pilasters, a 40 m arcade and
+  // no signage, so it read as a flat beige box.
+  assert.equal(a9.parts.filter((p) => p.type === 'box' && p.flat === 0x3a3f45
+    && p.w === 34.6 && p.d === 145.6 && p.h === 2).length, 2,
+    'two dark terrace floor bands');
+  assert.equal(a9.parts.filter((p) => p.type === 'box' && p.flat === 0xffd9a0
+    && p.h === 40).length, 6, 'six warm lantern strips on the east face');
+  assert.equal(a9.parts.filter((p) => p.type === 'box' && p.flat === 0xc23a2e
+    && p.d === 145 && p.h === 0.8).length, 3, 'three red awnings crossing the lantern strips');
+  const canopy = a9.parts.find((p) => p.type === 'box' && p.w === 3 && p.h === 1 && p.y0 === 6 && p.dx === 20.5);
+  assert.ok(canopy, 'arcade canopy on the east face');
+  assert.equal(canopy.d, 80, 'canopy runs 80 m (was 40)');
+  assert.equal(a9.parts.filter((p) => p.type === 'cylinder' && p.r === 0.5 && p.h === 6
+    && p.dx === 21.5).length, 8, 'eight arcade columns (was 4)');
+  assert.ok(a9.farParts && a9.farParts.length === 1,
+    'far A9 stays the bare slab — the terrace dressing is sub-pixel past 700 m (A8 frame precedent)');
+});
+
 test('far versions: simplified massing, storey silhouette kept, never culled', () => {
   assert.ok(SCHOOL_LOD_FAR_M > SCHOOL_LOD_NEAR_M, 'the #244 hysteresis band');
   for (const s of plan.landmarkTowers) {
