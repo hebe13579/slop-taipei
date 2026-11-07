@@ -5,9 +5,11 @@
 // its own wall-line orientation (NOT 北門's rotY), a passage, a white
 // crenellated parapet, a colonnade pavilion and a green glazed-tile roof.
 // These tests FAIL on pristine main (no such registry entries) and pass
-// here. The plan lots are unchanged (76,209): the three site rects sit
-// in road junctions / roundabouts where no procedural lots fall —
-// lot-by-lot diff on this tree is 0 of 76,209 (see plan-diff.mjs).
+// here. The plan lots are 76,260 on the merged tree: 76,209 + 51 from
+// #326 (NTSEC/planetarium re-siting) — the three site rects sit in road
+// junctions / roundabouts where no procedural lots fall, so the gates
+// themselves move no lots (lot-by-lot diff on the #327 tree is 0 of
+// 76,209 — see plan-diff.mjs). Re-pinned 76,209 -> 76,260 by #333.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { TAIPEI_GEO } from '../js/taipei-geodata.js';
@@ -30,7 +32,7 @@ const expected = {
 
 test('issue #327: the three city gates are registered (registry 53 -> 56)', () => {
   assert.equal(plan.landmarkTowers.length, 56, '53 + 3 new gates');
-  assert.equal(plan.lots.length, 76209, 'the three junction-island site rects move no lots');
+  assert.equal(plan.lots.length, 76260, 'the three junction-island site rects move no lots (76,209 + 51 from #326; re-pinned by #333)');
   for (const id of Object.keys(expected)) assert.ok(byId.has(id), `${id} registered`);
 });
 
