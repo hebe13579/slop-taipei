@@ -465,6 +465,13 @@ function taoZhuParts() {
 // is the capsule centre in structure space, `straight` the distance
 // between the end-disc centres, `width` the full track width and
 // `fieldWidth` the infield width.
+// Issue #166 (Tianmu/Beitou batch): a school running track as flat
+// painted parts — a capsule (one rotated box for the straights plus
+// unrotated discs at the ends, since cylinder parts cannot rotate)
+// in rust red with a narrower green infield capsule on top. (cx, cz)
+// is the capsule centre in structure space, `straight` the distance
+// between the end-disc centres, `width` the full track width and
+// `fieldWidth` the infield width.
 function trackCapsuleParts(cx, cz, straight, width, fieldWidth, rotY, trackColor, fieldColor) {
   const ex = (straight / 2) * Math.cos(rotY), ez = (straight / 2) * Math.sin(rotY);
   const capsule = (w, h) => [
@@ -474,6 +481,138 @@ function trackCapsuleParts(cx, cz, straight, width, fieldWidth, rotY, trackColor
   ];
   const field = capsule(fieldWidth, 0.36).map((p) => ({ ...p, flat: fieldColor }));
   return [...capsule(width, 0.3), ...field];
+}
+
+// Issue #333: stadium-outline points for a capsule (track) mesh.
+// Local (u,v): u along the capsule axis, v across it. The outline is
+// the flat capsule's footprint exactly: straights at v=±r between the
+// end-disc centres (u=±half), semicircles of radius r about them,
+// densified so consecutive points are <= ~4 m apart (chord sagitta
+// ~0.1 m). Points run counter-clockwise viewed from above, so a strip
+// between two outlines triangulated (A[i], A[j], B[j]) /
+// (A[i], B[j], B[i]) faces up. nStraight/nArc are FIXED counts (from
+// the outer outline) so two outlines of different radii pair
+// index-to-index in a strip.
+function stadiumOutlinePoints(half, r, nStraight, nArc) {
+  const pts = [];
+  for (let i = 0; i <= nStraight; i++) pts.push([-half + (2 * half * i) / nStraight, r]);
+  for (let i = 1; i <= nArc; i++) {
+    const a = Math.PI / 2 - (Math.PI * i) / nArc;
+    pts.push([half + r * Math.cos(a), r * Math.sin(a)]);
+  }
+  for (let i = 1; i <= nStraight; i++) pts.push([half - (2 * half * i) / nStraight, -r]);
+  for (let i = 1; i < nArc; i++) {
+    const a = -Math.PI / 2 - (Math.PI * i) / nArc;
+    pts.push([-half + r * Math.cos(a), r * Math.sin(a)]);
+  }
+  return pts;
+}
+
+// Issue #333: the Qingjiang running track as two baked-vertex mesh
+// parts following the draped ground — used ONLY when the boot injects
+// opts.groundAt (the bare plan keeps the flat 6-part capsule from
+// trackCapsuleParts, exactly like s.lift). The capsule sits on a
+// saddle (drape 9.6..12.4 m, 2.75 m of relief, varying along the axis
+// as well as across it), so no flat or terraced box construction can
+// seat it: a uniform lift floats the low side ~2.5 m, strips fail on
+// the along-axis range (1.26 m > the 0.30 m slab) and the disc tips.
+// The mesh is the road-ribbon construction applied to an area: the
+// stadium outline densified at ~4 m, each vertex at the draped ground
+// + 0.32 (ring) / + 0.38 (field) — the flat slab's top heights — with
+// a skirt from the ring's outer outline down to the ground so nothing
+// floats from any angle. The field carries a mid ring (half-scale
+// outline) so no fan triangle spans more than ~11 m: the ground sags
+// up to 0.26 m under a 22 m fan (measured min clearance 0.117 m),
+// ~0.06 m under an 11 m one. Vertices are in structure space —
+// (dx, dz) from the anchor, y relative to the structure lift — so the
+// renderer sits the mesh at the anchor and it rides s.lift.
+function drapedCapsuleParts(cx, cz, straight, width, fieldWidth, rotY, trackColor, fieldColor, anchorX, anchorZ, groundAt, lift) {
+  const half = straight / 2;
+  const nStraight = Math.max(2, Math.ceil(straight / 4));
+  const nArc = Math.max(4, Math.ceil((Math.PI * (width / 2)) / 4));
+  const n = 2 * nStraight + 2 * nArc;
+  const c = Math.cos(rotY), s = Math.sin(rotY);
+  const toLocal = (u, v) => [cx + u * c - v * s, cz + u * s + v * c];
+  const gRel = (dx, dz) => groundAt(anchorX + dx, anchorZ + dz) - lift;
+  const outer = stadiumOutlinePoints(half, width / 2, nStraight, nArc);
+  const inner = stadiumOutlinePoints(half, fieldWidth / 2, nStraight, nArc);
+  const mid = stadiumOutlinePoints(half / 2, fieldWidth / 4, nStraight, nArc);
+  // Verts are laid out in blocks so the triangle indices stay
+  // readable. Ring: outer top [0..n), inner top [n..2n), skirt-top
+  // duplicates [2n..3n) (same positions as the outer top, so the lip
+  // keeps crisp normals — the strip and the skirt never share a
+  // vertex), skirt bottom [3n..4n). Field: inner top [0..n), mid top
+  // [n..2n), centre [2n].
+  const ringVerts = [], ringTris = [], fieldVerts = [], fieldTris = [];
+  let ringMin = Infinity, ringMax = -Infinity, fieldMin = Infinity, fieldMax = -Infinity;
+  const pushV = (arr, dx, dz, y) => { arr.push(dx, y, dz); };
+  for (let i = 0; i < n; i++) {
+    const [ox, oz] = toLocal(outer[i][0], outer[i][1]);
+    pushV(ringVerts, ox, oz, gRel(ox, oz) + 0.32);
+  }
+  for (let i = 0; i < n; i++) {
+    const [ix, iz] = toLocal(inner[i][0], inner[i][1]);
+    pushV(ringVerts, ix, iz, gRel(ix, iz) + 0.32);
+  }
+  for (let i = 0; i < n; i++) {
+    const [ox, oz] = toLocal(outer[i][0], outer[i][1]);
+    pushV(ringVerts, ox, oz, gRel(ox, oz) + 0.32);
+    ringMax = Math.max(ringMax, gRel(ox, oz) + 0.32);
+  }
+  for (let i = 0; i < n; i++) {
+    const [ox, oz] = toLocal(outer[i][0], outer[i][1]);
+    const g = gRel(ox, oz);
+    pushV(ringVerts, ox, oz, g - 0.02);
+    ringMin = Math.min(ringMin, g - 0.02);
+  }
+  for (let i = 0; i < n; i++) {
+    const [ix, iz] = toLocal(inner[i][0], inner[i][1]);
+    ringMax = Math.max(ringMax, gRel(ix, iz) + 0.32);
+  }
+  for (let i = 0; i < n; i++) {
+    const j = (i + 1) % n;
+    ringTris.push(i, j, n + j, i, n + j, n + i); // strip
+    ringTris.push(2 * n + i, 3 * n + i, 3 * n + j, 2 * n + i, 3 * n + j, 2 * n + j); // skirt
+  }
+  for (let i = 0; i < n; i++) {
+    const [ix, iz] = toLocal(inner[i][0], inner[i][1]);
+    const g = gRel(ix, iz);
+    pushV(fieldVerts, ix, iz, g + 0.38);
+    fieldMin = Math.min(fieldMin, g + 0.38);
+    fieldMax = Math.max(fieldMax, g + 0.38);
+  }
+  for (let i = 0; i < n; i++) {
+    const [mx, mz] = toLocal(mid[i][0], mid[i][1]);
+    const g = gRel(mx, mz);
+    pushV(fieldVerts, mx, mz, g + 0.38);
+    fieldMin = Math.min(fieldMin, g + 0.38);
+    fieldMax = Math.max(fieldMax, g + 0.38);
+  }
+  const cg = gRel(cx, cz);
+  pushV(fieldVerts, cx, cz, cg + 0.38);
+  fieldMin = Math.min(fieldMin, cg + 0.38);
+  fieldMax = Math.max(fieldMax, cg + 0.38);
+  for (let i = 0; i < n; i++) {
+    const j = (i + 1) % n;
+    fieldTris.push(i, j, n + j, i, n + j, n + i); // strip
+    fieldTris.push(2 * n, n + i, n + j); // fan
+  }
+  return [
+    { type: 'mesh', flat: trackColor, dx: cx, dz: cz, rotY, w: straight + width, d: width, y0: ringMin, h: ringMax - ringMin, verts: ringVerts, tris: ringTris },
+    { type: 'mesh', flat: fieldColor, dx: cx, dz: cz, rotY, w: straight + fieldWidth, d: fieldWidth, y0: fieldMin, h: fieldMax - fieldMin, verts: fieldVerts, tris: fieldTris },
+  ];
+}
+
+// Issue #333: expand a `capsule` placeholder part. Bare plan (no
+// groundAt): the flat 6-part capsule, byte-identical to the
+// trackCapsuleParts call the placeholder replaces. Draped plan: the
+// 2-part draped mesh, vertices baked in structure space (y relative
+// to the structure lift).
+function expandCapsuleParts(part, s, groundAt, lift) {
+  if (!groundAt) {
+    return trackCapsuleParts(part.cx, part.cz, part.straight, part.width, part.fieldWidth, part.rotY, part.trackColor, part.fieldColor);
+  }
+  return drapedCapsuleParts(part.cx, part.cz, part.straight, part.width, part.fieldWidth, part.rotY, part.trackColor, part.fieldColor, s.x, s.z, groundAt, lift);
 }
 
 // Tianmu Baseball Stadium (issue #166): the project's first
@@ -3797,7 +3936,12 @@ const LANDMARK_STRUCTURES = [
       // rectangle track. The real oval track (Esri satellite: centre 62 m
       // west of the anchor, 98 m long, axis -0.55 rad) is the capsule below,
       // and the way's rectangle is a blue court slab at its measured rotation.
-      ...trackCapsuleParts(-62, -1, 54, 44, 36, -0.55, 0xa04a30, 0x4e7d32),
+      // Issue #333: the capsule is a placeholder part — the planner expands
+      // it to the flat 6-part capsule on a bare plan and to a draped-mesh
+      // capsule (ring strip + field fan + skirt, following groundAt) when
+      // the boot injects groundAt. Same outline, position, orientation
+      // and colours either way.
+      { type: 'capsule', cx: -62, cz: -1, straight: 54, width: 44, fieldWidth: 36, rotY: -0.55, trackColor: 0xa04a30, fieldColor: 0x4e7d32 },
       { type: 'box', w: 36, d: 30, h: 0.25, y0: 0.02, dx: 31.3, dz: -3.3, rotY: -0.6, flat: 0x3f6d8e },
       // Perimeter fence (#328): as for Shipai — the generator's fence for
       // this OSM ring (relation 4793835), precomputed and pasted as static
@@ -5968,6 +6112,19 @@ export function planTaipeiBuildings(geodata, opts = {}) {
       const lift = opts.groundAt(s.x, s.z);
       if (lift > 0) s.lift = lift;
     }
+  }
+  // Issue #333: capsule placeholders expand here — the planner is the
+  // only place that knows whether the boot injected groundAt, and the
+  // only place with the anchor + lift the baked vertices need. Bare
+  // plans expand to the flat capsule (identical to the
+  // trackCapsuleParts call the placeholder replaces); draped plans
+  // expand to the 2-part draped mesh. No other consumer ever sees
+  // the `capsule` type.
+  for (const s of landmarkTowers) {
+    if (!s.parts.some((p) => p.type === 'capsule')) continue;
+    const groundAt = typeof opts.groundAt === 'function' ? opts.groundAt : null;
+    const lift = groundAt ? groundAt(s.x, s.z) : 0;
+    s.parts = s.parts.flatMap((p) => (p.type === 'capsule' ? expandCapsuleParts(p, s, groundAt, lift) : p));
   }
   // MRT elevated stations (issue #118): the structures straddle the
   // guideway corridor, so their footprint bounding boxes join the
@@ -9089,6 +9246,21 @@ export function createTaipeiLandmarkTowers(THREE, plan, factories) {
         }
         g.position.set(s.x + (part.dx || 0), 0, s.z + (part.dz || 0));
         mesh = g;
+      } else if (part.type === 'mesh') {
+        // Issue #333: baked-vertex mesh (the Qingjiang draped
+        // capsule). Verts are in structure space — (dx, dz) from the
+        // anchor, y relative to the structure lift — so the mesh sits
+        // at the anchor and rides s.lift with the subgroup.
+        // DoubleSide: an open surface (strip + fan + skirt), so a
+        // winding slip must not hide a face — the #323 one-sided
+        // lesson. Winding is still authored CCW-from-above (the
+        // schools test pins every top triangle's signed area).
+        const geo = new THREE.BufferGeometry();
+        geo.setAttribute('position', new THREE.Float32BufferAttribute(part.verts, 3));
+        geo.setIndex(part.tris);
+        geo.computeVertexNormals();
+        mesh = new THREE.Mesh(geo, flatPartMaterial(part.flat, true));
+        mesh.position.set(s.x, 0, s.z);
       }
       if (!mesh) continue;
       if (part.despawnFar) {

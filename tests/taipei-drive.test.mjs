@@ -162,8 +162,12 @@ test('real tile: extra colliders assemble from plan + geodata', () => {
   assert.ok(extra.length > parapets, 'registry + stations + 101 add to the parapets');
   // 492 authored parts across the registry + site structures,
   // minus the collider-less decorative types (shell etc.).
+  // Issue #333: 'mesh' joins the counted types — the Qingjiang
+  // draped capsule's mesh parts carry colliders too (one OBB each);
+  // the bare plan counted here has no mesh parts, so the count is
+  // unchanged by the addition.
   const parts = [...plan.landmarkTowers, ...plan.siteStructures]
-    .reduce((n, s) => n + (s.parts || []).filter((p) => ['box', 'cylinder', 'dome', 'frustum', 'ridge'].includes(p.type)).length, 0);
+    .reduce((n, s) => n + (s.parts || []).filter((p) => ['box', 'cylinder', 'dome', 'frustum', 'ridge', 'mesh'].includes(p.type)).length, 0);
   const stations = stationColliders(TAIPEI_GEO.mrtStations, TAIPEI_GEO.mrtDepot).length;
   const tower = taipei101Colliders(plan.tower).length;
   assert.equal(extra.length, parapets + parts + stations + tower,

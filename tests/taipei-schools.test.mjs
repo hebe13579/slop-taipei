@@ -17,6 +17,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { TAIPEI_GEO } from '../js/taipei-geodata.js';
 import { planTaipeiBuildings } from '../js/taipei-buildings.js';
+import { drapeHeight } from '../js/taipei-drape.js';
 
 const plan = planTaipeiBuildings(TAIPEI_GEO);
 const report = plan.schools || [];
@@ -241,4 +242,90 @@ test('issue #328: the two registry campuses have perimeter fences; Qingjiang tra
   // Shipai's track was already an oval capsule — it is untouched.
   const shipaiCaps = shipai.parts.filter((p) => p.type === 'cylinder' && p.flat === TRACK_RED);
   assert.equal(shipaiCaps.length, 2, 'Shipai track keeps its two end caps');
+});
+
+test('issue #333: Qingjiang track is a draped mesh on a groundAt plan', () => {
+  // The capsule sits on a saddle (drape 9.6..12.4 m across it, varying
+  // along the axis as well as across it), so no flat or terraced box
+  // construction can seat it. On a draped plan the planner swaps the
+  // flat capsule for two baked-vertex mesh parts following groundAt;
+  // the bare plan keeps the flat capsule (pinned by the #328 test
+  // above). Mesh layout (js/taipei-buildings.js): ring verts are outer
+  // top [0..n), inner top [n..2n), skirt-top duplicates [2n..3n),
+  // skirt bottom [3n..4n); field verts are inner top [0..n), mid top
+  // [n..2n), centre [2n].
+  const TRACK_RED = 0xa04a30, FIELD_GREEN = 0x4e7d32;
+  const draped = planTaipeiBuildings(TAIPEI_GEO, { groundAt: drapeHeight });
+  const q = draped.landmarkTowers.find((s) => s.id === 'qingjiang-elementary');
+  assert.ok(q, 'Qingjiang Elementary is a registry landmark');
+  assert.ok(Math.abs(q.lift - 11.42) < 0.01, `Qingjiang lift is the drape at its anchor (got ${q.lift})`);
+  const meshes = q.parts.filter((p) => p.type === 'mesh');
+  assert.equal(meshes.length, 2, 'ring + field mesh parts replace the flat capsule');
+  assert.ok(!q.parts.some((p) => p.type === 'capsule'), 'no placeholder reaches the plan');
+  assert.ok(!q.parts.some((p) => p.type === 'box' && p.flat === TRACK_RED && p.w === 54), 'no flat capsule box on the draped plan');
+  assert.ok(!q.parts.some((p) => p.type === 'cylinder' && p.flat === TRACK_RED), 'no flat capsule end caps on the draped plan');
+  const ring = meshes.find((p) => p.flat === TRACK_RED);
+  const field = meshes.find((p) => p.flat === FIELD_GREEN);
+  assert.ok(ring && field, 'ring rust-red, field green');
+  // Same outline, centre and axis as the flat capsule.
+  assert.equal(ring.verts.length / 3, 256, 'ring verts: 64 outer + 64 inner + 64 skirt-top + 64 skirt-bottom');
+  assert.equal(ring.tris.length / 3, 256, 'ring tris: 128 strip + 128 skirt');
+  assert.equal(field.verts.length / 3, 129, 'field verts: 64 inner + 64 mid + centre');
+  assert.equal(field.tris.length / 3, 192, 'field tris: 128 strip + 64 fan');
+  const toLocal = (x, z) => {
+    const c = Math.cos(-0.55), s = Math.sin(-0.55);
+    const dx = x - (-62), dz = z - (-1);
+    return [dx * c + dz * s, -dx * s + dz * c];
+  };
+  const bounds = (m) => {
+    let umin = Infinity, umax = -Infinity, vmin = Infinity, vmax = -Infinity;
+    for (let i = 0; i < m.verts.length; i += 3) {
+      const [u, v] = toLocal(m.verts[i], m.verts[i + 2]);
+      umin = Math.min(umin, u); umax = Math.max(umax, u);
+      vmin = Math.min(vmin, v); vmax = Math.max(vmax, v);
+    }
+    return [umin, umax, vmin, vmax];
+  };
+  assert.deepEqual(bounds(ring).map((v) => Math.round(v * 100) / 100), [-49, 49, -22, 22], 'ring outline is the flat capsule footprint (98 x 44)');
+  assert.deepEqual(bounds(field).map((v) => Math.round(v * 100) / 100), [-45, 45, -18, 18], 'field outline is the flat infield footprint (90 x 36)');
+  // Every vertex sits at the draped ground + 0.32 (ring top) / + 0.38
+  // (field top), except the skirt bottoms at ground - 0.02 — so the
+  // surface clears the ground everywhere and never floats.
+  const offOf = (m, i) => m.verts[i * 3 + 1] - (drapeHeight(q.x + m.verts[i * 3], q.z + m.verts[i * 3 + 2]) - q.lift);
+  let ringTop = 0, ringSkirt = 0;
+  for (let i = 0; i < ring.verts.length / 3; i++) {
+    const d = offOf(ring, i);
+    if (Math.abs(d - 0.32) < 1e-6) ringTop++;
+    else if (Math.abs(d - (-0.02)) < 1e-6) ringSkirt++;
+    else assert.fail(`ring vertex ${i} at unexpected offset ${d}`);
+  }
+  assert.equal(ringTop, 192, 'ring top verts (outer + inner + skirt-top)');
+  assert.equal(ringSkirt, 64, 'skirt bottom verts');
+  for (let i = 0; i < field.verts.length / 3; i++) {
+    assert.ok(Math.abs(offOf(field, i) - 0.38) < 1e-6, `field vertex ${i} at ground + 0.38`);
+  }
+  // Winding: top triangles face up (signed area in (x,z) < 0), skirt
+  // triangles are vertical (signed area 0). A skirt triangle is one
+  // that references a skirt-bottom vertex.
+  const signedArea = (m, a, b, c) => {
+    const ax = m.verts[a * 3], az = m.verts[a * 3 + 2];
+    const bx = m.verts[b * 3], bz = m.verts[b * 3 + 2];
+    const cx = m.verts[c * 3], cz = m.verts[c * 3 + 2];
+    return 0.5 * ((bx - ax) * (cz - az) - (cx - ax) * (bz - az));
+  };
+  for (const m of meshes) {
+    for (let t = 0; t < m.tris.length; t += 3) {
+      const idx = [m.tris[t], m.tris[t + 1], m.tris[t + 2]];
+      const isSkirt = idx.some((i) => Math.abs(offOf(m, i) - (-0.02)) < 1e-6);
+      const a = signedArea(m, idx[0], idx[1], idx[2]);
+      if (isSkirt) assert.ok(Math.abs(a) < 1e-6, `skirt triangle is vertical (signed area ${a})`);
+      else assert.ok(a < -1e-9, `top triangle faces up (signed area ${a})`);
+    }
+  }
+  // Deterministic: a second draped plan carries the identical mesh.
+  const again = planTaipeiBuildings(TAIPEI_GEO, { groundAt: drapeHeight });
+  const q2 = again.landmarkTowers.find((s) => s.id === 'qingjiang-elementary');
+  assert.equal(JSON.stringify(q2.parts), JSON.stringify(q.parts), 'draped capsule deterministic across runs');
+  // The swap moves no lots: the draped plan's lots equal the bare plan's.
+  assert.equal(draped.lots.length, plan.lots.length, 'mesh swap moves no lots');
 });
