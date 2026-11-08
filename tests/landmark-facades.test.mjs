@@ -91,7 +91,7 @@ const EXPECTED_FACADES = {
   'nan-shan-xinyi-a21': 'curtain', // pale green-tinted glass tower
   'cathay-financial-center': 'curtain', // dark bronze-green glass
   'walsin-lihwa-building': 'curtain', // dark glass curtain tower
-  'vieshow-cinemas-xinyi': 'prewar', // red masonry fallback (flat red parts)
+  'vieshow-cinemas-xinyi': 'prewar', // red-and-white (flat parts, #300)
   // Issue #258 (south expansion): the two campus landmarks — NTU's
   // brick library halls and Shida's pale stone halls are masonry
   // masses, so both take the prewar grid (like the #166 campuses).
@@ -150,6 +150,9 @@ const EXPECTED_SIGNS = {
   'att-4-fun': { text: 'ATT 4 FUN' },
   'bellavita': { text: 'BELLAVITA' },
   'shin-kong-mitsukoshi-a4': { glyphs: 4 },
+  // Issue #300: A9's 新光三越 glyph band on the east (plaza) face —
+  // abstract glyphs, as on the real sign.
+  'shin-kong-mitsukoshi-a9': { glyphs: 4 },
   // Issue #289: the VieShow marquee — the big movie-advertisement
   // board on the south face, a real wordmark the cinema carries.
   'vieshow-cinemas-xinyi': { text: 'VIESHOW' },

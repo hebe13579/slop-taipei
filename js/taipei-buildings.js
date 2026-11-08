@@ -1652,6 +1652,19 @@ const LANDMARK_STRUCTURES = [
     lat: 25.036641, lon: 121.566674, realHeight: 49.5, estimated: true, color: 0xc2b8a4,
     site: { w: 41, d: 149, dx: 0, dz: 0 },
     facade: { kind: 'prewar', stoneColor: 0xcac0ae, trimColor: 0x9d9480, windowGlassColor: 0x2c3e50, windowWidth: 3.4, floorHeight: 5.5, litProbability: 0.45, warmth: 0.6, seed: 165.33 },
+    // Issue #300 (2026-11-07): the user's live read was "big red
+    // cube" (the VieShow east block beside it); A9 itself read as a
+    // flat beige slab — the pilaster strips were thin, the east-face
+    // arcade covered only 40 m of the 145 m face, the roof was flat
+    // beige, and there was no signage. The NEWT plaza photo
+    // (vieshow300-evidence/refs/ref-a9-newt.jpg) shows the east
+    // (Xiangti Ave) face as a dark-framed open terrace structure:
+    // warm glowing vertical lantern columns, red awnings, railings
+    // and warm interiors under a dark roof with greenery. The
+    // rework below adds that terrace read as geometry — dark floor
+    // bands, lantern strips, red awnings, a longer arcade — plus a
+    // 新光三越 glyph band at the top of the east face.
+    sign: { glyphs: 4, w: 16, h: 3, y: 44, dx: 20.8, dz: 0, rotY: Math.PI / 2, bg: '#3a3f45', fg: '#e8cf9a' },
     // Issue #283 (2026-10-30): the long N-S stone slab shortens by
     // the parapet height (top stays 49.5); the rework adds a
     // ground-floor arcade (canopy + colonnade) on the long east
@@ -1662,11 +1675,34 @@ const LANDMARK_STRUCTURES = [
     parts: [
       { type: 'box', w: 34, d: 145, h: 46.5, dx: 2.5 },
       // Ground-floor arcade: canopy + colonnade, east face.
-      { type: 'box', w: 3, d: 40, h: 1, y0: 6, dx: 20.5, dz: 0, flat: 0x9d9480 },
+      // #300: the canopy runs 80 m (was 40) with 8 columns (was 4).
+      { type: 'box', w: 3, d: 80, h: 1, y0: 6, dx: 20.5, dz: 0, flat: 0x9d9480 },
+      { type: 'cylinder', r: 0.5, h: 6, dx: 21.5, dz: -35, flat: 0x9d9480 },
+      { type: 'cylinder', r: 0.5, h: 6, dx: 21.5, dz: -25, flat: 0x9d9480 },
       { type: 'cylinder', r: 0.5, h: 6, dx: 21.5, dz: -15, flat: 0x9d9480 },
       { type: 'cylinder', r: 0.5, h: 6, dx: 21.5, dz: -5, flat: 0x9d9480 },
       { type: 'cylinder', r: 0.5, h: 6, dx: 21.5, dz: 5, flat: 0x9d9480 },
       { type: 'cylinder', r: 0.5, h: 6, dx: 21.5, dz: 15, flat: 0x9d9480 },
+      { type: 'cylinder', r: 0.5, h: 6, dx: 21.5, dz: 25, flat: 0x9d9480 },
+      { type: 'cylinder', r: 0.5, h: 6, dx: 21.5, dz: 35, flat: 0x9d9480 },
+      // Dark terrace floor bands, east face (the dark-framed open
+      // terraces in the NEWT photo), proud 0.3 m.
+      { type: 'box', w: 34.6, d: 145.6, h: 2, y0: 14, dx: 2.5, flat: 0x3a3f45 },
+      { type: 'box', w: 34.6, d: 145.6, h: 2, y0: 29, dx: 2.5, flat: 0x3a3f45 },
+      // Warm glowing lantern strips, east face (the vertical light
+      // columns in the NEWT photo), proud ~0.9 m, running the
+      // terrace zone y 4..44.
+      { type: 'box', w: 0.5, d: 1, h: 40, y0: 4, dx: 20.2, dz: -60, flat: 0xffd9a0 },
+      { type: 'box', w: 0.5, d: 1, h: 40, y0: 4, dx: 20.2, dz: -36, flat: 0xffd9a0 },
+      { type: 'box', w: 0.5, d: 1, h: 40, y0: 4, dx: 20.2, dz: -12, flat: 0xffd9a0 },
+      { type: 'box', w: 0.5, d: 1, h: 40, y0: 4, dx: 20.2, dz: 12, flat: 0xffd9a0 },
+      { type: 'box', w: 0.5, d: 1, h: 40, y0: 4, dx: 20.2, dz: 36, flat: 0xffd9a0 },
+      { type: 'box', w: 0.5, d: 1, h: 40, y0: 4, dx: 20.2, dz: 60, flat: 0xffd9a0 },
+      // Red awnings, east face (the red stripes over the shopfronts
+      // in the NEWT photo), crossing the lantern strips.
+      { type: 'box', w: 2, d: 145, h: 0.8, y0: 8, dx: 20.5, flat: 0xc23a2e },
+      { type: 'box', w: 2, d: 145, h: 0.8, y0: 19, dx: 20.5, flat: 0xc23a2e },
+      { type: 'box', w: 2, d: 145, h: 0.8, y0: 31.2, dx: 20.5, flat: 0xc23a2e },
       // Pilaster strips, both long faces.
       { type: 'box', w: 1, d: 1.5, h: 46.5, dx: 20, dz: -48, flat: 0xe0d9c6 },
       { type: 'box', w: 1, d: 1.5, h: 46.5, dx: 20, dz: -24, flat: 0xe0d9c6 },
@@ -2292,37 +2328,114 @@ const LANDMARK_STRUCTURES = [
     // #42 trim convention). A11's skybridge toward VieShow across
     // Songshou Rd is NOT modelled (it would cross the roadbed).
     id: 'vieshow-cinemas-xinyi', name: 'Vie Show Cinemas Taipei Hsin Yi', nameZh: '台北信義威秀影城',
-    lat: 25.035336, lon: 121.566960, realHeight: 20, estimated: true, color: 0xa82318,
+    lat: 25.035336, lon: 121.566960, realHeight: 20, estimated: true, color: 0xefe9dc,
     site: { w: 112, d: 100, dx: 0, dz: 0 },
-    // Issue #57: red masonry fallback — every part below carries its
-    // own flat override (the bright-red masses are the signature), so
-    // this treatment never renders; it is pinned here so the structure
-    // resolves a facade treatment like every other landmark.
-    facade: { kind: 'prewar', stoneColor: 0xa82318, trimColor: 0x7e1a12, windowGlassColor: 0x2c3e50, windowWidth: 3.0, floorHeight: 4.0, litProbability: 0.35, warmth: 0.6, seed: 289.15 },
-    // The big movie-advertisement board on the south face (toward
-    // the 101 mall): the cinema's marquee — VIESHOW in bright yellow
-    // on near-black, red accent.
-    sign: { text: 'VIESHOW', w: 24, h: 7, y: 12, dx: -31.4, dz: 46.5, bg: '#14100e', fg: '#ffd23e', accent: '#d21f1f' },
+    // Issue #300 (2026-11-07): the user's live read was "big red
+    // cube" — both blocks were solid red with flat red roofs, the
+    // marquee only on the south face, the skybridge dark red and
+    // occluded, the courtyard poster board a blank cream slab. The
+    // real building is red AND white ("兩棟紅白相間建築物",
+    // vscinemas description; the TechNews daytime photo and the
+    // vscinemas night photo in vieshow300-evidence/refs/): white
+    // faces with red horizontal bands, a huge red film-strip in a
+    // blue frame with a film-reel hub over the VIESHOW sign, a row
+    // of colourful shopfront billboards at ground level, and
+    // open-air balcony levels with railings. The blocks below are
+    // now warm white with red bands; the marquee sculpture, the
+    // colourful poster boards and a white skybridge with a red base
+    // make the courtyard legible from the helicopter angles.
+    // Facade treatment never renders — every part carries its own
+    // flat override — it is pinned here so the structure resolves
+    // a facade treatment like every other landmark.
+    facade: { kind: 'prewar', stoneColor: 0xefe9dc, trimColor: 0x7e1a12, windowGlassColor: 0x2c3e50, windowWidth: 3.0, floorHeight: 4.0, litProbability: 0.35, warmth: 0.6, seed: 289.15 },
+    // The marquee on the south face (toward the 101 mall), resized
+    // #300: the VIESHOW board is now 24x4 at y 9, sitting below the
+    // blue marquee frame (y 11.5..19.5) — the old 24x7 board at y 12
+    // filled the frame zone with black.
+    sign: { text: 'VIESHOW', w: 24, h: 4, y: 9, dx: -31.4, dz: 46.5, bg: '#14100e', fg: '#ffd23e', accent: '#d21f1f' },
     parts: [
-      // West (A16) block, 3 floors, bright red.
-      { type: 'box', w: 36, d: 92, h: 20, dx: -31.4, flat: { color: 0xa82318, roughness: 0.85, metalness: 0.05 } },
-      // East (A17) block, 2 floors, bright red.
-      { type: 'box', w: 46, d: 83, h: 14, dx: 29.1, dz: 6, flat: { color: 0xa82318, roughness: 0.85, metalness: 0.05 } },
-      // 2F skybridge across the courtyard, joining the blocks at the
-      // ticket-office level (roof way 1339263105: x 184.5..200,
-      // z -272.2..-267.3).
-      { type: 'box', w: 20, d: 5, h: 4, y0: 7, dx: -3.6, dz: -10.2, flat: { color: 0x8c1d14, roughness: 0.85, metalness: 0.05 } },
+      // West (A16) block, 3 floors, warm white with red bands — 19.5 m
+      // + the 0.5 m grey roof cap below = the 20 m realHeight exactly
+      // (taipei.test.mjs: massing must top out at its true height).
+      { type: 'box', w: 36, d: 92, h: 19.5, dx: -31.4, flat: { color: 0xefe9dc, roughness: 0.85, metalness: 0.05 } },
+      // East (A17) block, 2 floors, warm white with red bands.
+      { type: 'box', w: 46, d: 83, h: 14, dx: 29.1, dz: 6, flat: { color: 0xefe9dc, roughness: 0.85, metalness: 0.05 } },
+      // Red wrap bands, both blocks (proud 0.3 m all round — the
+      // "紅白相間" banding in the reference photos).
+      { type: 'box', w: 36.6, d: 92.6, h: 1.2, y0: 5.4, dx: -31.4, flat: 0xa82318 },
+      { type: 'box', w: 36.6, d: 92.6, h: 1.2, y0: 11.4, dx: -31.4, flat: 0xa82318 },
+      { type: 'box', w: 46.6, d: 83.6, h: 1.0, y0: 4.5, dx: 29.1, dz: 6, flat: 0xa82318 },
+      { type: 'box', w: 46.6, d: 83.6, h: 1.0, y0: 9.5, dx: 29.1, dz: 6, flat: 0xa82318 },
+      // Red columns breaking the west block's south + west faces
+      // into bays (proud ~0.7 m; the south pair flanks the marquee
+      // frame, the west row matches the balcony rhythm).
+      { type: 'box', w: 0.8, d: 0.8, h: 20, dx: -46.5, dz: 46.4, flat: 0x8c1d14 },
+      { type: 'box', w: 0.8, d: 0.8, h: 20, dx: -16.5, dz: 46.4, flat: 0x8c1d14 },
+      { type: 'box', w: 0.8, d: 0.8, h: 20, dx: -49.7, dz: -30, flat: 0x8c1d14 },
+      { type: 'box', w: 0.8, d: 0.8, h: 20, dx: -49.7, dz: -10, flat: 0x8c1d14 },
+      { type: 'box', w: 0.8, d: 0.8, h: 20, dx: -49.7, dz: 10, flat: 0x8c1d14 },
+      { type: 'box', w: 0.8, d: 0.8, h: 20, dx: -49.7, dz: 30, flat: 0x8c1d14 },
+      // 2F skybridge across the courtyard, rebuilt #300: white with
+      // a red base band and a dark glass band on its south face —
+      // the old dark-red bridge vanished against the red blocks.
+      // (Roof way 1339263105: x 184.5..200, z -272.2..-267.3.)
+      { type: 'box', w: 20, d: 6, h: 5, y0: 6.5, dx: -3.6, dz: -10.2, flat: { color: 0xf2ede2, roughness: 0.85, metalness: 0.05 } },
+      { type: 'box', w: 20.4, d: 6.4, h: 0.8, y0: 6.5, dx: -3.6, dz: -10.2, flat: 0xa82318 },
+      { type: 'box', w: 18, d: 0.3, h: 2, y0: 8.5, dx: -3.6, dz: -7.5, flat: 0x2c3540 },
+      // Marquee sculpture on the west block's south face: the blue
+      // frame, the red film-strip and the white reel hub from the
+      // reference photos. (The photos also show a pole + finial above
+      // the roofline, but no part may top above the 20 m realHeight —
+      // taipei.test.mjs — so the pole is not modelled.)
+      { type: 'box', w: 1, d: 0.5, h: 8, y0: 11.5, dx: -45.4, dz: 46.6, flat: 0x1d4e9e },
+      { type: 'box', w: 1, d: 0.5, h: 8, y0: 11.5, dx: -17.4, dz: 46.6, flat: 0x1d4e9e },
+      { type: 'box', w: 29, d: 0.5, h: 1, y0: 18.5, dx: -31.4, dz: 46.6, flat: 0x1d4e9e },
+      { type: 'box', w: 29, d: 0.5, h: 1, y0: 11.5, dx: -31.4, dz: 46.6, flat: 0x1d4e9e },
+      { type: 'box', w: 24, d: 0.5, h: 2.5, y0: 14.5, dx: -31.4, dz: 46.7, flat: 0xd21f1f },
+      { type: 'box', w: 3, d: 0.6, h: 3, y0: 14.25, dx: -31.4, dz: 46.8, flat: 0xf5f2ea },
       // Dark shopfront band at ground level, west block south face.
       { type: 'box', w: 36, d: 0.4, h: 5, y0: 0.5, dx: -31.4, dz: 46.2, flat: 0x1e1a14 },
-      // Movie-poster board on the courtyard face of the west block
-      // (the publicity boards in the courtyard), clear of the
-      // skybridge.
-      { type: 'box', w: 0.3, d: 20, h: 8, y0: 6, dx: -13.2, dz: 12, flat: 0xf5e6c8 },
+      // Colourful shopfront billboards on the dark band (the ad
+      // panels in the reference photos), between the red columns.
+      { type: 'box', w: 8, d: 0.4, h: 3.5, y0: 1, dx: -41.5, dz: 46.5, flat: 0xc23a2e },
+      { type: 'box', w: 8, d: 0.4, h: 3.5, y0: 1, dx: -31.4, dz: 46.5, flat: 0xe07b2a },
+      { type: 'box', w: 8, d: 0.4, h: 3.5, y0: 1, dx: -21.5, dz: 46.5, flat: 0x2a5a9e },
+      // Movie-poster boards on the courtyard faces (three colourful
+      // panels per face, replacing the single blank cream slab that
+      // read as a white rectangle from the east).
+      { type: 'box', w: 0.4, d: 5.5, h: 6, y0: 6, dx: -12.8, dz: 4, flat: 0xc23a2e },
+      { type: 'box', w: 0.4, d: 5.5, h: 6, y0: 6, dx: -12.8, dz: 12, flat: 0x2a5a9e },
+      { type: 'box', w: 0.4, d: 5.5, h: 6, y0: 6, dx: -12.8, dz: 20, flat: 0xe07b2a },
+      { type: 'box', w: 0.4, d: 5.5, h: 6, y0: 6, dx: 5.8, dz: 4, flat: 0x2a5a9e },
+      { type: 'box', w: 0.4, d: 5.5, h: 6, y0: 6, dx: 5.8, dz: 12, flat: 0xe07b2a },
+      { type: 'box', w: 0.4, d: 5.5, h: 6, y0: 6, dx: 5.8, dz: 20, flat: 0xc23a2e },
+      // Billboard wall on the east block's south face (the big ad
+      // panels in the TechNews photo).
+      { type: 'box', w: 12, d: 0.4, h: 6, y0: 6, dx: 15, dz: 47.8, flat: 0x2a5a9e },
+      { type: 'box', w: 12, d: 0.4, h: 6, y0: 6, dx: 29, dz: 47.8, flat: 0xe07b2a },
+      { type: 'box', w: 12, d: 0.4, h: 6, y0: 6, dx: 43, dz: 47.8, flat: 0x1e1a14 },
+      // Grey roof caps (the roofs were flat red planes from above).
+      // The west cap sits on the 19.5 m block and tops out at exactly
+      // 20 m; the west block carries no rooftop boxes (any box on its
+      // roof would top above the 20 m realHeight). The east block's
+      // cap + stone box + AC units all top at or below 20 m.
+      { type: 'box', w: 34, d: 90, h: 0.5, y0: 19.5, dx: -31.4, flat: 0x3a3f45 },
+      { type: 'box', w: 44, d: 81, h: 0.5, y0: 14, dx: 29.1, dz: 6, flat: 0x3a3f45 },
+      { type: 'box', w: 6, d: 8, h: 2, y0: 14, dx: 29.1, dz: 6, flat: 0xcfc9bb },
+      { type: 'box', w: 3, d: 3, h: 1, y0: 14, dx: 15, dz: -20, flat: 0x8a8a8a },
+      { type: 'box', w: 3, d: 3, h: 1, y0: 14, dx: 43, dz: 25, flat: 0x8a8a8a },
     ],
     farParts: [
-      { type: 'box', w: 36, d: 92, h: 20, dx: -31.4, flat: { color: 0xa82318, roughness: 0.85, metalness: 0.05 } },
-      { type: 'box', w: 46, d: 83, h: 14, dx: 29.1, dz: 6, flat: { color: 0xa82318, roughness: 0.85, metalness: 0.05 } },
-      { type: 'box', w: 20, d: 5, h: 4, y0: 7, dx: -3.6, dz: -10.2, flat: { color: 0x8c1d14, roughness: 0.85, metalness: 0.05 } },
+      { type: 'box', w: 36, d: 92, h: 19.5, dx: -31.4, flat: { color: 0xefe9dc, roughness: 0.85, metalness: 0.05 } },
+      { type: 'box', w: 46, d: 83, h: 14, dx: 29.1, dz: 6, flat: { color: 0xefe9dc, roughness: 0.85, metalness: 0.05 } },
+      { type: 'box', w: 20, d: 6, h: 5, y0: 6.5, dx: -3.6, dz: -10.2, flat: { color: 0xf2ede2, roughness: 0.85, metalness: 0.05 } },
+      { type: 'box', w: 20.4, d: 6.4, h: 0.8, y0: 6.5, dx: -3.6, dz: -10.2, flat: 0xa82318 },
+      { type: 'box', w: 36.6, d: 92.6, h: 1.2, y0: 5.4, dx: -31.4, flat: 0xa82318 },
+      { type: 'box', w: 36.6, d: 92.6, h: 1.2, y0: 11.4, dx: -31.4, flat: 0xa82318 },
+      { type: 'box', w: 46.6, d: 83.6, h: 1.0, y0: 4.5, dx: 29.1, dz: 6, flat: 0xa82318 },
+      { type: 'box', w: 46.6, d: 83.6, h: 1.0, y0: 9.5, dx: 29.1, dz: 6, flat: 0xa82318 },
+      { type: 'box', w: 34, d: 90, h: 0.5, y0: 19.5, dx: -31.4, flat: 0x3a3f45 },
+      { type: 'box', w: 44, d: 81, h: 0.5, y0: 14, dx: 29.1, dz: 6, flat: 0x3a3f45 },
     ],
   },
   {
