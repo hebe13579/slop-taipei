@@ -483,6 +483,108 @@ function trackCapsuleParts(cx, cz, straight, width, fieldWidth, rotY, trackColor
   return [...capsule(width, 0.3), ...field];
 }
 
+// Issue #334: Jianguo High School perimeter fence — red-brick base
+// (紅磚) with vertical iron bars (豎立鐵條) above, from the school's own
+// fence (Wikimedia 2023 elevated photo + Esri satellite). The fence LINE
+// is the generator's schoolFenceParts output for the Jianguo ground
+// (relation 3392608), precomputed by calling planSchoolCampuses with a
+// synthetic geodata (only the Jianguo ground, landmarkSites: []) and
+// re-based from the ring centroid to the registry anchor — worst
+// wall-vs-ring distance 0.07 m. The FORM is the real fence, not the
+// generator's solid 2.5 m wall: a 1.0 m red-brick base, 1.1 m of vertical
+// iron bars every 0.3 m, a dark top rail, and red-brick piers at the ring
+// joints + intermediate every ~8 m. Segments are [cx, cz, len, rotY]
+// (registry-relative). Wall 9 is split at the main gate (a 10 m opening
+// on the south edge, on the entrance axis from the roundabout); the
+// generator's west-gate gap is closed with a filler segment (the only
+// gate is the south one). The gate itself, the statue and the trees are
+// static parts in the registry entry, not generated here.
+// Colours: brick 0x9c4a36 (the 紅樓 brick), iron 0x232323, stone 0x9f988e.
+const JIANGUO_FENCE_BRICK = 0x9c4a36;
+const JIANGUO_FENCE_IRON = 0x232323;
+const JIANGUO_FENCE_STONE = 0x9f988e;
+const JIANGUO_FENCE_WALLS = [
+  [-109.1, -82.6, 32.9, -0.28],
+  [-72.1, -94.6, 44.9, -0.28],
+  [-93.5, -87.8, 1.4, 1.291],
+  [-47.7, -101.6, 5.8, -0.264],
+  [23.6, -120.8, 129.9, -0.264],
+  [108.1, -98.9, 24.7, 1.323],
+  [121.8, -44.9, 74.7, 1.323],
+  [36.3, 105.6, 126.8, 2.9],
+  [128.6, 82.9, 51.3, 2.899],
+  [88.3, -129.2, 17.7, 1.337],
+  [67.1, -114.8, 47.9, 2.895],
+  [45.3, -102.9, 12.3, 1.342],
+  [75.9, -103.9, 60, -0.234],
+  [142.2, 34, 88.3, 1.312],
+  [-39.5, 124.3, 9.4, 2.9],
+  [-87.6, 100, 100.7, -2.614],
+  [-145.5, 66.4, 33.3, -2.616],
+  [-143.4, 49, 18.5, -0.499],
+  [-138.5, 36.7, 17, -1.95],
+  [-127.2, 24, 30.4, -0.322],
+  [-114.7, 11.9, 15.2, -1.824],
+  [-114.6, 2.3, 6, -0.821],
+  [-113.9, -4.4, 9.4, -1.862],
+  [-111.3, -11.4, 9.3, -0.564],
+  [-112.3, -36.2, 45.9, -1.838],
+  [-155.7, 55.7, 9.5, -0.506],
+];
+const JIANGUO_FENCE_JOINTS = [
+  [-93.3, -87.1],
+  [-124.9, -78.1],
+  [-50.5, -100.8],
+  [-44.9, -102.4],
+  [86.3, -137.7],
+  [111.1, -86.9],
+  [105.1, -110.9],
+  [131, -8.7],
+  [97.9, 90.4],
+  [103.7, 89.1],
+  [153.5, 76.7],
+  [90.4, -120.6],
+  [43.9, -109],
+  [46.7, -96.9],
+  [-44.1, 125.4],
+  [-131.1, 74.7],
+  [-159.9, 58],
+  [-135.3, 44.6],
+  [-151.5, 53.4],
+  [-141.6, 28.8],
+  [-112.8, 19.2],
+  [-116.6, 4.5],
+  [-112.6, 0.1],
+  [-115.2, -8.9],
+  [-107.4, -13.9],
+];
+function jianguoFenceParts() {
+  const parts = [];
+  const r1 = (v) => Math.round(v * 10) / 10;
+  for (const [cx, cz, len, rotY] of JIANGUO_FENCE_WALLS) {
+    const c = Math.cos(rotY), sn = Math.sin(rotY);
+    parts.push({ type: 'box', w: len, d: 0.35, h: 1.0, dx: cx, dz: cz, rotY, flat: JIANGUO_FENCE_BRICK });
+    parts.push({ type: 'box', w: len, d: 0.1, h: 0.08, y0: 2.06, dx: cx, dz: cz, rotY, flat: JIANGUO_FENCE_IRON });
+    const nBars = Math.floor((len - 0.3) / 0.3) + 1;
+    for (let i = 0; i < nBars; i++) {
+      const t = -len / 2 + 0.15 + i * 0.3;
+      parts.push({ type: 'box', w: 0.06, d: 0.06, h: 1.1, y0: 1.0, dx: r1(cx + t * c), dz: r1(cz + t * sn), flat: JIANGUO_FENCE_IRON });
+    }
+    for (let k = 1; ; k++) {
+      const t = -len / 2 + 8 * k;
+      if (t >= len / 2 - 4) break;
+      const px = r1(cx + t * c), pz = r1(cz + t * sn);
+      parts.push({ type: 'box', w: 0.6, d: 0.6, h: 2.3, dx: px, dz: pz, flat: JIANGUO_FENCE_BRICK });
+      parts.push({ type: 'box', w: 0.75, d: 0.75, h: 0.12, y0: 2.3, dx: px, dz: pz, flat: JIANGUO_FENCE_STONE });
+    }
+  }
+  for (const [jx, jz] of JIANGUO_FENCE_JOINTS) {
+    parts.push({ type: 'box', w: 0.6, d: 0.6, h: 2.3, dx: jx, dz: jz, flat: JIANGUO_FENCE_BRICK });
+    parts.push({ type: 'box', w: 0.75, d: 0.75, h: 0.12, y0: 2.3, dx: jx, dz: jz, flat: JIANGUO_FENCE_STONE });
+  }
+  return parts;
+}
+
 // Issue #333: stadium-outline points for a capsule (track) mesh.
 // Local (u,v): u along the capsule axis, v across it. The outline is
 // the flat capsule's footprint exactly: straights at v=±r between the
@@ -4133,12 +4235,252 @@ const LANDMARK_STRUCTURES = [
     site: { w: 246, d: 232, dx: 6, dz: 8 },
     facade: { kind: 'prewar', stoneColor: 0xd9d2c4, trimColor: 0xb3aa97, windowGlassColor: 0x2e3a46, windowWidth: 2.8, floorHeight: 3.6, litProbability: 0.25, warmth: 0.55, seed: 57.45 },
     parts: [
+      // 紅樓 (issue #334): the 99 x 17 m main box is kept; the plain
+      // roof slab and the two towers at u = +/-40 m are replaced by
+      // geometric detail from the school's own photos (Wikimedia 2018
+      // close-up + 2023 front/elevated): the towers flank the ~15 m
+      // central block at u = +/-14 m (the old +/-40 m put them at the
+      // building's ends — wrong), a pitched roof with dormers, stone
+      // string courses, arched windows, the central gable with the
+      // school emblem and flagpole, the balustrade balcony, and the
+      // three-arch entrance colonnade with steps.
       { type: 'box', w: 99, d: 17, h: 11, dx: -34.3, dz: -56.5, rotY: -0.262, flat: { color: 0x9c4a36, roughness: 0.92, metalness: 0.02 } },
-      { type: 'box', w: 100, d: 18, h: 0.8, y0: 11, dx: -34.3, dz: -56.5, rotY: -0.262, flat: 0x67635c },
-      { type: 'box', w: 13, d: 19, h: 16, dx: -72.9, dz: -46.1, rotY: -0.262, flat: { color: 0x9c4a36, roughness: 0.92, metalness: 0.02 } },
-      { type: 'box', w: 14.5, d: 20.5, h: 1.1, y0: 16, dx: -72.9, dz: -46.1, rotY: -0.262, flat: 0x67635c },
-      { type: 'box', w: 13, d: 19, h: 16, dx: 4.3, dz: -66.9, rotY: -0.262, flat: { color: 0x9c4a36, roughness: 0.92, metalness: 0.02 } },
-      { type: 'box', w: 14.5, d: 20.5, h: 1.1, y0: 16, dx: 4.3, dz: -66.9, rotY: -0.262, flat: 0x67635c },
+// --- Honglou detail (#334) ---
+      { type: 'ridge', w: 100, d: 18, h: 0, ridgeH: 2.6, dx: -34.3, dz: -56.5, y0: 11, rotY: -0.262, flat: 0x67635c },
+      { type: 'ridge', w: 3, d: 2, h: 0, ridgeH: 1, dx: -71.8, dz: -41.8, y0: 12.2, rotY: -0.262, flat: 0x67635c },
+      { type: 'ridge', w: 3, d: 2, h: 0, ridgeH: 1, dx: -57.3, dz: -45.7, y0: 12.2, rotY: -0.262, flat: 0x67635c },
+      { type: 'ridge', w: 3, d: 2, h: 0, ridgeH: 1, dx: -9, dz: -58.6, y0: 12.2, rotY: -0.262, flat: 0x67635c },
+      { type: 'ridge', w: 3, d: 2, h: 0, ridgeH: 1, dx: 5.5, dz: -62.5, y0: 12.2, rotY: -0.262, flat: 0x67635c },
+      { type: 'box', w: 99, d: 0.3, h: 0.35, dx: -32.1, dz: -48.2, y0: 4.8, rotY: -0.262, flat: 0x9f988e },
+      { type: 'box', w: 99, d: 0.3, h: 0.4, dx: -32.1, dz: -48.2, y0: 10.4, rotY: -0.262, flat: 0x9f988e },
+      { type: 'box', w: 1.8, d: 0.06, h: 3.4, dx: -53.3, dz: -42.6, y0: 5.8, rotY: -0.262, flat: 0x9f988e },
+      { type: 'box', w: 1.4, d: 0.12, h: 3, dx: -53.3, dz: -42.5, y0: 5.8, rotY: -0.262, flat: 0xd9d4cb },
+      { type: 'box', w: 1.8, d: 0.06, h: 3.2, dx: -53.3, dz: -42.6, y0: 0.8, rotY: -0.262, flat: 0x9f988e },
+      { type: 'box', w: 1.4, d: 0.12, h: 2.8, dx: -53.3, dz: -42.5, y0: 0.8, rotY: -0.262, flat: 0xd9d4cb },
+      { type: 'box', w: 1.8, d: 0.06, h: 3.4, dx: -57.2, dz: -41.5, y0: 5.8, rotY: -0.262, flat: 0x9f988e },
+      { type: 'box', w: 1.4, d: 0.12, h: 3, dx: -57.2, dz: -41.5, y0: 5.8, rotY: -0.262, flat: 0xd9d4cb },
+      { type: 'box', w: 1.8, d: 0.06, h: 3.2, dx: -57.2, dz: -41.5, y0: 0.8, rotY: -0.262, flat: 0x9f988e },
+      { type: 'box', w: 1.4, d: 0.12, h: 2.8, dx: -57.2, dz: -41.5, y0: 0.8, rotY: -0.262, flat: 0xd9d4cb },
+      { type: 'box', w: 1.8, d: 0.06, h: 3.4, dx: -61.1, dz: -40.5, y0: 5.8, rotY: -0.262, flat: 0x9f988e },
+      { type: 'box', w: 1.4, d: 0.12, h: 3, dx: -61.1, dz: -40.5, y0: 5.8, rotY: -0.262, flat: 0xd9d4cb },
+      { type: 'box', w: 1.8, d: 0.06, h: 3.2, dx: -61.1, dz: -40.5, y0: 0.8, rotY: -0.262, flat: 0x9f988e },
+      { type: 'box', w: 1.4, d: 0.12, h: 2.8, dx: -61.1, dz: -40.5, y0: 0.8, rotY: -0.262, flat: 0xd9d4cb },
+      { type: 'box', w: 1.8, d: 0.06, h: 3.4, dx: -64.9, dz: -39.5, y0: 5.8, rotY: -0.262, flat: 0x9f988e },
+      { type: 'box', w: 1.4, d: 0.12, h: 3, dx: -64.9, dz: -39.4, y0: 5.8, rotY: -0.262, flat: 0xd9d4cb },
+      { type: 'box', w: 1.8, d: 0.06, h: 3.2, dx: -64.9, dz: -39.5, y0: 0.8, rotY: -0.262, flat: 0x9f988e },
+      { type: 'box', w: 1.4, d: 0.12, h: 2.8, dx: -64.9, dz: -39.4, y0: 0.8, rotY: -0.262, flat: 0xd9d4cb },
+      { type: 'box', w: 1.8, d: 0.06, h: 3.4, dx: -68.8, dz: -38.4, y0: 5.8, rotY: -0.262, flat: 0x9f988e },
+      { type: 'box', w: 1.4, d: 0.12, h: 3, dx: -68.8, dz: -38.4, y0: 5.8, rotY: -0.262, flat: 0xd9d4cb },
+      { type: 'box', w: 1.8, d: 0.06, h: 3.2, dx: -68.8, dz: -38.4, y0: 0.8, rotY: -0.262, flat: 0x9f988e },
+      { type: 'box', w: 1.4, d: 0.12, h: 2.8, dx: -68.8, dz: -38.4, y0: 0.8, rotY: -0.262, flat: 0xd9d4cb },
+      { type: 'box', w: 1.8, d: 0.06, h: 3.4, dx: -72.7, dz: -37.4, y0: 5.8, rotY: -0.262, flat: 0x9f988e },
+      { type: 'box', w: 1.4, d: 0.12, h: 3, dx: -72.7, dz: -37.4, y0: 5.8, rotY: -0.262, flat: 0xd9d4cb },
+      { type: 'box', w: 1.8, d: 0.06, h: 3.2, dx: -72.7, dz: -37.4, y0: 0.8, rotY: -0.262, flat: 0x9f988e },
+      { type: 'box', w: 1.4, d: 0.12, h: 2.8, dx: -72.7, dz: -37.4, y0: 0.8, rotY: -0.262, flat: 0xd9d4cb },
+      { type: 'box', w: 1.8, d: 0.06, h: 3.4, dx: -76.5, dz: -36.4, y0: 5.8, rotY: -0.262, flat: 0x9f988e },
+      { type: 'box', w: 1.4, d: 0.12, h: 3, dx: -76.5, dz: -36.3, y0: 5.8, rotY: -0.262, flat: 0xd9d4cb },
+      { type: 'box', w: 1.8, d: 0.06, h: 3.2, dx: -76.5, dz: -36.4, y0: 0.8, rotY: -0.262, flat: 0x9f988e },
+      { type: 'box', w: 1.4, d: 0.12, h: 2.8, dx: -76.5, dz: -36.3, y0: 0.8, rotY: -0.262, flat: 0xd9d4cb },
+      { type: 'box', w: 1.8, d: 0.06, h: 3.4, dx: -10.8, dz: -54, y0: 5.8, rotY: -0.262, flat: 0x9f988e },
+      { type: 'box', w: 1.4, d: 0.12, h: 3, dx: -10.8, dz: -53.9, y0: 5.8, rotY: -0.262, flat: 0xd9d4cb },
+      { type: 'box', w: 1.8, d: 0.06, h: 3.2, dx: -10.8, dz: -54, y0: 0.8, rotY: -0.262, flat: 0x9f988e },
+      { type: 'box', w: 1.4, d: 0.12, h: 2.8, dx: -10.8, dz: -53.9, y0: 0.8, rotY: -0.262, flat: 0xd9d4cb },
+      { type: 'box', w: 1.8, d: 0.06, h: 3.4, dx: -7, dz: -55, y0: 5.8, rotY: -0.262, flat: 0x9f988e },
+      { type: 'box', w: 1.4, d: 0.12, h: 3, dx: -7, dz: -55, y0: 5.8, rotY: -0.262, flat: 0xd9d4cb },
+      { type: 'box', w: 1.8, d: 0.06, h: 3.2, dx: -7, dz: -55, y0: 0.8, rotY: -0.262, flat: 0x9f988e },
+      { type: 'box', w: 1.4, d: 0.12, h: 2.8, dx: -7, dz: -55, y0: 0.8, rotY: -0.262, flat: 0xd9d4cb },
+      { type: 'box', w: 1.8, d: 0.06, h: 3.4, dx: -3.1, dz: -56, y0: 5.8, rotY: -0.262, flat: 0x9f988e },
+      { type: 'box', w: 1.4, d: 0.12, h: 3, dx: -3.1, dz: -56, y0: 5.8, rotY: -0.262, flat: 0xd9d4cb },
+      { type: 'box', w: 1.8, d: 0.06, h: 3.2, dx: -3.1, dz: -56, y0: 0.8, rotY: -0.262, flat: 0x9f988e },
+      { type: 'box', w: 1.4, d: 0.12, h: 2.8, dx: -3.1, dz: -56, y0: 0.8, rotY: -0.262, flat: 0xd9d4cb },
+      { type: 'box', w: 1.8, d: 0.06, h: 3.4, dx: 0.8, dz: -57.1, y0: 5.8, rotY: -0.262, flat: 0x9f988e },
+      { type: 'box', w: 1.4, d: 0.12, h: 3, dx: 0.8, dz: -57, y0: 5.8, rotY: -0.262, flat: 0xd9d4cb },
+      { type: 'box', w: 1.8, d: 0.06, h: 3.2, dx: 0.8, dz: -57.1, y0: 0.8, rotY: -0.262, flat: 0x9f988e },
+      { type: 'box', w: 1.4, d: 0.12, h: 2.8, dx: 0.8, dz: -57, y0: 0.8, rotY: -0.262, flat: 0xd9d4cb },
+      { type: 'box', w: 1.8, d: 0.06, h: 3.4, dx: 4.6, dz: -58.1, y0: 5.8, rotY: -0.262, flat: 0x9f988e },
+      { type: 'box', w: 1.4, d: 0.12, h: 3, dx: 4.6, dz: -58.1, y0: 5.8, rotY: -0.262, flat: 0xd9d4cb },
+      { type: 'box', w: 1.8, d: 0.06, h: 3.2, dx: 4.6, dz: -58.1, y0: 0.8, rotY: -0.262, flat: 0x9f988e },
+      { type: 'box', w: 1.4, d: 0.12, h: 2.8, dx: 4.6, dz: -58.1, y0: 0.8, rotY: -0.262, flat: 0xd9d4cb },
+      { type: 'box', w: 1.8, d: 0.06, h: 3.4, dx: 8.5, dz: -59.1, y0: 5.8, rotY: -0.262, flat: 0x9f988e },
+      { type: 'box', w: 1.4, d: 0.12, h: 3, dx: 8.5, dz: -59.1, y0: 5.8, rotY: -0.262, flat: 0xd9d4cb },
+      { type: 'box', w: 1.8, d: 0.06, h: 3.2, dx: 8.5, dz: -59.1, y0: 0.8, rotY: -0.262, flat: 0x9f988e },
+      { type: 'box', w: 1.4, d: 0.12, h: 2.8, dx: 8.5, dz: -59.1, y0: 0.8, rotY: -0.262, flat: 0xd9d4cb },
+      { type: 'box', w: 1.8, d: 0.06, h: 3.4, dx: 12.3, dz: -60.2, y0: 5.8, rotY: -0.262, flat: 0x9f988e },
+      { type: 'box', w: 1.4, d: 0.12, h: 3, dx: 12.4, dz: -60.2, y0: 5.8, rotY: -0.262, flat: 0xd9d4cb },
+      { type: 'box', w: 1.8, d: 0.06, h: 3.2, dx: 12.3, dz: -60.2, y0: 0.8, rotY: -0.262, flat: 0x9f988e },
+      { type: 'box', w: 1.4, d: 0.12, h: 2.8, dx: 12.4, dz: -60.2, y0: 0.8, rotY: -0.262, flat: 0xd9d4cb },
+      { type: 'ridge', w: 2, d: 15, h: 0, ridgeH: 3.4, dx: -32, dz: -47.8, y0: 11, rotY: 1.309, flat: 0x9c4a36 },
+      { type: 'box', w: 2.2, d: 0.12, h: 0.6, dx: -31.8, dz: -47.3, y0: 13.4, rotY: -0.262, flat: 0x2a4a8a },
+      { type: 'box', w: 1.5, d: 0.12, h: 0.6, dx: -31.8, dz: -47.3, y0: 12.8, rotY: -0.262, flat: 0x2a4a8a },
+      { type: 'box', w: 0.8, d: 0.12, h: 0.6, dx: -31.8, dz: -47.3, y0: 12.2, rotY: -0.262, flat: 0x2a4a8a },
+      { type: 'box', w: 12, d: 0.15, h: 0.8, dx: -32.1, dz: -48.2, y0: 10, rotY: -0.262, flat: 0x9f988e },
+      { type: 'cylinder', r: 0.08, h: 4, dx: -32, dz: -47.8, y0: 14.4, flat: 0x9f988e },
+      { type: 'box', w: 0.9, d: 0.05, h: 0.6, dx: -31.5, dz: -47.9, y0: 17.6, rotY: -0.262, flat: 0xa03a2a },
+      { type: 'box', w: 15, d: 1.4, h: 0.3, dx: -31.9, dz: -47.6, y0: 5.5, rotY: -0.262, flat: 0x9f988e },
+      { type: 'box', w: 15, d: 0.15, h: 0.15, dx: -31.8, dz: -47, y0: 6.5, rotY: -0.262, flat: 0x9f988e },
+      { type: 'box', w: 0.08, d: 0.08, h: 0.9, dx: -38.7, dz: -45.1, y0: 5.8, rotY: -0.262, flat: 0xd9d4cb },
+      { type: 'box', w: 0.08, d: 0.08, h: 0.9, dx: -38.1, dz: -45.3, y0: 5.8, rotY: -0.262, flat: 0xd9d4cb },
+      { type: 'box', w: 0.08, d: 0.08, h: 0.9, dx: -37.5, dz: -45.4, y0: 5.8, rotY: -0.262, flat: 0xd9d4cb },
+      { type: 'box', w: 0.08, d: 0.08, h: 0.9, dx: -37, dz: -45.6, y0: 5.8, rotY: -0.262, flat: 0xd9d4cb },
+      { type: 'box', w: 0.08, d: 0.08, h: 0.9, dx: -36.4, dz: -45.8, y0: 5.8, rotY: -0.262, flat: 0xd9d4cb },
+      { type: 'box', w: 0.08, d: 0.08, h: 0.9, dx: -35.8, dz: -45.9, y0: 5.8, rotY: -0.262, flat: 0xd9d4cb },
+      { type: 'box', w: 0.08, d: 0.08, h: 0.9, dx: -35.2, dz: -46.1, y0: 5.8, rotY: -0.262, flat: 0xd9d4cb },
+      { type: 'box', w: 0.08, d: 0.08, h: 0.9, dx: -34.6, dz: -46.2, y0: 5.8, rotY: -0.262, flat: 0xd9d4cb },
+      { type: 'box', w: 0.08, d: 0.08, h: 0.9, dx: -34.1, dz: -46.4, y0: 5.8, rotY: -0.262, flat: 0xd9d4cb },
+      { type: 'box', w: 0.08, d: 0.08, h: 0.9, dx: -33.5, dz: -46.5, y0: 5.8, rotY: -0.262, flat: 0xd9d4cb },
+      { type: 'box', w: 0.08, d: 0.08, h: 0.9, dx: -32.9, dz: -46.7, y0: 5.8, rotY: -0.262, flat: 0xd9d4cb },
+      { type: 'box', w: 0.08, d: 0.08, h: 0.9, dx: -32.3, dz: -46.8, y0: 5.8, rotY: -0.262, flat: 0xd9d4cb },
+      { type: 'box', w: 0.08, d: 0.08, h: 0.9, dx: -31.8, dz: -47, y0: 5.8, rotY: -0.262, flat: 0xd9d4cb },
+      { type: 'box', w: 0.08, d: 0.08, h: 0.9, dx: -31.2, dz: -47.2, y0: 5.8, rotY: -0.262, flat: 0xd9d4cb },
+      { type: 'box', w: 0.08, d: 0.08, h: 0.9, dx: -30.6, dz: -47.3, y0: 5.8, rotY: -0.262, flat: 0xd9d4cb },
+      { type: 'box', w: 0.08, d: 0.08, h: 0.9, dx: -30, dz: -47.5, y0: 5.8, rotY: -0.262, flat: 0xd9d4cb },
+      { type: 'box', w: 0.08, d: 0.08, h: 0.9, dx: -29.4, dz: -47.6, y0: 5.8, rotY: -0.262, flat: 0xd9d4cb },
+      { type: 'box', w: 0.08, d: 0.08, h: 0.9, dx: -28.9, dz: -47.8, y0: 5.8, rotY: -0.262, flat: 0xd9d4cb },
+      { type: 'box', w: 0.08, d: 0.08, h: 0.9, dx: -28.3, dz: -47.9, y0: 5.8, rotY: -0.262, flat: 0xd9d4cb },
+      { type: 'box', w: 0.08, d: 0.08, h: 0.9, dx: -27.7, dz: -48.1, y0: 5.8, rotY: -0.262, flat: 0xd9d4cb },
+      { type: 'box', w: 0.08, d: 0.08, h: 0.9, dx: -27.1, dz: -48.2, y0: 5.8, rotY: -0.262, flat: 0xd9d4cb },
+      { type: 'box', w: 0.08, d: 0.08, h: 0.9, dx: -26.5, dz: -48.4, y0: 5.8, rotY: -0.262, flat: 0xd9d4cb },
+      { type: 'box', w: 0.08, d: 0.08, h: 0.9, dx: -26, dz: -48.5, y0: 5.8, rotY: -0.262, flat: 0xd9d4cb },
+      { type: 'box', w: 0.08, d: 0.08, h: 0.9, dx: -25.4, dz: -48.7, y0: 5.8, rotY: -0.262, flat: 0xd9d4cb },
+      { type: 'box', w: 0.08, d: 0.08, h: 0.9, dx: -24.8, dz: -48.9, y0: 5.8, rotY: -0.262, flat: 0xd9d4cb },
+      { type: 'box', w: 0.4, d: 0.8, h: 0.6, dx: -36.7, dz: -46.3, y0: 4.9, rotY: -0.262, flat: 0x9f988e },
+      { type: 'box', w: 0.4, d: 0.8, h: 0.6, dx: -31.9, dz: -47.6, y0: 4.9, rotY: -0.262, flat: 0x9f988e },
+      { type: 'box', w: 0.4, d: 0.8, h: 0.6, dx: -27.1, dz: -48.9, y0: 4.9, rotY: -0.262, flat: 0x9f988e },
+      { type: 'box', w: 1.8, d: 0.06, h: 3.4, dx: -36.4, dz: -47.1, y0: 5.8, rotY: -0.262, flat: 0x9f988e },
+      { type: 'box', w: 1.4, d: 0.12, h: 3, dx: -36.4, dz: -47.1, y0: 5.8, rotY: -0.262, flat: 0xd9d4cb },
+      { type: 'dome', rx: 0.7, rz: 0.12, h: 0.7, dx: -36.4, dz: -47.1, y0: 8.8, flat: 0xd9d4cb },
+      { type: 'box', w: 1.8, d: 0.06, h: 3.4, dx: -32.1, dz: -48.3, y0: 5.8, rotY: -0.262, flat: 0x9f988e },
+      { type: 'box', w: 1.4, d: 0.12, h: 3, dx: -32.1, dz: -48.2, y0: 5.8, rotY: -0.262, flat: 0xd9d4cb },
+      { type: 'dome', rx: 0.7, rz: 0.12, h: 0.7, dx: -32.1, dz: -48.2, y0: 8.8, flat: 0xd9d4cb },
+      { type: 'box', w: 1.8, d: 0.06, h: 3.4, dx: -27.7, dz: -49.4, y0: 5.8, rotY: -0.262, flat: 0x9f988e },
+      { type: 'box', w: 1.4, d: 0.12, h: 3, dx: -27.7, dz: -49.4, y0: 5.8, rotY: -0.262, flat: 0xd9d4cb },
+      { type: 'dome', rx: 0.7, rz: 0.12, h: 0.7, dx: -27.7, dz: -49.4, y0: 8.8, flat: 0xd9d4cb },
+      { type: 'box', w: 15, d: 1.5, h: 0.6, dx: -31.9, dz: -47.6, rotY: -0.262, flat: 0x9f988e },
+      { type: 'box', w: 0.9, d: 1.2, h: 4.2, dx: -38.8, dz: -45.9, y0: 0.6, rotY: -0.262, flat: 0x9f988e },
+      { type: 'box', w: 0.9, d: 1.2, h: 4.2, dx: -34.2, dz: -47.1, y0: 0.6, rotY: -0.262, flat: 0x9f988e },
+      { type: 'box', w: 0.9, d: 1.2, h: 4.2, dx: -29.7, dz: -48.3, y0: 0.6, rotY: -0.262, flat: 0x9f988e },
+      { type: 'box', w: 0.9, d: 1.2, h: 4.2, dx: -25.1, dz: -49.5, y0: 0.6, rotY: -0.262, flat: 0x9f988e },
+      { type: 'box', w: 3.8, d: 0.1, h: 4.2, dx: -36.5, dz: -46.5, y0: 0.6, rotY: -0.262, flat: 0x2a2a2a },
+      { type: 'dome', rx: 1.9, rz: 0.3, h: 1.9, dx: -36.4, dz: -46.3, y0: 2.9, flat: 0xd9d4cb },
+      { type: 'box', w: 3.8, d: 0.1, h: 4.2, dx: -31.9, dz: -47.7, y0: 0.6, rotY: -0.262, flat: 0x2a2a2a },
+      { type: 'dome', rx: 1.9, rz: 0.3, h: 1.9, dx: -31.9, dz: -47.5, y0: 2.9, flat: 0xd9d4cb },
+      { type: 'box', w: 3.8, d: 0.1, h: 4.2, dx: -27.4, dz: -48.9, y0: 0.6, rotY: -0.262, flat: 0x2a2a2a },
+      { type: 'dome', rx: 1.9, rz: 0.3, h: 1.9, dx: -27.4, dz: -48.7, y0: 2.9, flat: 0xd9d4cb },
+      { type: 'box', w: 15, d: 0.6, h: 0.2, dx: -31.6, dz: -46.6, y0: 0.4, rotY: -0.262, flat: 0x9f988e },
+      { type: 'box', w: 15, d: 0.6, h: 0.2, dx: -31.5, dz: -46, y0: 0.2, rotY: -0.262, flat: 0x9f988e },
+      { type: 'box', w: 15, d: 0.6, h: 0.2, dx: -31.3, dz: -45.4, rotY: -0.262, flat: 0x9f988e },
+      { type: 'box', w: 13, d: 19, h: 16, dx: -47.6, dz: -51.9, rotY: -0.262, flat: 0x9c4a36 },
+      { type: 'ridge', w: 14, d: 20, h: 0, ridgeH: 2.5, dx: -47.6, dz: -51.9, y0: 16, rotY: -0.262, flat: 0x67635c },
+      { type: 'cylinder', r: 0.12, h: 1.5, dx: -47.6, dz: -51.9, y0: 18.5, flat: 0x9f988e },
+      { type: 'box', w: 13.6, d: 19.6, h: 0.4, dx: -47.6, dz: -51.9, y0: 15.6, rotY: -0.262, flat: 0x9f988e },
+      { type: 'box', w: 2.6, d: 0.06, h: 3.4, dx: -45.1, dz: -42.7, y0: 11.5, rotY: -0.262, flat: 0x9f988e },
+      { type: 'box', w: 2.2, d: 0.12, h: 2.8, dx: -45.1, dz: -42.7, y0: 11.5, rotY: -0.262, flat: 0xd9d4cb },
+      { type: 'dome', rx: 1.1, rz: 0.12, h: 1.1, dx: -45.1, dz: -42.7, y0: 14.3, flat: 0xd9d4cb },
+      { type: 'box', w: 1.8, d: 0.06, h: 3.6, dx: -45.1, dz: -42.7, y0: 7, rotY: -0.262, flat: 0x9f988e },
+      { type: 'box', w: 1.4, d: 0.12, h: 3.2, dx: -45.1, dz: -42.7, y0: 7, rotY: -0.262, flat: 0xd9d4cb },
+      { type: 'box', w: 1.6, d: 0.06, h: 3, dx: -47.5, dz: -42.1, y0: 0.8, rotY: -0.262, flat: 0x9f988e },
+      { type: 'box', w: 1.2, d: 0.12, h: 2.6, dx: -47.5, dz: -42, y0: 0.8, rotY: -0.262, flat: 0xd9d4cb },
+      { type: 'box', w: 1.6, d: 0.06, h: 3, dx: -42.7, dz: -43.4, y0: 0.8, rotY: -0.262, flat: 0x9f988e },
+      { type: 'box', w: 1.2, d: 0.12, h: 2.6, dx: -42.7, dz: -43.3, y0: 0.8, rotY: -0.262, flat: 0xd9d4cb },
+      { type: 'box', w: 13, d: 19, h: 16, dx: -20.5, dz: -59.2, rotY: -0.262, flat: 0x9c4a36 },
+      { type: 'ridge', w: 14, d: 20, h: 0, ridgeH: 2.5, dx: -20.5, dz: -59.2, y0: 16, rotY: -0.262, flat: 0x67635c },
+      { type: 'cylinder', r: 0.12, h: 1.5, dx: -20.5, dz: -59.2, y0: 18.5, flat: 0x9f988e },
+      { type: 'box', w: 13.6, d: 19.6, h: 0.4, dx: -20.5, dz: -59.2, y0: 15.6, rotY: -0.262, flat: 0x9f988e },
+      { type: 'box', w: 2.6, d: 0.06, h: 3.4, dx: -18.1, dz: -50, y0: 11.5, rotY: -0.262, flat: 0x9f988e },
+      { type: 'box', w: 2.2, d: 0.12, h: 2.8, dx: -18, dz: -49.9, y0: 11.5, rotY: -0.262, flat: 0xd9d4cb },
+      { type: 'dome', rx: 1.1, rz: 0.12, h: 1.1, dx: -18, dz: -49.9, y0: 14.3, flat: 0xd9d4cb },
+      { type: 'box', w: 1.8, d: 0.06, h: 3.6, dx: -18.1, dz: -50, y0: 7, rotY: -0.262, flat: 0x9f988e },
+      { type: 'box', w: 1.4, d: 0.12, h: 3.2, dx: -18, dz: -49.9, y0: 7, rotY: -0.262, flat: 0xd9d4cb },
+      { type: 'box', w: 1.6, d: 0.06, h: 3, dx: -20.5, dz: -49.3, y0: 0.8, rotY: -0.262, flat: 0x9f988e },
+      { type: 'box', w: 1.2, d: 0.12, h: 2.6, dx: -20.5, dz: -49.3, y0: 0.8, rotY: -0.262, flat: 0xd9d4cb },
+      { type: 'box', w: 1.6, d: 0.06, h: 3, dx: -15.6, dz: -50.6, y0: 0.8, rotY: -0.262, flat: 0x9f988e },
+      { type: 'box', w: 1.2, d: 0.12, h: 2.6, dx: -15.6, dz: -50.6, y0: 0.8, rotY: -0.262, flat: 0xd9d4cb },
+// --- Statue + roundabout + main gate + guard booth (#334) ---
+      { type: 'cylinder', r: 7, h: 0.5, dx: -26.9, dz: -29, flat: 0x9c4a36 },
+      { type: 'cylinder', r: 6.2, h: 0.65, dx: -26.9, dz: -29, y0: 0.5, flat: 0xa03a2a },
+      { type: 'box', w: 0.6, d: 0.6, h: 0.5, dx: -30.9, dz: -33, y0: 1.15, rotY: -0.262, flat: 0x4e7d32 },
+      { type: 'box', w: 0.6, d: 0.6, h: 0.5, dx: -22.9, dz: -33, y0: 1.15, rotY: -0.262, flat: 0x4e7d32 },
+      { type: 'box', w: 0.6, d: 0.6, h: 0.5, dx: -30.9, dz: -25, y0: 1.15, rotY: -0.262, flat: 0x4e7d32 },
+      { type: 'box', w: 0.6, d: 0.6, h: 0.5, dx: -22.9, dz: -25, y0: 1.15, rotY: -0.262, flat: 0x4e7d32 },
+      { type: 'box', w: 2, d: 2, h: 0.3, dx: -26.9, dz: -29, y0: 1.15, rotY: -0.262, flat: 0x1c4536 },
+      { type: 'box', w: 1.6, d: 1.6, h: 2.4, dx: -26.9, dz: -29, y0: 1.45, rotY: -0.262, flat: 0x1c4536 },
+      { type: 'box', w: 1.8, d: 1.8, h: 0.25, dx: -26.9, dz: -29, y0: 3.85, rotY: -0.262, flat: 0x1c4536 },
+      { type: 'box', w: 0.75, d: 0.45, h: 1.1, dx: -26.9, dz: -29, y0: 4.1, rotY: -0.262, flat: 0x8a5a3a },
+      { type: 'box', w: 0.75, d: 0.45, h: 0.65, dx: -26.9, dz: -29, y0: 5.2, rotY: -0.262, flat: 0x8a5a3a },
+      { type: 'cylinder', r: 0.16, h: 0.3, dx: -26.9, dz: -29, y0: 5.85, flat: 0x8a5a3a },
+      { type: 'box', w: 0.18, d: 0.18, h: 0.9, dx: -26.5, dz: -29.1, y0: 5.2, rotY: -0.262, flat: 0x8a5a3a },
+      { type: 'box', w: 0.18, d: 0.18, h: 0.9, dx: -27.3, dz: -28.9, y0: 5.2, rotY: -0.262, flat: 0x8a5a3a },
+      { type: 'cylinder', r: 0.05, h: 1.3, dx: -27.3, dz: -28.8, y0: 4.1, flat: 0x6b4a30 },
+      { type: 'box', w: 0.9, d: 0.9, h: 3.4, dx: -25.2, dz: 120.8, rotY: 2.9004, flat: 0x9c4a36 },
+      { type: 'box', w: 1.1, d: 1.1, h: 0.15, dx: -25.2, dz: 120.8, y0: 3.4, rotY: 2.9004, flat: 0x9f988e },
+      { type: 'box', w: 0.9, d: 0.9, h: 3.4, dx: -34.8, dz: 123.2, rotY: 2.9004, flat: 0x9c4a36 },
+      { type: 'box', w: 1.1, d: 1.1, h: 0.15, dx: -34.8, dz: 123.2, y0: 3.4, rotY: 2.9004, flat: 0x9f988e },
+      { type: 'box', w: 12, d: 3, h: 0.3, dx: -30, dz: 122, y0: 3.6, rotY: 2.9004, flat: 0xf4f1ea },
+      { type: 'box', w: 4.5, d: 0.08, h: 0.08, dx: -27.6, dz: 121.4, y0: 2.12, rotY: 2.9004, flat: 0x232323 },
+      { type: 'box', w: 4.5, d: 0.08, h: 0.08, dx: -27.6, dz: 121.4, y0: 0.1, rotY: 2.9004, flat: 0x232323 },
+      { type: 'box', w: 0.08, d: 0.08, h: 2.2, dx: -25.5, dz: 120.9, y0: 0.1, flat: 0x232323 },
+      { type: 'box', w: 0.08, d: 0.08, h: 2.2, dx: -29.7, dz: 121.9, y0: 0.1, flat: 0x232323 },
+      { type: 'box', w: 0.06, d: 0.06, h: 2, dx: -25.9, dz: 121, y0: 0.1, flat: 0x232323 },
+      { type: 'box', w: 0.06, d: 0.06, h: 2, dx: -26.2, dz: 121.1, y0: 0.1, flat: 0x232323 },
+      { type: 'box', w: 0.06, d: 0.06, h: 2, dx: -26.6, dz: 121.2, y0: 0.1, flat: 0x232323 },
+      { type: 'box', w: 0.06, d: 0.06, h: 2, dx: -27, dz: 121.3, y0: 0.1, flat: 0x232323 },
+      { type: 'box', w: 0.06, d: 0.06, h: 2, dx: -27.4, dz: 121.4, y0: 0.1, flat: 0x232323 },
+      { type: 'box', w: 0.06, d: 0.06, h: 2, dx: -27.8, dz: 121.4, y0: 0.1, flat: 0x232323 },
+      { type: 'box', w: 0.06, d: 0.06, h: 2, dx: -28.2, dz: 121.5, y0: 0.1, flat: 0x232323 },
+      { type: 'box', w: 0.06, d: 0.06, h: 2, dx: -28.6, dz: 121.6, y0: 0.1, flat: 0x232323 },
+      { type: 'box', w: 0.06, d: 0.06, h: 2, dx: -29, dz: 121.7, y0: 0.1, flat: 0x232323 },
+      { type: 'box', w: 0.06, d: 0.06, h: 2, dx: -29.3, dz: 121.8, y0: 0.1, flat: 0x232323 },
+      { type: 'box', w: 4.5, d: 0.08, h: 0.08, dx: -32.4, dz: 122.6, y0: 2.12, rotY: 2.9004, flat: 0x232323 },
+      { type: 'box', w: 4.5, d: 0.08, h: 0.08, dx: -32.4, dz: 122.6, y0: 0.1, rotY: 2.9004, flat: 0x232323 },
+      { type: 'box', w: 0.08, d: 0.08, h: 2.2, dx: -30.3, dz: 122.1, y0: 0.1, flat: 0x232323 },
+      { type: 'box', w: 0.08, d: 0.08, h: 2.2, dx: -34.5, dz: 123.1, y0: 0.1, flat: 0x232323 },
+      { type: 'box', w: 0.06, d: 0.06, h: 2, dx: -30.7, dz: 122.2, y0: 0.1, flat: 0x232323 },
+      { type: 'box', w: 0.06, d: 0.06, h: 2, dx: -31, dz: 122.3, y0: 0.1, flat: 0x232323 },
+      { type: 'box', w: 0.06, d: 0.06, h: 2, dx: -31.4, dz: 122.4, y0: 0.1, flat: 0x232323 },
+      { type: 'box', w: 0.06, d: 0.06, h: 2, dx: -31.8, dz: 122.5, y0: 0.1, flat: 0x232323 },
+      { type: 'box', w: 0.06, d: 0.06, h: 2, dx: -32.2, dz: 122.6, y0: 0.1, flat: 0x232323 },
+      { type: 'box', w: 0.06, d: 0.06, h: 2, dx: -32.6, dz: 122.6, y0: 0.1, flat: 0x232323 },
+      { type: 'box', w: 0.06, d: 0.06, h: 2, dx: -33, dz: 122.7, y0: 0.1, flat: 0x232323 },
+      { type: 'box', w: 0.06, d: 0.06, h: 2, dx: -33.4, dz: 122.8, y0: 0.1, flat: 0x232323 },
+      { type: 'box', w: 0.06, d: 0.06, h: 2, dx: -33.8, dz: 122.9, y0: 0.1, flat: 0x232323 },
+      { type: 'box', w: 0.06, d: 0.06, h: 2, dx: -34.1, dz: 123, y0: 0.1, flat: 0x232323 },
+      { type: 'box', w: 3, d: 3, h: 3, dx: -25.2, dz: 116.7, rotY: 2.9004, flat: 0xd9d2c4 },
+      { type: 'box', w: 3.4, d: 3.4, h: 0.2, dx: -25.2, dz: 116.7, y0: 3, rotY: 2.9004, flat: 0x9f988e },
+      { type: 'box', w: 1.2, d: 0.06, h: 1.2, dx: -24.8, dz: 118.2, y0: 1.2, rotY: 2.9004, flat: 0x2e3a46 },
+// --- Generator trees along the fence line (#334) ---
+      { type: 'cylinder', r: 0.16, h: 2.1, dx: -32, dz: -99.4, flat: 0x6b4f35 },
+      { type: 'dome', rx: 2.8031623958144336, rz: 2.8031623958144336, h: 2.9, dx: -32, dz: -99.4, flat: 0x4a7038 },
+      { type: 'cylinder', r: 0.16, h: 2.1, dx: -18, dz: -107.8, flat: 0x6b4f35 },
+      { type: 'dome', rx: 2.3354861022438853, rz: 2.3354861022438853, h: 2.5, dx: -18, dz: -107.8, flat: 0x557c40 },
+      { type: 'cylinder', r: 0.16, h: 2.1, dx: 2.1, dz: -113.3, flat: 0x6b4f35 },
+      { type: 'dome', rx: 2.2382414155639707, rz: 2.2382414155639707, h: 2.4, dx: 2.1, dz: -113.3, flat: 0x3d6335 },
+      { type: 'cylinder', r: 0.16, h: 2.1, dx: 22.2, dz: -118.9, flat: 0x6b4f35 },
+      { type: 'dome', rx: 2.1356674016918986, rz: 2.1356674016918986, h: 2.2, dx: 22.2, dz: -118.9, flat: 0x4a7038 },
+      { type: 'cylinder', r: 0.16, h: 2.1, dx: 42.3, dz: -124.5, flat: 0x6b4f35 },
+      { type: 'dome', rx: 2.50630898992531, rz: 2.50630898992531, h: 2.6, dx: 42.3, dz: -124.5, flat: 0x557c40 },
+      { type: 'cylinder', r: 0.16, h: 2.1, dx: 62.5, dz: -130.1, flat: 0x6b4f35 },
+      { type: 'dome', rx: 2.8122093920595943, rz: 2.8122093920595943, h: 3, dx: 62.5, dz: -130.1, flat: 0x3d6335 },
+      { type: 'cylinder', r: 0.16, h: 2.1, dx: 60.6, dz: -99, flat: 0x6b4f35 },
+      { type: 'dome', rx: 2.142720332928002, rz: 2.142720332928002, h: 2.2, dx: 60.6, dz: -99, flat: 0x4a7038 },
+      { type: 'cylinder', r: 0.16, h: 2.1, dx: 85.3, dz: -105.1, flat: 0x6b4f35 },
+      { type: 'dome', rx: 2.0006246486213057, rz: 2.0006246486213057, h: 2.1, dx: 85.3, dz: -105.1, flat: 0x557c40 },
+      { type: 'cylinder', r: 0.16, h: 2.1, dx: 106.7, dz: -97.8, flat: 0x6b4f35 },
+      { type: 'dome', rx: 2.6819984862580895, rz: 2.6819984862580895, h: 2.8, dx: 106.7, dz: -97.8, flat: 0x3d6335 },
+      { type: 'cylinder', r: 0.16, h: 2.1, dx: 108.8, dz: -77, flat: 0x6b4f35 },
+      { type: 'dome', rx: 2.894833953678608, rz: 2.894833953678608, h: 3, dx: 108.8, dz: -77, flat: 0x4a7038 },
+      { type: 'cylinder', r: 0.16, h: 2.1, dx: 116.5, dz: -58.7, flat: 0x6b4f35 },
+      { type: 'dome', rx: 2.121491962438449, rz: 2.121491962438449, h: 2.2, dx: 116.5, dz: -58.7, flat: 0x557c40 },
+      { type: 'cylinder', r: 0.16, h: 2.1, dx: 121.4, dz: -39.1, flat: 0x6b4f35 },
+      { type: 'dome', rx: 2.8368784367106854, rz: 2.8368784367106854, h: 3, dx: 121.4, dz: -39.1, flat: 0x3d6335 },
+      { type: 'cylinder', r: 0.16, h: 2.1, dx: 126.3, dz: -19.6, flat: 0x6b4f35 },
+      { type: 'dome', rx: 2.4512068956159054, rz: 2.4512068956159054, h: 2.6, dx: 126.3, dz: -19.6, flat: 0x4a7038 },
+      { type: 'cylinder', r: 0.16, h: 2.1, dx: 133, dz: 6, flat: 0x6b4f35 },
+      { type: 'dome', rx: 2.284649210842326, rz: 2.284649210842326, h: 2.4, dx: 133, dz: 6, flat: 0x557c40 },
+      // Perimeter fence + gate (issue #334): red-brick base with
+      // vertical iron bars, generated from the compact segment list
+      // above (the generator's fence line, re-based; the gate, statue
+      // and trees are the static parts above/below).
+      ...jianguoFenceParts(),
       { type: 'box', w: 61, d: 11, h: 14.4, dx: -65.1, dz: -18.3, rotY: -0.266 },
       { type: 'box', w: 38, d: 11, h: 14.4, dx: -97.6, dz: -29.8, rotY: 1.29 },
       { type: 'box', w: 33.2, d: 23, h: 14.4, dx: -27.2, dz: -32.1, rotY: 1.299 },
@@ -4150,13 +4492,6 @@ const LANDMARK_STRUCTURES = [
       { type: 'box', w: 64, d: 15, h: 18, dx: 114.1, dz: -42.1, rotY: 1.512 },
       { type: 'box', w: 36, d: 13, h: 18, dx: 90.9, dz: -62, rotY: 0.297 },
       { type: 'box', w: 48, d: 26.6, h: 25.2, dx: 74.7, dz: -86.4, rotY: -0.213 },
-      // The courts east of the track, from the OSM pitch ways,
-      // one painted slab per row (a single union rect overshoots
-      // the diagonal band and clips the campus east drive):
-      // volleyball 1087155062-63 north, acrylic basketball
-      // 202768713 / 1087155058-60 south, the two tennis courts
-      // 202768661 / 1087550733 east, and the baseball practice
-      // ground (1271725984) at the SE.
       { type: 'box', w: 24, d: 55, h: 0.25, y0: 0.02, dx: 60.6, dz: 10.5, rotY: -0.265, flat: 0x3f6d8e },
       { type: 'box', w: 63, d: 37, h: 0.25, y0: 0.02, dx: 52.5, dz: 60.3, rotY: -0.265, flat: 0x3f6d8e },
       { type: 'box', w: 32, d: 33, h: 0.25, y0: 0.02, dx: 118.6, dz: 16, rotY: -0.265, flat: 0x3f7d6b },
