@@ -244,7 +244,7 @@ test('issue #328: the two registry campuses have perimeter fences; Qingjiang tra
   assert.equal(shipaiCaps.length, 2, 'Shipai track keeps its two end caps');
 });
 
-test('issue #334: Jianguo fence (red brick + iron bars), Honglou detail, statue', () => {
+test('issue #334/#344: Jianguo fence (red brick + iron bars), Honglou detail faces north, statue + gate on the north edge', () => {
   const BRICK = 0x9c4a36, IRON = 0x232323, STONE = 0x9f988e, PLINTH = 0x1c4536, DARK = 0x2a2a2a;
   const towers = plan.landmarkTowers || [];
   const jianguo = towers.find((s) => s.id === 'jianguo-high-school');
@@ -258,18 +258,27 @@ test('issue #334: Jianguo fence (red brick + iron bars), Honglou detail, statue'
   // 2.44 m), the fence leaves a gap — a gate opening — instead of
   // stepping back into the road's path. One long north stretch runs
   // parallel-close to the road and is stepped back 1.4 m.
-  // 26 bases + 26 rails + 3402 bars + 127 piers (25 ring joints + 102
-  // intermediate, each a pier + a cap) = 3708 fence parts.
+  // #344 moves the main gate to the north edge (南海路正門): the 5.8 m
+  // wall on the entrance axis is removed, the west adjoining wall is
+  // trimmed 0.8 m to open a 10 m gate gap, and the old south-edge
+  // gate gap is closed with a 9.9 m filler wall. The east adjoining wall
+  // is untouched — its end is the driveway gap's edge, so 2.6 m of the
+  // entrance drive's width stays open east of the east pier. Walls stay
+  // 26; bars 3402 - 2 (trimmed wall) - 19 (removed wall) + 33 (filler)
+  // = 3414; joints 25 - 2 (removed wall ends) = 23, intermediate piers
+  // unchanged (the trimmed wall keeps its 5), so piers/caps 127 - 2 = 125.
+  // 26 bases + 26 rails + 3414 bars + 125 piers (23 ring joints + 102
+  // intermediate, each a pier + a cap) = 3716 fence parts.
   const bases = jianguo.parts.filter((p) => p.type === 'box' && p.flat === BRICK && p.h === 1.0 && p.d === 0.35);
   assert.equal(bases.length, 26, 'fence has 26 brick bases (22 generator walls, 1 stepped back, 5 road crossings + 1 corner left as gaps)');
   const bars = jianguo.parts.filter((p) => p.type === 'box' && p.flat === IRON && p.h === 1.1 && p.w === 0.06);
-  assert.equal(bars.length, 3402, 'fence has 3402 vertical iron bars (every 0.3 m along the fence)');
+  assert.equal(bars.length, 3414, 'fence has 3414 vertical iron bars (every 0.3 m along the fence)');
   const rails = jianguo.parts.filter((p) => p.type === 'box' && p.flat === IRON && p.h === 0.08 && p.d === 0.1 && p.w !== 4.5);
   assert.equal(rails.length, 26, 'fence has 26 top rails');
   const piers = jianguo.parts.filter((p) => p.type === 'box' && p.flat === BRICK && p.h === 2.3 && p.w === 0.6);
-  assert.equal(piers.length, 127, 'fence has 127 brick piers (25 joints + 102 intermediate)');
+  assert.equal(piers.length, 125, 'fence has 125 brick piers (23 joints + 102 intermediate)');
   const caps = jianguo.parts.filter((p) => p.type === 'box' && p.flat === STONE && p.h === 0.12 && p.w === 0.75);
-  assert.equal(caps.length, 127, 'every pier has a stone cap');
+  assert.equal(caps.length, 125, 'every pier has a stone cap');
   // Every fence base centre sits on or just inside the OSM ring
   // (relation 3392608): on the ring where it can be, stepped back at
   // most 1.4 m (the one parallel-close north stretch; the road
@@ -279,38 +288,43 @@ test('issue #334: Jianguo fence (red brick + iron bars), Honglou detail, statue'
     const d = distToRing(ring, jianguo.x + (b.dx || 0), jianguo.z + (b.dz || 0));
     assert.ok(d < 2, `fence base on/near the OSM ring (got ${d.toFixed(2)} m at ${b.dx}, ${b.dz})`);
   }
-  // Main gate: south edge, on the entrance axis from the roundabout.
+  // Main gate (#344): north edge, the 南海路正門 on the entrance axis from
+  // the roundabout — the #339 south-edge gate was 180 deg flipped (the
+  // real main gate faces north toward the Botanical Garden across 南海路).
   // Two tall brick piers + white flat canopy + two closed iron leaves.
   const gatePiers = jianguo.parts.filter((p) => p.type === 'box' && p.flat === BRICK && p.h === 3.4);
   assert.equal(gatePiers.length, 2, 'main gate has two tall brick piers');
-  assert.ok(gatePiers.some((p) => p.dx === -25.2 && p.dz === 120.8), 'east gate pier at (-25.2, 120.8)');
-  assert.ok(gatePiers.some((p) => p.dx === -34.8 && p.dz === 123.2), 'west gate pier at (-34.8, 123.2)');
+  assert.ok(gatePiers.some((p) => p.dx === -41.7 && p.dz === -103.2), 'east gate pier at (-41.7, -103.2)');
+  assert.ok(gatePiers.some((p) => p.dx === -51.3 && p.dz === -100.6), 'west gate pier at (-51.3, -100.6)');
   const canopy = jianguo.parts.find((p) => p.type === 'box' && p.flat === 0xf4f1ea && p.w === 12 && p.h === 0.3);
   assert.ok(canopy, 'white flat canopy over the gate');
-  assert.equal(canopy.dx, -30, 'canopy centred on the gate (-30, 122)');
-  assert.equal(canopy.dz, 122, 'canopy centred on the gate (-30, 122)');
+  assert.equal(canopy.dx, -46.5, 'canopy centred on the gate (-46.5, -101.9)');
+  assert.equal(canopy.dz, -101.9, 'canopy centred on the gate (-46.5, -101.9)');
   const leafBars = jianguo.parts.filter((p) => p.type === 'box' && p.flat === IRON && p.h === 2.0 && p.w === 0.06);
   assert.equal(leafBars.length, 20, 'two closed gate leaves, 10 vertical bars each');
-  // The gate faces a road: nearest roadbed vertex within 15 m.
+  // The gate faces a road: nearest roadbed vertex within 15 m (南海路, 11.3 m).
   let nearest = Infinity;
   for (const bed of TAIPEI_GEO.roadbeds || []) {
     const pts = bed.pts;
     for (let i = 0; i + 1 < pts.length; i += 2) {
-      nearest = Math.min(nearest, Math.hypot(pts[i] - (jianguo.x - 30), pts[i + 1] - (jianguo.z + 122)));
+      nearest = Math.min(nearest, Math.hypot(pts[i] - (jianguo.x - 46.5), pts[i + 1] - (jianguo.z - 101.9)));
     }
   }
   assert.ok(nearest < 15, `gate faces a road (nearest roadbed vertex ${nearest.toFixed(1)} m)`);
-  // Honglou (#334): the towers flank the ~15 m central block at u = +/-14 m
-  // (the old +/-40 m put them at the building's ends — wrong, per the 2018
-  // close-up photo). The main box is kept; the flat roof slab is a pitched
-  // ridge; the central gable, emblem, balcony and colonnade are new.
+  // Honglou (#334, flipped north by #344): the towers flank the ~15 m
+  // central block at u = +/-14 m (the old +/-40 m put them at the
+  // building's ends — wrong, per the 2018 close-up photo). The main box
+  // is kept; the flat roof slab is a pitched ridge; the central gable,
+  // emblem, balcony and colonnade are new. #344 mirrors the whole detail
+  // group across the building's long axis, so it sits on the NORTH face
+  // (toward the 南海路正門) instead of the south face.
   const honglouTowers = jianguo.parts.filter((p) => p.type === 'box' && p.w === 13 && p.d === 19 && p.h === 16);
   assert.equal(honglouTowers.length, 2, 'Honglou has two guard towers');
-  assert.ok(honglouTowers.some((p) => p.dx === -47.6 && p.dz === -51.9), 'west tower at u = -14 m');
-  assert.ok(honglouTowers.some((p) => p.dx === -20.5 && p.dz === -59.2), 'east tower at u = +14 m');
+  assert.ok(honglouTowers.some((p) => p.dx === -48.1 && p.dz === -53.8), 'west tower at u = -14 m, north side');
+  assert.ok(honglouTowers.some((p) => p.dx === -21 && p.dz === -61.1), 'east tower at u = +14 m, north side');
   const gable = jianguo.parts.find((p) => p.type === 'ridge' && p.d === 15 && p.ridgeH === 3.4);
   assert.ok(gable, 'central gable (triangular pediment) present');
-  assert.ok(Math.abs(gable.rotY - 1.309) < 0.001, `gable rotated 90 deg so its triangle faces south (got ${gable.rotY})`);
+  assert.ok(Math.abs(gable.rotY - 1.309) < 0.001, `gable rotated 90 deg so its triangle faces north (got ${gable.rotY})`);
   const balcony = jianguo.parts.find((p) => p.type === 'box' && p.flat === STONE && p.w === 15 && p.h === 0.3 && p.y0 === 5.5);
   assert.ok(balcony, 'stone balustrade balcony across the central block');
   const balusters = jianguo.parts.filter((p) => p.type === 'box' && p.flat === 0xd9d4cb && p.h === 0.9 && p.w === 0.08);
@@ -323,22 +337,23 @@ test('issue #334: Jianguo fence (red brick + iron bars), Honglou detail, statue'
   assert.equal(archDomes.length, 3, 'three white dome arch tops over the doorways');
   const roofRidge = jianguo.parts.find((p) => p.type === 'ridge' && p.w === 100 && p.d === 18 && p.ridgeH === 2.6);
   assert.ok(roofRidge, 'pitched grey roof ridge replaces the flat slab');
-  // Statue (#334): the Chiang Kai-shek bronze (1975) — a STANDING figure
-  // on a dark-green marble plinth — at the roundabout, 20 m south of the
-  // Honglou front face on the entrance axis.
+  // Statue (#334, moved north by #344): the Chiang Kai-shek bronze (1975) —
+  // a STANDING figure on a dark-green marble plinth — at the roundabout,
+  // 20 m north of the Honglou front face on the entrance axis, in the gate
+  // plaza in front of the 紅樓 (Wikipedia: "位於大門廣場，紅樓前方").
   const plinth = jianguo.parts.find((p) => p.type === 'box' && p.flat === PLINTH && p.w === 1.6 && p.h === 2.4);
   assert.ok(plinth, 'dark-green marble plinth present');
-  assert.equal(plinth.dx, -26.9, 'plinth at the roundabout centre (-26.9, -29.0)');
-  assert.equal(plinth.dz, -29, 'plinth at the roundabout centre (-26.9, -29.0)');
+  assert.equal(plinth.dx, -41.7, 'plinth at the roundabout centre (-41.7, -84.0)');
+  assert.equal(plinth.dz, -84, 'plinth at the roundabout centre (-41.7, -84.0)');
   const curb = jianguo.parts.find((p) => p.type === 'cylinder' && p.r === 7 && p.flat === BRICK);
   assert.ok(curb, 'roundabout curb (r 7 m) present');
-  assert.equal(curb.dx, -26.9, 'roundabout centred on the entrance axis');
+  assert.equal(curb.dx, -41.7, 'roundabout centred on the entrance axis');
   const head = jianguo.parts.find((p) => p.type === 'cylinder' && p.r === 0.16 && p.flat === 0x8a5a3a);
   assert.ok(head, 'bronze figure head present');
   assert.ok(Math.abs(head.y0 - 5.85) < 0.01, `figure stands ~2.05 m on the plinth (head y0 ${head.y0})`);
-  // The whole entry: 150 Honglou + 3708 fence + 51 statue/gate/guard +
-  // 28 trees + 21 classroom/court/track parts = 3958.
-  assert.equal(jianguo.parts.length, 3958, 'Jianguo part count pinned');
+  // The whole entry: 150 Honglou + 3716 fence + 51 statue/gate/guard +
+  // 28 trees + 21 classroom/court/track parts = 3966.
+  assert.equal(jianguo.parts.length, 3966, 'Jianguo part count pinned');
 });
 
 test('issue #333: Qingjiang track is a draped mesh on a groundAt plan', () => {
