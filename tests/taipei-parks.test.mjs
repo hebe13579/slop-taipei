@@ -98,10 +98,10 @@ test('amenity census: the shipped totals are pinned', () => {
   // lamp −1, bush −1 (grand total 23,318 -> 23,316).
   assert.deepEqual(counts, {
     bench: 4772, lamp: 4391, bin: 2729, vending: 353,
-    restroom: 93, sculpture: 23, fountain: 15, bush: 10361,
+    restroom: 93, sculpture: 23, fountain: 15, bush: 10360, // Issue #313: bush 10,361 -> 10,360 (-1 - the bush at (-3488,-10200.7) in Beitou has no counterpart on the new tree (tolerance-2 m item diff in blocks313-evidence/parks-diff313.log); 105 items shift 0.1-2 m with the re-drawn lots; the placement total drops by the same 1)
     playground: 159, picnic: 88, court: 121, pavilion: 211,
   });
-  assert.equal(Object.values(counts).reduce((s, v) => s + v, 0), 23316, 'grand total');
+  assert.equal(Object.values(counts).reduce((s, v) => s + v, 0), 23315, 'grand total'); // Issue #313: grand total 23,316 -> 23,315 (-1, the bush above)
   assert.equal(stats.parksTotal, 2268);
   assert.equal(stats.parksPlaza, 35);
   assert.equal(stats.parksPathless, 1625);
@@ -126,7 +126,7 @@ test('amenity census: the shipped totals are pinned', () => {
     // Re-pinned for issue #327: small 2,124 -> 2,122 (the 東門 gate
     // removes 1 lamp + 1 bush from the 東門圓環 island, a 'small'
     // park — see the census re-pin above); other classes unchanged.
-    { large: 12497, medium: 8637, small: 2122, tiny: 60 },
+    { large: 12497, medium: 8636, small: 2122, tiny: 60 }, // Issue #313: medium 8,637 -> 8,636 (-1 - the lost bush at (-3488,-10200.7) sits in a medium-class park; large/small/tiny unchanged)
     'items by area class',
   );
   // Every park eligible for a restroom got one (81 of 81).
@@ -206,7 +206,7 @@ test('placement invariants: inside a park, off water and off paths', () => {
   // Re-pinned for issue #327: checked 22,739 -> 22,737 (grand total
   // 23,316 minus the 579 rect-kit items — the 東門 gate removes 1 lamp
   // + 1 bush from the 東門圓環 island, see the census re-pin above).
-  assert.equal(checked, 22737); // −9 for #257: the museum forecourt spots (see the census re-pin above); +31 for #289: the newly-dressed Songshou Plaza Park (7 benches, 8 lamps, 6 bins, 1 vending machine, 9 bushes — all inside the park, off water and off paths, as this test proves); −2 for #327: the 東門 gate's lamp + bush.
+  assert.equal(checked, 22736); // −9 for #257: the museum forecourt spots (see the census re-pin above); +31 for #289: the newly-dressed Songshou Plaza Park (7 benches, 8 lamps, 6 bins, 1 vending machine, 9 bushes — all inside the park, off water and off paths, as this test proves); −2 for #327: the 東門 gate's lamp + bush. // Issue #313: placed 22,737 -> 22,736 (-1, the bush above)
 });
 
 test('placement invariants, rect kits: pads inside a park, off water and carriageways, cores off paths', () => {

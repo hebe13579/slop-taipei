@@ -126,10 +126,10 @@ test('density fine (default): the shipped plan, byte-identical', () => {
   // survive — counts compose, hashes do not).
   // Issue #110: plan 68,482 -> 68,472 — 23 bridge links re-admitted + 71 bed-end fusions re-seat 1,282 lots near the changed roadbeds (net -10).
   // Issue #258: plan 68,472 -> 76,367 (+7,895) — the south expansion (see the schools test for the full lot-diff decomposition); the hash moves with the new lots (fingerprint is over every lot's rounded fields). blocksFine 2,897 -> 3,388 (+491 fine-classified south blocks).
-  assert.equal(implicit.lots, 76260); // re-pinned for #326: 76,209 -> 76,260 (+51 net: 127 added, 76 removed — lot diff in ntsec326-evidence/lotdiff326.log)
+  assert.equal(implicit.lots, 76650); // re-pinned for #326: 76,209 -> 76,260 (+51 net: 127 added, 76 removed — lot diff in ntsec326-evidence/lotdiff326.log) // Issue #313: 76,260 -> 76,650 (+390 net: 3,016 added, 2,626 removed - every changed lot at z < -7000 in the Beitou creek corridors; full-JSON plan diff in blocks313-evidence/plan-diff-ordered313.log)
   // Issue #110: the plan hash moves with the re-seated lots (fingerprint is over every lot's rounded fields).
   // Issue #282: the plan hash moves with the re-faced lots (the fingerprint mixes every lot's rounded x/z/w/d/h/rot/color, so turning 2,729 lots moves it; counts, blocksFine and lotsFine are unchanged). Proven by cross-run: with { facing: false } the fine hash is exactly c396d999 on BOTH this tree and pristine main (facing282-evidence/proof-crossrun.mjs).
-  assert.equal(implicit.hash, 'c094990b'); // BATCH: measured on the merged tree (fine)
+  assert.equal(implicit.hash, 'bd9e48e2'); // BATCH: measured on the merged tree (fine) // Issue #313: fine hash moves with the re-gridded Beitou lots (fingerprint is over every lot's rounded fields); lotsFine 50,813 -> 51,241
   // Issue #326: the plan hash moves with the re-sited lots (fingerprint is over every lot's rounded fields); measured on this tree.
   // BATCH (merge of #329 + #332): composed value MEASURED on the merged tree.
 
@@ -138,7 +138,7 @@ test('density fine (default): the shipped plan, byte-identical', () => {
   // Issue #258: lotsFine 44,907 -> 50,803 (+5,896 fine south lots).
   // Issue #278: lotsFine 50,803 -> 50,779 (-24 fine lots in the 3 new registry sites).
   // Issue #326: lotsFine 50,779 -> 50,813 (+34 — the re-site frees the old rects' fine lots and the re-routed roads re-cut the blocks they bound).
-  assert.equal(implicit.stats.lotsFine, 50813);
+  assert.equal(implicit.stats.lotsFine, 51241); // Issue #313: lotsFine 50,813 -> 51,241 (+428 - the re-gridded Beitou blocks classify 428 more lots fine)
 });
 
 test('density coarse: the pre-#124 rule (fine classifier never fires)', () => {
@@ -146,10 +146,10 @@ test('density coarse: the pre-#124 rule (fine classifier never fires)', () => {
   // Issue #110: coarse 36,103 -> 36,107 — the roadbed change moves lots at every density.
   // Issue #258: coarse 36,107 -> 39,574 (+3,467) — the south expansion plans coarse too.
   // Issue #326: coarse 39,433 -> 39,461 (+28 net in the coarse regime — the re-site frees the old rects' coarse lots and the re-routed roads re-cut the blocks they bound; measured on this tree).
-  assert.equal(fp.lots, 39461); // re-pinned for #278: the 3 new registry sites exclude 141 lots net at coarse density (see the fine test)
+  assert.equal(fp.lots, 39549); // re-pinned for #278: the 3 new registry sites exclude 141 lots net at coarse density (see the fine test) // Issue #313: coarse 39,461 -> 39,549 (+88 - the re-gridded Beitou blocks plan coarse too)
   // Issue #110: the coarse-plan hash moves with the re-seated lots.
   // Issue #282: the coarse-plan hash moves with the re-faced lots (the facing pass turns lots at every density; counts unchanged). Proven by cross-run: with { facing: false } the coarse hash is exactly 13647a59 on BOTH this tree and pristine main.
-  assert.equal(fp.hash, 'c117ee35'); // BATCH: measured on the merged tree (coarse)
+  assert.equal(fp.hash, 'e23d8240'); // BATCH: measured on the merged tree (coarse) // Issue #313: coarse hash moves with the re-gridded Beitou lots; coarse lots 39,461 -> 39,549
   // Issue #326: the coarse-plan hash moves with the re-sited lots; measured on this tree.
   // BATCH (merge of #329 + #332): composed value MEASURED on the merged tree.
 
@@ -162,10 +162,10 @@ test('density dense: the #124 study draft at ~100k lots', () => {
   // Issue #110: dense 93,140 -> 93,142 — the roadbed change moves lots at every density.
   // Issue #258: dense 93,142 -> 104,349 (+11,207) — the south expansion at the dense pitch.
   // Issue #326: dense 104,178 -> 104,230 (+52 — the re-site frees the old rects' lots and the re-routed roads re-cut the blocks they bound; measured on this tree).
-  assert.equal(fp.lots, 104230); // re-pinned for #278: the 3 new registry sites exclude 171 lots net at dense density (see the fine test)
+  assert.equal(fp.lots, 104760); // re-pinned for #278: the 3 new registry sites exclude 171 lots net at dense density (see the fine test) // Issue #313: dense 104,230 -> 104,760 (+530 - the re-gridded Beitou blocks pack 530 more lots at the dense pitch)
   // Issue #110: the dense-plan hash moves with the re-seated lots.
   // Issue #282: the dense-plan hash moves with the re-faced lots (counts unchanged). Proven by cross-run: with { facing: false } the dense hash is exactly 6f43c70e on BOTH this tree and pristine main.
-  assert.equal(fp.hash, '541e3ee0'); // BATCH: measured on the merged tree (dense)
+  assert.equal(fp.hash, 'edbaeb6d'); // BATCH: measured on the merged tree (dense) // Issue #313: dense hash moves with the re-gridded Beitou lots; dense lots 104,230 -> 104,760, lotsFine 78,783 -> 79,351
   // Issue #326: the dense-plan hash moves with the re-sited lots; measured on this tree.
   // BATCH (merge of #329 + #332): composed value MEASURED on the merged tree.
 
@@ -174,17 +174,17 @@ test('density dense: the #124 study draft at ~100k lots', () => {
   // Issue #258: dense lotsFine 69,577 -> 78,785 (+9,208 fine south lots at the dense pitch).
   // Issue #278: dense lotsFine 78,785 -> 78,748 (-37 fine lots in the 3 new registry sites).
   // Issue #326: dense lotsFine 78,748 -> 78,783 (+35 — the re-site frees the old rects' fine lots and the re-routed roads re-cut the blocks they bound; measured on this tree).
-  assert.equal(fp.stats.lotsFine, 78783);
+  assert.equal(fp.stats.lotsFine, 79351); // Issue #313: dense lotsFine 78,783 -> 79,351 (+568 - the re-gridded Beitou blocks classify 568 more lots fine at the dense pitch)
 });
 
 test('density unknown value plans as fine', () => {
   const fp = fingerprint(planTaipeiBuildings(TAIPEI_GEO, { density: 'huge' }));
   // Issue #110: plan 68,482 -> 68,472 — 23 bridge links re-admitted + 71 bed-end fusions re-seat 1,282 lots near the changed roadbeds (net -10).
   // Issue #258: plan 68,472 -> 76,367 (+7,895) — the south expansion; the hash moves with the new lots.
-  assert.equal(fp.lots, 76260); // re-pinned for #326: 76,209 -> 76,260 (+51 net: 127 added, 76 removed — lot diff in ntsec326-evidence/lotdiff326.log)
+  assert.equal(fp.lots, 76650); // re-pinned for #326: 76,209 -> 76,260 (+51 net: 127 added, 76 removed — lot diff in ntsec326-evidence/lotdiff326.log) // Issue #313: 76,260 -> 76,650 (+390 net: 3,016 added, 2,626 removed - every changed lot at z < -7000 in the Beitou creek corridors; full-JSON plan diff in blocks313-evidence/plan-diff-ordered313.log)
   // Issue #110: the plan hash moves with the re-seated lots (unknown plans as fine).
   // Issue #282: the plan hash moves with the re-faced lots (unknown plans as fine — same hash as the fine preset, b7248559).
-  assert.equal(fp.hash, 'c094990b'); // BATCH: measured on the merged tree (unknown plans as fine — same as fine)
+  assert.equal(fp.hash, 'bd9e48e2'); // BATCH: measured on the merged tree (unknown plans as fine — same as fine) // Issue #313: unknown-plans-as-fine hash is the fine hash (see above)
   // Issue #326: the plan hash moves with the re-sited lots (unknown plans as fine); measured on this tree.
   // BATCH (merge of #329 + #332): composed value MEASURED on the merged tree.
 

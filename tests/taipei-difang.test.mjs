@@ -320,5 +320,5 @@ test('difang photo site: a wall stands at 環河北路 near 重陽橋', () => {
 
 test('difang plan: the walls displace zero buildings', () => {
   const plan = planTaipeiBuildings(TAIPEI_GEO);
-  assert.equal(plan.lots.length, 76260); // re-pinned for #326: 76,209 -> 76,260 (+51 net: 127 added, 76 removed — lot diff in ntsec326-evidence/lotdiff326.log; the re-site frees the old wrong rects and the old road chords, the correct rects + re-routed roads exclude lots in their place)
+  assert.equal(plan.lots.length, 76650); // re-pinned for #326: 76,209 -> 76,260 (+51 net: 127 added, 76 removed — lot diff in ntsec326-evidence/lotdiff326.log; the re-site frees the old wrong rects and the old road chords, the correct rects + re-routed roads exclude lots in their place) // Issue #313: 76,260 -> 76,650 (+390 net: 3,016 added, 2,626 removed - every changed lot at z < -7000 in the Beitou creek corridors; full-JSON plan diff in blocks313-evidence/plan-diff-ordered313.log)
 });

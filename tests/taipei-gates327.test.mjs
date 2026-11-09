@@ -32,7 +32,7 @@ const expected = {
 
 test('issue #327: the three city gates are registered (registry 53 -> 56)', () => {
   assert.equal(plan.landmarkTowers.length, 56, '53 + 3 new gates');
-  assert.equal(plan.lots.length, 76260, 'the three junction-island site rects move no lots (76,209 + 51 from #326; re-pinned by #333)');
+  assert.equal(plan.lots.length, 76650, 'the three junction-island site rects move no lots (76,209 + 51 from #326; re-pinned by #333)'); // Issue #313: 76,260 -> 76,650 (+390 net: 3,016 added, 2,626 removed - every changed lot at z < -7000 in the Beitou creek corridors; full-JSON plan diff in blocks313-evidence/plan-diff-ordered313.log)
   for (const id of Object.keys(expected)) assert.ok(byId.has(id), `${id} registered`);
 });
 
