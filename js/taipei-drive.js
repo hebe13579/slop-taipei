@@ -269,7 +269,12 @@ export function structureColliders(structures, groundAt = null) {
         if (part.flip) out.push(aabbCollider(cx - part.rx, cx + part.rx, cz - part.rz, cz + part.rz, y0, Math.max(lift, y0 - part.h)));
         else out.push(aabbCollider(cx - part.rx, cx + part.rx, cz - part.rz, cz + part.rz, y0 + part.h, y0));
       } else if (part.type === 'frustum') {
-        out.push(aabbCollider(s.x - part.wB / 2, s.x + part.wB / 2, s.z - part.dB / 2, s.z + part.dB / 2, y0 + part.h, y0));
+        // Issue #299: frustum colliders sit at centre+dx/dz, mirroring
+        // the renderer — the Grand Hyatt's roof feature moved 10 m
+        // south when the renderer learned dx/dz, and its collider
+        // must follow it. (The ridge collider below still reads the
+        // pin — pre-existing, same class; not this issue.)
+        out.push(aabbCollider(cx - part.wB / 2, cx + part.wB / 2, cz - part.dB / 2, cz + part.dB / 2, y0 + part.h, y0));
       } else if (part.type === 'ridge') {
         out.push(aabbCollider(s.x - part.w / 2, s.x + part.w / 2, s.z - part.d / 2, s.z + part.d / 2, y0 + part.h + (part.ridgeH || 0), y0));
       } else if (part.type === 'mesh') {
