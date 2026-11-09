@@ -1050,16 +1050,30 @@ const LANDMARK_STRUCTURES = [
     id: 'taipei-nan-shan-plaza', name: 'Taipei Nan Shan Plaza', nameZh: '臺北南山廣場',
     lat: 25.0344, lon: 121.566982, realHeight: 272, color: 0x2c3540,
     site: { w: 242, d: 64, dx: -5, dz: -1 },
-    // Issue #283 (2026-10-30, user verdict: the specials read as
-    // cubes): the street photo (xinyi283-evidence/refs/ref-nanshan.jpg)
-    // shows a dark glass slab under a LIGHTER-glass crown box with a
-    // flat top and a thin corner fin — not a pitched ridge — plus a
-    // long dark mall podium with a projecting entrance. The ridge is
-    // replaced by the crown box (top stays 272); the shaft keeps its
-    // taper and the curtain grid (no shaft ribs: the shaft tapers and
-    // the primitives cannot lean a rib to follow it).
-    facade: { kind: 'curtain', glassTint: 0x1b2836, frameTint: 0x6d7885, windowWidth: 2.6, floorHeight: 4.2, litProbability: 0.34, warmth: 0.58, reflectivity: 0.92, seed: 57.11 },
-    sign: { text: 'Breeze', w: 30, h: 5, y: 20, dx: 20, dz: 28.4, bg: '#22262c', fg: '#ece5d3', accent: '#c8372d' },
+    // Issue #298 (2026-11-08, user re-open: "just black skyscraper
+    // look mundane"): the #283 rework read the crown feature but the
+    // MASS still read as a black slab — the shaft's fine dark grid
+    // vanishes at distance, the crown was one flat pale box, and the
+    // podium was three dark boxes with no terrace read. The night
+    // render (breeze298-evidence/refs/ref-nanshan-night.png) shows
+    // the real building's three signatures: (1) strong verticals —
+    // a pale fin down the SE corner edge and warm glowing strips at
+    // the tower's front corners; (2) a LIT louvered crown — a warm
+    // vertical-louver band under a flat cap, not a solid pale box;
+    // (3) a stepped podium — white terrace bands with planting on
+    // the south face and the red Breeze sign on the top band. The
+    // daytime street photo (refs/ref-nanshan-day.jpg) adds the fourth:
+    // a dark screened rooftop box over the west podium. All four are
+    // built below as geometry. Terrace slabs project 2 m south of
+    // the podium face where clearance allows (measured: 3.75 m worst
+    // at x=100 on the west face, 14 m on the centre face) and STOP
+    // either side of the 松壽路20巷 notch (roadbed touches the face
+    // at x≈260 — no slab spans x 245..275). The screened box sits
+    // flush with the west podium's south face, not cantilevered:
+    // the real box cantilevers ~5 m over the lower base, which the
+    // 3.75 m service-road clearance does not allow (disclosed).
+    facade: { kind: 'curtain', glassTint: 0x1b2836, frameTint: 0x8a97a3, windowWidth: 3.0, floorHeight: 4.2, litProbability: 0.40, warmth: 0.65, reflectivity: 0.92, seed: 57.11 },
+    sign: { text: 'Breeze', w: 30, h: 5, y: 31, dx: 20, dz: 28.4, bg: '#ece5d3', fg: '#c8372d', accent: '#c8372d' },
     parts: [
       { type: 'box', w: 108, d: 54, h: 30, dx: -77, dz: 1, facade: { kind: 'curtain', glassTint: 0x2a3745, frameTint: 0x59636e, windowWidth: 3.2, floorHeight: 3.6, litProbability: 0.42, warmth: 0.6, reflectivity: 0.9, seed: 57.12 } },
       { type: 'box', w: 66, d: 58, h: 34, dx: 20, dz: -1, facade: { kind: 'curtain', glassTint: 0x2a3745, frameTint: 0x59636e, windowWidth: 3.2, floorHeight: 3.6, litProbability: 0.42, warmth: 0.6, reflectivity: 0.9, seed: 57.12 } },
@@ -1073,17 +1087,92 @@ const LANDMARK_STRUCTURES = [
       // Podium roof parapet, south + east edges.
       { type: 'box', w: 66, d: 1, h: 1.5, y0: 34, dx: 20, dz: 27.5, flat: 0x2c3540 },
       { type: 'box', w: 1, d: 58, h: 1.5, y0: 34, dx: 52.5, dz: -1, flat: 0x2c3540 },
+      // #298: stepped podium terraces on the south face — white
+      // bands + planted shrub rows, three levels (y0 10/18/26),
+      // projecting 2 m south of the face. Two runs: west+centre
+      // (x 107.5..245) and east (x 275..310) — nothing spans the
+      // 松壽路20巷 notch at x 245..275. Shrub rows sit on each slab's
+      // outer edge; three small trees on the top west terrace.
+      { type: 'box', w: 137.5, d: 2, h: 1.2, y0: 10, dx: -23.75, dz: 29, flat: 0xe8e2d4 },
+      { type: 'box', w: 130, d: 2, h: 1.2, y0: 18, dx: -23.75, dz: 29, flat: 0xe8e2d4 },
+      { type: 'box', w: 122, d: 2, h: 1.2, y0: 26, dx: -23.75, dz: 29, flat: 0xe8e2d4 },
+      { type: 'box', w: 35, d: 2, h: 1.2, y0: 10, dx: 92.5, dz: 28, flat: 0xe8e2d4 },
+      { type: 'box', w: 35, d: 2, h: 1.2, y0: 18, dx: 92.5, dz: 28, flat: 0xe8e2d4 },
+      { type: 'box', w: 35, d: 2, h: 1.2, y0: 26, dx: 92.5, dz: 28, flat: 0xe8e2d4 },
+      { type: 'box', w: 131.5, d: 0.8, h: 1, y0: 11.2, dx: -23.75, dz: 29.6, flat: 0x4a7038 },
+      { type: 'box', w: 124, d: 0.8, h: 1, y0: 19.2, dx: -23.75, dz: 29.6, flat: 0x4a7038 },
+      { type: 'box', w: 116, d: 0.8, h: 1, y0: 27.2, dx: -23.75, dz: 29.6, flat: 0x4a7038 },
+      { type: 'box', w: 29, d: 0.8, h: 1, y0: 11.2, dx: 92.5, dz: 28.6, flat: 0x4a7038 },
+      { type: 'box', w: 29, d: 0.8, h: 1, y0: 19.2, dx: 92.5, dz: 28.6, flat: 0x4a7038 },
+      { type: 'box', w: 29, d: 0.8, h: 1, y0: 27.2, dx: 92.5, dz: 28.6, flat: 0x4a7038 },
+      { type: 'dome', rx: 1.6, rz: 1.6, h: 2.2, y0: 27.2, dx: -60, dz: 29.4, flat: 0x4a7038 },
+      { type: 'dome', rx: 1.6, rz: 1.6, h: 2.2, y0: 27.2, dx: -24, dz: 29.4, flat: 0x4a7038 },
+      { type: 'dome', rx: 1.6, rz: 1.6, h: 2.2, y0: 27.2, dx: 12, dz: 29.4, flat: 0x4a7038 },
+      // #298: dark screened rooftop box over the west podium (the
+      // daytime photo's big dark box) + pale coping + south-face
+      // mullion strips suggesting the screen. Flush with the west
+      // podium's south face (dz 28); the real cantilever is not
+      // modelled — see the header comment.
+      { type: 'box', w: 96, d: 44, h: 10, y0: 30, dx: -77, dz: 6, flat: 0x3a3f45 },
+      { type: 'box', w: 96, d: 44, h: 0.8, y0: 40, dx: -77, dz: 6, flat: 0x9fb4a6 },
+      { type: 'box', w: 1, d: 0.6, h: 10, y0: 30, dx: -110, dz: 28.2, flat: 0x6d7885 },
+      { type: 'box', w: 1, d: 0.6, h: 10, y0: 30, dx: -88, dz: 28.2, flat: 0x6d7885 },
+      { type: 'box', w: 1, d: 0.6, h: 10, y0: 30, dx: -66, dz: 28.2, flat: 0x6d7885 },
+      { type: 'box', w: 1, d: 0.6, h: 10, y0: 30, dx: -44, dz: 28.2, flat: 0x6d7885 },
       { type: 'frustum', wB: 52, dB: 40, wT: 47, dT: 36, h: 208, y0: 34 },
-      // Lighter-glass crown box (flat top) + thin corner fin, per the photo.
-      { type: 'box', w: 44, d: 33, h: 30, y0: 242, flat: { color: 0x7fa3b0, roughness: 0.3, metalness: 0.4 } },
+      // #298: shaft corner fins — the photo's signature verticals.
+      // The shaft tapers 52x40 -> 47x36 over y 34..242, so each
+      // 52 m segment sits at its midpoint's interpolated corner
+      // (Fubon-truss precedent): halfW 25.69/25.06/24.44/23.81,
+      // halfD 19.75/19.25/18.75/18.25. South corners warm (the night
+      // render's glowing edge strips); north corners pale silver.
+      { type: 'box', w: 1.4, d: 1.4, h: 52, y0: 34, dx: 25.69, dz: 19.75, flat: 0xffe1a6 },
+      { type: 'box', w: 1.4, d: 1.4, h: 52, y0: 86, dx: 25.06, dz: 19.25, flat: 0xffe1a6 },
+      { type: 'box', w: 1.4, d: 1.4, h: 52, y0: 138, dx: 24.44, dz: 18.75, flat: 0xffe1a6 },
+      { type: 'box', w: 1.4, d: 1.4, h: 52, y0: 190, dx: 23.81, dz: 18.25, flat: 0xffe1a6 },
+      { type: 'box', w: 1.4, d: 1.4, h: 52, y0: 34, dx: -25.69, dz: 19.75, flat: 0xffe1a6 },
+      { type: 'box', w: 1.4, d: 1.4, h: 52, y0: 86, dx: -25.06, dz: 19.25, flat: 0xffe1a6 },
+      { type: 'box', w: 1.4, d: 1.4, h: 52, y0: 138, dx: -24.44, dz: 18.75, flat: 0xffe1a6 },
+      { type: 'box', w: 1.4, d: 1.4, h: 52, y0: 190, dx: -23.81, dz: 18.25, flat: 0xffe1a6 },
+      { type: 'box', w: 1.4, d: 1.4, h: 52, y0: 34, dx: 25.69, dz: -19.75, flat: 0xd8dde2 },
+      { type: 'box', w: 1.4, d: 1.4, h: 52, y0: 86, dx: 25.06, dz: -19.25, flat: 0xd8dde2 },
+      { type: 'box', w: 1.4, d: 1.4, h: 52, y0: 138, dx: 24.44, dz: -18.75, flat: 0xd8dde2 },
+      { type: 'box', w: 1.4, d: 1.4, h: 52, y0: 190, dx: 23.81, dz: -18.25, flat: 0xd8dde2 },
+      { type: 'box', w: 1.4, d: 1.4, h: 52, y0: 34, dx: -25.69, dz: -19.75, flat: 0xd8dde2 },
+      { type: 'box', w: 1.4, d: 1.4, h: 52, y0: 86, dx: -25.06, dz: -19.25, flat: 0xd8dde2 },
+      { type: 'box', w: 1.4, d: 1.4, h: 52, y0: 138, dx: -24.44, dz: -18.75, flat: 0xd8dde2 },
+      { type: 'box', w: 1.4, d: 1.4, h: 52, y0: 190, dx: -23.81, dz: -18.25, flat: 0xd8dde2 },
+      // #298: louvered crown — the solid pale box is replaced by a
+      // lighter-glass core (curtain, warm-lit, wide bays) with 12
+      // proud warm louver fins around it, a flat pale cap on top
+      // (tops at exactly 272) and the thin SE corner fin kept.
+      { type: 'box', w: 42, d: 31, h: 26, y0: 242, facade: { kind: 'curtain', glassTint: 0x3a4a58, frameTint: 0xd8dde2, windowWidth: 3.0, floorHeight: 4.2, litProbability: 0.5, warmth: 0.8, reflectivity: 0.9, seed: 57.15 } },
+      { type: 'box', w: 1.5, d: 0.8, h: 26, y0: 242, dx: -15.75, dz: 16.2, flat: 0xffe1a6 },
+      { type: 'box', w: 1.5, d: 0.8, h: 26, y0: 242, dx: -5.25, dz: 16.2, flat: 0xffe1a6 },
+      { type: 'box', w: 1.5, d: 0.8, h: 26, y0: 242, dx: 5.25, dz: 16.2, flat: 0xffe1a6 },
+      { type: 'box', w: 1.5, d: 0.8, h: 26, y0: 242, dx: 15.75, dz: 16.2, flat: 0xffe1a6 },
+      { type: 'box', w: 1.5, d: 0.8, h: 26, y0: 242, dx: -15.75, dz: -16.2, flat: 0xffe1a6 },
+      { type: 'box', w: 1.5, d: 0.8, h: 26, y0: 242, dx: -5.25, dz: -16.2, flat: 0xffe1a6 },
+      { type: 'box', w: 1.5, d: 0.8, h: 26, y0: 242, dx: 5.25, dz: -16.2, flat: 0xffe1a6 },
+      { type: 'box', w: 1.5, d: 0.8, h: 26, y0: 242, dx: 15.75, dz: -16.2, flat: 0xffe1a6 },
+      { type: 'box', w: 0.8, d: 1.5, h: 26, y0: 242, dx: 21.7, dz: -7.75, flat: 0xffe1a6 },
+      { type: 'box', w: 0.8, d: 1.5, h: 26, y0: 242, dx: 21.7, dz: 7.75, flat: 0xffe1a6 },
+      { type: 'box', w: 0.8, d: 1.5, h: 26, y0: 242, dx: -21.7, dz: -7.75, flat: 0xffe1a6 },
+      { type: 'box', w: 0.8, d: 1.5, h: 26, y0: 242, dx: -21.7, dz: 7.75, flat: 0xffe1a6 },
+      { type: 'box', w: 46, d: 35, h: 4, y0: 268, flat: 0x9fb4a6 },
       { type: 'box', w: 2, d: 2, h: 30, y0: 242, dx: 21, dz: 16, flat: 0x2c3540 },
     ],
     farParts: [
       { type: 'box', w: 108, d: 54, h: 30, dx: -77, dz: 1 },
       { type: 'box', w: 66, d: 58, h: 34, dx: 20, dz: -1 },
       { type: 'box', w: 48, d: 38, h: 34, dx: 90, dz: 8 },
+      // #298: top terrace band + rooftop screened box, far read.
+      { type: 'box', w: 122, d: 2, h: 1.2, y0: 26, dx: -23.75, dz: 29, flat: 0xe8e2d4 },
+      { type: 'box', w: 96, d: 44, h: 10, y0: 30, dx: -77, dz: 6, flat: 0x3a3f45 },
       { type: 'frustum', wB: 52, dB: 40, wT: 47, dT: 36, h: 208, y0: 34 },
-      { type: 'box', w: 44, d: 33, h: 30, y0: 242 },
+      { type: 'box', w: 42, d: 31, h: 26, y0: 242 },
+      { type: 'box', w: 46, d: 35, h: 4, y0: 268 },
+      { type: 'box', w: 2, d: 2, h: 30, y0: 242, dx: 21, dz: 16 },
     ],
   },
   {
