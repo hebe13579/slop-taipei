@@ -89,7 +89,9 @@ test('Grand Hyatt south porte-cochere has columns + canopy as geometry (#294)', 
   // glass wall). Re-pinned 23 -> 32 at the #291 re-gate (2026-11-01):
   // the #294 geometry assertions below are unchanged — only the count
   // moved, by the PR's own 9 parts.
-  assert.equal(hyatt.parts.length, 32, 'canopy + glass wall + 8 columns on top of the #255 rework');
+  // Re-pinned 32 -> 33 at #299 (2026-11-08): the bay roof cap (see the
+  // #299 test below) — only the count moved, by the PR's own 1 part.
+  assert.equal(hyatt.parts.length, 33, 'canopy + glass wall + 8 columns on top of the #255 rework');
   const canopy = hyatt.parts.find((p) => p.type === 'box' && p.w === 76 && p.d === 10 && p.y0 === 7);
   assert.ok(canopy, 'pale-stone canopy slab projects 10 m south of the entrance face');
   assert.equal(canopy.dx, -6, 'canopy centred on the entrance block');
@@ -107,8 +109,56 @@ test('Grand Hyatt south porte-cochere has columns + canopy as geometry (#294)', 
   // Re-pinned 8 -> 13 at the #291 re-gate (2026-11-01): the 5 north-base
   // blocks are storey mass and survive into the far version; the loggia
   // dressing (canopy, columns, glass) drops, as the bands and pool do.
-  assert.equal(hyatt.farParts.length, 13, 'far version keeps the bare block (ATT colonnade precedent: near-only detail)');
+  // Re-pinned 13 -> 14 at #299 (2026-11-08): the bay roof cap survives
+  // into the far version too (the #300 VieShow-cap precedent).
+  assert.equal(hyatt.farParts.length, 14, 'far version keeps the bare block (ATT colonnade precedent: near-only detail)');
   assert.equal(Math.max(...hyatt.parts.map((p) => (p.y0 || 0) + p.h)), 104, 'top stays 104 m');
+});
+
+test('Grand Hyatt north roof: bay cap + octagonal feature seated on the bay (#299)', () => {
+  const hyatt = byId.get('grand-hyatt-taipei');
+  assert.ok(hyatt);
+  // The user's live read (2026-11-02, north side): the dark slab roof
+  // floated above the tower and the brown pyramid floated offset to
+  // the side. Measured (hyatt299-evidence/measure299.mjs): the bay's
+  // dark top face read as a detached dark slab, and the terracotta
+  // frustum rendered pin-centred (the renderer ignored dx/dz for
+  // frustums) with only 12.5% of its base supported — 504 m2 over
+  // the courtyard void. The fix: a pale roof cap on the bay, and the
+  // frustum re-seated on the bay with the renderer honouring dx/dz.
+  const bay = hyatt.parts.find((p) => p.type === 'box' && p.w === 53 && p.d === 16 && p.h === 82);
+  assert.ok(bay, 'centre bay (dark glass, 53x16, tops at 100 m)');
+  const cap = hyatt.parts.find((p) => p.type === 'box' && p.w === 53 && p.d === 16 && p.h === 0.5 && p.y0 === 100);
+  assert.ok(cap, 'pale-stone roof cap on the bay — the roofline reads as one connected pale plane');
+  assert.equal(cap.dx, -1.1, 'cap centred on the bay');
+  assert.equal(cap.dz, -17, 'cap centred on the bay');
+  assert.equal(cap.flat, 0xd8cfc0, 'cap is the pale prewar stone, not the dark glass');
+  const pavilion = hyatt.parts.find((p) => p.type === 'frustum');
+  assert.ok(pavilion, 'octagonal terracotta roof feature');
+  assert.equal(pavilion.dx, -1.1, 'feature centred on the bay, not the pin');
+  assert.equal(pavilion.dz, -17, 'feature centred on the bay, not the pin');
+  assert.equal(pavilion.wB, 20, 'base fits the bay width');
+  assert.equal(pavilion.dB, 16, 'base fits the bay depth exactly — no overhang');
+  assert.equal(pavilion.wT, 14, 'tapered top');
+  assert.equal(pavilion.dT, 11, 'tapered top');
+  assert.equal((pavilion.y0 || 0) + pavilion.h, 104, 'top stays the published 104 m');
+  // Fully supported: the frustum footprint sits inside the bay
+  // footprint (the renderer now places frustums at centre+dx/dz,
+  // so the authored seat IS the rendered seat).
+  assert.ok(Math.abs(pavilion.dx - bay.dx) + pavilion.wB / 2 <= bay.w / 2,
+    'frustum base inside the bay in x');
+  assert.ok(Math.abs(pavilion.dz - bay.dz) + pavilion.dB / 2 <= bay.d / 2,
+    'frustum base inside the bay in z');
+  // The far version carries the same cap + feature (the far-version
+  // test already pins every far part matching a near part).
+  const farCap = hyatt.farParts.find((p) => p.type === 'box' && p.w === 53 && p.d === 16 && p.h === 0.5 && p.y0 === 100);
+  assert.ok(farCap, 'far version keeps the bay roof cap');
+  const farPavilion = hyatt.farParts.find((p) => p.type === 'frustum');
+  assert.ok(farPavilion, 'far version keeps the roof feature');
+  assert.equal(farPavilion.dx, -1.1, 'far feature centred on the bay');
+  assert.equal(farPavilion.dz, -17, 'far feature centred on the bay');
+  assert.equal(farPavilion.wB, 20, 'far feature base fits the bay');
+  assert.equal(farPavilion.dB, 16, 'far feature base fits the bay depth');
 });
 
 test('A4 keeps its geometry, goes glassier, and carries NO red frame', () => {

@@ -2105,9 +2105,26 @@ const LANDMARK_STRUCTURES = [
       { type: 'box', w: 53, d: 1, h: 2, y0: 38, dx: -1.1, dz: -9.5, flat: 0xe8dcc0 },
       { type: 'box', w: 53, d: 1, h: 2, y0: 58, dx: -1.1, dz: -9.5, flat: 0xe8dcc0 },
       { type: 'box', w: 53, d: 1, h: 2, y0: 78, dx: -1.1, dz: -9.5, flat: 0xe8dcc0 },
+      // Issue #299 (user live report 2026-11-02, north side): the bay's
+      // dark top face read from above as a detached dark slab floating
+      // over the tower — the roofline never read as one plane. The
+      // satellite roof is light grey, so the bay gets a pale-stone
+      // roof cap (the #300 VieShow-cap precedent): the roofline now
+      // reads as one connected pale plane (wing steps + bay cap),
+      // the dark glass stays on the vertical faces where it belongs.
+      { type: 'box', w: 53, d: 16, h: 0.5, y0: 100, dx: -1.1, dz: -17, flat: 0xd8cfc0 },
       // Octagonal terracotta roof feature as a frustum pavilion
       // (was a flat cylinder disc — read as a floating plate).
-      { type: 'frustum', wB: 24, dB: 24, wT: 16, dT: 16, h: 4, y0: 100, dx: -1, dz: -10, flat: 0xc98a6b },
+      // Issue #299: re-seated on the bay — the old 24x24 frustum was
+      // authored at dx -1, dz -10 but the renderer centred frustums
+      // on the pin (see createTaipeiLandmarkTowers), so it rendered
+      // 10 m north of its seat with only 12.5% of its base supported
+      // (504 m2 over the courtyard void). The renderer now honours
+      // dx/dz for frustums, and the feature is re-sized to the bay
+      // it sits on: 20x16 base (the bay is 53x16, so the base fits
+      // its depth exactly), centred on the bay (dx -1.1, dz -17),
+      // 100% supported, top still 104 m.
+      { type: 'frustum', wB: 20, dB: 16, wT: 14, dT: 11, h: 4, y0: 100, dx: -1.1, dz: -17, flat: 0xc98a6b },
     ],
     farParts: [
       { type: 'box', w: 112, d: 32, h: 18, dx: -3, dz: 12 },
@@ -2125,7 +2142,12 @@ const LANDMARK_STRUCTURES = [
       { type: 'box', w: 27, d: 28, h: 64, y0: 18, dx: 40.9, dz: -17.1 },
       { type: 'box', w: 19, d: 20, h: 18, y0: 82, dx: 40.9, dz: -17.1 },
       { type: 'box', w: 53, d: 16, h: 82, y0: 18, dx: -1.1, dz: -17, flat: { color: 0x232830, roughness: 0.25, metalness: 0.55 } },
-      { type: 'frustum', wB: 24, dB: 24, wT: 16, dT: 16, h: 4, y0: 100, dx: -1, dz: -10, flat: 0xc98a6b },
+      // Issue #299: pale roof cap on the bay (see the near version) —
+      // the far roofline reads as one connected pale plane too.
+      { type: 'box', w: 53, d: 16, h: 0.5, y0: 100, dx: -1.1, dz: -17, flat: 0xd8cfc0 },
+      // Issue #299: octagonal roof feature re-seated on the bay
+      // (20x16 base, bay centre) — see the near version.
+      { type: 'frustum', wB: 20, dB: 16, wT: 14, dT: 11, h: 4, y0: 100, dx: -1.1, dz: -17, flat: 0xc98a6b },
     ],
   },
   {
@@ -9652,7 +9674,13 @@ export function createTaipeiLandmarkTowers(THREE, plan, factories) {
         if (part.flip) mesh.rotation.x = Math.PI;
       } else if (part.type === 'frustum') {
         mesh = new THREE.Mesh(frustumGeometry(THREE, part), partMaterial(part, true));
-        mesh.position.set(s.x, y0, s.z);
+        // Issue #299: frustums honour dx/dz like boxes (the #273 ridge
+        // precedent) — the Grand Hyatt's octagonal roof feature was
+        // authored over the centre bay (dx -1, dz -10) but rendered
+        // pin-centred, 10 m north of its seat with 87.5% of its base
+        // over thin air. Only that frustum carries dx/dz, so no other
+        // landmark moves.
+        mesh.position.set(s.x + (part.dx || 0), y0, s.z + (part.dz || 0));
       } else if (part.type === 'ridge') {
         mesh = new THREE.Mesh(ridgeGeometry(THREE, part), partMaterial(part, true));
         mesh.position.set(s.x + (part.dx || 0), y0, s.z + (part.dz || 0));
@@ -9827,7 +9855,9 @@ export function createTaipeiLandmarkTowers(THREE, plan, factories) {
         } else if (part.type === 'frustum') {
           mesh = new THREE.Mesh(frustumGeometry(THREE, part), flatPartMaterial(
             part.flat !== undefined && part.flat !== null ? part.flat : s.color, true));
-          mesh.position.set(s.x, y0, s.z);
+          // Issue #299: frustums honour dx/dz like boxes (see the near
+          // branch) — the far version must seat the same way.
+          mesh.position.set(s.x + (part.dx || 0), y0, s.z + (part.dz || 0));
         }
         if (!mesh) continue;
         mesh.castShadow = true;
