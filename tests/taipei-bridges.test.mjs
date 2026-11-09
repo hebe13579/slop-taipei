@@ -9,6 +9,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { TAIPEI_GEO } from '../js/taipei-geodata.js';
+import { filterGeoToBox, parseSandboxParam } from '../js/taipei-sandbox.js';
 import { latLonToTile } from '../js/taipei-buildings.js';
 import { BRIDGE_DEFS, buildBridgeGeometry, bridgeLatLonToTile } from '../js/taipei-bridges.js';
 
@@ -123,4 +124,33 @@ test('no bridge geometry below grade', () => {
   for (let i = 1; i < G.positions.length; i += 3) {
     assert.ok(G.positions[i] >= -0.5, `vertex y=${G.positions[i]}`);
   }
+});
+
+// Issue #310: a sandbox slice can cut a bridge's deck out of the
+// geo — then the bridge must be skipped, not crash boot (no lines
+// at all: snapToLines returned null and corridorFrame read 'az' of
+// it) and not render kilometres from its site on a distant deck
+// (the Xinyi sandbox showed the Chongyang towers 9,148 m from
+// their real site). The rainbow bridge builds from its own
+// digitized path and never snaps, so it is the only survivor in
+// every slice below.
+test('sandbox slices never crash buildBridgeGeometry and skip deckless bridges', () => {
+  const sliced = (query) => {
+    const parsed = parseSandboxParam(`?sandbox=${query}`);
+    assert.equal(parsed.status, 'active', query);
+    return filterGeoToBox(TAIPEI_GEO, parsed.box);
+  };
+  for (const [query, label] of [
+    ['25.0577,121.5474,600', 'ji570 (0 lines)'],
+    ['daan', "daan preset (0 lines)"],
+    ['xinyi', 'xinyi preset (1 distant line)'],
+  ]) {
+    const g = buildBridgeGeometry(sliced(query));
+    assert.deepEqual(g.bridges.map((b) => b.id), ['rainbow'], `${label}: survivors`);
+    assert.equal(g.triCount, byId.rainbow.triCount, `${label}: triCount`);
+  }
+  // Full city unchanged: all five bridges, same total
+  // (984 + 588 + 360 + 612 + 276).
+  assert.equal(G.bridges.length, 5);
+  assert.equal(G.triCount, 2820);
 });

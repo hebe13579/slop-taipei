@@ -15,6 +15,21 @@
 // measurement and snapped onto the DRAWN deck centrelines at build
 // time, so a signature can never drift off the deck it belongs to.
 //
+// Issue #310: a sandbox slice can cut a bridge's deck out of the
+// geo entirely (no elevatedRoads lines survive in the box), or
+// leave only a distant deck — the anchor then snapped onto a
+// corridor kilometres away and the bridge rendered inside the
+// sandbox at a wrong site (measured: the Xinyi sandbox showed the
+// Chongyang towers 9,148 m from their real site). Worse, with no
+// lines at all snapToLines returned null and corridorFrame crashed
+// boot (TypeError reading 'az' of null). So a bridge builds only
+// when its anchor snaps onto a deck corridor NEARBY: corridorFrame
+// returns null when there is no line at all, or when the nearest
+// line is further than CORRIDOR_SNAP_MAX_M. Full-city anchors sit
+// 0.30–7.78 m from their deck centrelines (measured), so 100 m can
+// only trigger when the deck was sliced away (or re-cut away);
+// the skipped bridge simply does not render in that sandbox.
+//
 // Facts (measured/researched 2026-10-27, evidence in
 // bridges151-evidence/):
 //   chongyang 重陽橋 — 3-span twin-tower cable-stayed over the
@@ -145,9 +160,16 @@ function snapToLines(lines, pt) {
 // Corridor frame at an anchor: snap, then the cross-section extent
 // across every deck line near the snap point (perp offsets relative
 // to the centre point, widths included). Returns { c:[x,z], az,
-// axis:[x,z], perp:[x,z], mn, mx } with mn/mx relative to c.
+// axis:[x,z], perp:[x,z], mn, mx } with mn/mx relative to c, or
+// null when the anchor has no deck corridor nearby — no lines at
+// all, or the nearest line further than CORRIDOR_SNAP_MAX_M (issue
+// #310: the sandbox slice cut the bridge's deck away). Callers skip
+// the bridge in that case instead of building it on a distant deck
+// or crashing on the null snap.
+const CORRIDOR_SNAP_MAX_M = 100;
 function corridorFrame(lines, anchorSim) {
   const s = snapToLines(lines, anchorSim);
+  if (!s || s.d > CORRIDOR_SNAP_MAX_M) return null;
   const axis = [Math.sin(s.az), Math.cos(s.az)];
   const perp = [Math.cos(s.az), -Math.sin(s.az)];
   let mn = Infinity, mx = -Infinity;
@@ -295,6 +317,9 @@ export function buildBridgeGeometry(geo, opts = {}) {
       // Corridor frames at both towers; the midspan direction of
       // tower i points at tower 1-i.
       const frames = def.towers.map((t) => corridorFrame(lines, bridgeLatLonToTile(t[0], t[1], O)));
+      // Issue #310: either tower's deck sliced away — skip the pair,
+      // a lone tower would be wrong.
+      if (frames.some((F) => !F)) continue;
       // Issue #132: the twin towers share one lift at their midpoint.
       centre = [(frames[0].c[0] + frames[1].c[0]) / 2, (frames[0].c[1] + frames[1].c[1]) / 2];
       bridgeLift = groundAt(centre[0], centre[1]);
@@ -335,6 +360,7 @@ export function buildBridgeGeometry(geo, opts = {}) {
       });
     } else if (def.kind === 'aPylon') {
       let F = corridorFrame(lines, bridgeLatLonToTile(def.anchor[0], def.anchor[1], O));
+      if (!F) continue; // Issue #310: deck sliced away, skip the bridge.
       // +axis must point at the main span: the bridge runs WNW->ESE
       // and the 180 m main span reaches EAST from the pylon.
       if (F.axis[0] < 0) { F = { ...F, axis: [-F.axis[0], -F.axis[1]], perp: [-F.perp[0], -F.perp[1]], mn: -F.mx, mx: -F.mn }; }
@@ -381,6 +407,7 @@ export function buildBridgeGeometry(geo, opts = {}) {
       fan([14, 26, 38, 50, 62], 88, 98, -1);                      // self-anchored back stays
     } else if (def.kind === 'tiedArch') {
       const F = corridorFrame(lines, bridgeLatLonToTile(def.anchor[0], def.anchor[1], O));
+      if (!F) continue; // Issue #310: deck sliced away, skip the bridge.
       centre = F.c;
       bridgeLift = groundAt(centre[0], centre[1]);
       const mid = (F.mn + F.mx) / 2;
@@ -478,6 +505,7 @@ export function buildBridgeGeometry(geo, opts = {}) {
       }
     } else if (def.kind === 'rodPylon') {
       let F = corridorFrame(lines, bridgeLatLonToTile(def.anchor[0], def.anchor[1], O));
+      if (!F) continue; // Issue #310: deck sliced away, skip the bridge.
       // +axis toward the main span = north across the river.
       if (F.axis[1] > 0) { F = { ...F, axis: [-F.axis[0], -F.axis[1]], perp: [-F.perp[0], -F.perp[1]], mn: -F.mx, mx: -F.mn }; }
       centre = F.c;
