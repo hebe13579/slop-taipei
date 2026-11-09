@@ -165,3 +165,69 @@ test('Songshou Plaza Park: a lawn park, not a paved square', () => {
   const inside = trees.filter((t) => t.x >= 79 && t.x <= 151 && t.z >= -539 && t.z <= -452);
   assert.ok(inside.length > 0, `Songshou park takes park trees (got ${inside.length})`);
 });
+
+test('Breeze Nanshan detail pass (#298): fins + louvered crown + stepped podium terraces', () => {
+  const ns = byId.get('taipei-nan-shan-plaza');
+  assert.ok(ns, 'Taipei Nan Shan Plaza registered');
+  assert.equal(ns.realHeight, 272, 'published 272 m, 48F (Wikipedia / CTBUH)');
+  assert.equal(ns.estimated, false, 'published height, not estimated');
+  assert.equal(ns.facade.kind, 'curtain', 'dark blue-grey glass shaft');
+  assert.equal(Math.max(...ns.parts.map(partTop)), 272, 'massing tops at exactly the true height');
+  assert.equal(Math.max(...ns.farParts.map(partTop)), 272, 'far massing reaches the storey-mass height');
+  // Issue #298: the user's live read was "just black skyscraper" —
+  // the #283 crown box read as a feature, but the mass was a dark
+  // slab. References: the night render
+  // (breeze298-evidence/refs/ref-nanshan-night.png), the daytime
+  // street photo (refs/ref-nanshan-day.jpg) and the Esri z18 stitch
+  // (refs/sat-nanshan-z18.png).
+  // Shaft corner fins: 4 corners x 4 stacked 52 m segments, at the
+  // taper-interpolated corner of each segment's midpoint (halfW
+  // 25.69/25.06/24.44/23.81, halfD 19.75/19.25/18.75/18.25).
+  const fins = ns.parts.filter((p) => p.type === 'box' && p.w === 1.4 && p.d === 1.4 && p.h === 52);
+  assert.equal(fins.length, 16, 'four corner fins, four segments each');
+  assert.equal(fins.filter((p) => p.flat === 0xffe1a6).length, 8, 'south corners warm (night render edge glow)');
+  assert.equal(fins.filter((p) => p.flat === 0xd8dde2).length, 8, 'north corners pale silver');
+  assert.ok(fins.some((p) => p.dx === 25.69 && p.dz === 19.75 && p.y0 === 34), 'SE fin, first segment, at the taper corner');
+  assert.ok(fins.some((p) => p.dx === 23.81 && p.dz === 18.25 && p.y0 === 190), 'SE fin, last segment, at the taper corner');
+  // Louvered crown: lighter-glass core (warm-lit curtain) + 12 proud
+  // warm louver fins + flat pale cap topping at exactly 272.
+  const core = ns.parts.find((p) => p.type === 'box' && p.w === 42 && p.d === 31 && p.h === 26 && p.y0 === 242);
+  assert.ok(core, 'crown core, inset from the 47x36 shaft top');
+  assert.equal(core.facade && core.facade.kind, 'curtain', 'crown core carries a warm-lit curtain');
+  assert.equal(core.facade.litProbability, 0.5, 'crown reads lit at night');
+  const louvers = ns.parts.filter((p) => p.type === 'box' && p.h === 26 && p.y0 === 242 && p.flat === 0xffe1a6);
+  assert.equal(louvers.length, 12, 'twelve proud louver fins around the crown core');
+  const cap = ns.parts.find((p) => p.type === 'box' && p.w === 46 && p.d === 35 && p.h === 4 && p.y0 === 268);
+  assert.ok(cap, 'flat pale cap over the crown, tops at 272');
+  assert.ok(ns.parts.some((p) => p.type === 'box' && p.w === 2 && p.d === 2 && p.h === 30 && p.y0 === 242 && p.dx === 21 && p.dz === 16),
+    'thin SE corner fin kept, tops at 272');
+  // Stepped podium terraces: white bands + shrub rows, three levels,
+  // two runs either side of the 松壽路20巷 notch (x 245..275).
+  const slabs = ns.parts.filter((p) => p.type === 'box' && p.h === 1.2 && p.flat === 0xe8e2d4);
+  assert.equal(slabs.length, 6, 'three terrace levels, two runs');
+  const slabX = slabs.map((p) => [ns.x + p.dx - p.w / 2, ns.x + p.dx + p.w / 2]);
+  assert.ok(slabX.every(([x0, x1]) => x1 <= 245 || x0 >= 275), 'no terrace slab spans the 松壽路20巷 notch');
+  assert.ok(slabX.some(([x0, x1]) => x0 === 107.5 && x1 === 245), 'west+centre run spans x 107.5..245');
+  assert.ok(slabX.some(([x0, x1]) => x0 === 275 && x1 === 310), 'east run spans x 275..310');
+  const shrubs = ns.parts.filter((p) => p.type === 'box' && p.h === 1 && p.flat === 0x4a7038);
+  assert.equal(shrubs.length, 6, 'one shrub row per terrace slab');
+  assert.equal(ns.parts.filter((p) => p.type === 'dome' && p.rx === 1.6).length, 3, 'three small trees on the top west terrace');
+  // Screened rooftop box over the west podium, flush with its south
+  // face (the real cantilever is not modelled — 3.75 m service-road
+  // clearance; see the registry comment).
+  const screen = ns.parts.find((p) => p.type === 'box' && p.w === 96 && p.d === 44 && p.h === 10 && p.y0 === 30);
+  assert.ok(screen, 'dark screened box on the west podium roof');
+  assert.equal(screen.dz + screen.d / 2, 28, 'screened box south face flush with the podium face');
+  assert.ok(ns.parts.some((p) => p.type === 'box' && p.w === 96 && p.h === 0.8 && p.y0 === 40), 'pale coping on the screened box');
+  // Breeze sign moves to the top band, red letters on pale (the night
+  // render's white band + red wordmark).
+  assert.ok(ns.sign && ns.sign.text === 'Breeze', 'Breeze sign kept');
+  assert.equal(ns.sign.y, 31, 'sign sits on the top terrace band');
+  assert.equal(ns.sign.bg, '#ece5d3', 'sign panel is the pale top band');
+  assert.equal(ns.sign.fg, '#c8372d', 'sign letters are Breeze red');
+  // Far version keeps the terrace band + screened box + crown, tops at 272.
+  assert.ok(ns.farParts.some((p) => p.type === 'box' && p.w === 122 && p.h === 1.2 && p.y0 === 26), 'far version keeps the top terrace band');
+  assert.ok(ns.farParts.some((p) => p.type === 'box' && p.w === 96 && p.h === 10 && p.y0 === 30), 'far version keeps the screened box');
+  assert.ok(ns.farParts.some((p) => p.type === 'box' && p.w === 42 && p.h === 26 && p.y0 === 242), 'far version keeps the crown core');
+  assert.ok(ns.farParts.some((p) => p.type === 'box' && p.w === 46 && p.h === 4 && p.y0 === 268), 'far version keeps the flat cap');
+});
