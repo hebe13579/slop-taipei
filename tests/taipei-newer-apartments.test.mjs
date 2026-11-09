@@ -37,7 +37,7 @@ test('newer apartments: census pins — both families planted, glass untouched',
   const { plan, opts } = planAndOpts();
   // Issue #110: plan 68,482 -> 68,472 — 23 bridge links re-admitted + 71 bed-end fusions re-seat 1,282 lots near the changed roadbeds (net -10).
   // Issue #258: plan 68,472 -> 76,367 (+7,895) — the south expansion; the new lots take their seeded family shares (see the family re-pins below).
-  assert.equal(plan.lots.length, 76260, 'the rule moves families only — the lot count is the composed plan (issue #255 gate: 68,570 − 32 site-excluded lots; issue #289 gate: 68,538 − 56 site-excluded lots net; issue #278 gate: 76,367 − 158 site-excluded lots net); Issue #326: 76,209 -> 76,260 (+51 net: 127 lots added, 76 removed — lot-by-lot diff in ntsec326-evidence/lotdiff326.log; the re-site frees the old (wrong) site rects — the 280x160 ring rect and the 160x110 drum rect at the beige complex — and the old road chords, while the correct site rects + re-routed roads exclude lots in their place)');
+  assert.equal(plan.lots.length, 76650, 'the rule moves families only — the lot count is the composed plan (issue #255 gate: 68,570 − 32 site-excluded lots; issue #289 gate: 68,538 − 56 site-excluded lots net; issue #278 gate: 76,367 − 158 site-excluded lots net); Issue #326: 76,209 -> 76,260 (+51 net: 127 lots added, 76 removed — lot-by-lot diff in ntsec326-evidence/lotdiff326.log; the re-site frees the old (wrong) site rects — the 280x160 ring rect and the 160x110 drum rect at the beige complex — and the old road chords, while the correct site rects + re-routed roads exclude lots in their place)'); // Issue #313: 76,260 -> 76,650 (+390 net: 3,016 added, 2,626 removed - every changed lot at z < -7000 in the Beitou creek corridors; full-JSON plan diff in blocks313-evidence/plan-diff-ordered313.log)
   const fam = {};
   for (const l of opts.lots) fam[l.mat] = (fam[l.mat] || 0) + 1;
   // Pinned at the #256 gate on the composed tree: 492 tall-Taiwan lots
@@ -58,8 +58,8 @@ test('newer apartments: census pins — both families planted, glass untouched',
   // by cross-run: with { facing: false } the families return to
   // exactly F10 295 / F11 239 on BOTH this tree and pristine main
   // (facing282-evidence/proof-crossrun.mjs).
-  assert.equal(fam[10], 297, 'modern slab family planted in the hundreds');
-  assert.equal(fam[11], 241, 'neoclassical stone family planted in the hundreds');
+  assert.equal(fam[10], 293, 'modern slab family planted in the hundreds'); // Issue #313: F10 297 -> 293 (-4 - 8 added, 12 removed, 0 kept lots flip family)
+  assert.equal(fam[11], 238, 'neoclassical stone family planted in the hundreds'); // Issue #313: F11 241 -> 238 (-3 - 7 added, 11 removed, 1 net flip in)
   // Issue #255 gate: the 4 new sites exclude 32 lots; the removed
   // lots' families (lot-by-lot vs pristine main, diff265.mjs) are
   // 0:2, 1:2, 2:3, 3:2, 4:2, 5:3, 6:5, 7:1, 8:6, 9:6 — and the
@@ -104,22 +104,22 @@ test('newer apartments: census pins — both families planted, glass untouched',
   // Issue #258: the south expansion's new lots take their seeded Taiwan/glass shares — F6 10,652 -> 11,902 (+1,250), F8 9,484 -> 10,594 (+1,110), F9 7,243 -> 8,009 (+766), F7 10,037 -> 11,231 (+1,194), F12 609 -> 705 (+96), F13 4,377 -> 4,863 (+486), glass F3 5,126 -> 5,665 (+539), F4 1,062 -> 1,164 (+102), F5 999 -> 1,097 (+98).
   // Issue #278: the 3 registry sites exclude 158 lots net; the removed lots' families (lot-by-lot diff on this tree) are 0:15, 1:12, 2:8, 3:8, 5:2, 6:25, 7:22, 8:35, 9:19, 11:1, 12:1, 13:11, plus 1 added F0 re-seat and 2 kept lots re-rolling into glass (F7->F3, F8->F3) — so F6 −25, F8 −36, F9 −19, F7 −23, F12 −1, F13 −11, F3 −6, F5 −2, F4 0, F10 0, F11 −1.
   // Issue #282: the re-faced lots re-roll their renderer-options families (seeded from lot position/geometry) — F6 −3, F7 −2, F8 +3, F9 −6, F12 +8, F13 +3, glass F3/F4/F5 untouched. Proven by cross-run: with { facing: false } the whole histogram agrees exactly between this tree and pristine main (facing282-evidence/proof-families.mjs).
-  assert.equal(fam[6], 11884, 'tile shophouse gives up its seeded share'); // BATCH: measured on the merged tree = #282's 11,874 + #326's +10
+  assert.equal(fam[6], 11988, 'tile shophouse gives up its seeded share'); // BATCH: measured on the merged tree = #282's 11,874 + #326's +10 // Issue #313: F6 11,884 -> 11,988 (+104 - 374 added, 266 removed, 4 net flip out)
   // Issue #110: F8 9,476 -> 9,484 (+8).
   // Issue #282: F8 10,558 -> 10,561 (+3 — the re-faced lots re-roll the renderer-options families; proven by the facing:false cross-run).
-  assert.equal(fam[8], 10574, 'walk-up slab gives up its seeded share'); // BATCH: measured on the merged tree = #282's 10,561 + #326's +13
+  assert.equal(fam[8], 10649, 'walk-up slab gives up its seeded share'); // BATCH: measured on the merged tree = #282's 10,561 + #326's +13 // Issue #313: F8 10,574 -> 10,649 (+75 - 350 added, 271 removed, 4 net flip out)
   // Issue #110: F9 7,249 -> 7,243 (-6).
   // Issue #282: F9 7,990 -> 7,984 (−6 — same re-roll; proven by the facing:false cross-run).
-  assert.equal(fam[9], 7990, 'pebble-dash gives up its seeded share'); // BATCH: measured on the merged tree = #282's 7,984 + #326's +6
+  assert.equal(fam[9], 8011, 'pebble-dash gives up its seeded share'); // BATCH: measured on the merged tree = #282's 7,984 + #326's +6 // Issue #313: F9 7,990 -> 8,011 (+21 - 228 added, 207 removed, 0 flips)
   // Issue #110: F7 10,038 -> 10,037 (-1).
   // Issue #282: F7 11,208 -> 11,206 (−2 — same re-roll; proven by the facing:false cross-run).
-  assert.equal(fam[7], 11215, 'arcade family: #256 never consults it, but #17 slice 2 assigns it the low-band share'); // BATCH: measured on the merged tree = #282's 11,206 + #326's +9
+  assert.equal(fam[7], 11273, 'arcade family: #256 never consults it, but #17 slice 2 assigns it the low-band share'); // BATCH: measured on the merged tree = #282's 11,206 + #326's +9 // Issue #313: F7 11,215 -> 11,273 (+58 - 347 added, 300 removed, 11 net flip in; same count as the taipei test)
   // Issue #110: F12 606 -> 609 (+3) — same delta as the taiwan108 test.
   // Issue #282: F12 704 -> 712 (+8 — same re-roll; proven by the facing:false cross-run).
-  assert.equal(fam[12], 713, 'high-rise residential planted in the hundreds'); // BATCH: measured on the merged tree = #282's 712 + #326's +1 (same count in the taiwan108 test)
+  assert.equal(fam[12], 711, 'high-rise residential planted in the hundreds'); // BATCH: measured on the merged tree = #282's 712 + #326's +1 (same count in the taiwan108 test) // Issue #313: F12 713 -> 711 (-2 - 10 added, 12 removed, 0 flips; same count as the taiwan108 test)
   // Issue #110: F13 4,358 -> 4,377 (+19) — same delta as the taiwan108 test.
   // Issue #282: F13 4,852 -> 4,855 (+3 — same re-roll; proven by the facing:false cross-run).
-  assert.equal(fam[13], 4857, 'strip-tile mid-rise planted in the thousands'); // BATCH: measured on the merged tree = #282's 4,855 + #326's +2 (same count in the taiwan108 test)
+  assert.equal(fam[13], 4892, 'strip-tile mid-rise planted in the thousands'); // BATCH: measured on the merged tree = #282's 4,855 + #326's +2 (same count in the taiwan108 test) // Issue #313: F13 4,857 -> 4,892 (+35 - 165 added, 129 removed, 1 net flip out; same count as the taiwan108 test)
   // Issue #326: the re-site re-seats lots near the two sites; the re-seated lots re-roll their families at their final positions (measured on this tree via famprobe326.mjs) — F6 +10, F8 +13, F9 +6, F7 +9, F12 +1, F13 +2, F3 +1, F4 +6, F5 +3; F10/F11 unchanged.
   // Issue #110: F8 9,476 -> 9,484 (+8).
   // Issue #110: F9 7,249 -> 7,243 (-6).
@@ -129,11 +129,11 @@ test('newer apartments: census pins — both families planted, glass untouched',
   // BATCH (merge of #329 + #332): composed values MEASURED on the merged tree.
 
   // Issue #110: glass F3 5,127 -> 5,126 (-1) — the re-seated lots re-roll the glass accent.
-  assert.equal(fam[3], 5660, 'glass family 3 untouched — the accent roll runs first');
+  assert.equal(fam[3], 5705, 'glass family 3 untouched — the accent roll runs first'); // Issue #313: F3 5,660 -> 5,705 (+45 - 184 added, 135 removed, 4 net flip out; glass total 7,975, same as the taipei test)
   // Issue #110: glass F4 1,061 -> 1,062 (+1).
   assert.equal(fam[4], 1170, 'glass family 4 untouched');
   // Issue #110: glass F5 1,003 -> 999 (-4).
-  assert.equal(fam[5], 1098, 'glass family 5 untouched');
+  assert.equal(fam[5], 1100, 'glass family 5 untouched'); // Issue #313: F5 1,098 -> 1,100 (+2 - 24 added, 19 removed, 3 net flip out)
   t.diagnostic(`families: ${JSON.stringify(fam)}`);
 });
 
@@ -156,7 +156,7 @@ test('newer apartments: spawn rule invariants', () => {
   // Issue #258: twins 19 -> 20 — the south expansion's wide lots add one more twin-slab complex, at (-1881, 566) in 7-south (Gongguan, just south of the Box A seam); the 19 old-city twins are unchanged.
   // Issue #282: twins 20 -> 19 (−1 — one wide lot's family re-rolls off the twin rule when its facing changes; proven by the facing:false cross-run, twins exactly 19 on both trees).
   const twins = opts.lots.filter((l) => l.mat === 10 && l.newer.twin);
-  assert.equal(twins.length, 19, 'twin-slab complexes planted on the widest lots');
+  assert.equal(twins.length, 21, 'twin-slab complexes planted on the widest lots'); // Issue #313: twins 19 -> 21 (+2 - 6 twin-slabs added with the re-gridded Beitou lots, 4 removed: added at (-6403.6,-7486.5), (-6021.5,-7159.8), (-5992.1,-7323.2), (-6441.1,-9896.1/-9805.7/-9774.9); removed at (-6083.4,-7192.5), (-6054.2,-7192.5), (-5995.7,-7192.5), (-5615.5,-7519.2); all in Beitou)
 });
 
 test('newer apartments: rule is deterministic and height-banded', () => {
