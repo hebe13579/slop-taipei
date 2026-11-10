@@ -629,11 +629,13 @@ test('landmark structures: true positions and heights, sites kept clear', (t) =>
     'walsin-lihwa-building': { h: 134.6, x: 112.6, z: -626.9 },
     'vieshow-cinemas-xinyi': { h: 20, x: 197.8, z: -258.8 },
     // Issue #258 (south expansion): the NTU + Shida campuses. Both
-    // heights are ESTIMATED (NTU 28 m from the Sports Center dome
-    // form; Shida 30 m from the 博愛大樓 10-floor form — no published
-    // overall height found) and flagged as such in the registry.
+    // heights are ESTIMATED (NTU 50 m from the Astronomy-Math
+    // 14-floor form — issue #315 re-pins the old 28 m, which was the
+    // Sports Center dome, the previous tallest mass; Shida 30 m from
+    // the 博愛大樓 10-floor form — no published overall height found)
+    // and flagged as such in the registry.
     // Positions are the resolved registry pins.
-    'ntu-main-campus': { h: 28, x: -2567.5, z: 1787.9 },
+    'ntu-main-campus': { h: 50, x: -2567.5, z: 1787.9 }, // Issue #315: 28 -> 50 (Astronomy-Math, 14 floors, is the campus's tallest mass)
     'ntnu-heping-campus': { h: 30, x: -3874.4, z: 806.4 },
     // Issue #273: the Expo Dome 爭艷館 — 17 m is ESTIMATED from
     // photographs (the folded canopy roof peaks ~20% above the 14 m
