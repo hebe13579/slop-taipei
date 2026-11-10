@@ -105,7 +105,7 @@ test('hut census on the real plan: selection unchanged, garnish at census', (t) 
   // tree). Proven by cross-run: with { facing: false } the census
   // returns to exactly 6,536 / 2,285 / 5,641 / 1,544 on BOTH this
   // tree and pristine main (facing282-evidence/proof-crossrun.mjs).
-  assert.equal(hutLots, 6599, 'hut selection is the pre-#208 census'); // BATCH: measured on the merged tree — NOT the additive 6,551 (6,539 +13 −1); the re-seated lots re-roll hut status under the new facing rule (interaction −2) // Issue #313: hut 6,549 -> 6,599 (+50 - the re-gridded Beitou lots re-roll the hut selection, seeded from lot position/footprint)
+  assert.equal(hutLots, 6711, 'hut selection is the pre-#208 census'); // BATCH: measured on the merged tree — NOT the additive 6,551 (6,539 +13 −1); the re-seated lots re-roll hut status under the new facing rule (interaction −2) // Issue #313: hut 6,549 -> 6,599 (+50 - the re-gridded Beitou lots re-roll the hut selection, seeded from lot position/footprint) // Issue #314: hut 6,599 -> 6,711 (+112 - the re-subdivided old-interior lots re-roll the hut selection, seeded from lot position/footprint; garnish gable 2,317 -> 2,353, patches 5,711 -> 5,816, bumps 1,572 -> 1,602)
   // Issue #326: hut 6,539 -> 6,538 (−1 — one hut lot removed by the
   // re-site; measured on this tree).
   // BATCH (merge of #329 + #332): composed values MEASURED on the merged tree.
@@ -119,15 +119,15 @@ test('hut census on the real plan: selection unchanged, garnish at census', (t) 
   // Issue #110: gable census 2,054 -> 2,058 — 4 more gable-roof lots (the re-seated lots re-roll the gable selection, same +4 as the hut census).
   // Issue #278: gable 2,292 -> 2,286 (−6, measured on this tree — the garnish moves with the hut selection).
   // Issue #282: gable 2,286 -> 2,292 (+6 — the re-faced lots re-roll the gable selection, same +13 class as the hut census; proven by the facing:false cross-run).
-  assert.equal(gable, 2317, 'gable census'); // Issue #313: gable 2,292 -> 2,317 (+25 - the garnish moves with the hut selection)
+  assert.equal(gable, 2353, 'gable census'); // Issue #313: gable 2,292 -> 2,317 (+25 - the garnish moves with the hut selection) // Issue #314: gable 2,317 -> 2,353 (+36 - the garnish moves with the hut selection)
   // Issue #110: patch census 5,135 -> 5,121 (-14) — the re-seated lots re-roll the roof-patch selection.
   // Issue #278: patches 5,647 -> 5,624 (−23, measured on this tree).
   // Issue #282: patches 5,624 -> 5,667 (+43 — the re-faced lots re-roll the roof-patch selection; proven by the facing:false cross-run).
-  assert.equal(patches, 5711, 'patch census'); // BATCH: measured on the merged tree = #282's 5,667 + 1 // Issue #313: patches 5,668 -> 5,711 (+43 - the garnish moves with the hut selection)
+  assert.equal(patches, 5816, 'patch census'); // BATCH: measured on the merged tree = #282's 5,667 + 1 // Issue #313: patches 5,668 -> 5,711 (+43 - the garnish moves with the hut selection) // Issue #314: patches 5,711 -> 5,816 (+105 - the garnish moves with the hut selection)
   // Issue #110: bump census 1,380 -> 1,381 (+1) — the re-seated lots re-roll the roof-bump selection.
   // Issue #278: bumps 1,560 -> 1,553 (−7, measured on this tree).
   // Issue #282: bumps 1,553 -> 1,546 (−7 — the re-faced lots re-roll the roof-bump selection; proven by the facing:false cross-run).
-  assert.equal(bumps, 1572, 'bump census'); // BATCH: measured on the merged tree = #282's 1,546 + 2 // Issue #313: bumps 1,548 -> 1,572 (+24 - the garnish moves with the hut selection)
+  assert.equal(bumps, 1602, 'bump census'); // BATCH: measured on the merged tree = #282's 1,546 + 2 // Issue #313: bumps 1,548 -> 1,572 (+24 - the garnish moves with the hut selection) // Issue #314: bumps 1,572 -> 1,602 (+30 - the garnish moves with the hut selection)
   // Issue #326: gable 2,286 -> 2,288 (+2, measured on this tree — the re-seated lots re-roll the gable selection).
   // Issue #110: patch census 5,135 -> 5,121 (-14) — the re-seated lots re-roll the roof-patch selection.
   // Issue #278: patches 5,647 -> 5,624 (−23, measured on this tree).
