@@ -106,6 +106,24 @@ function roadWidth(tags) {
   if (name.includes('巷')) return 6;
   return WIDTH_BY_CLASS[tags.highway] ?? 6;
 }
+// Issue #252: the OSM level of a way — explicit `layer` wins, else a
+// bridge sits at 1, a tunnel at -1, everything else at ground 0.
+// Copied verbatim from tools/taipei/rebuild-roadgraph.mjs (issue #317):
+// the HEAD builder must emit `level` on roadGraph edges itself, so a
+// future rebuild does not silently drop the traffic level rule again.
+// The two copies must stay identical; the regression test in
+// tests/taipei-roadgraph-level.test.mjs pins the builder's output
+// against the committed section.
+function wayLevel(tags) {
+  const raw = tags.layer;
+  if (raw !== undefined && raw !== '' && raw !== null) {
+    const n = parseInt(raw, 10);
+    if (Number.isFinite(n)) return n;
+  }
+  if (tags.bridge && tags.bridge !== 'no') return 1;
+  if (tags.tunnel && tags.tunnel !== 'no') return -1;
+  return 0;
+}
 // pedestrianLayout lives in ./pedestrian-layout.mjs, shared with
 // build-generation-map.mjs so the two builders can never disagree.
 
@@ -222,6 +240,7 @@ for (const el of roadsElements) {
   const width = roadWidth(el.tags);
   const layout = pedestrianLayout(el.tags, width);
   const onewayRaw = el.tags.oneway || '';
+  const level = wayLevel(el.tags); // Issue #317: roadGraph edges carry their OSM level.
   for (const records of runs) {
     const pts = records.map((p) => [p.x, p.z]);
     let len = 0;
@@ -234,7 +253,7 @@ for (const el of roadsElements) {
     });
     if (!NON_CARRIAGEWAY.has(el.tags.highway)) {
       graphSequences.push({
-        name: el.tags.name || el.tags['name:en'] || '', highway: el.tags.highway, width,
+        name: el.tags.name || el.tags['name:en'] || '', highway: el.tags.highway, width, level,
         oneway: ['yes', 'true', '1', '-1'].includes(onewayRaw), reverse: onewayRaw === '-1',
         pedestrianLayout: layout, records,
       });
@@ -306,7 +325,7 @@ function buildRoadGraph(sequences) {
         if (s.reverse) [a, b] = [b, a];
         edges.push({
           a, b, name: s.name, highway: s.highway, oneway: s.oneway, width: s.width,
-          pedestrianLayout: s.pedestrianLayout, length: Math.round(length * 10) / 10,
+          pedestrianLayout: s.pedestrianLayout, length: Math.round(length * 10) / 10, level: s.level,
         });
       }
     }

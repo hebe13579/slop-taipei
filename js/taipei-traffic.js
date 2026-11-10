@@ -21,8 +21,10 @@ import { ROAD_TRENCH_DEPTH_M } from './taipei-airfield.js'; // issue #279: the #
 //   junctions with its bends as inner shape points. Non-drivable classes (service aisles,
 //   tracks, busways, construction...) are dropped first.
 // - GROUND + CROSSINGS (issue #252): every roadGraph edge carries its
-//   OSM `level` (tools/taipei/rebuild-roadgraph.mjs). Deck and ramp
-//   links are EXCLUDED — every *_link ramp, and every edge at
+//   OSM `level` (emitted by the HEAD builder,
+//   tools/taipei/build-taipei-geodata.mjs, issue #317 —
+//   tools/taipei/rebuild-roadgraph.mjs recomputes the same section).
+//   Deck and ramp links are EXCLUDED — every *_link ramp, and every
 //   |level| >= 2: the vehicle system drives flat at y=0, so routing
 //   onto one made cars drive at ground level through the interchange
 //   below it (the off-road driving reported at 公舘路/承德路七段).
