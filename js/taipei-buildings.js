@@ -4632,15 +4632,20 @@ const LANDMARK_STRUCTURES = [
     // Sciences) and the Admin Building sit outside it but inside the
     // OSM rings (or, for the Admin, on clear ground near Zhoushan Rd
     // — 0 lots within 45 m), so they render clear without a
-    // keep-clear rect.
+    // keep-clear rect. Astronomy-Math is placed as fitted rects
+    // (issue #315, below); the Sports Center and Social Sciences
+    // were placed by #258.
     // Drunken Moon Lake needs no part — it is already in the geodata
     // water (醉月湖）. The 椰林大道 palm rows are NOT modelled: the
     // registry has no tree part type (the avenue road itself is in
     // the geodata); a palm-row treatment is a follow-up. Main Library
     // height ~18 m (5 floors + basement, published, unverified) and
-    // the Sports Center dome ~20 m are estimates.
+    // the Sports Center dome ~20 m are estimates. Issue #315: the
+    // entry's realHeight is now 50 m — the Astronomy-Math building
+    // (14 floors, fitted rects below) is the campus's tallest mass,
+    // topping the 28 m Sports Center dome the old height came from.
     id: 'ntu-main-campus', name: 'National Taiwan University', nameZh: '國立臺灣大學',
-    lat: 25.01686, lon: 121.53956, realHeight: 28, color: 0xa06848, estimated: true,
+    lat: 25.01686, lon: 121.53956, realHeight: 50, color: 0xa06848, estimated: true,
     site: { w: 1040, d: 650, dx: -35, dz: -66 },
     facade: { kind: 'prewar', stoneColor: 0xa06848, trimColor: 0x7a4a34, windowGlassColor: 0x2e3a46, windowWidth: 2.8, floorHeight: 3.6, litProbability: 0.25, warmth: 0.55, seed: 258.11 },
     parts: [
@@ -4690,12 +4695,37 @@ const LANDMARK_STRUCTURES = [
       // slightly south so its north-west corner clears the service
       // drive (the min-area rect overhung it). Admin Building
       // 行政大樓 (diagonal bar). 天文數學館 (Astronomy-Math, 14
-      // floors) is NOT placed: its min-area rect overlaps both
-      // 辛亥路二段's wide roadbed and a service drive, and the
-      // 44-pt outline is irregular — it needs a fitted rect from
-      // the actual outline, not the bounding rect (follow-up).
+      // floors) — fitted rects (issue #315): the min-area rect
+      // (82.3 x 48.0 m) overhung 辛亥路二段 (217 m²) and a service
+      // drive (377 m²), so the 44-pt OSM outline (way/191354829)
+      // is modelled as four boxes, all verified 0.00 m² against
+      // the roadbeds (the outline itself only grazes the drive
+      // by 15 m² along its south edge). The main east block, the
+      // west strip and the west mid block follow the outline's
+      // staircase north-west chamfer; the diagonal NE spur is a
+      // small rotated box on the fin's core. Height 50 m = 14
+      // floors x 3.6 m (the facade rhythm). Modern grey glass
+      // curtain facade — the satellite shows a pale grey/white
+      // tower, not the campus prewar brick. The south faces sit
+      // ~2–4 m north of the real wall where the drive grazes it.
+      // Each box is 49.5 m + a 0.5 m pale roof cap (the #299/#300
+      // cap precedent): the curtain texture would otherwise put
+      // dark glass on the roof, but the Esri satellite shows a
+      // pale grey-grid slab with a WHITE west section -- the caps
+      // are pale grey on the main block and spur, white on the
+      // two west boxes. Tops stay exactly 50 m (the pinned
+      // realHeight); the caps share the boxes' footprints, so
+      // they add no roadbed overlap.
       { type: 'box', w: 150, d: 22, h: 24, dx: 281.7, dz: -429.4, rotY: -3.126 },
       { type: 'box', w: 55.9, d: 23.7, h: 12, dx: 153.2, dz: 403.2, rotY: -0.758 },
+      { type: 'box', w: 42.1, d: 30.4, h: 49.5, dx: -156.2, dz: -490.1, rotY: 3.132, facade: { kind: 'curtain', glassTint: 0x46586a, frameTint: 0x9aa2a8, windowWidth: 3.0, floorHeight: 3.6, litProbability: 0.35, warmth: 0.6, reflectivity: 0.85, seed: 315.11 } },
+      { type: 'box', w: 42.1, d: 30.4, h: 0.5, y0: 49.5, dx: -156.2, dz: -490.1, rotY: 3.132, flat: 0xcfd2d4 },
+      { type: 'box', w: 39.2, d: 8.7, h: 49.5, dx: -114.9, dz: -479.4, rotY: 3.132, facade: { kind: 'curtain', glassTint: 0x46586a, frameTint: 0x9aa2a8, windowWidth: 3.0, floorHeight: 3.6, litProbability: 0.35, warmth: 0.6, reflectivity: 0.85, seed: 315.11 } },
+      { type: 'box', w: 39.2, d: 8.7, h: 0.5, y0: 49.5, dx: -114.9, dz: -479.4, rotY: 3.132, flat: 0xe8e8e8 },
+      { type: 'box', w: 19.7, d: 9.7, h: 49.5, dx: -124.8, dz: -489.5, rotY: 3.132, facade: { kind: 'curtain', glassTint: 0x46586a, frameTint: 0x9aa2a8, windowWidth: 3.0, floorHeight: 3.6, litProbability: 0.35, warmth: 0.6, reflectivity: 0.85, seed: 315.11 } },
+      { type: 'box', w: 19.7, d: 9.7, h: 0.5, y0: 49.5, dx: -124.8, dz: -489.5, rotY: 3.132, flat: 0xe8e8e8 },
+      { type: 'box', w: 20, d: 6, h: 49.5, dx: -154.1, dz: -511.4, rotY: 3.212, facade: { kind: 'curtain', glassTint: 0x46586a, frameTint: 0x9aa2a8, windowWidth: 3.0, floorHeight: 3.6, litProbability: 0.35, warmth: 0.6, reflectivity: 0.85, seed: 315.11 } },
+      { type: 'box', w: 20, d: 6, h: 0.5, y0: 49.5, dx: -154.1, dz: -511.4, rotY: 3.212, flat: 0xcfd2d4 },
     ],
   },
   {
@@ -4732,12 +4762,41 @@ const LANDMARK_STRUCTURES = [
       // Sports field 運動場 (way/202262798, sport=soccer, grass):
       // a flat green slab, N-S, tilted ~5°. No track around it.
       { type: 'box', w: 152.9, d: 72.1, h: 0.25, y0: 0.02, dx: -108.6, dz: -8.9, rotY: -1.486, flat: 0x4e7d32 },
-      // 勤大樓 (10 floors). The dorms 男一舍 / 女一舍 are NOT placed:
-      // they sit squeezed between service drives and their min-area
-      // rects cannot fit without overlapping a drive (17–44 m²) —
-      // they need fitted rects from the actual outlines (follow-up).
-      // 樂智樓 is NOT placed either (see above).
+      // 勤大樓 (10 floors). The dorms 男一舍 / 女一舍 and 樂智樓 —
+      // fitted rects (issue #315): their min-area rects overhung
+      // the service drives (lezhi 209 m², dorms 191–237 m²), so
+      // each is modelled from its actual OSM outline, all boxes
+      // verified 0.00 m² against the roadbeds. The dorms are
+      // U-shaped courtyard blocks: north + south wings, the web
+      // between the courtyard and the outer face, and a low
+      // central block in the courtyard (h 8 m, estimated — the
+      // courtyard block's height is not tagged). 樂智樓 is an
+      // L (top bar + east bar); its OSM way's closing edge is a
+      // diagonal across the courtyard, but the way's own vertices
+      // give the top bar a straight south face, confirmed by the
+      // satellite — so the top bar is modelled as a full rectangle.
+      // Heights 22 m = 6 floors x 3.6 m (permit: 6 floors, both
+      // dorms), 樂智樓 11 m = 3 floors x 3.6 m (OSM levels=3).
+      // All use the campus prewar facade (cream — matches the
+      // white/cream roofs in the satellite).
       { type: 'box', w: 86, d: 15, h: 30, dx: 43.3, dz: 83.3, rotY: -3.067 },
+      // 樂智樓 (Union Building II, way/202262794, 3 floors): L-shape.
+      { type: 'box', w: 39.7, d: 9.8, h: 11, dx: 171.0, dz: -36.3, rotY: -1.492 },
+      { type: 'box', w: 9.4, d: 30.4, h: 11, dx: 159.5, dz: -62.3, rotY: -1.492 },
+      // 男一舍 (Residence Hall A, way/604255427, 6 floors): courtyard
+      // opens west; the service drive grazes its west face (24 m²)
+      // and south edge (18 m²), so the wings inset ~2 m there.
+      { type: 'box', w: 56.5, d: 15.1, h: 22, dx: 232.2, dz: -35.9, rotY: -3.055 },
+      { type: 'box', w: 56.5, d: 13.7, h: 22, dx: 229.5, dz: -4.8, rotY: -3.055 },
+      { type: 'box', w: 16.9, d: 14.6, h: 22, dx: 222.5, dz: -20.8, rotY: -3.055 },
+      { type: 'box', w: 6.2, d: 7.6, h: 8, dx: 235.0, dz: -19.5, rotY: -3.055 },
+      // 女一舍 (Residence Hall B, way/604255424, 6 floors): courtyard
+      // opens east; the service drive grazes its east strip (27 m²)
+      // and south edge (13 m²), so the wings inset ~1.5 m there.
+      { type: 'box', w: 57.1, d: 15.2, h: 22, dx: 225.6, dz: 52.4, rotY: 0.090 },
+      { type: 'box', w: 57.1, d: 14, h: 22, dx: 228.4, dz: 21.6, rotY: 0.090 },
+      { type: 'box', w: 16.9, d: 14.4, h: 22, dx: 217.4, dz: 35.8, rotY: 0.090 },
+      { type: 'box', w: 6.2, d: 7.5, h: 8, dx: 229.9, dz: 36.8, rotY: 0.090 },
     ],
   },
   {
