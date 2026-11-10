@@ -98,7 +98,7 @@ test('issue #313: shipped blocks are the HEAD builder output (as a multiset)', (
   assert.equal(multisetHash(live), '8d8b12c8c00c', 'live blocks multiset is the HEAD builder output');
 });
 
-test('issue #313: plan moves only inside the Beitou creek corridors', () => {
+test('issue #313: plan count after the #313 transplant, composed with #314', () => {
   const plan = planTaipeiBuildings(TAIPEI_GEO);
-  assert.equal(plan.lots.length, 76650, 'plan 76,260 -> 76,650 (+390 net: 2,626 removed, 3,016 added — every changed lot at z < -7000 in the Beitou creek corridors, plan-diff313 full-JSON diff; a plain fresh transplant re-rolls the city to 364 identical lots and is rejected)');
+  assert.equal(plan.lots.length, 77808, 'plan 76,260 -> 76,650 on the #313 tree (+390 net: 2,626 removed, 3,016 added — every changed lot at z < -7000 in the Beitou creek corridors, plan-diff313 full-JSON diff; a plain fresh transplant re-rolls the city to 364 identical lots and is rejected)'); // Issue #314: 76,650 -> 77,808 (+1,158 net - the #314 heights transplant moves lots in the old interior instead; see the plan re-pin in heights.test.mjs)
 });
