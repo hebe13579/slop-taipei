@@ -9,7 +9,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { TAIPEI_GEO } from '../js/taipei-geodata.js';
-import { drapeHeight, drapeDem, drapeWeight, drapeEnabled, setDrapeEnabled, flatSiteFactor, buildDrapePatchGrids, buildAdaptiveDrapeGround, buildDrapeRefineMask, drapeTerrainColor, drapePatchColor, DRAPE_GROUND_TOL_M, DRAPE_GROUND_MAX_DEPTH, DRAPE_GROUND_PALE_SLOPE, DRAPE_GROUND_BLEND_SLOPE, DRAPE_RECTS, DRAPE_FLAT_SITES, DRAPE_FEATHER } from '../js/taipei-drape.js';
+import { drapeHeight, drapeDem, drapeWeight, drapeEnabled, setDrapeEnabled, flatSiteFactor, buildDrapePatchGrids, buildAdaptiveDrapeGround, buildDrapeRefineMask, drapeTerrainColor, drapePatchColor, drapeGroundVertex, DRAPE_GROUND_TOL_M, DRAPE_GROUND_MAX_DEPTH, DRAPE_GROUND_PALE_SLOPE, DRAPE_GROUND_BLEND_SLOPE, DRAPE_RECTS, DRAPE_FLAT_SITES, DRAPE_FEATHER } from '../js/taipei-drape.js';
 import { SURFACE_TONES } from '../js/taipei-surfaces.js';
 import { portalTrenchSlots } from '../js/taipei-viaduct.js';
 import { roadTrenchSlots } from '../js/taipei-airfield.js';
@@ -508,6 +508,77 @@ test('adaptive ground: patch normals are smooth across shared edges (issue #297)
   }
   assert.ok(checked > 100000, `shared-edge normal pairs ${checked}`);
   assert.equal(worst, 0, `worst shared-edge normal difference ${worst}`);
+});
+
+test('adaptive ground: block colours and normals are a pure function of (x, z), shared with the patch (issue #345)', () => {
+  // The block/patch split is per-triangle by plane slope, but the
+  // vertex colour and normal must not depend on which side a
+  // triangle falls on — otherwise the split reads as a mosaic
+  // (issue #345: the #297 patch-only blend left the block side
+  // uniformly pale and flat-shaded, so mid-slope hillsides showed
+  // a pale/green triangle grid plus a per-triangle brightness
+  // checkerboard). The builder emits both from
+  // drapeGroundVertex(x, z, hgt), so every occurrence of the same
+  // (x, z) must wear exactly the same colour and normal, on both
+  // surfaces. That agreement is what kills the mosaic: two
+  // triangles sharing an edge cannot disagree at their shared
+  // vertices.
+  assert.equal(adaptiveGround.blockColors.length, adaptiveGround.block.length, 'blockColors length');
+  assert.equal(adaptiveGround.blockNormals.length, adaptiveGround.block.length, 'blockNormals length');
+  for (let b = 0; b < adaptiveGround.blockNormals.length; b += 3) {
+    const len = Math.hypot(adaptiveGround.blockNormals[b], adaptiveGround.blockNormals[b + 1], adaptiveGround.blockNormals[b + 2]);
+    assert.ok(Math.abs(len - 1) < 1e-5, `block normal ${b / 3} not unit (${len})`);
+    assert.ok(adaptiveGround.blockNormals[b + 1] > 0, `block normal ${b / 3} does not point up`);
+  }
+  // Direct pin: a sample of block vertices recomputed from the
+  // same rule (tolerance is float32 storage of the positions, not
+  // a rule difference — the builder computes from the float64
+  // vertex, the test reads it back from the Float32Array).
+  let worstC = 0, worstN = 0;
+  for (let b = 0; b < adaptiveGround.block.length; b += 9 * 997) {
+    for (let k = 0; k < 3; k++) {
+      const x = adaptiveGround.block[b + k * 3], z = adaptiveGround.block[b + k * 3 + 2];
+      const s = drapeGroundVertex(x, z, Math.max(0, adaptiveGround.block[b + k * 3 + 1] - 0.02));
+      for (let c = 0; c < 3; c++) {
+        worstC = Math.max(worstC, Math.abs(s.color[c] - adaptiveGround.blockColors[b + k * 3 + c]));
+        worstN = Math.max(worstN, Math.abs(s.normal[c] - adaptiveGround.blockNormals[b + k * 3 + c]));
+      }
+    }
+  }
+  assert.ok(worstC < 1e-4, `block colour vs drapeGroundVertex ${worstC}`);
+  assert.ok(worstN < 1e-4, `block normal vs drapeGroundVertex ${worstN}`);
+  // Shared-vertex agreement across BOTH surfaces: one map over
+  // block + patch, keyed by the exact (x, z) floats.
+  const seen = new Map();
+  let checked = 0;
+  let worstSharedC = 0, worstSharedN = 0;
+  const checkVertex = (x, z, c0, c1, c2, n0, n1, n2) => {
+    const k = `${x},${z}`;
+    const prev = seen.get(k);
+    if (!prev) { seen.set(k, [c0, c1, c2, n0, n1, n2]); return; }
+    worstSharedC = Math.max(worstSharedC, Math.abs(c0 - prev[0]), Math.abs(c1 - prev[1]), Math.abs(c2 - prev[2]));
+    worstSharedN = Math.max(worstSharedN, Math.abs(n0 - prev[3]), Math.abs(n1 - prev[4]), Math.abs(n2 - prev[5]));
+    checked++;
+  };
+  for (let b = 0; b < adaptiveGround.block.length; b += 9) {
+    for (let k = 0; k < 3; k++) {
+      checkVertex(adaptiveGround.block[b + k * 3], adaptiveGround.block[b + k * 3 + 2],
+        adaptiveGround.blockColors[b + k * 3], adaptiveGround.blockColors[b + k * 3 + 1], adaptiveGround.blockColors[b + k * 3 + 2],
+        adaptiveGround.blockNormals[b + k * 3], adaptiveGround.blockNormals[b + k * 3 + 1], adaptiveGround.blockNormals[b + k * 3 + 2]);
+    }
+  }
+  for (const p of adaptiveGround.patch) {
+    for (let b = 0; b < p.positions.length; b += 9) {
+      for (let k = 0; k < 3; k++) {
+        checkVertex(p.positions[b + k * 3], p.positions[b + k * 3 + 2],
+          p.colors[b + k * 3], p.colors[b + k * 3 + 1], p.colors[b + k * 3 + 2],
+          p.normals[b + k * 3], p.normals[b + k * 3 + 1], p.normals[b + k * 3 + 2]);
+      }
+    }
+  }
+  assert.ok(checked > 100000, `shared-vertex colour/normal pairs ${checked}`);
+  assert.equal(worstSharedC, 0, `worst shared-vertex colour difference ${worstSharedC}`);
+  assert.equal(worstSharedN, 0, `worst shared-vertex normal difference ${worstSharedN}`);
 });
 
 // Spatial hash over the adaptive triangle soup for point lookups.
