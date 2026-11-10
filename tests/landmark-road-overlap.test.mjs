@@ -7,7 +7,10 @@
 // nothing for the others), ridge plans at centre+dx/dz
 // (issue #273: ridges honour dx/dz and rotY like boxes — pre-#273
 // ridges all sit at the anchor with rotY 0, so this changes nothing
-// for them), cylinders/domes as ellipses; for Taipei 101 the podium
+// for them), cylinders/domes as ellipses, palms as their trunk disc
+// at grade (issue #316: the crown overhangs the kerb by design —
+// airborne mass, the wheel precedent — but the trunk is a real
+// ground footprint); for Taipei 101 the podium
 // rect, its widest part) — against the rendered roadbed polygons: the per-segment butt-cap
 // rectangles ribbonsGeometry draws for geo.roadbeds (half-width
 // max(width/2, 0.75)). Intersection is exact Sutherland–Hodgman
@@ -48,7 +51,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { TAIPEI_GEO } from '../js/taipei-geodata.js';
-import { planTaipeiBuildings } from '../js/taipei-buildings.js';
+import { planTaipeiBuildings, palmTrunkRadius } from '../js/taipei-buildings.js';
 
 function rotRect(cx, cz, w, d, rotY) {
   const hw = w / 2, hd = d / 2, c = Math.cos(rotY), sn = Math.sin(rotY);
@@ -74,6 +77,10 @@ function partPolygons(s) {
     else if (part.type === 'ridge') poly = rotRect(cx, cz, part.w, part.d, part.rotY || 0);
     else if (part.type === 'cylinder') poly = ellipsePoly(cx, cz, part.r, part.rz || part.r);
     else if (part.type === 'dome') poly = ellipsePoly(cx, cz, part.rx, part.rz);
+    else if (part.type === 'palm') {
+      const r = palmTrunkRadius(part.h);
+      poly = ellipsePoly(cx, cz, r, r);
+    }
     if (poly) out.push({ part, poly });
   }
   return out;

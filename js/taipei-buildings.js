@@ -483,6 +483,134 @@ function trackCapsuleParts(cx, cz, straight, width, fieldWidth, rotY, trackColor
   return [...capsule(width, 0.3), ...field];
 }
 
+// Issue #316: the unit royal palm (the boot's palmTreeGeometry,
+// js/taipei-boot.js — trunk 5.8 m + crown, ~6.2 m total). A mature
+// royal palm is slimmer than the stylised unit: its crown radius is
+// ~0.23x its height against the unit's ~0.33x, so instances scale
+// horizontally by PALM_CROWN_SLIM (0.7) of the vertical scale.
+// PALM_TRUNK_R0 is the unit trunk's base radius (0.15 m); the trunk
+// radius at grade for a palm of height h is palmTrunkRadius(h) —
+// the issue-#42 audit reads palms as that trunk disc.
+export const PALM_UNIT_H = 6.15;
+export const PALM_TRUNK_R0 = 0.15;
+export const PALM_CROWN_SLIM = 0.7;
+export function palmTrunkRadius(h) {
+  return PALM_TRUNK_R0 * (h / PALM_UNIT_H) * PALM_CROWN_SLIM;
+}
+
+// Issue #316: the unit royal palm as one non-indexed geometry with
+// a colour attribute — the same 8 parts the boot's palmTreeGeometry
+// builds via its mergeColouredParts, reproduced here because the
+// planner cannot import the boot (circular import). Trunk: tapered
+// cylinder (r 0.15 -> 0.09, 5.8 m); crown: icosahedron at 5.85 m;
+// 6 fronds, 2.0 m boxes fanned 60 deg apart, tilted -0.45 rad,
+// alternating greens. Total height ~6.15 m (PALM_UNIT_H), 112 tris.
+function palmUnitGeometry(THREE) {
+  const parts = [];
+  const addPart = (geo, color, opts = {}) => {
+    const g = geo.index ? geo.toNonIndexed() : geo;
+    if (opts.pre) opts.pre(g);
+    if (opts.s) g.scale(opts.s[0], opts.s[1], opts.s[2]);
+    if (opts.r) {
+      if (opts.r[2]) g.rotateZ(opts.r[2]);
+      if (opts.r[0]) g.rotateX(opts.r[0]);
+      if (opts.r[1]) g.rotateY(opts.r[1]);
+    }
+    const p = opts.p || [0, 0, 0];
+    g.translate(p[0], p[1], p[2]);
+    const pos = g.getAttribute('position');
+    const colors = new Float32Array(pos.count * 3);
+    const c = new THREE.Color(color);
+    for (let i = 0; i < pos.count; i++) { colors[i * 3] = c.r; colors[i * 3 + 1] = c.g; colors[i * 3 + 2] = c.b; }
+    parts.push({ pos: pos.array, nor: g.getAttribute('normal').array, colors });
+  };
+  addPart(new THREE.CylinderGeometry(0.09, 0.15, 5.8, 5), 0x7a6248, { p: [0, 2.9, 0] });
+  addPart(new THREE.IcosahedronGeometry(0.3, 0), 0x5d7038, { p: [0, 5.85, 0] });
+  for (let k = 0; k < 6; k++) {
+    addPart(new THREE.BoxGeometry(2.0, 0.05, 0.44), k % 2 ? 0x42743a : 0x4d8142, {
+      p: [0, 5.8, 0],
+      r: [0, (k * Math.PI) / 3 + 0.3, -0.45],
+      pre: (g) => g.translate(1.05, 0, 0),
+    });
+  }
+  const total = parts.reduce((s, p) => s + p.pos.length, 0);
+  const positions = new Float32Array(total);
+  const normals = new Float32Array(total);
+  const colors = new Float32Array(total);
+  let o = 0;
+  for (const p of parts) { positions.set(p.pos, o); normals.set(p.nor, o); colors.set(p.colors, o); o += p.pos.length; }
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+  geo.setAttribute('normal', new THREE.BufferAttribute(normals, 3));
+  geo.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+  return geo;
+}
+
+// Issue #316: royal-palm rows along a polyline — the NTU 椰林大道
+// avenue. Stations every `spacing` metres along the centreline
+// `pts` (anchor-relative [dx, dz] pairs), one palm on EACH side at
+// ±offset from the centreline, the two rows staggered by half a
+// spacing so the palms do not stand in facing pairs. Each palm is
+// { type: 'palm', dx, dz, h, rotY }: h is the total height
+// (h ± hJitter by a deterministic hash of side + station index),
+// rotY the hashed frond-star rotation. Stations start `inset`
+// metres inside each end of the polyline so the end palms do not
+// sit on the junction at either end. The rows follow the
+// polyline's curve (the offset is the unit normal of the segment
+// each station stands on). `exclusions` are [dx, dz, r] discs on
+// the row lines where a side drive crosses the row: a station
+// inside one is skipped, so no palm ever stands in a driveway
+// mouth (the avenue has 17 such crossings — the campus drives
+// that Tee into it, measured from the geodata roadbeds; see the
+// NTU entry). A station is also SKIPPED when its offset point
+// lands within `minSep` of the previously kept palm on the same
+// row: on the inside of a bend the offset curve compresses (the
+// avenue's west end turns ~20° per digitised vertex, and the inner
+// row collapses to 3.7 m at the kink) — the planter's rule, not a
+// spacing change. Pure function of its inputs — the plan
+// determinism test re-runs it.
+function palmRowParts(pts, { offset, spacing, h, hJitter = 0, inset = 4, minSep = 7.5, exclusions = [], seed = 316 }) {
+  let total = 0;
+  const segs = [];
+  for (let i = 0; i + 1 < pts.length; i++) {
+    const dx = pts[i + 1][0] - pts[i][0], dz = pts[i + 1][1] - pts[i][1];
+    const len = Math.hypot(dx, dz);
+    segs.push({ ax: pts[i][0], az: pts[i][1], dx, dz, len, start: total });
+    total += len;
+  }
+  const at = (s) => {
+    let seg = segs[segs.length - 1];
+    for (const g of segs) { if (s <= g.start + g.len) { seg = g; break; } }
+    const t = Math.min(1, Math.max(0, (s - seg.start) / seg.len));
+    const inv = 1 / seg.len;
+    return { x: seg.ax + seg.dx * t, z: seg.az + seg.dz * t, nx: -seg.dz * inv, nz: seg.dx * inv };
+  };
+  const parts = [];
+  for (const side of [1, -1]) {
+    const phase = side > 0 ? 0 : spacing / 2;
+    let idx = 0;
+    let prev = null;
+    for (let s = inset + phase; s <= total - inset; s += spacing, idx++) {
+      const p = at(s);
+      const dx = Math.round((p.x + side * offset * p.nx) * 10) / 10;
+      const dz = Math.round((p.z + side * offset * p.nz) * 10) / 10;
+      if (exclusions.some(([ex, ez, er]) => Math.hypot(dx - ex, dz - ez) < er)) continue;
+      if (prev && Math.hypot(dx - prev[0], dz - prev[1]) < minSep) continue;
+      const jh = hash01(seed * 1000 + idx * 2 + (side > 0 ? 1 : 0));
+      const jr = hash01(seed * 2000 + idx * 2 + (side > 0 ? 1 : 0));
+      parts.push({
+        type: 'palm',
+        dx,
+        dz,
+        h: Math.round((h + (jh - 0.5) * 2 * hJitter) * 10) / 10,
+        rotY: Math.round(jr * Math.PI * 2 * 100) / 100,
+      });
+      prev = [dx, dz];
+    }
+  }
+  return parts;
+}
+
 // Issue #334: Jianguo High School perimeter fence — red-brick base
 // (紅磚) with vertical iron bars (豎立鐵條) above, from the school's own
 // fence (Wikimedia 2023 elevated photo + Esri satellite). The fence LINE
@@ -4636,14 +4764,25 @@ const LANDMARK_STRUCTURES = [
     // (issue #315, below); the Sports Center and Social Sciences
     // were placed by #258.
     // Drunken Moon Lake needs no part — it is already in the geodata
-    // water (醉月湖）. The 椰林大道 palm rows are NOT modelled: the
-    // registry has no tree part type (the avenue road itself is in
-    // the geodata); a palm-row treatment is a follow-up. Main Library
-    // height ~18 m (5 floors + basement, published, unverified) and
-    // the Sports Center dome ~20 m are estimates. Issue #315: the
-    // entry's realHeight is now 50 m — the Astronomy-Math building
-    // (14 floors, fitted rects below) is the campus's tallest mass,
-    // topping the 28 m Sports Center dome the old height came from.
+    // water (醉月湖）. Issue #316: the 椰林大道 palm rows ARE modelled
+    // now, as 108 royal palms (two rows, 54 north + 54 south,
+    // staggered) along the through avenue — the new 'palm' part type
+    // + palmRowParts() below. Rows at ±10 m from the geodata
+    // centreline (the avenue roadbed is 8 m half-width, so the
+    // trunks stand 2 m clear of the kerb; the crowns, ~3.5 m radius
+    // at 15 m height, just reach the road edge as they do in the
+    // Esri satellite — see palms316-evidence/). The rows run the
+    // through section only (gate loop and 小椰林道 excluded), spacing
+    // 8 m, heights 13–17 m (mature royal palms, ~2x the History
+    // Museum's 9 m); 12 stations are skipped where campus drives
+    // cross the rows and 1 more where the avenue's west-end bend
+    // compresses the inner row (see palmRowParts).
+    // Main Library height ~18 m (5 floors + basement, published,
+    // unverified) and the Sports Center dome ~20 m are estimates.
+    // Issue #315: the entry's realHeight is now 50 m — the
+    // Astronomy-Math building (14 floors, fitted rects below) is
+    // the campus's tallest mass, topping the 28 m Sports Center
+    // dome the old height came from.
     id: 'ntu-main-campus', name: 'National Taiwan University', nameZh: '國立臺灣大學',
     lat: 25.01686, lon: 121.53956, realHeight: 50, color: 0xa06848, estimated: true,
     site: { w: 1040, d: 650, dx: -35, dz: -66 },
@@ -4726,6 +4865,44 @@ const LANDMARK_STRUCTURES = [
       { type: 'box', w: 19.7, d: 9.7, h: 0.5, y0: 49.5, dx: -124.8, dz: -489.5, rotY: 3.132, flat: 0xe8e8e8 },
       { type: 'box', w: 20, d: 6, h: 49.5, dx: -154.1, dz: -511.4, rotY: 3.212, facade: { kind: 'curtain', glassTint: 0x46586a, frameTint: 0x9aa2a8, windowWidth: 3.0, floorHeight: 3.6, litProbability: 0.35, warmth: 0.6, reflectivity: 0.85, seed: 315.11 } },
       { type: 'box', w: 20, d: 6, h: 0.5, y0: 49.5, dx: -154.1, dz: -511.4, rotY: 3.212, flat: 0xcfd2d4 },
+      // 椰林大道 royal-palm rows (issue #316): the through avenue's
+      // geodata centreline (tertiary, 15.5–16 m, two segments) in
+      // anchor-relative coords — east end (the 小椰林道 junction) to
+      // the west end (the gate-loop junction). The pts are the
+      // geodata `roads` entries themselves (the rendered centreline),
+      // NOT the raw OSM way nodes — an earlier draft used the way
+      // nodes and sat up to 0.22 m off the rendered road. The last
+      // centreline point (the loop curve's tip) is excluded: the
+      // rows run the through section only. The street-tree planner
+      // plants no sidewalk row here (its 18 m minimum exceeds the
+      // 15.5 m bed), so the rows are registry parts. See palmRowParts
+      // for the spacing/offset/height derivation; the overlay +
+      // profile that set them are in palms316-evidence/esri316/.
+      ...palmRowParts(
+        [[-58.9, -50.9], [-105.5, -50.2], [-125.6, -49.9], [-145.1, -49.6], [-193.6, -48.8], [-257.1, -47.9], [-273.5, -47.7], [-281.6, -47.5], [-289.5, -47.4], [-292.8, -47.4], [-305.9, -47.2], [-369.6, -46.2], [-411.4, -45.6], [-428.6, -45.3], [-445.7, -45.1], [-487.7, -44.4], [-512.5, -44.1], [-531, -43.8], [-538.1, -42.9], [-543.5, -40.3], [-548.3, -37.1]],
+        {
+          offset: 10, spacing: 8, h: 15, hJitter: 2,
+          // Drive crossings (issue #316): every place a campus drive
+          // crosses a palm row, measured from the geodata roadbeds
+          // (palms316-evidence/drive-gaps.mjs) as [dx, dz, r] — the
+          // crossing's centre on the row line and its half-length
+          // + 0.5 m margin, so no trunk ever stands in a driveway
+          // mouth. North row (10): 小椰林道 at the east end, 垂葉榕道
+          // mid-campus, and 8 unnamed service/residential drives.
+          // South row (7): 小椰林道 at the east end and 6 unnamed
+          // service drives. A drive that crosses between stations
+          // still gets an exclusion (it guards any future station
+          // shift), so not every exclusion skips a palm.
+          exclusions: [
+            [-61, -60.9, 2.5], [-106, -60.2, 2], [-144.9, -59.6, 2.9],
+            [-193.7, -58.8, 4.4], [-257.1, -57.9, 2.9], [-306.2, -57.2, 2.9],
+            [-369.8, -56.2, 4.5], [-411.5, -55.6, 2], [-445.9, -55.1, 1.9],
+            [-487.7, -54.4, 3], [-59.9, -40.9, 1.6], [-105.1, -40.2, 2.9],
+            [-145.4, -39.6, 2.9], [-257.1, -37.9, 2.9], [-305.6, -37.2, 2.9],
+            [-428.5, -35.3, 2.8], [-487.6, -34.4, 2.9],
+          ],
+        },
+      ),
     ],
   },
   {
@@ -9747,6 +9924,14 @@ export function createTaipeiLandmarkTowers(THREE, plan, factories) {
   const nearTrunkGeo = new THREE.CylinderGeometry(1, 1, 1, 24);
   const nearDomeGeo = new THREE.SphereGeometry(1, SCHOOL_DOME_WIDTH_SEGMENTS, SCHOOL_DOME_HEIGHT_SEGMENTS, 0, Math.PI * 2, 0, Math.PI / 2);
   const farDomeGeo = new THREE.SphereGeometry(1, SCHOOL_LOD_FAR_DOME_WIDTH_SEGMENTS, SCHOOL_LOD_FAR_DOME_HEIGHT_SEGMENTS, 0, Math.PI * 2, 0, Math.PI / 2);
+  // Issue #316: the unit royal palm + its vertex-colour material,
+  // built once per call when any structure carries palm parts (the
+  // boot's park-palm material: vertexColors, roughness 0.9).
+  const hasPalms = plan.landmarkTowers.some((s) => s.parts.some((p) => p.type === 'palm'));
+  const palmGeo = hasPalms ? palmUnitGeometry(THREE) : null;
+  const palmMaterial = hasPalms
+    ? new THREE.MeshStandardNodeMaterial({ vertexColors: true, roughness: 0.9, metalness: 0.0 })
+    : null;
   const lodEntries = [];
   const specialLodEntries = [];
   const despawnEntries = [];
@@ -9785,6 +9970,10 @@ export function createTaipeiLandmarkTowers(THREE, plan, factories) {
     // delivery differs, and runs are never merged across runs
     // so each run despawns on its own distance.
     const fenceRuns = new Map();
+    // Issue #316: royal palms collect as instance matrices (one per
+    // part), delivered as a single InstancedMesh after the part loop
+    // — the school-tree precedent below. No mesh, no bucket.
+    const palmMatrices = [];
     // Issue #244: bucket mergeable parts per material object, and
     // divert school trees into per-campus instanced meshes. Meshes
     // are still built exactly as before (same constructors, same
@@ -9889,6 +10078,20 @@ export function createTaipeiLandmarkTowers(THREE, plan, factories) {
         geo.computeVertexNormals();
         mesh = new THREE.Mesh(geo, flatPartMaterial(part.flat, true));
         mesh.position.set(s.x, 0, s.z);
+      } else if (part.type === 'palm') {
+        // Issue #316: a royal palm — one instance of the unit palm
+        // geometry, scaled to the part's total height. A mature royal
+        // palm is slimmer than the stylised unit (PALM_CROWN_SLIM),
+        // so the horizontal scale is 0.7x the vertical. rotY follows
+        // the box sign rule (tile-plane convention). The matrix
+        // carries the full transform; the InstancedMesh is built
+        // from palmMatrices after the part loop.
+        const sy = part.h / PALM_UNIT_H;
+        const sxz = sy * PALM_CROWN_SLIM;
+        const mtx = new THREE.Matrix4().makeRotationY(-(part.rotY || 0));
+        mtx.scale(new THREE.Vector3(sxz, sy, sxz));
+        mtx.setPosition(s.x + (part.dx || 0), y0, s.z + (part.dz || 0));
+        palmMatrices.push(mtx);
       }
       if (!mesh) continue;
       if (part.despawnFar) {
@@ -9964,6 +10167,19 @@ export function createTaipeiLandmarkTowers(THREE, plan, factories) {
       sub.add(nearTrees);
       sub.add(farTrees);
       lodEntries.push({ near: nearTrees, far: farTrees, x: s.x, z: s.z, mode: 'near' });
+    }
+    if (palmMatrices.length) {
+      // Issue #316: one InstancedMesh per structure carrying palms
+      // (NTU only) — 124 instances of the unit palm, one draw call.
+      // No far LOD: the unit is already low-poly and the row reads
+      // as a line of green at any distance.
+      const palms = new THREE.InstancedMesh(palmGeo, palmMaterial, palmMatrices.length);
+      palms.name = `${s.id}-palms`;
+      palmMatrices.forEach((mtx, i) => palms.setMatrixAt(i, mtx));
+      palms.instanceMatrix.needsUpdate = true;
+      palms.castShadow = true;
+      palms.receiveShadow = true;
+      sub.add(palms);
     }
     const signMesh = landmarkSignMesh(THREE, s);
     if (signMesh) sub.add(signMesh);
