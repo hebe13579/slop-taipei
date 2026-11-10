@@ -14,6 +14,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { TAIPEI_GEO } from '../js/taipei-geodata.js';
+import { drapeHeight } from '../js/taipei-drape.js';
 import { buildTaipeiRoadGraph, taipeiTrafficEnv } from '../js/taipei-traffic.js';
 import { buildRoadNetwork } from '../js/road-network.js';
 
@@ -27,14 +28,22 @@ const underpassLinks = (g) => g.roadGraph.links.filter((L) => L[7] && Math.min(.
 test('underpass census: 6 links descend, decks and ground unchanged (issue #279)', () => {
   // The live graph is the deck graph plus the tunnel route: 2
   // 復北地下道 carriageways + 4 approach ramps (2 per direction),
-  // 1.3 km. No link is added or removed (the 6 already existed as
-  // flat 7-tuples in the deck graph); no height split fires (the
-  // profiles are continuous across the shared nodes); no profile
-  // is broken (underpassInvalidEdges 0: the trench function is
-  // analytic, so a broken profile would mean the match failed).
-  // The deck census is byte-identical to #254 and the ground
-  // census to #252 (re-pinned for #284: five two-way level-2 spans
-  // return — drivable 27,737 -> 27,742, links 13,233 -> 13,237,
+  // 1.3 km. Issue #285: the underpass profiles now carry the
+  // draped terrain (the rendered trench is the cut depth lifted
+  // by the ground), so the approaches are whole links again —
+  // links 13,433 and heightSplits 1, both unchanged from
+  // pristine, and underpassKm holds at 1.3. (Before the
+  // underpass composition the depth-only profiles read "grade 0"
+  // at the south mouth while the draped street sits at 5.6 m,
+  // and the approach split into below-grade and drape pieces.)
+  // No profile is broken (underpassInvalidEdges 0: the trench
+  // function is analytic, so a broken profile would mean the
+  // match failed). The deck census moves per #285 (deckLinks
+  // 372 -> 398, deckKm 163.7 -> 168.8 — flat bridges in the
+  // drape region now carry profiles; drapeLinks 3169 live /
+  // 3171 deck-only) and the ground census is unchanged
+  // (re-pinned for #284: five two-way level-2 spans return —
+  // drivable 27,737 -> 27,742, links 13,233 -> 13,237,
   // keptKm 1,311.2 -> 1,311.7, droppedLevelEdges 1,430 -> 1,425).
   assert.equal(live.stats.underpassMode, true);
   assert.equal(live.stats.underpassLinks, 6);
@@ -42,12 +51,17 @@ test('underpass census: 6 links descend, decks and ground unchanged (issue #279)
   assert.equal(live.stats.underpassInvalidEdges, 0);
   assert.equal(live.stats.heightSplits, 1);
   assert.equal(live.stats.links, 13433);
-  assert.equal(live.stats.deckLinks, 372);
-  assert.equal(live.stats.deckKm, 163.7);
+  assert.equal(live.stats.deckLinks, 398);
+  assert.equal(live.stats.deckKm, 168.8);
+  assert.equal(live.stats.drapeLinks, 3169);
+  assert.equal(live.stats.drapeKm, 328.8);
   assert.equal(live.stats.droppedLevelEdges, 32);
   assert.equal(deck.stats.underpassMode, false);
   assert.equal(deck.stats.underpassLinks, 0);
-  assert.equal(deck.stats.deckLinks, 372);
+  assert.equal(deck.stats.deckLinks, 398);
+  assert.equal(deck.stats.deckKm, 168.8);
+  assert.equal(deck.stats.drapeLinks, 3171);
+  assert.equal(deck.stats.drapeKm, 329.7);
   assert.equal(ground.stats.underpassMode, false);
   assert.equal(ground.stats.underpassLinks, 0);
   assert.equal(ground.stats.drivableEdges, 27742);
@@ -57,28 +71,56 @@ test('underpass census: 6 links descend, decks and ground unchanged (issue #279)
 });
 
 test('profiles: the 復北地下道 descends to the trench floor (issue #279)', () => {
-  // Both carriageways reach the bore floor (-5.35 m) and neither
-  // goes below it; the approaches ramp from grade to the floor.
-  // The floor the cars drive agrees with the floor the renderer
-  // draws (the #196 cut floors: grade at the cut end, -5.35 m at
-  // the face, -5.35 m through the bore).
+  // Both carriageways reach the bore floor (-5.35 m RELATIVE to
+  // the local ground) and neither goes below it; the approaches
+  // ramp from grade to the floor. Issue #285: the profiles now
+  // carry the draped terrain as well as the trench depth, so the
+  // assertion is on the relative depth (h minus drapeHeight at
+  // the sample position), reconstructed from each link's s[] and
+  // its polyline points. The absolute min is -5.35 only at the
+  // north end, where the ground is flat — the south approach
+  // reads -2.63 absolute while sitting 5.35 m below its own
+  // ground (drape 5.6 m). The floor the cars drive agrees with
+  // the floor the renderer draws (the #196 cut floors: grade at
+  // the cut end, -5.35 m at the face, -5.35 m through the bore).
+  const nodes = live.roadGraph.nodes;
+  const relDepths = (L) => {
+    const pts = [[nodes[L[0] * 2], nodes[L[0] * 2 + 1]]];
+    for (let k = 0; k < L[6].length; k += 2) pts.push([L[6][k], L[6][k + 1]]);
+    pts.push([nodes[L[1] * 2], nodes[L[1] * 2 + 1]]);
+    const arc = [0];
+    for (let k = 1; k < pts.length; k++) {
+      arc.push(arc[k - 1] + Math.hypot(pts[k][0] - pts[k - 1][0], pts[k][1] - pts[k - 1][1]));
+    }
+    const { s, h } = L[7];
+    return h.map((hv, i) => {
+      const a = s[i];
+      let lo = 0;
+      while (lo + 1 < arc.length && arc[lo + 1] <= a) lo++;
+      if (lo > pts.length - 2) lo = pts.length - 2; // the last sample's arc can sit a hair past the polyline length
+      const f = arc[lo + 1] > arc[lo] ? (a - arc[lo]) / (arc[lo + 1] - arc[lo]) : 0;
+      const x = pts[lo][0] + (pts[lo + 1][0] - pts[lo][0]) * Math.max(0, Math.min(1, f));
+      const z = pts[lo][1] + (pts[lo + 1][1] - pts[lo][1]) * Math.max(0, Math.min(1, f));
+      return hv - drapeHeight(x, z);
+    });
+  };
   const ups = underpassLinks(live);
   assert.equal(ups.length, 6);
   const names = live.roadGraph.names;
   const tunnel = ups.filter((L) => names[L[2]] === '復北地下道');
   assert.equal(tunnel.length, 2, 'both tunnel carriageways descend');
   for (const L of tunnel) {
-    const h = L[7].h;
-    assert.ok(Math.min(...h) <= TRENCH_FLOOR + 0.05, `tunnel reaches the floor, min ${Math.min(...h)}`);
-    assert.ok(Math.min(...h) >= TRENCH_FLOOR - 0.05, `tunnel never goes below the floor, min ${Math.min(...h)}`);
+    const d = relDepths(L);
+    assert.ok(Math.min(...d) <= TRENCH_FLOOR + 0.05, `tunnel reaches the floor, min rel ${Math.min(...d).toFixed(2)}`);
+    assert.ok(Math.min(...d) >= TRENCH_FLOOR - 0.05, `tunnel never goes below the floor, min rel ${Math.min(...d).toFixed(2)}`);
   }
   const approaches = ups.filter((L) => names[L[2]] !== '復北地下道');
   assert.equal(approaches.length, 4, 'four approach ramps');
   for (const L of approaches) {
-    const h = L[7].h;
-    assert.ok(Math.max(...h) >= -0.05, `approach meets grade, max ${Math.max(...h)}`);
-    assert.ok(Math.min(...h) < -4, `approach reaches the trench, min ${Math.min(...h)}`);
-    assert.ok(Math.min(...h) >= TRENCH_FLOOR - 0.05, 'approach never goes below the floor');
+    const d = relDepths(L);
+    assert.ok(Math.max(...d) >= -0.05, `approach meets grade, max rel ${Math.max(...d).toFixed(2)}`);
+    assert.ok(Math.min(...d) < -4, `approach reaches the trench, min rel ${Math.min(...d).toFixed(2)}`);
+    assert.ok(Math.min(...d) >= TRENCH_FLOOR - 0.05, 'approach never goes below the floor');
   }
 });
 
@@ -89,6 +131,9 @@ test('profiles: shape invariants on every underpass link (issue #279)', () => {
   // 0.72 m — an 8 m step would jump 1.43 m, inside the bound but
   // with almost no margin), and no interior near-zero sample
   // between deep samples (a car never pops up to grade mid-tunnel).
+  // Issue #285: the profile VALUES sample at 2 m (the match stays
+  // 4 m) so the draped component of the ramp stays inside the
+  // bound (worst drape chord 1.286 m per 2 m sample).
   for (const L of underpassLinks(live)) {
     const { s, h } = L[7];
     assert.equal(s.length, h.length, 's/h arrays align');
@@ -130,13 +175,22 @@ function liveNetwork() {
 test('join + reachability: the tunnel is entered and left through its ramps (issue #279)', () => {
   // The #254 join rule, on the live graph: no move joins heights
   // differing by more than 0.6 m (already asserted for every move
-  // in the deck test — here the tunnel route concretely). A ground
-  // edge by the north mouth reaches a bore edge below -5 m, and
-  // the bore reaches the ground again south of the tunnel — through
-  // the ramps only, never by jumping from a deep edge to a flat one.
+  // in the deck test — here the tunnel route concretely). Issue
+  // #285: "ground" and "bore" are measured against the local
+  // terrain — the south mouth sits on ground 5.6 m up, so a flat-
+  // world predicate (max y <= 0.5) never finds the ground edges
+  // there, and a bore is an edge more than 4 m below the terrain
+  // at its end (absolute -5 only at the flat north end). Measured
+  // on this tree: 6 bore edges, all reachable from the ground
+  // and back; 7 ground edges by the north mouth, 5 south.
   const net = liveNetwork();
-  const isGround = (e) => Math.max(e.y0 || 0, e.y1 || 0) <= 0.5 && Math.min(e.y0 || 0, e.y1 || 0) >= -0.5;
-  const isBore = (e) => Math.min(e.y0 || 0, e.y1 || 0) < -5;
+  const rel = (e, end) => {
+    const h = end === 1 ? (e.y1 || 0) : (e.y0 || 0);
+    const [x, z] = end === 1 ? [e.x0 + e.dx * e.span, e.z0 + e.dz * e.span] : [e.x0, e.z0];
+    return h - drapeHeight(x, z);
+  };
+  const isGround = (e) => Math.abs(rel(e, 0) - 0.06) <= 0.5 && Math.abs(rel(e, 1) - 0.06) <= 0.5;
+  const isBore = (e) => Math.min(rel(e, 0), rel(e, 1)) < -4;
   const bore = net.edges.filter(isBore);
   assert.ok(bore.length >= 2, `bore edges exist, got ${bore.length}`);
   const succ = new Map();

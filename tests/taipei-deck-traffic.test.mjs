@@ -12,6 +12,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { TAIPEI_GEO } from '../js/taipei-geodata.js';
+import { drapeHeight } from '../js/taipei-drape.js';
 import { buildTaipeiRoadGraph, taipeiTrafficEnv } from '../js/taipei-traffic.js';
 import { buildRoadNetwork } from '../js/road-network.js';
 import { buildDriveModel } from '../js/taipei-drive.js';
@@ -36,12 +37,25 @@ test('deck census: profiles ride the graph, ground pins unchanged (issue #254)',
   // count holds at 32 (the same mis-tagged ground alleys — the
   // south adds no new unplaceable edges); their km moves
   // 2.8 -> 3.5. deckInvalidEdges 0 and heightSplits 1 unchanged.
+  // Issue #285: deckLinks 372 -> 398 (+26) and deckKm 163.7 ->
+  // 168.8 (+5.1): the deck profiles now carry the draped ground
+  // (the rendered deck is the digest lifted by the terrain), so
+  // 25 flat bridges in the drape region whose digest is ~0 now
+  // profile at their terrain height, and the 2 m profile step
+  // resolves one more digest peak over 0.5 (an unnamed 0.8 km
+  // link, 15013->15027, maxH 0.54). Drape profiles ride the deck
+  // graph too: drapeLinks 3171, drapeKm 329.7. Links and
+  // heightSplits are unchanged: every deck<->drape joint is
+  // continuous (the deck foot sits at the terrain height), so no
+  // new split fires.
   assert.equal(deck.stats.deckMode, true);
   assert.equal(deck.stats.drivableEdges, 29135);
   assert.equal(deck.stats.links, 13433);
   assert.equal(deck.stats.keptKm, 1419.6);
-  assert.equal(deck.stats.deckLinks, 372);
-  assert.equal(deck.stats.deckKm, 163.7);
+  assert.equal(deck.stats.deckLinks, 398);
+  assert.equal(deck.stats.deckKm, 168.8);
+  assert.equal(deck.stats.drapeLinks, 3171);
+  assert.equal(deck.stats.drapeKm, 329.7);
   assert.equal(deck.stats.droppedLevelEdges, 32);
   assert.equal(deck.stats.droppedLevelKm, 3.5);
   assert.equal(deck.stats.deckInvalidEdges, 0);
@@ -84,9 +98,13 @@ test('profiles: every digest line is represented, at its height (issue #254)', (
 
 test('profiles: shape invariants on every profiled link (issue #254)', () => {
   // No interior near-zero sample (a dip to the ground mid-deck)
-  // and no jump over 1.5 m between adjacent samples (the steepest
-  // real ramp is 9.5%, under 0.8 m per 8 m sample): a car
-  // following any profile never teleports vertically.
+  // and no jump over 1.5 m between adjacent samples: a car
+  // following any profile never teleports vertically. Issue #285:
+  // the profiles now sample at 2 m and carry the draped ground,
+  // so the bound is the steepest draped chord (1.286 m per 2 m
+  // sample on 自強隧道）, not the steepest ramp (9.5%, under 0.8 m
+  // per 8 m sample). This test now covers the drape profiles too
+  // (3,569 profiled links in the deck graph).
   let profiled = 0;
   for (const L of deck.roadGraph.links) {
     if (!L[7]) continue;
@@ -105,20 +123,26 @@ test('profiles: shape invariants on every profiled link (issue #254)', () => {
   assert.ok(profiled > 250, `expected hundreds of profiled links, got ${profiled}`);
 });
 
-test('profiles: the 洲美 interchange ramp climbs 0 to the deck (issue #254)', () => {
+test('profiles: the 洲美 interchange ramp climbs the terrain to the deck (issue #254)', () => {
   // 大業路入口匝道, the on-ramp at 公舘路 / 承德路七段: the digest
-  // climbs 0 -> 15 m to meet the 洲美快速道路 deck. The link
-  // profile must start at the ground, climb without dipping, and
-  // end at deck height.
+  // climbs 0 -> 15 m to meet the 洲美快速道路 deck — and the ramp
+  // foot sits on draped ground (drapeHeight 6.14 m at its foot
+  // node). Issue #285: the profile is the digest PLUS the draped
+  // ground (the rendered deck is the digest lifted by the
+  // terrain), so the ramp is one unbroken link climbing 6.20 ->
+  // 20.42: it starts at the local ground (drapeHeight + 0.06 at
+  // the foot), climbs without dipping, and ends at deck height.
+  // Before #285 the same link read 0.03 -> 16.83 and the car drove
+  // up to 7 m under the rendered ramp.
   const names = deck.roadGraph.names;
   const ramps = deck.roadGraph.links.filter((L) => L[7] && names[L[2]] === '大業路入口匝道');
-  assert.ok(ramps.length >= 1, 'ramp link exists');
-  for (const L of ramps) {
-    const h = L[7].h;
-    assert.ok(h[0] <= 0.5, `ramp starts at the ground, got ${h[0]}`);
-    assert.ok(h[h.length - 1] >= 14, `ramp ends at deck height, got ${h[h.length - 1]}`);
-    for (let i = 1; i < h.length; i++) assert.ok(h[i] >= h[i - 1] - 0.6, 'ramp never dips');
-  }
+  assert.equal(ramps.length, 1, 'the ramp is one unbroken link');
+  const h = ramps[0][7].h;
+  const nodes = deck.roadGraph.nodes;
+  const footH = drapeHeight(nodes[ramps[0][0] * 2], nodes[ramps[0][0] * 2 + 1]) + 0.06;
+  assert.ok(Math.abs(h[0] - footH) <= 0.5, `ramp starts at the local ground ${footH.toFixed(2)}, got ${h[0]}`);
+  assert.ok(h[h.length - 1] >= 14, `ramp ends at deck height, got ${h[h.length - 1]}`);
+  for (let i = 1; i < h.length; i++) assert.ok(h[i] >= h[i - 1] - 0.6, 'ramp never dips');
 });
 
 test('profiles: sampled heights agree with the drive model at every vertex (issue #254)', () => {
@@ -132,7 +156,14 @@ test('profiles: sampled heights agree with the drive model at every vertex (issu
   // +1.5 m margin legitimately differ — e.g. the scooter lane
   // running along a bridge deck's edge) are skipped: there the
   // drive model sees the ground, not the deck.
-  const drive = buildDriveModel(TAIPEI_GEO.elevatedRoads);
+  // Issue #285: the boot's drive model lifts every deck surface
+  // by the draped ground, and the profiles now carry the same
+  // sum — so the cross-check uses the draped model. Worst
+  // disagreement is 1.00 m (台北大橋）: the drive model
+  // interpolates the drape field linearly between digest vertices
+  // while the profile samples the true field at 2 m; the profile
+  // is the more accurate side.
+  const drive = buildDriveModel(TAIPEI_GEO.elevatedRoads, { groundAt: drapeHeight });
   const segs = [];
   for (const line of TAIPEI_GEO.elevatedRoads.lines) {
     const half = (line.width || 6) / 2;
@@ -186,26 +217,72 @@ function deckNetwork() {
   return buildRoadNetwork([], [], env.networkEnv);
 }
 
-test('join rule: no move joins heights differing by more than 0.6 m (issue #254)', () => {
+test('join rule: no move joins levels that do not meet (issues #254/#285)', () => {
+  // Issue #285: the #254 join rule is now terrain-relative. A
+  // move is allowed when the two heights agree RELATIVE to the
+  // draped ground at each edge's own end (both edges ride the
+  // ground, or both rise by the same digest), OR when neither
+  // edge rides a deck (relative height <= 1 m) and the absolute
+  // step is within what a steep grade spans across a merged
+  // junction (2.5 m — the junction merges graph nodes up to 12 m
+  // apart, and on a grade their drape heights differ by more
+  // than 0.6 m; the worst legitimate step is 1.84 m on 劍潭路）.
+  // The bound still refuses a real separation: a deck step
+  // (2.9 m here) or a switchback level change stays refused.
+  // What a move must never do: join a deck edge (height above
+  // the ground > 1 m) to a ground edge, or step more than 2.5 m.
+  // Measured on this tree: 133 moves step more than 0.6 m in
+  // absolute terms (all grade junctions, worst 1.58 m) and none
+  // steps more than 2.5 m.
   const net = deckNetwork();
   let moves = 0;
+  let stepped = 0;
+  let worstAbs = 0;
+  const rel = (e, end) => {
+    const h = end === 1 ? (e.y1 || 0) : (e.y0 || 0);
+    if (!e.yProf) return h;
+    const [x, z] = end === 1 ? [e.x0 + e.dx * e.span, e.z0 + e.dz * e.span] : [e.x0, e.z0];
+    return h - drapeHeight(x, z);
+  };
   for (const e of net.edges) {
     assert.ok(e.moves.length > 0, 'every edge has a way on');
     for (const m of e.moves) {
       moves++;
+      const absStep = Math.abs((e.y1 || 0) - (m.to.y0 || 0));
+      if (absStep > worstAbs) worstAbs = absStep;
+      if (absStep > 0.6) stepped++;
+      const eRel = rel(e, 1);
+      const fRel = rel(m.to, 0);
       assert.ok(
-        Math.abs((e.y1 || 0) - (m.to.y0 || 0)) <= 0.6,
-        `move joins ${(e.y1 || 0).toFixed(1)} m to ${(m.to.y0 || 0).toFixed(1)} m`,
+        Math.abs(eRel - fRel) <= 0.6 || ((eRel <= 1 && fRel <= 1) && absStep <= 2.5),
+        `move joins rel ${eRel.toFixed(1)} m to ${fRel.toFixed(1)} m (abs ${(e.y1 || 0).toFixed(1)} -> ${(m.to.y0 || 0).toFixed(1)})`,
       );
+      assert.ok(absStep <= 2.5, `move steps ${absStep.toFixed(1)} m — more than a grade can span`);
     }
   }
   assert.ok(moves > 15000, `checked ${moves} moves`);
+  assert.ok(stepped > 0, `expected some grade-junction steps, got ${stepped}`);
+  assert.ok(worstAbs > 0.6 && worstAbs <= 2.5, `worst absolute step ${worstAbs.toFixed(2)} m`);
 });
 
 test('reachability: every deck edge is reachable from the ground and returns to it (issue #254)', () => {
+  // Issue #285: "deck" and "ground" are now measured against
+  // the local terrain, not the flat datum — a Beitou street at
+  // 13 m is ground (it rides the terrain), and a deck is an edge
+  // whose height above the terrain exceeds 0.5 m at either end.
+  // The flat-world predicates (max y <= 0.5) stopped meaning
+  // what they say once profiles carry terrain: they left the
+  // interchange streets (drape 6-7 m) in neither class, so the
+  // acceptance route found no ground edge. Measured on this
+  // tree: 445 deck edges (above terrain), 0 stranded.
   const net = deckNetwork();
-  const isDeck = (e) => Math.max(e.y0 || 0, e.y1 || 0) > 0.5;
-  const isGround = (e) => !isDeck(e);
+  const above = (e, end) => {
+    const h = end === 1 ? (e.y1 || 0) : (e.y0 || 0);
+    const [x, z] = end === 1 ? [e.x0 + e.dx * e.span, e.z0 + e.dz * e.span] : [e.x0, e.z0];
+    return h - drapeHeight(x, z);
+  };
+  const isDeck = (e) => Math.max(above(e, 0), above(e, 1)) > 0.5;
+  const isGround = (e) => Math.abs(above(e, 0) - 0.06) <= 0.5 && Math.abs(above(e, 1) - 0.06) <= 0.5;
   const succ = new Map();
   const pred = new Map();
   for (const e of net.edges) {

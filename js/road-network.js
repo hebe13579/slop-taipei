@@ -307,6 +307,13 @@ function buildRoadNetwork(sidewalks, obstacles, env = null) {
   //     already carry. Its junctions join the grid where they meet it (at a grid intersection, on an avenue corridor or a
   //     cross street); a street's bends get shape nodes, so every edge stays straight.
   const genRuns = centrelineStreets();
+  // Issue #285: the Taipei traffic env may supply groundAt(x, z)
+  // (the draped terrain height). When present, the level-join rule
+  // below compares each edge's height RELATIVE to the ground at
+  // that edge's own end — see there. Absent (the NYC env and every
+  // other caller), the rule is exactly the #254 absolute
+  // comparison and nothing changes.
+  const groundAt = env && typeof env.groundAt === 'function' ? env.groundAt : null;
   function centrelineStreets() {
     const RG = (env && env.roadGraph) || GEO.roadGraph;
     const runs = [];
@@ -936,7 +943,35 @@ function buildRoadNetwork(sidewalks, obstacles, env = null) {
       // the 2D merge made one, and a ramp joins the street at its
       // foot and the deck at its top. Flat edges have no heights
       // (y0/y1 undefined): they join as before.
-      if (Math.abs((e.y1 || 0) - (f.y0 || 0)) > JOIN_TOL) continue;
+      // Issue #285: when env.groundAt is set (Taipei only), each
+      // PROFILED edge's height is also measured relative to the
+      // draped ground at that edge's own end — a flat edge keeps
+      // its absolute height (0), and a network with no profiles
+      // at all (the #252 ground core) is unchanged. A move is
+      // allowed when the relative heights agree (the #254 rule,
+      // now terrain-aware: a deck over the street still differs
+      // by its digest height and is refused, a tunnel mouth by
+      // its depth) OR when neither edge rides a deck (relative
+      // height <= 1 m) and the absolute step is within what a
+      // steep grade spans across a merged junction (2.5 m). The
+      // junction merges graph nodes up to 12 m apart, and on a
+      // grade their drape heights differ by more than JOIN_TOL —
+      // the absolute comparison alone refused 185 moves between
+      // two ground edges that genuinely meet (138 edges out of
+      // the main SCC; worst legitimate step 1.84 m on 劍潭路）.
+      // The 2.5 m bound keeps a real separation refused (a 2.9 m
+      // deck step, a switchback level change). (e.y1 is the height
+      // at e's end node, f.y0 at f's start node — the two nodes
+      // the junction merged — so each is measured against the
+      // ground at its own point.)
+      const eRel = e.yProf ? (e.y1 || 0) - (groundAt ? groundAt(e.x0 + e.dx * e.span, e.z0 + e.dz * e.span) : 0) : (e.y1 || 0);
+      const fRel = f.yProf ? (f.y0 || 0) - (groundAt ? groundAt(f.x0, f.z0) : 0) : (f.y0 || 0);
+      const GRADE_JOIN_MAX_M = 2.5;
+      const bothGround = eRel <= 1 && fRel <= 1;
+      // (The grade clause is Taipei-only: it needs groundAt, so
+      // without it — the NYC env and every other caller — the
+      // rule is exactly the #254 absolute comparison.)
+      if (Math.abs(eRel - fRel) > JOIN_TOL && !(groundAt && bothGround && Math.abs((e.y1 || 0) - (f.y0 || 0)) <= GRADE_JOIN_MAX_M)) continue;
       const cross = e.dx * f.dz - e.dz * f.dx;
       e.moves.push({ to: f, turn: cross > 0.5 ? 'R' : cross < -0.5 ? 'L' : 'S', cross, out: new Array(n).fill(-1) });
     }

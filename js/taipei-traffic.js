@@ -1,6 +1,7 @@
 import { TAIPEI_GEO } from './taipei-sandbox.js'; // sandbox wrapper: the generated geo, filtered when ?sandbox= is set, untouched otherwise
 import { ASPHALT_LIFT } from './taipei-viaduct.js'; // three-free geometry constants; the sampler below reuses the digest the renderer draws
 import { ROAD_TRENCH_DEPTH_M } from './taipei-airfield.js'; // issue #279: the #196 trench datum the underpass floor agrees with
+import { drapeHeight } from './taipei-drape.js'; // issue #285: the one height field the rendered road ribbons and the player drive model sample
 
 // js/taipei-traffic.js — issue #210 EXPERIMENT: traffic generation for the Taipei tile.
 //
@@ -73,6 +74,7 @@ const DRIVABLE = new Set([
 // traffic-env build time, memoized per digest.
 // ------------------------------------------------------------------
 const DECK_SAMPLE_STEP = 8; // m, max spacing of height samples along a deck edge
+const DECK_PROFILE_STEP = 2; // m, spacing of the profile VALUES (issue #285): the profile carries the drape lift too (below), and the drape field is rougher than any ramp — at 8 m the steepest draped chord jumps 5.1 m between samples, at 2 m it jumps 1.286 m, inside the 1.5 m profile-shape bound. The line MATCH still samples at 8 m (its scoring is a mean over samples).
 const HEIGHT_STEP_TOL = 1.0; // m, a larger step at a chained joint splits the run instead of climbing a cliff
 const deckSamplerCache = new WeakMap();
 
@@ -196,12 +198,22 @@ function deckEdgeProfile(sampler, edge, ax, az, bx, bz) {
   const line = sampler.match(ax, az, bx, bz, level);
   if (!line) return null;
   const len = Math.hypot(bx - ax, bz - az);
-  const n = Math.max(1, Math.ceil(len / DECK_SAMPLE_STEP));
+  const n = Math.max(1, Math.ceil(len / DECK_PROFILE_STEP));
   const values = [];
   let maxH = 0;
   for (let i = 0; i <= n; i++) {
     const t = i / n;
-    const h = sampler.heightOn(line, ax + (bx - ax) * t, az + (bz - az) * t);
+    const x = ax + (bx - ax) * t, z = az + (bz - az) * t;
+    // Issue #285: the rendered deck is the digest height lifted by
+    // the draped ground (js/taipei-viaduct.js lifts every
+    // cross-section by groundAt; the drive model does the same) —
+    // the profile carries the same sum, so cars sit on the deck
+    // where the deck crosses draped ground. Before this, deck cars
+    // drove at digest height while the deck above them rode the
+    // terrain: 63 deck links ride terrain over 0.5 m, worst 19.1 m
+    // (汐止五股高架道路 / 新生高架道路） — the same defect class as
+    // the ground roads, on the same links the batch check reads.
+    const h = sampler.heightOn(line, x, z) + drapeHeight(x, z);
     values.push(h);
     if (h > maxH) maxH = h;
   }
@@ -236,6 +248,7 @@ function deckEdgeProfile(sampler, edge, ax, az, bx, bz) {
 // without a tile-geometry change.
 // ------------------------------------------------------------------
 const UNDERPASS_SAMPLE_STEP = 4; // m; the north cut ramps 5.35 m over 30 m (17.8%), so an 8 m sample would jump 1.43 m — inside the 1.5 m link-shape bound but with almost no margin
+const UNDERPASS_PROFILE_STEP = 2; // m, spacing of the profile VALUES (issue #285): the profile carries the drape lift too (below), and the drape field is rougher than any cut ramp — at 4 m the steepest draped chord jumps 2.56 m, at 2 m it jumps 1.286 m, inside the 1.5 m profile-shape bound. The trench MATCH still samples at 4 m (its scoring is a mean over samples).
 const UNDERPASS_COVERAGE_MIN = 0.4; // fraction of an edge's samples inside the trench corridor
 const UNDERPASS_ALIGN_MIN = 0.7; // |dot| of the edge chord with the tunnel axis — a road crossing over the tunnel scores ~0
 const underpassSamplerCache = new WeakMap();
@@ -365,22 +378,80 @@ function underpassEdgeProfile(sampler, edge, ax, az, bx, bz) {
   const t = sampler.match(ax, az, bx, bz);
   if (!t) return null;
   const len = Math.hypot(bx - ax, bz - az);
-  const n = Math.max(1, Math.ceil(len / UNDERPASS_SAMPLE_STEP));
+  const n = Math.max(1, Math.ceil(len / UNDERPASS_PROFILE_STEP));
   const values = [];
-  let minH = 0;
+  const rel = []; // depth below the LOCAL ground (the trench's own shape)
+  let minRel = 0;
   for (let i = 0; i <= n; i++) {
     const s = i / n;
-    const h = t.depthAt(ax + (bx - ax) * s, az + (bz - az) * s);
+    const x = ax + (bx - ax) * s, z = az + (bz - az) * s;
+    // Issue #285: the rendered trench is the trench depth lifted
+    // by the draped ground (buildDeckGeometry lifts every trench
+    // floor, wall and track strip by groundAt; the drive model
+    // does the same) — the profile carries the same sum, so cars
+    // sit on the tunnel floor where the tunnel crosses draped
+    // ground. Before this, the profile said "grade 0" at the
+    // south mouth while the draped street there sits at 5.6 m: a
+    // 5.18 m step at node 654 cut the bore off the network
+    // entirely (the join test's bore edges went from 2 to 0) and
+    // the cars drove ~5 m under the rendered mouth. The north
+    // mouth (drape 0) was unaffected.
+    const d = t.depthAt(x, z);
+    const h = d + drapeHeight(x, z);
     values.push(h);
-    if (h < minH) minH = h;
+    rel.push(d);
+    if (d < minRel) minRel = d;
   }
-  if (!(minH < -0.5)) return null;
+  if (!(minRel < -0.5)) return null; // only a real descent profiles (relative to local grade)
   for (let i = 1; i < values.length; i++) {
     if (Math.abs(values[i] - values[i - 1]) > 3) return INVALID_PROFILE;
   }
-  for (let i = 1; i + 1 < values.length; i++) {
-    if (values[i] > -0.5 && values[i - 1] < -0.5 && values[i + 1] < -0.5) return INVALID_PROFILE;
+  for (let i = 1; i + 1 < rel.length; i++) {
+    if (rel[i] > -0.5 && rel[i - 1] < -0.5 && rel[i + 1] < -0.5) return INVALID_PROFILE;
   }
+  return { step: len / n, len, values };
+}
+
+// ------------------------------------------------------------------
+// Issue #285: drape heights. On a climbing Beitou road the rendered
+// carriageway rises to drapeHeight while the traffic car stayed at
+// y=0 (lanePoint falls back to 0 on flat edges, and the ground
+// graph carries no profiles) — the car sank into the rising slope
+// and passed through it, up to 25.8 m under the road on the
+// 崇仰七路25巷 climb. The fix rides the same yProf mechanism as
+// decks (#254) and underpasses (#279): a ground edge in the drape
+// region carries drape-sampled heights, so cars climb and descend
+// with the road. The values are the RENDERED road surface —
+// drapeHeight + 0.06, the carriageway lift the boot's ribbons are
+// drawn at — the same convention as the deck profiles (digest h +
+// ASPHALT_LIFT). The player drive model samples the same field
+// without the lift, a 6 cm difference that predates this issue.
+// No line-match can break here (the field is one continuous
+// analytic function, sampled directly), so there is no invalid
+// case: measured on this tree at the 2 m step, the steepest
+// draped chord (自強隧道 over its ridge) changes 1.286 m between
+// adjacent samples — inside the 1.5 m profile-shape bound — and
+// no profile has an interior dip (measure285c.log). The 2 m step
+// matters: at 8 m the same chord jumps 5.1 m, and 97 edges jump
+// over 1.5 m. Returns null when the edge is flat (max height
+// <= 0.5 m above grade): flat edges need no profile and their
+// links stay 7-tuples, exactly as before.
+// ------------------------------------------------------------------
+const DRAPE_SAMPLE_STEP = 2; // m; the drape field is rougher than any ramp — the steepest real ramp is 9.5%, Beitou chords hit ~60%
+const DRAPE_CARRIAGEWAY_LIFT = 0.06; // m; the rendered carriageway surface is drapeHeight + 0.06 (boot ribbons y=0.06)
+
+function drapeEdgeProfile(ax, az, bx, bz) {
+  const len = Math.hypot(bx - ax, bz - az);
+  const n = Math.max(1, Math.ceil(len / DRAPE_SAMPLE_STEP));
+  const values = [];
+  let maxH = 0;
+  for (let i = 0; i <= n; i++) {
+    const t = i / n;
+    const h = drapeHeight(ax + (bx - ax) * t, az + (bz - az) * t) + DRAPE_CARRIAGEWAY_LIFT;
+    values.push(h);
+    if (h > maxH) maxH = h;
+  }
+  if (!(maxH > 0.5)) return null;
   return { step: len / n, len, values };
 }
 
@@ -426,6 +497,26 @@ export function buildTaipeiRoadGraph(source = TAIPEI_GEO, opts = {}) {
       const p = underpassEdgeProfile(upSampler, e, nodes[e.a * 2], nodes[e.a * 2 + 1], nodes[e.b * 2], nodes[e.b * 2 + 1]);
       if (p === INVALID_PROFILE) invalidUnderpassProfiles.add(e);
       else if (p) profiles.set(e, p);
+    }
+  }
+  // Issue #285: drape profiles ride the same map, but they are
+  // built into a SEPARATE map and merged only after the drop
+  // filter below: a drape profile must not rescue a level >= 2
+  // deck the digest cannot place (the deck-mode drop consults
+  // `profiles` only), and a deck/underpass profile always wins
+  // over a drape one (a deck edge's height is its digest height,
+  // not the terrain under it). The live graph is the deck graph,
+  // so drape profiles are built whenever the deck or underpass
+  // graph is built; the ground-only graph (no opts) stays
+  // byte-identical to #252. When drape is off (kill-switch or
+  // ?drape=0) drapeHeight is identically 0, every drape profile
+  // is null, and the graph is exactly the pristine one.
+  const drapeProfiles = new Map();
+  if (includeDecks || includeUnderpass) {
+    for (const e of rg.edges) {
+      if (!DRIVABLE.has(e.highway) || profiles.has(e)) continue;
+      const p = drapeEdgeProfile(nodes[e.a * 2], nodes[e.a * 2 + 1], nodes[e.b * 2], nodes[e.b * 2 + 1]);
+      if (p) drapeProfiles.set(e, p);
     }
   }
   // Profile of one edge in travel order from `fromNode` (its a end
@@ -524,6 +615,14 @@ export function buildTaipeiRoadGraph(source = TAIPEI_GEO, opts = {}) {
       adj.get(n).push(ei);
     }
   }
+  // Issue #285: merge the drape profiles for surviving edges only.
+  // The drop above ran on the deck/underpass map alone, so a
+  // level >= 2 edge the digest cannot place stays dropped even
+  // though the terrain under it is high.
+  for (const e of edges) {
+    const p = drapeProfiles.get(e);
+    if (p && !profiles.has(e)) profiles.set(e, p);
+  }
   const other = (e, n) => (e.a === n ? e.b : e.a);
   const used = new Uint8Array(edges.length);
   const names = [];
@@ -542,6 +641,8 @@ export function buildTaipeiRoadGraph(source = TAIPEI_GEO, opts = {}) {
   let deckKm = 0;
   let underpassLinks = 0;
   let underpassKm = 0;
+  let drapeLinks = 0; // Issue #285: links riding a drape profile (lifted ground), counted separately from deck links
+  let drapeKm = 0;
 
   function emitRun(runEdges, seqNodes) {
     // seqNodes: [start, ...inner, end] node indices in travel order
@@ -569,11 +670,26 @@ export function buildTaipeiRoadGraph(source = TAIPEI_GEO, opts = {}) {
     if (profiles.size) {
       const hs = [], ss = [];
       let dist = 0;
+      // Issue #285: which profile kinds feed this run. A profile
+      // is a drape profile iff it came from the drape map; a deck
+      // profile is a level >= 1 edge's profile (deckEdgeProfile
+      // returns null below level 1); anything else with a profile
+      // is an underpass profile. Only edges that actually carry a
+      // profile count — a flat level-1 bridge (no profile) is
+      // not a deck link. A mixed run (deck + drape, joined where
+      // the heights agree) counts in both buckets, like a link
+      // that reaches both sides of grade counts as deck and
+      // underpass today.
+      let hasDeck = false, hasDrape = false;
       for (let k = 0; k < runEdges.length; k++) {
         const e = runEdges[k];
         const entry = seqNodes[k];
         const trav = travelProfile(e, entry);
         const p = profiles.get(e);
+        if (p) {
+          if (drapeProfiles.has(e)) hasDrape = true;
+          else if ((e.level || 0) >= 1) hasDeck = true;
+        }
         const step = p ? p.step : 0;
         for (let i = 0; i < trav.length; i++) {
           if (k > 0 && i === 0) continue;
@@ -592,11 +708,15 @@ export function buildTaipeiRoadGraph(source = TAIPEI_GEO, opts = {}) {
       // link stays a flat 7-tuple like every other ground link.
       // Issue #279: the mirror — attach when some sample is
       // genuinely below ground (an underpass profile). A link
-      // counts as a deck link, an underpass link, or both by
-      // which side of grade its profile reaches.
+      // counts as a deck link, a drape link, an underpass link,
+      // or several, by which profile kinds feed it and which side
+      // of grade its profile reaches.
       if (maxH > 0.5 || minH < -0.5) {
         heights = { s: ss, h: hs };
-        if (maxH > 0.5) { deckLinks++; deckKm += len; }
+        if (maxH > 0.5) {
+          if (hasDrape) { drapeLinks++; drapeKm += len; }
+          if (hasDeck) { deckLinks++; deckKm += len; }
+        }
         if (minH < -0.5) { underpassLinks++; underpassKm += len; }
       }
     }
@@ -696,6 +816,8 @@ export function buildTaipeiRoadGraph(source = TAIPEI_GEO, opts = {}) {
       deckKm: Math.round(deckKm / 100) / 10,
       heightSplits,
       deckInvalidEdges,
+      drapeLinks, // Issue #285: links riding a drape profile (lifted ground)
+      drapeKm: Math.round(drapeKm / 100) / 10,
       underpassMode: includeUnderpass,
       underpassLinks,
       underpassKm: Math.round(underpassKm / 100) / 10,
@@ -727,6 +849,14 @@ export function taipeiTrafficEnv(carCount, opts = {}) {
       avenues: [],
       streets: [],
       medians: [],
+      // Issue #285: the draped terrain height, so the network's
+      // level-join rule compares edge heights relative to the
+      // local ground (js/road-network.js). Without it the rule
+      // refuses moves between two ground edges at a merged
+      // junction on a grade (their drape heights differ by more
+      // than the 0.6 m join tolerance across the merged nodes).
+      // Only the Taipei env sets this; the NYC env does not.
+      groundAt: drapeHeight,
       // The tile is one land rectangle for lane-clearance purposes: Taipei's roads are
       // building-free by construction (the planner excludes every roadbed), so no obstacle
       // list is needed to keep lanes on the carriageway.
