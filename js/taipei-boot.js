@@ -548,7 +548,11 @@ function buildAdaptiveDrapeGroundMeshes(geo) {
     meshes.push(mesh);
   }
   console.info(`[taipei-drape] adaptive ground: ${out.stats.totalTris.toLocaleString('en-US')} tris (${out.stats.blockTris.toLocaleString('en-US')} block + ${out.stats.patchTris.toLocaleString('en-US')} terrain), ${out.stats.splits.toLocaleString('en-US')} splits, max depth ${out.stats.maxDepth}, max residual over ${out.stats.maxResidualOver.toFixed(3)} m / under ${out.stats.maxResidualUnder.toFixed(3)} m, ${out.stats.refinedCells.toLocaleString('en-US')} refined / ${out.stats.coarseCells.toLocaleString('en-US')} coarse cells, ${out.stats.slotSkippedQuads.toLocaleString('en-US')} trench-slot quads skipped`);
-  return { blockPositions: out.block, patchMeshes: meshes };
+  // Issue #345: the block side carries the same slope-blended
+  // vertex colours and smooth DEM-gradient normals as the patch
+  // side (js/taipei-drape.js drapeGroundVertex) — addBlockLayer
+  // renders them as the separate unlit TaipeiBlocksDrape mesh.
+  return { blockPositions: out.block, blockColors: out.blockColors, blockNormals: out.blockNormals, patchMeshes: meshes };
 }
 
 function paintedGeometries(carriageways, yBand, yEdge, capPolys = null) {
@@ -1530,20 +1534,38 @@ export async function buildTaipeiGround(scene, tile, deps = {}) {
       for (const p of polys) pieces.push(p.flatMap((pt) => pt));
     }
     // The adaptive block triangles (already at DEM + 0.02, never
-    // re-lifted) merge into the one TaipeiBlocks mesh with the flat
-    // rects outside the footprint. The podium layer never meets the
-    // footprint (101 / City Hall are far outside it), so it takes no
-    // adaptive part.
-    const extra = (name === 'TaipeiBlocks' && adaptiveGround) ? adaptiveGround.blockPositions : null;
-    const geos = [];
-    if (plainRects.length) geos.push(drapeGeometry(rectsGeometry(plainRects, y)));
-    if (pieces.length) geos.push(drapeGeometry(flatPolygonGeometry(pieces, y)));
-    if (extra && extra.length) {
-      const extraGeo = new THREE.BufferGeometry();
-      extraGeo.setAttribute('position', new THREE.BufferAttribute(extra, 3));
-      geos.push(extraGeo);
+    // re-lifted) are a SEPARATE mesh from the flat rects outside the
+    // footprint. The podium layer never meets the footprint (101 /
+    // City Hall are far outside it), so it takes no adaptive part.
+    const extra = (name === 'TaipeiBlocks' && adaptiveGround) ? adaptiveGround : null;
+    const hasAdaptive = extra && extra.blockPositions.length > 0;
+    const flatGeos = [];
+    if (plainRects.length) flatGeos.push(drapeGeometry(rectsGeometry(plainRects, y)));
+    if (pieces.length) flatGeos.push(drapeGeometry(flatPolygonGeometry(pieces, y)));
+    if (hasAdaptive) {
+      // Issue #345: the draped (hillside) block ground is unlit
+      // (MeshBasicMaterial + vertexColours). The WebGPU standard
+      // material lights this non-indexed ground per-triangle and no
+      // normal attribute, normalNode (smooth or constant-up),
+      // indexing, colour change, or shadow change removes the
+      // triangle checkerboard — the isolate probes prove the
+      // pattern survives a constant normal and only an unlit
+      // material reads smooth (ground HF 3.21 lit -> 1.30 unlit).
+      // The vertex colours ARE the tones (slope-blended, a pure
+      // function of (x, z)), so the unlit draped ground keeps the
+      // pale/green terrain read. The flat rects outside the
+      // footprint keep the standard lit material below, so the
+      // flat-city look is unchanged. The flat mesh keeps the name
+      // 'TaipeiBlocks' (boot-smoke checks it exists); the draped
+      // mesh is 'TaipeiBlocksDrape'.
+      const drapeGeo = new THREE.BufferGeometry();
+      drapeGeo.setAttribute('position', new THREE.BufferAttribute(extra.blockPositions, 3));
+      drapeGeo.setAttribute('color', new THREE.BufferAttribute(extra.blockColors, 3));
+      drapeGeo.setAttribute('normal', new THREE.BufferAttribute(extra.blockNormals, 3));
+      addLayer(drapeGeo, new THREE.MeshBasicMaterial({ vertexColors: true }), `${name}Drape`);
     }
-    if (!geos.length) return;
+    if (!flatGeos.length) return;
+    const geos = flatGeos;
     let merged;
     if (geos.length === 1) { merged = geos[0]; merged.computeVertexNormals(); }
     else {

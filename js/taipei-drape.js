@@ -341,6 +341,26 @@ export function drapePatchColor(slope, hgt) {
   return lerp3(DRAPE_GROUND_PALE_TONE, drapeTerrainColor(slope, hgt), s);
 }
 
+// One ground vertex's colour and smooth normal, as a pure function
+// of (x, z) (issue #345): the DEM gradient over ±DRAPE_GROUND_STEP_M
+// gives the slope for drapePatchColor and the smooth normal. The
+// #297 patch branch inlined this computation; the block branch now
+// shares it, so the colour and shading are continuous across the
+// block/patch split — the split is per-triangle by plane slope, but
+// the vertex values do not depend on which side a triangle falls
+// on. hgt is the vertex's DEM height clamped at 0 (callers pass
+// Math.max(0, v[1]); a water-pinned vertex wears hgt 0, exactly as
+// the patch did before this helper existed).
+export function drapeGroundVertex(x, z, hgt) {
+  const dhx = drapeHeight(x + DRAPE_GROUND_STEP_M, z) - drapeHeight(x - DRAPE_GROUND_STEP_M, z);
+  const dhz = drapeHeight(x, z + DRAPE_GROUND_STEP_M) - drapeHeight(x, z - DRAPE_GROUND_STEP_M);
+  const slope = Math.hypot(dhx, dhz) / (2 * DRAPE_GROUND_STEP_M);
+  const [cr, cg, cb] = drapePatchColor(slope, hgt);
+  const gx = dhx / (2 * DRAPE_GROUND_STEP_M), gz = dhz / (2 * DRAPE_GROUND_STEP_M);
+  const nl = Math.hypot(gx, 1, gz);
+  return { color: [cr, cg, cb], normal: [-gx / nl, 1 / nl, -gz / nl] };
+}
+
 // Plane through three vertices, evaluated at (x, z). Vertices are
 // [x, y, z] with y already the lifted height.
 function groundPlaneY(p0, p1, p2, x, z) {
@@ -534,35 +554,44 @@ export function buildAdaptiveDrapeGround(waterRings, opts = {}) {
     return [x, (h > 0 && inWater(x, z)) ? DRAPE_WATER_PIN_Y : h, z];
   };
   const stats = { totalTris: 0, blockTris: 0, patchTris: 0, splits: 0, maxDepth: 0, maxResidualOver: -Infinity, maxResidualUnder: -Infinity, refinedCells: 0, coarseCells: 0, coarseTris: 0, slotSkippedQuads: 0, worstResidual: null };
-  const blockPos = [], patchByRegion = [];
+  const blockPos = [], blockColors = [], blockNormals = [], patchByRegion = [];
   // Leaves are emitted straight into the position arrays (never collected):
   // the builder holds O(depth) live triangles, not O(leaves).
   const emit = (tri, patchPositions, patchColors, patchNormals) => {
     if (groundTriSlope(tri) < DRAPE_GROUND_PALE_SLOPE) {
-      for (const v of tri) blockPos.push(v[0], v[1] + DRAPE_GROUND_BLOCK_Y, v[2]);
+      // Issue #345: the block side wears the same slope-blended
+      // vertex colours and smooth DEM-gradient normals as the
+      // patch side (drapeGroundVertex, a pure function of (x, z)),
+      // so the colour and shading are continuous across the
+      // block/patch split. Before this the block was uniformly
+      // pale with per-face normals (computeVertexNormals on the
+      // merged non-indexed mesh in the boot) — a brightness
+      // checkerboard across all block ground plus a colour mosaic
+      // wherever the split runs through built-up hillsides.
+      for (const v of tri) {
+        blockPos.push(v[0], v[1] + DRAPE_GROUND_BLOCK_Y, v[2]);
+        const s = drapeGroundVertex(v[0], v[2], Math.max(0, v[1]));
+        blockColors.push(s.color[0], s.color[1], s.color[2]);
+        blockNormals.push(s.normal[0], s.normal[1], s.normal[2]);
+      }
       stats.blockTris++;
     } else {
       for (const v of tri) {
         patchPositions.push(v[0], v[1] + DRAPE_GROUND_PATCH_Y, v[2]);
         // One ±14 m central-difference gradient per vertex, shared
-        // by the colour slope and the smooth normal below.
-        const dhx = drapeHeight(v[0] + DRAPE_GROUND_STEP_M, v[2]) - drapeHeight(v[0] - DRAPE_GROUND_STEP_M, v[2]);
-        const dhz = drapeHeight(v[0], v[2] + DRAPE_GROUND_STEP_M) - drapeHeight(v[0], v[2] - DRAPE_GROUND_STEP_M);
-        const slope = Math.hypot(dhx, dhz) / (2 * DRAPE_GROUND_STEP_M);
-        const [cr, cg, cb] = drapePatchColor(slope, Math.max(0, v[1]));
-        patchColors.push(cr, cg, cb);
-        // Smooth normal from the DEM gradient (issue #297): the
-        // patch mesh is non-indexed, so computeVertexNormals gives
-        // face normals and flat shading lights every triangle as a
-        // facet — measured, adjacent triangles differ by 6.4° at
-        // block/patch boundaries and 1.1° within the patch. A normal
-        // from the DEM gradient is a pure function of (x, z), so
-        // the two triangles sharing an edge agree exactly and the
-        // shading is continuous across it. The boot sets this
-        // attribute and drops flatShading.
-        const gx = dhx / (2 * DRAPE_GROUND_STEP_M), gz = dhz / (2 * DRAPE_GROUND_STEP_M);
-        const nl = Math.hypot(gx, 1, gz);
-        patchNormals.push(-gx / nl, 1 / nl, -gz / nl);
+        // by the colour slope and the smooth normal below (issue
+        // #297): the patch mesh is non-indexed, so
+        // computeVertexNormals gives face normals and flat shading
+        // lights every triangle as a facet — measured, adjacent
+        // triangles differ by 6.4° at block/patch boundaries and
+        // 1.1° within the patch. A normal from the DEM gradient is
+        // a pure function of (x, z), so the two triangles sharing
+        // an edge agree exactly and the shading is continuous
+        // across it. The boot sets this attribute and drops
+        // flatShading.
+        const s = drapeGroundVertex(v[0], v[2], Math.max(0, v[1]));
+        patchColors.push(s.color[0], s.color[1], s.color[2]);
+        patchNormals.push(s.normal[0], s.normal[1], s.normal[2]);
       }
       stats.patchTris++;
     }
@@ -657,5 +686,5 @@ export function buildAdaptiveDrapeGround(waterRings, opts = {}) {
     patchByRegion.push({ name: r.name, positions: new Float32Array(positions), colors: new Float32Array(colors), normals: new Float32Array(normals), triCount });
   }
   stats.totalTris = stats.blockTris + stats.patchTris;
-  return { block: new Float32Array(blockPos), patch: patchByRegion, stats };
+  return { block: new Float32Array(blockPos), blockColors: new Float32Array(blockColors), blockNormals: new Float32Array(blockNormals), patch: patchByRegion, stats };
 }
