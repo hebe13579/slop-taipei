@@ -13,7 +13,7 @@ import {
 } from '../js/taipei-adapter.js';
 import { TAIPEI_TILE } from '../js/taipei-tile.js';
 import { TILE_REGISTRY, tileIdFromSearch, loadSelectedTile } from '../js/tile-registry.js';
-import { planTaipeiBuildings, taipeiCityBlocksOptions, pointInRing, latLonToTile, clampTaipeiRooftopGear, taipeiArcadeParts, taipeiVerticalSigns, taipeiRooftopAdditions, TAIPEI_ARCADE_DEPTH, taipei101OrnamentPositions, taipeiLandmarkStructures, officeCoreFor, xinyiDistrictFor } from '../js/taipei-buildings.js';
+import { planTaipeiBuildings, taipeiCityBlocksOptions, pointInRing, latLonToTile, clampTaipeiRooftopGear, taipeiArcadeParts, taipeiVerticalSigns, taipeiFrontageLookup, taipeiRooftopAdditions, TAIPEI_ARCADE_DEPTH, taipei101OrnamentPositions, taipeiLandmarkStructures, officeCoreFor, xinyiDistrictFor } from '../js/taipei-buildings.js';
 
 // M1 foundation: the Taipei tile's adapter, road graph, teleports and tile
 // registry. Numbers printed via t.diagnostic are the actual generated values.
@@ -1588,12 +1588,18 @@ test('arcade parts: recessed core and full-perimeter colonnade', (t) => {
 // a deterministic ~55% subset, 1–2 panels each, always above the
 // ground floor and below the roofline (panel colours are hashed
 // in-shader from the photo palette; the policy pins placement only).
+// Issue #355: signs are a commercial-frontage treatment — only lots
+// whose best frontage is rank >= 2 (tertiary and better) sign, so the
+// signed share of Taiwan lots is ~55% of the commercial-frontage
+// share (~0.12), not ~55% of all Taiwan lots.
 test('vertical signs: sparse deterministic panels on Taiwan types', (t) => {
   const opts = taipeiCityBlocksOptions(TAIPEI_GEO, planTaipeiBuildings(TAIPEI_GEO));
   const taiwan = opts.lots.filter((l) => l.mat >= 6 && l.h >= 10);
   const signed = taiwan.filter((l) => l.signs && l.signs.length);
   const share = signed.length / taiwan.length;
-  assert.ok(share > 0.35 && share < 0.75, `signed share of Taiwan lots plausible (${signed.length}/${taiwan.length})`);
+  // Issue #355: signed share 0.55 -> 0.119 (5,267/44,300 — the 55%
+  // roll now applies only to rank >= 2 frontage).
+  assert.ok(share > 0.08 && share < 0.20, `signed share of Taiwan lots plausible (${signed.length}/${taiwan.length})`);
   assert.ok(opts.lots.every((l) => l.mat >= 6 || !l.signs), 'no signs on glass or masonry lots');
   let total = 0;
   for (const l of signed) {
@@ -1609,9 +1615,11 @@ test('vertical signs: sparse deterministic panels on Taiwan types', (t) => {
     }
   }
   t.diagnostic(`signed Taiwan lots ${signed.length}/${taiwan.length}, total panels ${total}`);
+  // Issue #355: the policy takes the lot's frontage — pass it explicitly.
+  const frontageFor = taipeiFrontageLookup(TAIPEI_GEO);
   const sample = signed[0];
-  assert.deepEqual(taipeiVerticalSigns(sample), sample.signs, 'sign policy is deterministic per lot');
-  assert.deepEqual(taipeiVerticalSigns({ x0: 0, x1: 20, z0: 0, z1: 16, h: 22, mat: 4 }), [], 'glass lots never sign');
+  assert.deepEqual(taipeiVerticalSigns(sample, frontageFor(sample)), sample.signs, 'sign policy is deterministic per lot');
+  assert.deepEqual(taipeiVerticalSigns({ x0: 0, x1: 20, z0: 0, z1: 16, h: 22, mat: 4 }, { rank: 4 }), [], 'glass lots never sign');
 });
 
 // Issue #56: rooftop furniture — stainless tanks and 鐵皮屋 additions

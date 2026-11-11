@@ -9159,13 +9159,30 @@ export function taipeiNewerEntrance(lot) {
 // carry signs, one panel usually, two on a hash share, each on its
 // own side; a panel starts above the ground floor (y0 ≈ 4.1–4.6 m)
 // and never crosses the roof.
+//
+// Issue #355: signs are a commercial-frontage treatment, like the
+// ground-floor shopfronts below. A lot fronts a commercial /
+// mixed-use street only when its BEST frontage — the highest road
+// rank over its four faces, per taipeiFrontageLookup, the same
+// definition the #153 roof-board policy uses — is rank >= 2
+// (tertiary/collector or better). A lot whose best frontage is rank
+// 1 (a residential lane / unclassified / living street / service
+// drive) or which fronts no road at all is pure residential: it
+// carries no vertical sign. Measured on main: 77.8% of all signed
+// lots (18,451 of 23,718) and 77.9% of all panels fronted rank 0–1
+// — quiet lanes read commercial only because this gate was missing.
+// SHOP_FRONTAGE_MIN_RANK is the shared threshold for the sign gate
+// here and the shopfront gate in taipeiCityBlocksOptions.
+export const SHOP_FRONTAGE_MIN_RANK = 2;
 const SIGN_RATE = 0.55;
 
-export function taipeiVerticalSigns(lot) {
+export function taipeiVerticalSigns(lot, front) {
   // Issue #108: family 13 (二丁掛 mid-rise) joins the sign-carrying
   // Taiwan set; family 12 (the lobby tower) stays out with 10/11 —
   // a residential tower carries no vertical shop sign.
   if (!lot || ![6, 7, 8, 9, 13].includes(lot.mat) || lot.h < 10) return [];
+  // Issue #355: no sign without a commercial frontage (see above).
+  if (!front || front.rank < SHOP_FRONTAGE_MIN_RANK) return [];
   const seed = lotPolicySeed(lot, 0x5167);
   if (hash01(seed) >= SIGN_RATE) return [];
   const two = hash01(seed ^ 0x11) >= 0.62;
@@ -9300,8 +9317,10 @@ export function taipeiRoofBoards(lot, front) {
 // carriageway set, sampling the four face midpoints pushed 7 m
 // outward with reach 16 (the planner's edgeRankAt sampling). Built
 // once per taipeiCityBlocksOptions call; a geodata without
-// carriageways yields no frontage and no boards.
-function taipeiFrontageLookup(geodata) {
+// carriageways yields no frontage and no boards. Exported for the
+// #355 sign/shopfront gate tests, which need the exact production
+// lookup (not a re-implementation) against real plan lots.
+export function taipeiFrontageLookup(geodata) {
   const carriageways = Array.isArray(geodata.roadbeds) && geodata.roadbeds.length
     ? geodata.roadbeds
     : (geodata.roads || []).filter((r) => !NON_CARRIAGEWAY.has(r.highway));
@@ -9416,12 +9435,26 @@ export function taipeiCityBlocksOptions(geodata, plan = planTaipeiBuildings(geod
         const entrance = taipeiNewerEntrance(r);
         if (entrance) r.entrance = entrance;
       }
+      // Issue #355: shops and signs are a commercial-frontage
+      // treatment. The frontage query (below) is the lot's best road
+      // rank over its four faces; a lot whose best frontage is rank 1
+      // (a residential lane) or which fronts no road is pure
+      // residential — it carries no vertical sign (the gate inside
+      // taipeiVerticalSigns) and no ground-floor shopfront: r.shops
+      // = 0 flows through populatePlannedLot's existing probability
+      // path (tone < 0 never fires), so the street fronts paint a
+      // residential entrance instead, with no storefront glass, no
+      // painted band sign and no awning. Lots with a rank >= 2
+      // frontage leave r.shops unset and keep the per-family table
+      // exactly as before.
+      const front = frontageFor(r);
+      if (!front || front.rank < SHOP_FRONTAGE_MIN_RANK) r.shops = 0;
       // Issue #56: vertical signs on a hashed subset of Taiwan-type lots.
-      const signs = taipeiVerticalSigns(r);
+      const signs = taipeiVerticalSigns(r, front);
       if (signs.length) r.signs = signs;
       // Issue #153: rooftop billboard signs on arterial commercial
       // lots (the frontage query above supplies the #106 rank).
-      const roofBoards = taipeiRoofBoards(r, frontageFor(r));
+      const roofBoards = taipeiRoofBoards(r, front);
       if (roofBoards.length) r.roofBoards = roofBoards;
       return r;
     }),

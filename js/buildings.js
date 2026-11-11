@@ -2232,6 +2232,12 @@ function buildCityBlocks(scene, opts = null) {
     // the NYC scene is unchanged. (In lot mode `rand` is re-seeded per
     // lot and commit is its last consumer, so skipping the awning dice
     // moves nothing else.)
+    // Issue #355: a planned lot may carry an explicit shops probability
+    // (lot.shops, set by the Taipei adapter when the lot's best
+    // frontage is pure residential — 0 there, meaning no shopfronts).
+    // Undefined keeps the per-family table exactly as before, and
+    // Manhattan lots never carry the field, so the NYC scene is
+    // untouched.
     commit(blockDetail, b, mat >= 6
       // Taiwan types (issue #17): no stone cornice, no water tower (rooftop
       // gear is clamped below anyway); ground-floor shop share per type —
@@ -2239,10 +2245,10 @@ function buildCityBlocks(scene, opts = null) {
       // are housing-led with some shops. The newer apartment towers
       // (issue #256, families 10/11) are housing-led too: lobbies, not
       // shops — the lowest shares in the table.
-      ? { cornice: false, roof: 'prewar', wtP: 0, shops: [0.85, 0.9, 0.45, 0.35, 0.35, 0.3][mat - 6], awnings: false }
+      ? { cornice: false, roof: 'prewar', wtP: 0, shops: lot.shops ?? [0.85, 0.9, 0.45, 0.35, 0.35, 0.3][mat - 6], awnings: false }
       : mat >= 3
-        ? { cornice: false, roof: 'mech', shops: 0.3, awnings: false }
-        : { roof: 'prewar', wtP: 0.35, shops: 0.3, awnings: false });
+        ? { cornice: false, roof: 'mech', shops: lot.shops ?? 0.3, awnings: false }
+        : { roof: 'prewar', wtP: 0.35, shops: lot.shops ?? 0.3, awnings: false });
     // Issue #207: the base collider populateBlock emits for every
     // Manhattan block (the lot's mass up to BLOCK_COLLIDER_TOP;
     // commit above already emitted colliders for parts taller
