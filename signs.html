@@ -1,0 +1,111 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+  <title>Slop Taipei — Sign Gallery</title>
+  <link rel="icon" href="data:," />
+  <meta name="description" content="The street signs of Slop Taipei: protruding blade signs, flat band plates and tower signs, shot in the game around Taipei 101." />
+  <style>
+    :root {
+      --ink: #eef2f5;
+      --ink-dim: #aeb9c2;
+      --panel: rgba(13, 18, 23, 0.86);
+      --panel-line: rgba(255, 255, 255, 0.14);
+      --accent: #ffd23e;
+    }
+    * { box-sizing: border-box; }
+    html, body { margin: 0; background: #0b0f13; }
+    body {
+      font-family: "Inter", system-ui, -apple-system, "Segoe UI", sans-serif;
+      color: var(--ink);
+      -webkit-font-smoothing: antialiased;
+      padding: 16px;
+    }
+    main { max-width: 980px; margin: 0 auto; }
+    header.brand {
+      background: var(--panel);
+      border: 1px solid var(--panel-line);
+      border-radius: 14px;
+      padding: 16px 20px 14px;
+      margin-bottom: 16px;
+    }
+    header.brand h1 { margin: 0; font-size: 22px; font-weight: 800; letter-spacing: 0.01em; }
+    header.brand h1 .zh { color: var(--accent); }
+    header.brand p { margin: 6px 0 0; font-size: 13.5px; line-height: 1.5; color: var(--ink-dim); }
+    header.brand p b { color: var(--ink); font-weight: 600; }
+    nav.links { display: flex; gap: 10px; flex-wrap: wrap; margin-bottom: 16px; }
+    nav.links a {
+      color: var(--ink); text-decoration: none; font-size: 13px; font-weight: 600;
+      background: var(--panel); border: 1px solid var(--panel-line);
+      border-radius: 9px; padding: 9px 13px;
+    }
+    nav.links a:hover { color: var(--accent); }
+    .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 16px; }
+    figure {
+      margin: 0; background: var(--panel); border: 1px solid var(--panel-line);
+      border-radius: 14px; overflow: hidden;
+    }
+    figure img { display: block; width: 100%; height: auto; }
+    figcaption { padding: 12px 14px 14px; }
+    figcaption h2 { margin: 0 0 5px; font-size: 15px; font-weight: 700; }
+    figcaption h2 .zh { color: var(--accent); }
+    figcaption p { margin: 0; font-size: 13px; line-height: 1.55; color: var(--ink-dim); }
+    figcaption p .tag {
+      display: inline-block; font-size: 11px; font-weight: 700; letter-spacing: 0.04em;
+      color: var(--ink); background: rgba(255, 255, 255, 0.1);
+      border-radius: 6px; padding: 2px 7px; margin-right: 6px;
+    }
+    footer { margin-top: 16px; font-size: 12.5px; line-height: 1.5; color: var(--ink-dim); }
+  </style>
+</head>
+<body>
+  <main>
+    <header class="brand">
+      <h1>Sign Gallery <span class="zh">招牌</span></h1>
+      <p>The street signs of Slop Taipei, shot in the game around Taipei 101: <b>blades</b> that
+      stick out from the facades, <b>band plates</b> that sit flat on them, and <b>tower signs</b>
+      on tall buildings. The names come from real Taiwanese streets — shops, food, banks —
+      and each kind of shop has its own colour.</p>
+    </header>
+    <nav class="links">
+      <a href="index.html?city=taipei">&larr; Back to the city</a>
+      <a href="buildings.html">Building gallery</a>
+    </nav>
+    <div class="grid">
+      <figure>
+        <img src="gallery/signs/bandrow-hengyang.png" alt="A row of band plates on a facade on Hengyang Road: green, yellow and dark-blue signs" />
+        <figcaption>
+          <h2>Band plates <span class="zh">衡陽路</span></h2>
+          <p><span class="tag">Band plate</span><span class="tag">Eat · Drink · Bank</span></p>
+          <p>A row of flat plates on one facade: <b>健康蔬食</b> in green, <b>五十嵐</b> in yellow,
+          <b>銀行</b> in dark blue. The plates read the right way round, not mirrored.</p>
+        </figcaption>
+      </figure>
+      <figure>
+        <img src="gallery/signs/street-hengyang.png" alt="Looking west along Hengyang Road: blade signs sticking out from the facades and coloured band plates at ground level" />
+        <figcaption>
+          <h2>Street view <span class="zh">衡陽路</span></h2>
+          <p><span class="tag">Blade + band</span><span class="tag">Mixed</span></p>
+          <p>Looking west along 衡陽路： a dark-blue <b>銀行</b> blade and a red <b>鍋貼</b> blade stick
+          out from the facades, with coloured band plates at ground level. Blades and bands
+          together, in different colours.</p>
+        </figcaption>
+      </figure>
+      <figure>
+        <img src="gallery/signs/tower-cathay.png" alt="A tall green tower sign reading Cathay United Bank top to bottom on a tower face" />
+        <figcaption>
+          <h2>Tower sign <span class="zh">國泰世華</span></h2>
+          <p><span class="tag">Tower sign</span><span class="tag">Bank</span></p>
+          <p><b>國泰世華</b> (Cathay United Bank): a tall plate flat on a 45&nbsp;m tower face,
+          reading top to bottom in white.</p>
+        </figcaption>
+      </figure>
+    </div>
+    <footer>
+      More close-ups are coming: the real brand logos (7-Eleven, 50嵐 and the rest) will be
+      added here once they land in the game.
+    </footer>
+  </main>
+</body>
+</html>

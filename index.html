@@ -159,25 +159,25 @@
     <div class="pop-title">Special buildings</div>
     <button id="set-specials" class="pop-item tp-btn" type="button" aria-pressed="true">
       <span class="pop-name">Landmarks &amp; site structures <span class="set-state">On</span></span>
-      <span class="pop-sub">Taipei 101, the registry landmarks &amp; the airport terminal complex</span>
+      <span class="pop-sub">Taipei 101, the landmarks and the airport terminal</span>
     </button>
     <div class="pop-title">Building density <span id="set-density-status" class="set-status"></span></div>
     <button class="pop-item tp-btn" type="button" data-setting-density="coarse">
       <span class="pop-name">Coarse</span>
-      <span class="pop-sub">39,574 buildings · pre-#124 grain · fastest</span>
+      <span class="pop-sub">Fewer buildings — fastest to load</span>
     </button>
     <button class="pop-item tp-btn" type="button" data-setting-density="fine">
       <span class="pop-name">Fine</span>
-      <span class="pop-sub">76,367 buildings · #124 fine grain · default</span>
+      <span class="pop-sub">The full city — default</span>
     </button>
     <button class="pop-item tp-btn" type="button" data-setting-density="dense">
       <span class="pop-name">Dense</span>
-      <span class="pop-sub">104,349 buildings · 7–11 m shophouse pitch · slowest to build &amp; render</span>
+      <span class="pop-sub">The most buildings — slowest to load</span>
     </button>
     <div class="pop-title">Distant buildings</div>
     <button class="pop-item tp-btn" type="button" data-setting-fardetail="fade">
       <span class="pop-name">Fade with distance</span>
-      <span class="pop-sub">Far buildings are faint flat boxes — landmarks stay detailed · default</span>
+      <span class="pop-sub">Far buildings fade to simple shapes — landmarks stay detailed · default</span>
     </button>
     <button class="pop-item tp-btn" type="button" data-setting-fardetail="full">
       <span class="pop-name">Full detail</span>
@@ -186,25 +186,25 @@
     <div class="pop-title">Graphics</div>
     <button class="pop-item tp-btn" type="button" data-setting-graphics="low">
       <span class="pop-name">Low</span>
-      <span class="pop-sub">Pixel ratio 0.7 · shadows off · fastest</span>
+      <span class="pop-sub">No shadows — fastest</span>
     </button>
     <button class="pop-item tp-btn" type="button" data-setting-graphics="medium">
       <span class="pop-name">Medium</span>
-      <span class="pop-sub">Pixel ratio 1.0 · shadows on · default</span>
+      <span class="pop-sub">Shadows on — default</span>
     </button>
     <button class="pop-item tp-btn" type="button" data-setting-graphics="high">
       <span class="pop-name">High</span>
-      <span class="pop-sub">Pixel ratio up to 2.0 (retina) · shadows on</span>
+      <span class="pop-sub">Sharpest picture, shadows on</span>
     </button>
     <div class="pop-title">Terrain drape</div>
     <button id="set-drape" class="pop-item tp-btn" type="button" aria-pressed="true">
       <span class="pop-name">Beitou &amp; Yuanshan hills <span class="set-state">On</span></span>
-      <span class="pop-sub">Roads &amp; buildings follow the real terrain · off restores flat ground · reloads</span>
+      <span class="pop-sub">Roads and buildings follow the real hills · off flattens the ground and reloads the page</span>
     </button>
     <div class="pop-title">Traffic <span id="set-traffic-status" class="set-status"></span></div>
     <label class="pop-slider" for="set-traffic-cars">
       <span class="pop-name">Traffic heaviness <span class="set-state" id="set-traffic-cars-value">Off</span></span>
-      <span class="pop-sub">0–800 cars · Off 0 · Light 60 · Normal 200 · Heavy 400 · drag, release to apply</span>
+      <span class="pop-sub">How many cars are on the road · applies when you let go</span>
       <input id="set-traffic-cars" type="range" min="0" max="800" step="1" value="0" list="set-traffic-cars-ticks" aria-label="Traffic heaviness in cars">
       <datalist id="set-traffic-cars-ticks">
         <option value="0" label="Off"></option>
@@ -216,7 +216,7 @@
     </label>
     <label class="pop-slider" for="set-traffic-radius">
       <span class="pop-name">Car render distance <span class="set-state" id="set-traffic-radius-value">380 m</span></span>
-      <span class="pop-sub">200–600 m · Nearby 200 · Around 380 · Far 600 · drag, release to apply</span>
+      <span class="pop-sub">How far away cars are drawn · applies when you let go</span>
       <input id="set-traffic-radius" type="range" min="200" max="600" step="1" value="380" list="set-traffic-radius-ticks" aria-label="Car render distance in metres">
       <datalist id="set-traffic-radius-ticks">
         <option value="200" label="Nearby"></option>
@@ -224,6 +224,9 @@
         <option value="600" label="Far"></option>
       </datalist>
     </label>
+    <div class="pop-title">Galleries</div>
+    <a class="pop-item tp-btn" href="buildings.html"><span class="pop-name">Building gallery</span><span class="pop-sub">The building styles and landmarks, up close</span></a>
+    <a class="pop-item tp-btn" href="signs.html"><span class="pop-name">Sign gallery</span><span class="pop-sub">Street signs: blades, bands and logos</span></a>
   </div>
 
   <!-- Teleport Destinations (native popover: light-dismiss & Esc) -->
