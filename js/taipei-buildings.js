@@ -9173,10 +9173,25 @@ export function taipeiNewerEntrance(lot) {
 // — quiet lanes read commercial only because this gate was missing.
 // SHOP_FRONTAGE_MIN_RANK is the shared threshold for the sign gate
 // here and the shopfront gate in taipeiCityBlocksOptions.
+// Issue #354: the policy turns frontage-aware. A real Taipei street
+// is dense with blades on its commercial frontages and sparse on
+// residential lanes, so lots fronting an arterial (rank >= 3, the
+// #106 classification the roof boards already use) sign at 0.85
+// with more two-panel lots, while the rest stay at the 0.55 base
+// rate. The `front` argument is the adapter's frontage lookup
+// result; a call without it returns no sign (the #355 gate above).
+// Form variety (the user's "sign does not need to be a plain board"):
+// `thick` now varies 0.18–0.55 m per panel (flat plate vs chunky
+// lightbox), `y0` 3.9–4.8 m and `h` up to 8.0 m so blades start at
+// different heights and span different depths, like the photo's
+// stacked signs. `out` stays 0.95–1.40 m: a +0.3 m deepening was
+// measured to grow roadbed clipping from 79 blades to 210 (the
+// shipped blades already clip 6.07 m²), so depth is NOT bought here.
 export const SHOP_FRONTAGE_MIN_RANK = 2;
 const SIGN_RATE = 0.55;
+const SIGN_RATE_ARTERIAL = 0.85;
 
-export function taipeiVerticalSigns(lot, front) {
+export function taipeiVerticalSigns(lot, front = null, clear = null) {
   // Issue #108: family 13 (二丁掛 mid-rise) joins the sign-carrying
   // Taiwan set; family 12 (the lobby tower) stays out with 10/11 —
   // a residential tower carries no vertical shop sign.
@@ -9184,8 +9199,9 @@ export function taipeiVerticalSigns(lot, front) {
   // Issue #355: no sign without a commercial frontage (see above).
   if (!front || front.rank < SHOP_FRONTAGE_MIN_RANK) return [];
   const seed = lotPolicySeed(lot, 0x5167);
-  if (hash01(seed) >= SIGN_RATE) return [];
-  const two = hash01(seed ^ 0x11) >= 0.62;
+  const arterial = Boolean(front && front.rank >= 3);
+  if (hash01(seed) >= (arterial ? SIGN_RATE_ARTERIAL : SIGN_RATE)) return [];
+  const two = hash01(seed ^ 0x11) >= (arterial ? 0.45 : 0.62);
   const sides = ['n', 's', 'e', 'w'];
   const signs = [];
   const used = new Set();
@@ -9193,19 +9209,133 @@ export function taipeiVerticalSigns(lot, front) {
     let sideIdx = Math.floor(hash01(seed ^ (0x21 + i * 7)) * 4) % 4;
     if (used.has(sides[sideIdx])) sideIdx = (sideIdx + 1) % 4;
     used.add(sides[sideIdx]);
-    const signH = Math.min(3.6 + hash01(seed ^ (0x41 + i * 17)) * 3.6, lot.h - 5.2);
+    const signH = Math.min(3.6 + hash01(seed ^ (0x41 + i * 17)) * 4.4, lot.h - 5.2);
     if (signH < 3.2) continue;
     signs.push({
       side: sides[sideIdx],
       along: 0.22 + hash01(seed ^ (0x31 + i * 13)) * 0.56,
-      y0: 4.1 + hash01(seed ^ (0x51 + i * 19)) * 0.5,
+      y0: 3.9 + hash01(seed ^ (0x51 + i * 19)) * 0.9,
       h: signH,
       out: 0.95 + hash01(seed ^ (0x61 + i * 23)) * 0.45,
-      thick: 0.18,
+      thick: 0.18 + hash01(seed ^ (0x71 + i * 29)) * 0.37,
       seed: (seed ^ Math.imul(i + 1, 7919)) >>> 0,
     });
   }
-  return signs;
+  // Issue #354: `clear` (taipeiBladeClearance, from the adapter) pulls
+  // each blade in until it clears the roadbeds, or drops it. Without
+  // it the policy returns the raw draws (the unit-test path).
+  return clear ? clear(lot, signs) : signs;
+}
+
+// Blade world footprint (the #354 measurement's bladePoly, on the
+// adapter rect): local frame about the lot centre, rotY = lot.rot.
+// Side s/n: centre (along*w − w/2, ±(d/2 + out/2)), size thick × out.
+// Side e/w: centre (±(w/2 + out/2), along*d − d/2), size out × thick.
+function bladeFootprint(rect, sign, out) {
+  const w = rect.x1 - rect.x0, d = rect.z1 - rect.z0;
+  const cx = (rect.x0 + rect.x1) / 2, cz = (rect.z0 + rect.z1) / 2;
+  let lx, lz, pw, pd;
+  if (sign.side === 's' || sign.side === 'n') {
+    lx = sign.along * w - w / 2;
+    lz = (sign.side === 's' ? d / 2 : -d / 2) + (sign.side === 's' ? out / 2 : -out / 2);
+    pw = sign.thick; pd = out;
+  } else {
+    lx = (sign.side === 'e' ? w / 2 : -w / 2) + (sign.side === 'e' ? out / 2 : -out / 2);
+    lz = sign.along * d - d / 2;
+    pw = out; pd = sign.thick;
+  }
+  const th = rect.rotY || 0, c = Math.cos(th), s = Math.sin(th);
+  return [[-pw / 2, -pd / 2], [pw / 2, -pd / 2], [pw / 2, pd / 2], [-pw / 2, pd / 2]].map(([dx, dz]) => [
+    cx + lx + dx * c - dz * s,
+    cz + lz + dx * s + dz * c,
+  ]);
+}
+
+// Exact overlap area of a subject polygon against a convex clip
+// polygon (Sutherland–Hodgman), in m² — the same construction the
+// #354 measurement uses, so the clamp's "clear" and the measured
+// "overlapping blades" agree by definition.
+function clipArea(subject, clip) {
+  let poly = subject;
+  for (let i = 0; i < clip.length; i++) {
+    const a = clip[i], b = clip[(i + 1) % clip.length];
+    const inside = (p) => (b[0] - a[0]) * (p[1] - a[1]) - (b[1] - a[1]) * (p[0] - a[0]) <= 1e-9;
+    const inter = (p, q) => {
+      const d1 = (b[0] - a[0]) * (p[1] - a[1]) - (b[1] - a[1]) * (p[0] - a[0]);
+      const d2 = (b[0] - a[0]) * (q[1] - a[1]) - (b[1] - a[1]) * (q[0] - a[0]);
+      const t = d1 / (d1 - d2);
+      return [p[0] + (q[0] - p[0]) * t, p[1] + (q[1] - p[1]) * t];
+    };
+    const out = [];
+    for (let j = 0; j < poly.length; j++) {
+      const cur = poly[j], prev = poly[(j + poly.length - 1) % poly.length];
+      if (inside(cur)) { if (!inside(prev)) out.push(inter(prev, cur)); out.push(cur); }
+      else if (inside(prev)) out.push(inter(prev, cur));
+    }
+    poly = out;
+    if (!poly.length) return 0;
+  }
+  let a2 = 0;
+  for (let i = 0; i < poly.length; i++) {
+    const p = poly[i], q = poly[(i + 1) % poly.length];
+    a2 += p[0] * q[1] - q[0] * p[1];
+  }
+  return Math.abs(a2) / 2;
+}
+
+// Issue #354: roadbed clearance for vertical blades. A blade sticks
+// `out` (0.95–1.40 m) past the lot edge; where the carriageway runs
+// right up to the lot line the blade clips the roadbed. The shipped
+// set already clipped on 79 blades (6.07 m²), and the arterial rate
+// boost would have grown it to 137 blades (16.95 m²) — so every blade
+// is pulled in until its footprint clears the roadbed ribbons, in
+// 0.1 m steps, and a blade that still clips at out = 0.90 m is
+// dropped outright. The ribbons are the exact rects the landmark
+// overlap test audits (buildRibbonRects), and the 0.05 m² threshold
+// is that test's own reporting threshold. Deterministic: the same
+// rect + signs give the same clamped signs, so the adapter's signs
+// stay reproducible and the node suite can pin the policy through
+// it. Build once per adapter call (like the frontage lookup).
+export function taipeiBladeClearance(geodata) {
+  const carriageways = Array.isArray(geodata.roadbeds) && geodata.roadbeds.length
+    ? geodata.roadbeds
+    : (geodata.roads || []).filter((r) => !NON_CARRIAGEWAY.has(r.highway));
+  const rects = buildRibbonRects(carriageways, 0);
+  const { grid, key } = buildRibbonGrid(rects);
+  const overlapOf = (poly) => {
+    let minX = Infinity, maxX = -Infinity, minZ = Infinity, maxZ = -Infinity;
+    for (const [x, z] of poly) {
+      if (x < minX) minX = x; if (x > maxX) maxX = x;
+      if (z < minZ) minZ = z; if (z > maxZ) maxZ = z;
+    }
+    const seen = new Set();
+    let total = 0;
+    for (let gx = Math.floor(minX / RIBBON_GRID_CELL); gx <= Math.floor(maxX / RIBBON_GRID_CELL); gx++) {
+      for (let gz = Math.floor(minZ / RIBBON_GRID_CELL); gz <= Math.floor(maxZ / RIBBON_GRID_CELL); gz++) {
+        const bucket = grid.get(key(gx, gz));
+        if (!bucket) continue;
+        for (const idx of bucket) {
+          if (seen.has(idx)) continue;
+          seen.add(idx);
+          const r = rects[idx];
+          if (r.maxX < minX || r.minX > maxX || r.maxZ < minZ || r.minZ > maxZ) continue;
+          const c = r.corners;
+          total += clipArea(poly, [[c[0], c[1]], [c[2], c[3]], [c[4], c[5]], [c[6], c[7]]]);
+        }
+      }
+    }
+    return total;
+  };
+  return (rect, signs) => {
+    const kept = [];
+    for (const s of signs) {
+      let o = s.out;
+      while (o >= 0.9 && overlapOf(bladeFootprint(rect, s, o)) > 0.05) o = Math.round((o - 0.1) * 100) / 100;
+      if (o < 0.9) continue; // cannot clear the roadbed even pulled in: drop the blade
+      kept.push(o === s.out ? s : { ...s, out: o });
+    }
+    return kept;
+  };
 }
 
 // Issue #153: rooftop billboard signs on arterial commercial
@@ -9367,6 +9497,16 @@ export function taipeiFrontageLookup(geodata) {
   };
 }
 
+// Issue #354: one lot's frontage, for callers that need the same
+// classification the adapter uses (the node suite pins the sign
+// policy's determinism through it: taipeiVerticalSigns(lot) with no
+// front is the base rate, with the adapter's front it is the
+// frontage-aware rate). Builds the lookup per call — fine for single
+// lots; the adapter builds it once per city.
+export function taipeiFrontageAt(geodata, rect) {
+  return taipeiFrontageLookup(geodata)(rect);
+}
+
 // Adapt a plan into the options upstream's buildCityBlocks (js/
 // buildings.js) understands: one pre-planned lot per building, the
 // tile frame as the streaming bounds, the tile origin as the first
@@ -9378,7 +9518,13 @@ export function taipeiCityBlocksOptions(geodata, plan = planTaipeiBuildings(geod
   // the boot) seats lots on slopes — see the plinth rule below.
   const groundAt = typeof opts.groundAt === 'function' ? opts.groundAt : null;
   // Issue #153: frontage lookup for the roof-board policy below.
+  // Issue #354: the same lookup now feeds the vertical-sign policy
+  // too (arterial frontages sign denser) — computed once per lot.
+  // The blade-clearance grid (roadbed ribbons) is built once per
+  // city for the same reason (issue #354: pull blades in off the
+  // carriageway or drop them).
   const frontageFor = taipeiFrontageLookup(geodata);
+  const clearSigns = taipeiBladeClearance(geodata);
   return {
     lots: plan.lots.map((lot) => {
       const r = {
@@ -9450,7 +9596,10 @@ export function taipeiCityBlocksOptions(geodata, plan = planTaipeiBuildings(geod
       const front = frontageFor(r);
       if (!front || front.rank < SHOP_FRONTAGE_MIN_RANK) r.shops = 0;
       // Issue #56: vertical signs on a hashed subset of Taiwan-type lots.
-      const signs = taipeiVerticalSigns(r, front);
+      // Issue #354: the frontage lookup (computed once per lot above)
+      // feeds the sign policy, so arterial frontages sign denser; the
+      // clearance pass pulls each blade in off the roadbed or drops it.
+      const signs = taipeiVerticalSigns(r, front, clearSigns);
       if (signs.length) r.signs = signs;
       // Issue #153: rooftop billboard signs on arterial commercial
       // lots (the frontage query above supplies the #106 rank).

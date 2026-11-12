@@ -76,8 +76,13 @@ assert.deepEqual(
 // shopfronts sat on rank 0–1 frontage. After the gate all of those
 // are gone; the commercial remainder is untouched.
 // Issue #355: signed lots 23,718 -> 5,267; panels 32,685 -> 7,238.
-assert.equal(signedLots, 5267, 'signed lots after the residential gate');
-assert.equal(panels, 7238, 'sign panels after the residential gate');
+// Issue #354: signed lots 5,267 -> 6,589 (+1,322 — the frontage-aware
+// policy signs arterial (rank >= 3) lots at 0.85 instead of 0.55; the
+// residential gate is unchanged, rank 0–1 still carries no sign).
+assert.equal(signedLots, 6589, 'signed lots after the residential gate');
+// Issue #354: panels 7,238 -> 9,665 (+2,427 — arterial lots sign
+// denser and more of them carry two panels, same mechanism as above).
+assert.equal(panels, 9665, 'sign panels after the residential gate');
 // Issue #355: 59,760 lots (the rank 0–1 set, 76.8% of the city)
 // carry the shop gate.
 assert.equal(shops0, 59760, 'shop-gated lots after the residential gate');

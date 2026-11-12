@@ -13,7 +13,7 @@ import {
 } from '../js/taipei-adapter.js';
 import { TAIPEI_TILE } from '../js/taipei-tile.js';
 import { TILE_REGISTRY, tileIdFromSearch, loadSelectedTile } from '../js/tile-registry.js';
-import { planTaipeiBuildings, taipeiCityBlocksOptions, pointInRing, latLonToTile, clampTaipeiRooftopGear, taipeiArcadeParts, taipeiVerticalSigns, taipeiFrontageLookup, taipeiRooftopAdditions, TAIPEI_ARCADE_DEPTH, taipei101OrnamentPositions, taipeiLandmarkStructures, officeCoreFor, xinyiDistrictFor } from '../js/taipei-buildings.js';
+import { planTaipeiBuildings, taipeiCityBlocksOptions, pointInRing, latLonToTile, clampTaipeiRooftopGear, taipeiArcadeParts, taipeiVerticalSigns, taipeiFrontageAt, taipeiBladeClearance, taipeiFrontageLookup, taipeiRooftopAdditions, TAIPEI_ARCADE_DEPTH, taipei101OrnamentPositions, taipeiLandmarkStructures, officeCoreFor, xinyiDistrictFor } from '../js/taipei-buildings.js';
 
 // M1 foundation: the Taipei tile's adapter, road graph, teleports and tile
 // registry. Numbers printed via t.diagnostic are the actual generated values.
@@ -1618,8 +1618,21 @@ test('vertical signs: sparse deterministic panels on Taiwan types', (t) => {
   // Issue #355: the policy takes the lot's frontage — pass it explicitly.
   const frontageFor = taipeiFrontageLookup(TAIPEI_GEO);
   const sample = signed[0];
-  assert.deepEqual(taipeiVerticalSigns(sample, frontageFor(sample)), sample.signs, 'sign policy is deterministic per lot');
-  assert.deepEqual(taipeiVerticalSigns({ x0: 0, x1: 20, z0: 0, z1: 16, h: 22, mat: 4 }, { rank: 4 }), [], 'glass lots never sign');
+  // Issue #354: the sign policy is frontage-aware (arterial lots
+  // sign denser) and clearance-aware (blades are pulled in off the
+  // roadbed or dropped), so the determinism check passes the same
+  // frontage AND clearance the adapter used — taipeiFrontageAt and
+  // taipeiBladeClearance recompute them from the geodata. (A call
+  // without a front argument returns no sign — the #355 gate.)
+  assert.deepEqual(taipeiVerticalSigns(sample, taipeiFrontageAt(TAIPEI_GEO, sample), taipeiBladeClearance(TAIPEI_GEO)), sample.signs, 'sign policy is deterministic per lot');
+  assert.deepEqual(taipeiVerticalSigns({ x0: 0, x1: 20, z0: 0, z1: 16, h: 22, mat: 4 }), [], 'glass lots never sign');
+  // Issue #354: the blade cap (js/buildings.js MAX_VSIGNS) must cover
+  // the whole planned blade set — the old 1024 cap silently dropped
+  // 31,661 of 32,685 blades. Read the literal from the source so the
+  // pin moves with the code, and assert the measured total fits it.
+  const buildingsSource = readFileSync(new URL('../js/buildings.js', import.meta.url), 'utf8');
+  const maxVSigns = Number(buildingsSource.match(/const MAX_VSIGNS = (\d+);/)[1]);
+  assert.ok(total <= maxVSigns, `every planned blade renders (${total} panels, cap ${maxVSigns})`);
 });
 
 // Issue #56: rooftop furniture — stainless tanks and 鐵皮屋 additions
