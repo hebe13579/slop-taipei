@@ -5501,6 +5501,7 @@ export function blockOrientation(index, block) {
   const minZ = block.bbox.minZ - FRONTAGE_REACH_M, maxZ = block.bbox.maxZ + FRONTAGE_REACH_M;
   const seen = new Set();
   let sx = 0, sy = 0, wsum = 0;
+  const segs = [];
   const gx0 = Math.floor(minX / FRONTAGE_CELL), gx1 = Math.floor(maxX / FRONTAGE_CELL);
   const gz0 = Math.floor(minZ / FRONTAGE_CELL), gz1 = Math.floor(maxZ / FRONTAGE_CELL);
   for (let gx = gx0; gx <= gx1; gx++) for (let gz = gz0; gz <= gz1; gz++) {
@@ -5514,10 +5515,60 @@ export function blockOrientation(index, block) {
       sx += w * s.c4;
       sy += w * s.s4;
       wsum += w;
+      segs.push({ w, c4: s.c4, s4: s.s4, phi: Math.atan2(s.bz - s.az, s.bx - s.ax) });
     }
   }
   if (!wsum) return 0;
-  if (Math.hypot(sx, sy) / wsum < ORIENT_MIN_COHERENCE) return 0;
+  if (Math.hypot(sx, sy) / wsum < ORIENT_MIN_COHERENCE) {
+    // Issue #386, part 2: the 4θ resultant cancels on curving
+    // streets — a street that bends across the block, or a web of
+    // lanes, has no single resultant even though one direction
+    // dominates (Beitou's foothill lanes; 天水路's diagonal). Fall
+    // back to the dominant direction (below). The fallback only runs
+    // when the primary returns 0, so blocks the primary turns keep
+    // their angle byte-identically and true grids stay flat.
+    // Prototype (orient-prototype2.mjs): the ±15° window newly turns
+    // 710 of the 3,945 primary-flat blocks; Linsen 20/32 -> 22/32 in
+    // 8-22°, Xinyi core 6/6 still exactly 0. A replace-the-estimator
+    // design was prototyped and REJECTED (orient-prototype.mjs:
+    // 3,216 blocks change, 784 currently-turning blocks go flat).
+    return blockOrientationMode(segs);
+  }
+  let theta = Math.atan2(sy, sx) / 4;
+  if (theta < 0) theta += Math.PI / 2;
+  const dev = Math.min(theta, Math.PI / 2 - theta);
+  return dev > ORIENT_EPS_RAD ? theta : 0;
+}
+
+// Issue #386: the dominant-direction fallback for blockOrientation.
+// Bin the clipped segments' directions (mod 90°) into
+// ORIENT_MODE_BIN_DEG bins weighted by clipped length, take the peak
+// bin, and recompute the 4θ resultant over the segments within
+// ORIENT_MODE_WINDOW_DEG of the peak — the longest straight stretch
+// of a curving street wins, and a second grid 45° away stays outside
+// the window. The same coherence bar and the same axis epsilon as
+// the primary apply.
+const ORIENT_MODE_BIN_DEG = 5;
+const ORIENT_MODE_WINDOW_DEG = 15;
+function blockOrientationMode(segs) {
+  let wsum = 0;
+  for (const s of segs) wsum += s.w;
+  const mod90 = (a) => { let m = a % (Math.PI / 2); if (m < 0) m += Math.PI / 2; return m; };
+  const nBin = Math.round(90 / ORIENT_MODE_BIN_DEG);
+  const bins = new Array(nBin).fill(0);
+  for (const s of segs) bins[Math.floor(mod90(s.phi) / (Math.PI / 180) / ORIENT_MODE_BIN_DEG) % nBin] += s.w;
+  let peak = 0;
+  for (let i = 1; i < nBin; i++) if (bins[i] > bins[peak]) peak = i;
+  const peakAng = (peak + 0.5) * ORIENT_MODE_BIN_DEG * (Math.PI / 180);
+  const win = (ORIENT_MODE_WINDOW_DEG * Math.PI) / 180;
+  let sx = 0, sy = 0, winW = 0;
+  for (const s of segs) {
+    let d = Math.abs(mod90(s.phi) - mod90(peakAng));
+    d = Math.min(d, Math.PI / 2 - d);
+    if (d > win) continue;
+    sx += s.w * s.c4; sy += s.w * s.s4; winW += s.w;
+  }
+  if (winW / wsum < ORIENT_MIN_COHERENCE) return 0;
   let theta = Math.atan2(sy, sx) / 4;
   if (theta < 0) theta += Math.PI / 2;
   const dev = Math.min(theta, Math.PI / 2 - theta);
@@ -8062,7 +8113,8 @@ export function planTaipeiBuildings(geodata, opts = {}) {
     // opts.facing === false skips the pass (cross-run A/B).
     if (opts.facing !== false) {
     const facingBlocks = opts && opts.facingBlocks ? opts.facingBlocks : null;
-    const FACE_MIN_RANK = 2; // tertiary or better (see the face construction below)
+    const FACE_MIN_RANK = 1; // Issue #386: lanes count — a face fronting only a rank-1 residential street is a real frontage under the #216 closest-road rule (see the face construction below; the pull's faces stay at rank >= 3 and the rank gate below still prefers higher-rank beds)
+    const FACE_BED_MIN_RANK = 1; // Issue #386: the facing pass measures its angle against rank-1 lanes too. frontGapAt (the pull) keeps FRONTAGE_BED_MIN_RANK = 2 — the pull is untouched (the facing test pins its stats identical on/off).
     const FACE_TURN_MIN_RAD = (2.5 * Math.PI) / 180;
     const FACE_KEEP_RAD = (5 * Math.PI) / 180; // "already facing well": the census's first bucket
     const FACE_H_PROBES = [6, 13, 18, 26, 33, 38, 50];
@@ -8111,7 +8163,7 @@ export function planTaipeiBuildings(geodata, opts = {}) {
         };
         const cands = [], candsC = [];
         for (const sg of bucket) {
-          if (sg.rank < FRONTAGE_BED_MIN_RANK) continue;
+          if (sg.rank < FACE_BED_MIN_RANK) continue;
           // Issue #282: a face's ANGLE is measured against the
           // carriageway it fronts, never a footway/steps path. The
           // paths are in this grid so the pull can measure its gap
@@ -8173,9 +8225,10 @@ export function planTaipeiBuildings(geodata, opts = {}) {
       // surviving lot of (the pull's de-facto-face construction —
       // a direct face lot is always its line's outermost survivor,
       // so this subsumes the direct faces). The pull admits these
-      // at rank >= 3; facing admits rank >= 2 (tertiary streets
-      // are real frontages — the Beitou foothill streets are the
-      // curved type case — while lanes keep the grid).
+      // at rank >= 3; facing admits rank >= 1 (Issue #386:
+      // residential streets and lanes are real frontages too — the
+      // Beitou foothill streets are the curved type case — and the
+      // rank gate below still prefers higher-rank beds).
       const vF = [], uF = [];
       const ou = outerU.get(`${rec0.bi}|${rec0.row}`), ov = outerV.get(`${rec0.bi}|${rec0.col}`);
       if (ou.lo === i && rec0.rUL >= FACE_MIN_RANK) uF.push([-1, rec0.rUL]);
