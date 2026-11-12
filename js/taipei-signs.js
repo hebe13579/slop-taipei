@@ -30,16 +30,44 @@
 // a Traditional-Chinese face (PingFang TC on Apple, Microsoft
 // JhengHei on Windows, Noto Sans CJK TC on Android/Linux); the stack
 // names each platform's face so the canvas picks a real CJK font
-// everywhere instead of falling back to tofu boxes.
+// everywhere instead of falling back to tofu boxes. Issue #372: the
+// emoji fonts at the end, so the (rare) emoji in a sign name — the
+// clinic ➕, the pharmacy 💊, the noodle 🍜 — falls through to the
+// device's emoji face instead of a missing-glyph box. The emoji
+// fonts carry no CJK glyphs, so they never steal a Chinese character.
 export const SIGN_FONT_STACK =
-  '"Noto Sans TC","Noto Sans CJK TC","PingFang TC","Microsoft JhengHei","Heiti TC",sans-serif';
+  '"Noto Sans TC","Noto Sans CJK TC","PingFang TC","Microsoft JhengHei","Heiti TC","Noto Color Emoji","Apple Color Emoji","Segoe UI Emoji",sans-serif';
 
 // Width of a name in "band units": a full-width (CJK) character is 1,
-// a Latin letter/digit ~0.55 (bold condensed vs the square CJK cell).
+// a Latin letter/digit ~0.55 (bold condensed vs the square CJK cell),
+// and an emoji is a fixed 1-unit cell (emoji are full-width glyphs;
+// for...of iterates code points, so an astral emoji is one cell).
 export function nameWidthUnits(name) {
   let u = 0;
   for (const ch of name) u += ch.codePointAt(0) <= 0xff ? 0.55 : 1;
   return u;
+}
+
+// Issue #372: font variety for the TEXT plates (the user asked for
+// some bold, some slightly smaller). Deterministic per name — an
+// FNV-1a hash of the name picks one of four (weight, size-scale)
+// combos, so a plate always renders the same way and the atlas is
+// identical on every machine, and the same shop reads the same way
+// on its band and blade plates. Sizes only shrink (scale ≤ 1.0), so
+// the fit-by-construction guarantees still hold (a regular face is
+// narrower than the bold the estimator assumes). Real logo plates
+// are images, not text, so they are untouched; the vector lockups
+// (7-ELEVEN / FamilyMart fallbacks) stay exact and bold.
+export const SIGN_FONT_VARIANTS = [
+  { weight: 700, scale: 1.0 },
+  { weight: 700, scale: 0.9 },
+  { weight: 500, scale: 1.0 },
+  { weight: 400, scale: 0.85 },
+];
+export function signFontVariant(name) {
+  let h = 0x811c9dc5;
+  for (const ch of name) { h ^= ch.codePointAt(0); h = Math.imul(h, 0x01000193) >>> 0; }
+  return SIGN_FONT_VARIANTS[h % SIGN_FONT_VARIANTS.length];
 }
 
 export const BAND_MAX_UNITS = 5.0;
@@ -113,8 +141,8 @@ export const TAIPEI_BAND_SIGNS = [
   { name: '茶行', bg: '#274e13', fg: '#ffd94d', genre: 'drink' },
   { name: '花店', bg: '#e78fb0', fg: '#5b2333', genre: 'service' },
   { name: '全家', bg: '#ffffff', fg: '#009944', logo: 'familymart', genre: 'convenience' },
-  { name: '萊爾富', bg: '#ffffff', fg: '#e60012', genre: 'convenience' },
-  { name: '屈臣氏', bg: '#00a5a8', fg: '#ffffff', genre: 'service' },
+  { name: '萊爾富', bg: '#ffffff', fg: '#e60012', genre: 'convenience', logo: 'hi-life' },
+  { name: '屈臣氏', bg: '#00a5a8', fg: '#ffffff', genre: 'service', logo: 'watsons' },
   { name: '藥妝店', bg: '#e2543e', fg: '#ffffff', genre: 'service' },
   { name: '五金行', bg: '#5a6b7a', fg: '#ffffff', genre: 'service' },
   { name: '文具店', bg: '#e8862e', fg: '#ffffff', genre: 'service' },
@@ -129,9 +157,9 @@ export const TAIPEI_BAND_SIGNS = [
   { name: '雞排店', bg: '#d95d39', fg: '#ffffff', genre: 'eat' },
   { name: '珍珠奶茶', bg: '#b08968', fg: '#ffffff', genre: 'drink' },
   { name: '五十嵐', bg: '#ffd400', fg: '#141414', logo: 'fifty-lan', genre: 'drink' },
-  { name: '清心福全', bg: '#1e7a46', fg: '#ffffff', genre: 'drink' },
-  { name: '大苑子', bg: '#ffffff', fg: '#2e8b3a', genre: 'drink' },
-  { name: 'OK超商', bg: '#e60012', fg: '#ffffff', genre: 'convenience' },
+  { name: '清心福全', bg: '#1e7a46', fg: '#ffffff', genre: 'drink', logo: 'ching-shin' },
+  { name: '大苑子', bg: '#ffffff', fg: '#2e8b3a', genre: 'drink', logo: 'dayuanzi' },
+  { name: 'OK超商', bg: '#e60012', fg: '#ffffff', genre: 'convenience', logo: 'ok-mart' },
   { name: '傳統小吃店', bg: '#8c5a2b', fg: '#ffe9b8', genre: 'eat' },
   { name: '陽春麵', bg: '#efe6d0', fg: '#7a2a1e', genre: 'eat' },
   // Issue #354: the second half of the pool (see the header note).
@@ -139,17 +167,17 @@ export const TAIPEI_BAND_SIGNS = [
   { name: '好吃便當', bg: '#e8862e', fg: '#ffffff', genre: 'eat' },
   { name: '健康蔬食', bg: '#2e8b3a', fg: '#ffffff', genre: 'eat' },
   { name: '東一排骨', bg: '#0e7a3d', fg: '#ffd94d', genre: 'eat' },
-  { name: '八方雲集', bg: '#ffd400', fg: '#141414', genre: 'eat' },
+  { name: '八方雲集', bg: '#ffd400', fg: '#141414', genre: 'eat', logo: 'bafang' },
   { name: '鍋貼', bg: '#b0202a', fg: '#fff6e0', genre: 'eat' },
-  { name: '阿宗麵線', bg: '#ffffff', fg: '#d52027', genre: 'eat' },
-  { name: '拉亞漢堡', bg: '#f6b73c', fg: '#1d1d22', genre: 'eat' },
-  { name: '永和豆漿', bg: '#a31f24', fg: '#ffd94d', genre: 'eat' },
+  { name: '阿宗麵線', bg: '#ffffff', fg: '#d52027', genre: 'eat', logo: 'achung' },
+  { name: '拉亞漢堡', bg: '#f6b73c', fg: '#1d1d22', genre: 'eat', logo: 'laya' },
+  { name: '永和豆漿', bg: '#a31f24', fg: '#ffd94d', genre: 'eat', logo: 'yonghe' },
   { name: '蚵仔煎大王', bg: '#1d3557', fg: '#ffd94d', genre: 'eat' },
   { name: '寧夏排骨麵', bg: '#6e1420', fg: '#ffd94d', genre: 'eat' },
-  { name: '新東陽', bg: '#d52027', fg: '#ffffff', genre: 'eat' },
+  { name: '新東陽', bg: '#d52027', fg: '#ffffff', genre: 'eat', logo: 'shinyang' },
   { name: '機車修理', bg: '#1d1d22', fg: '#ffffff', genre: 'service' },
   { name: '迷你火鍋城', bg: '#7a2a1e', fg: '#ffd94d', genre: 'eat' },
-  { name: '湯姆熊', bg: '#ffd400', fg: '#d52027', genre: 'service' },
+  { name: '湯姆熊', bg: '#ffd400', fg: '#d52027', genre: 'service', logo: 'toms-world' },
   { name: '加力敦', bg: '#1b2a4a', fg: '#ffffff', genre: 'eat' },
   // Issue #354 (genre broadening): the daily-life genres the pool
   // was missing — clothing shops, 3C electronics, and the PX Mart
@@ -159,26 +187,72 @@ export const TAIPEI_BAND_SIGNS = [
   // blue/white (the brands' own colours); 手機行 is the
   // neighbourhood phone shop; 全聯 is PX Mart white/blue with its
   // green bar (the brand's blue/green).
-  { name: 'NET', bg: '#ffffff', fg: '#d52027', genre: 'clothes' },
+  { name: 'NET', bg: '#ffffff', fg: '#d52027', genre: 'clothes', logo: 'net' },
   { name: '服飾店', bg: '#c2437e', fg: '#ffffff', genre: 'clothes' },
   { name: '流行女裝', bg: '#6a3fb5', fg: '#ffffff', genre: 'clothes' },
   { name: '童裝', bg: '#ffd400', fg: '#1d1d22', genre: 'clothes' },
-  { name: '燦坤', bg: '#ffd400', fg: '#d52027', genre: '3c' },
-  { name: '全國電子', bg: '#1b4f9c', fg: '#ffffff', genre: '3c' },
+  { name: '燦坤', bg: '#ffd400', fg: '#d52027', genre: '3c', logo: 'tsannkuen' },
+  { name: '全國電子', bg: '#1b4f9c', fg: '#ffffff', genre: '3c', logo: 'elife' },
   { name: '手機行', bg: '#0f766e', fg: '#ffffff', genre: '3c' },
-  { name: '全聯', bg: '#ffffff', fg: '#1b4f9c', bar: '#009944', genre: 'market' },
+  { name: '全聯', bg: '#ffffff', fg: '#1b4f9c', bar: '#009944', genre: 'market', logo: 'pxmart' },
+  // Issue #372 (expansion, 2026-11-12): the ~40-brand job grows the
+  // pool 72 → 96 — 24 new brands appended at the END, so no existing
+  // plate index ever shifts (the blade shader's brand pins and the
+  // band/blade index match all stay valid). Each entry is a real
+  // brand with its real logo (see SIGN_LOGO_FILES); bg/fg are the
+  // brand's own colours, used only by the text fallback plate when
+  // the image fails to load. Genres follow the brand's trade:
+  // supermarkets are market, beauty/drugstores are service, the
+  // drink chains are drink, the food chains are eat.
+  { name: '寶雅', bg: '#ffffff', fg: '#e60012', genre: 'service', logo: 'poya' },
+  { name: '大潤發', bg: '#e60012', fg: '#ffffff', genre: 'market', logo: 'rtmart' },
+  { name: '家樂福', bg: '#ffffff', fg: '#1b4f9c', genre: 'market', logo: 'carrefour' },
+  { name: '麥當勞', bg: '#da291c', fg: '#ffc72c', genre: 'eat', logo: 'mcdonalds' },
+  { name: '肯德基', bg: '#e4002b', fg: '#ffffff', genre: 'eat', logo: 'kfc' },
+  { name: '摩斯漢堡', bg: '#e60012', fg: '#ffffff', genre: 'eat', logo: 'mos' },
+  { name: '星巴克', bg: '#00704a', fg: '#ffffff', genre: 'drink', logo: 'starbucks' },
+  { name: '路易莎', bg: '#e8862e', fg: '#ffffff', genre: 'drink', logo: 'louisa' },
+  { name: '85°C', bg: '#d52027', fg: '#ffffff', genre: 'drink', logo: 'eight-five' },
+  { name: '可不可', bg: '#e8dcc8', fg: '#5a4632', genre: 'drink', logo: 'kebuke' },
+  { name: '迷客夏', bg: '#ffffff', fg: '#5b8c2a', genre: 'drink', logo: 'milksha' },
+  { name: '麻古茶坊', bg: '#d52027', fg: '#ffffff', genre: 'drink', logo: 'macu' },
+  { name: '鬍鬚張', bg: '#b0202a', fg: '#ffffff', genre: 'eat', logo: 'huxuzhang' },
+  { name: '三商巧福', bg: '#f58220', fg: '#ffffff', genre: 'eat', logo: 'sanshang' },
+  { name: '吉野家', bg: '#f58220', fg: '#ffffff', genre: 'eat', logo: 'yoshinoya' },
+  { name: '爭鮮', bg: '#d52027', fg: '#ffffff', genre: 'eat', logo: 'zhengxian' },
+  { name: '藏壽司', bg: '#ffffff', fg: '#1d1d22', genre: 'eat', logo: 'kura' },
+  { name: '壽司郎', bg: '#ffffff', fg: '#d52027', genre: 'eat', logo: 'sushiro' },
+  { name: '康是美', bg: '#ffffff', fg: '#f58220', genre: 'service', logo: 'cosmed' },
+  { name: '鼎泰豐', bg: '#ffffff', fg: '#d52027', genre: 'eat', logo: 'dingtaifung' },
+  { name: '春水堂', bg: '#ffffff', fg: '#1d1d22', genre: 'drink', logo: 'chunsuitang' },
+  { name: 'CoCo都可', bg: '#ffffff', fg: '#f58220', genre: 'drink', logo: 'coco' },
+  { name: '茶湯會', bg: '#6a3fb5', fg: '#ffffff', genre: 'drink', logo: 'chatime' },
+  { name: '吳寶春', bg: '#1d1d22', fg: '#ffffff', genre: 'eat', logo: 'wupaochun' },
 ];
 
 // Blade-only extras: names too wide for one shop bay but natural on a
 // vertical blade, where characters stack top-to-bottom (the Taiwan
 // way) and 6 characters fit a tall panel.
 export const TAIPEI_BLADE_EXTRA = [
-  { name: '全家便利商店', bg: '#ffffff', fg: '#009944', genre: 'convenience' },
+  // Issue #372: the full names carry their brand's real logo too
+  // (FamilyMart's wide wordmark rotates on the blade, PX Mart's too).
+  { name: '全家便利商店', bg: '#ffffff', fg: '#009944', genre: 'convenience', logo: 'familymart' },
   { name: '牛肉麵專賣店', bg: '#b0202a', fg: '#fff6e0', genre: 'eat' },
   { name: '古早味魯肉飯', bg: '#7a2a1e', fg: '#ffe9b8', genre: 'eat' },
   // Issue #354 (genre broadening): PX Mart's full name — 6 chars,
   // too wide for a band plate, like 全家便利商店.
-  { name: '全聯福利中心', bg: '#ffffff', fg: '#1b4f9c', genre: 'market' },
+  { name: '全聯福利中心', bg: '#ffffff', fg: '#1b4f9c', genre: 'market', logo: 'pxmart' },
+  // Issue #372 (emoji — SPARSE, user: "don't overuse it"): exactly
+  // three blade-only names carry an emoji, all stacked top-to-bottom
+  // on a vertical blade (the Taiwanese clinic/pharmacy/noodle idiom).
+  // They are blade-only because they are too long for a horizontal
+  // band plate (BAND_MAX_UNITS 5.0) but fit a blade (≤ 8 chars).
+  // The clinic is the user's example (鍾小和診所➕); the ➕ is a
+  // text plus sign, so it renders in the plate's own fg colour like
+  // a real clinic cross. No emoji on any real-logo plate.
+  { name: '鍾小和診所➕', bg: '#eef2f5', fg: '#1b4f9c', genre: 'service' },
+  { name: '健保藥局💊', bg: '#0e7a3d', fg: '#ffffff', genre: 'service' },
+  { name: '阿婆麵線🍜', bg: '#efe6d0', fg: '#7a2a1e', genre: 'eat' },
 ];
 
 // The blade pool is the band pool (same order — band plate i and blade
@@ -201,10 +275,15 @@ export const TAIPEI_BLADE_SIGNS = [...TAIPEI_BAND_SIGNS, ...TAIPEI_BLADE_EXTRA];
 // Issue #354 (genre broadening): the band grid grows 8×8 → 8×9 for
 // the 72-name pool (canvas 4096×1440) and the blade grid 12×6 →
 // 12×7 for the 76 plates (canvas 1728×4032, still under 4096).
-export const BAND_ATLAS = { cols: 8, rows: 9, cellW: 512, cellH: 160 };
+// Issue #372 (expansion): the band grid grows 8×9 → 8×12 for the
+// 96-name pool (canvas 4096×1920 — an exact fill, 96 cells for 96
+// plates, so the suite pins an exact fill) and the blade grid
+// 12×7 → 16×7 for the 103 plates (canvas 2304×4032, still under
+// 4096; 112 cells hold 103 plates with 9 spare).
+export const BAND_ATLAS = { cols: 8, rows: 12, cellW: 512, cellH: 160 };
 BAND_ATLAS.w = BAND_ATLAS.cols * BAND_ATLAS.cellW;
 BAND_ATLAS.h = BAND_ATLAS.rows * BAND_ATLAS.cellH;
-export const BLADE_ATLAS = { cols: 12, rows: 7, cellW: 144, cellH: 576 };
+export const BLADE_ATLAS = { cols: 16, rows: 7, cellW: 144, cellH: 576 };
 BLADE_ATLAS.w = BLADE_ATLAS.cols * BLADE_ATLAS.cellW;
 BLADE_ATLAS.h = BLADE_ATLAS.rows * BLADE_ATLAS.cellH;
 
@@ -250,16 +329,93 @@ function cellOrigin(index, atlas) {
 // the shot rigs regardless of which page boots. Each image gets its
 // own timeout so a stalled load can never hang the boot; a failed
 // load resolves to an empty map (never rejects).
+// Issue #372 (expansion, 2026-11-12): ~40 real brands at the user's
+// request ("more logo copied directly from source 八方雲集.. etc.
+// try find about 40 brands"). 42 logos in all (the 3 above + 39
+// sourced from Wikipedia / Wikimedia Commons / the brands' own
+// sites — see logos372-evidence/downloads/MANIFEST-{A,B,C,D}.md for
+// the source of each). The one brand with no clean logo graphic
+// anywhere (東一排骨) keeps its text plate.
 export const SIGN_LOGO_FILES = {
   'seven-eleven': 'assets/sign-logos/7-eleven.png',
   'familymart': 'assets/sign-logos/familymart.png',
   'fifty-lan': 'assets/sign-logos/fifty-lan.png',
+  'hi-life': 'assets/sign-logos/hi-life.png',
+  'watsons': 'assets/sign-logos/watsons.png',
+  'ching-shin': 'assets/sign-logos/ching-shin.png',
+  'dayuanzi': 'assets/sign-logos/dayuanzi.png',
+  'ok-mart': 'assets/sign-logos/ok-mart.png',
+  'bafang': 'assets/sign-logos/bafang.png',
+  'achung': 'assets/sign-logos/achung.png',
+  'laya': 'assets/sign-logos/laya.png',
+  'yonghe': 'assets/sign-logos/yonghe.png',
+  'shinyang': 'assets/sign-logos/shinyang.png',
+  'toms-world': 'assets/sign-logos/toms-world.png',
+  'net': 'assets/sign-logos/net.png',
+  'tsannkuen': 'assets/sign-logos/tsannkuen.png',
+  'elife': 'assets/sign-logos/elife.png',
+  'pxmart': 'assets/sign-logos/pxmart.png',
+  'poya': 'assets/sign-logos/poya.png',
+  'rtmart': 'assets/sign-logos/rtmart.png',
+  'carrefour': 'assets/sign-logos/carrefour.png',
+  'mcdonalds': 'assets/sign-logos/mcdonalds.png',
+  'kfc': 'assets/sign-logos/kfc.png',
+  'mos': 'assets/sign-logos/mos.png',
+  'starbucks': 'assets/sign-logos/starbucks.png',
+  'louisa': 'assets/sign-logos/louisa.png',
+  'eight-five': 'assets/sign-logos/eight-five.png',
+  'kebuke': 'assets/sign-logos/kebuke.png',
+  'milksha': 'assets/sign-logos/milksha.png',
+  'macu': 'assets/sign-logos/macu.png',
+  'huxuzhang': 'assets/sign-logos/huxuzhang.png',
+  'sanshang': 'assets/sign-logos/sanshang.png',
+  'yoshinoya': 'assets/sign-logos/yoshinoya.png',
+  'zhengxian': 'assets/sign-logos/zhengxian.png',
+  'kura': 'assets/sign-logos/kura.png',
+  'sushiro': 'assets/sign-logos/sushiro.png',
+  'cosmed': 'assets/sign-logos/cosmed.png',
+  'dingtaifung': 'assets/sign-logos/dingtaifung.png',
+  'chunsuitang': 'assets/sign-logos/chunsuitang.png',
+  'coco': 'assets/sign-logos/coco.png',
+  'chatime': 'assets/sign-logos/chatime.png',
+  'wupaochun': 'assets/sign-logos/wupaochun.png',
 };
-// Wide wordmarks (FamilyMart) rotate 90° on portrait cells so the
-// lockup reads top-to-bottom like a real vertical blade sign.
-// Near-square marks (7-Eleven, 50 Lan) never rotate — rotating them
-// would turn their characters sideways.
-export const SIGN_LOGO_ROTATE_PORTRAIT = { 'familymart': true };
+// Wide wordmarks rotate 90° on portrait cells so the lockup reads
+// top-to-bottom like a real vertical blade sign. Near-square marks
+// (7-Eleven, 50 Lan) never rotate — rotating them would turn their
+// characters sideways. Rule (measured from the staged files): a logo
+// wider than 2:1 rotates; a compact mark does not. FamilyMart was
+// the original case; the rest follow the same rule.
+export const SIGN_LOGO_ROTATE_PORTRAIT = {
+  'familymart': true,
+  'watsons': true,
+  'chunsuitang': true,
+  'coco': true,
+  'dayuanzi': true,
+  'dingtaifung': true,
+  'elife': true,
+  'huxuzhang': true,
+  'kfc': true,
+  'poya': true,
+  'pxmart': true,
+  'rtmart': true,
+  'sanshang': true,
+  'shinyang': true,
+  'yoshinoya': true,
+  'zhengxian': true,
+  'achung': true,
+};
+// Two logos are light art on transparency and vanish on a white
+// plate — kebuke's beige "K" and wupaochun's white mark (both
+// verified on the contact sheets). Their plates are near-black, so
+// the mark reads. Every other logo is dark/colourful enough for the
+// white plate (cosmed's opaque white background blends with it).
+// The plate colour is looked up per logo key, so the roof/tower
+// painters get the same treatment for free.
+export const SIGN_LOGO_DARK_PLATE = { 'kebuke': true, 'wupaochun': true };
+export function logoPlateBg(key) {
+  return SIGN_LOGO_DARK_PLATE[key] ? '#1a1a1a' : '#ffffff';
+}
 
 export function loadSignLogoImages() {
   if (typeof Image === 'undefined') return Promise.resolve({});
@@ -286,12 +442,14 @@ export function loadSignLogoImages() {
 }
 
 // Draw a real logo image into a plate cell, aspect-preserving
-// (contain) on a white plate, never stretched. `rotate` turns a wide
+// (contain) on the plate, never stretched. `rotate` turns a wide
 // wordmark 90° clockwise so it reads top-to-bottom on a tall cell.
-function drawLogoImage(ctx, x, y, w, h, img, rotate = false) {
+// `plateBg` is the plate colour (white, or near-black for the two
+// light-on-transparency logos — see SIGN_LOGO_DARK_PLATE).
+function drawLogoImage(ctx, x, y, w, h, img, rotate = false, plateBg = '#ffffff') {
   ctx.save();
   ctx.globalAlpha = 1;
-  ctx.fillStyle = '#ffffff';
+  ctx.fillStyle = plateBg;
   ctx.fillRect(x, y, w, h);
   const iw = img.naturalWidth || img.width;
   const ih = img.naturalHeight || img.height;
@@ -386,7 +544,7 @@ export function drawBandAtlas(ctx, images = null) {
     const { x, y } = cellOrigin(i, BAND_ATLAS);
     if (sign.logo) {
       const img = images && images[sign.logo];
-      if (img) { drawLogoImage(ctx, x, y, cellW, cellH, img); return; }
+      if (img) { drawLogoImage(ctx, x, y, cellW, cellH, img, false, logoPlateBg(sign.logo)); return; }
     }
     if (sign.logo === 'seven-eleven') { drawSevenElevenLogo(ctx, x, y, cellW, cellH, false); return; }
     if (sign.logo === 'familymart') { drawFamilyMartLogo(ctx, x, y, cellW, cellH, false); return; }
@@ -416,8 +574,11 @@ export function drawBandAtlas(ctx, images = null) {
       ctx.strokeRect(x + 20, y + 20, cellW - 40, cellH - 40);
     }
     ctx.globalAlpha = 1;
-    const px = Math.min(94, (cellW * 0.86) / nameWidthUnits(sign.name));
-    ctx.font = `700 ${px}px ${SIGN_FONT_STACK}`;
+    // Issue #372: font variety — the plate's deterministic
+    // (weight, size-scale) from its name.
+    const v = signFontVariant(sign.name);
+    const px = Math.min(94, (cellW * 0.86) / nameWidthUnits(sign.name)) * v.scale;
+    ctx.font = `${v.weight} ${Math.round(px)}px ${SIGN_FONT_STACK}`;
     ctx.fillStyle = sign.fg;
     ctx.fillText(sign.name, x + cellW / 2, y + cellH / 2 + 3);
   });
@@ -435,7 +596,7 @@ export function drawBladeAtlas(ctx, images = null) {
     const { x, y } = cellOrigin(i, BLADE_ATLAS);
     if (sign.logo) {
       const img = images && images[sign.logo];
-      if (img) { drawLogoImage(ctx, x, y, cellW, cellH, img, !!SIGN_LOGO_ROTATE_PORTRAIT[sign.logo]); return; }
+      if (img) { drawLogoImage(ctx, x, y, cellW, cellH, img, !!SIGN_LOGO_ROTATE_PORTRAIT[sign.logo], logoPlateBg(sign.logo)); return; }
     }
     if (sign.logo === 'seven-eleven') { drawSevenElevenLogo(ctx, x, y, cellW, cellH, true); return; }
     if (sign.logo === 'familymart') { drawFamilyMartLogo(ctx, x, y, cellW, cellH, true); return; }
@@ -462,8 +623,11 @@ export function drawBladeAtlas(ctx, images = null) {
     }
     ctx.globalAlpha = 1;
     const chars = [...sign.name];
-    const px = Math.min(cellW * 0.74, (cellH * 0.88) / chars.length);
-    ctx.font = `700 ${px}px ${SIGN_FONT_STACK}`;
+    // Issue #372: font variety — the plate's deterministic
+    // (weight, size-scale) from its name.
+    const v = signFontVariant(sign.name);
+    const px = Math.min(cellW * 0.74, (cellH * 0.88) / chars.length) * v.scale;
+    ctx.font = `${v.weight} ${Math.round(px)}px ${SIGN_FONT_STACK}`;
     ctx.fillStyle = sign.fg;
     const stepY = px * 1.04;
     let cy = y + cellH / 2 - ((chars.length - 1) * stepY) / 2;
@@ -547,7 +711,7 @@ export function drawRoofAtlas(ctx, images = null) {
     const { x, y } = cellOrigin(i, ROOF_ATLAS);
     if (sign.logo) {
       const img = images && images[sign.logo];
-      if (img) { drawLogoImage(ctx, x, y, cellW, cellH, img); return; }
+      if (img) { drawLogoImage(ctx, x, y, cellW, cellH, img, false, logoPlateBg(sign.logo)); return; }
     }
     ctx.globalAlpha = 1;
     ctx.fillStyle = sign.bg;
@@ -561,14 +725,18 @@ export function drawRoofAtlas(ctx, images = null) {
     ctx.lineWidth = 5;
     ctx.strokeRect(x + 8, y + 8, cellW - 16, cellH - 16);
     ctx.globalAlpha = 1;
-    const px = Math.min(120, (cellW * 0.86) / nameWidthUnits(sign.name));
-    ctx.font = `700 ${px}px ${SIGN_FONT_STACK}`;
+    // Issue #372: font variety — the plate's deterministic
+    // (weight, size-scale) from its name (same variant for the name
+    // and its Latin mark, so a roof board reads as one plate).
+    const v = signFontVariant(sign.name);
+    const px = Math.min(120, (cellW * 0.86) / nameWidthUnits(sign.name)) * v.scale;
+    ctx.font = `${v.weight} ${Math.round(px)}px ${SIGN_FONT_STACK}`;
     ctx.fillStyle = sign.fg;
     const nameY = sign.latin ? y + cellH / 2 - 28 : y + cellH / 2 + 3;
     ctx.fillText(sign.name, x + cellW / 2, nameY);
     if (sign.latin) {
-      const lpx = Math.min(46, (cellW * 0.86) / nameWidthUnits(sign.latin));
-      ctx.font = `700 ${lpx}px ${SIGN_FONT_STACK}`;
+      const lpx = Math.min(46, (cellW * 0.86) / nameWidthUnits(sign.latin)) * v.scale;
+      ctx.font = `${v.weight} ${Math.round(lpx)}px ${SIGN_FONT_STACK}`;
       ctx.fillStyle = sign.accent || sign.fg;
       ctx.fillText(sign.latin, x + cellW / 2, y + cellH / 2 + 62);
     }
@@ -588,7 +756,7 @@ export function drawTowerAtlas(ctx, images = null) {
     const { x, y } = cellOrigin(i, TOWER_ATLAS);
     if (sign.logo) {
       const img = images && images[sign.logo];
-      if (img) { drawLogoImage(ctx, x, y, cellW, cellH, img); return; }
+      if (img) { drawLogoImage(ctx, x, y, cellW, cellH, img, false, logoPlateBg(sign.logo)); return; }
     }
     ctx.globalAlpha = 1;
     ctx.fillStyle = sign.bg;
@@ -599,8 +767,11 @@ export function drawTowerAtlas(ctx, images = null) {
     ctx.strokeRect(x + 6, y + 6, cellW - 12, cellH - 12);
     ctx.globalAlpha = 1;
     const chars = [...sign.name];
-    const px = Math.min(cellW * 0.74, (cellH * 0.88) / chars.length);
-    ctx.font = `700 ${px}px ${SIGN_FONT_STACK}`;
+    // Issue #372: font variety — the plate's deterministic
+    // (weight, size-scale) from its name.
+    const v = signFontVariant(sign.name);
+    const px = Math.min(cellW * 0.74, (cellH * 0.88) / chars.length) * v.scale;
+    ctx.font = `${v.weight} ${Math.round(px)}px ${SIGN_FONT_STACK}`;
     ctx.fillStyle = sign.fg;
     const stepY = px * 1.04;
     let cy = y + cellH / 2 - ((chars.length - 1) * stepY) / 2;

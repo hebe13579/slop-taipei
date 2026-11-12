@@ -1165,12 +1165,12 @@ function signFallbackTexture() {
   return _signFallbackTex;
 }
 // Band atlas grid, mirrored from js/taipei-signs.js (BAND_ATLAS /
-// TAIPEI_BAND_SIGNS): 8 cols × 9 rows of plates, 72 plates, plate row
+// TAIPEI_BAND_SIGNS): 8 cols × 12 rows of plates, 96 plates, plate row
 // counted from the texture's bottom. The node suite source-pins these
 // literals against the signs module — change them together.
 const SIGN_BAND_COLS = 8.0;
-const SIGN_BAND_ROWS = 9.0;
-const SIGN_BAND_PLATES = 72.0;
+const SIGN_BAND_ROWS = 12.0;
+const SIGN_BAND_PLATES = 96.0;
 // Sample one band plate for a shop bay: the plate is chosen by a
 // seed/bay hash (deterministic — the same bay shows the same shop on
 // every load), and the plate UV spans exactly the panel zone the
