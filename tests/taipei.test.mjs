@@ -948,18 +948,42 @@ test('landmark batch 4: station district — crown, hip roof, terrace hall, pala
   assert.ok(cks, 'cks memorial hall registered');
   const terraces = cks.parts.filter((p) => p.type === 'box' && p.flat === 0xa39a8b || (p.type === 'box' && (p.y0 === 4.8 || p.y0 === 9.6)));
   assert.ok(terraces.length >= 2, 'stepped terrace levels present under the hall');
-  // Issue #116 re-pin: the two blue frustum eave tiers are now
-  // stepped box tiers — frustum parts cannot rotate, and the
-  // hall group turns to the park's measured axis (rotY 0.4924);
-  // step footprints follow the frustum profiles (see registry).
-  // Issue #138 gate revision re-pin: the profile is re-cut from
-  // six steps to nine so the double eave reads — a wide, flatter
-  // lower skirt (4 steps, 80 -> 71 m over 8 m) under a steeper
-  // upper roof (5 steps, 65 -> 43 m over 14 m); total roof
-  // height unchanged (40.5 -> 62.5 under the finial).
-  const eaves = cks.parts.filter((p) => p.type === 'box' && p.flat === 0x1e4d8c);
-  assert.equal(eaves.length, 9, 'blue double-eaved roof as stepped box tiers: flat lower skirt + steep upper roof (issues #116/#138)');
-  assert.ok(eaves.every((p) => Math.abs(p.rotY - 0.4924) < 0.001), 'eave tiers turn with the park axis');
+  // Issue #353 re-pin: the roof is no longer nine stepped boxes —
+  // they read as a minecraft cube stack. One smooth octagonal mesh
+  // (cksRoofMeshParts, the #333 capsule precedent): same profile
+  // (80 -> 71 skirt, 65 -> 43 upper, 40.5 -> 62.5) and blue tile
+  // colour, now a continuous double eave with upturned corners.
+  const roof = cks.parts.find((p) => p.type === 'mesh' && p.flat === 0x1e4d8c);
+  assert.ok(roof, 'blue double-eaved roof as one smooth octagonal mesh (issue #353)');
+  assert.equal(cks.parts.filter((p) => p.type === 'box' && p.flat === 0x1e4d8c).length, 0, 'no stepped blue boxes left');
+  assert.ok(!cks.parts.some((p) => p.type === 'cksroof'), 'no placeholder reaches the plan');
+  assert.equal(roof.y0, 40.5, 'roof starts where the hall body ends');
+  assert.equal(roof.y0 + roof.h, 62.5, 'roof tops out under the finial, total height unchanged');
+  assert.ok(Math.abs(roof.rotY - 0.4924) < 0.001, 'roof turns with the park axis');
+  assert.equal(roof.verts.length / 3, 225, 'roof verts: 5 skirt + ledge + 7 upper + cap rings of 16, plus the cap centre');
+  assert.equal(roof.tris.length / 3, 368, 'roof tris: 4 skirt + ledge + 6 upper strips of 32, plus the 16-triangle cap fan');
+  // Winding: every triangle faces up (signed area in (x,z) < 0,
+  // the #333 schools-test rule) — a flipped strip would light the
+  // roof from below.
+  const roofArea = (m, a, b, c) => 0.5 * ((m.verts[b * 3] - m.verts[a * 3]) * (m.verts[c * 3 + 2] - m.verts[a * 3 + 2]) - (m.verts[c * 3] - m.verts[a * 3]) * (m.verts[b * 3 + 2] - m.verts[a * 3 + 2]));
+  for (let t = 0; t < roof.tris.length; t += 3) {
+    assert.ok(roofArea(roof, roof.tris[t], roof.tris[t + 1], roof.tris[t + 2]) < -1e-9, `roof triangle ${t / 3} faces up`);
+  }
+  // Issue #353: the west gate gap is 38 m, centred on the square
+  // axis — the south run was 26 m too far south (gap 64.1 m,
+  // 12.8 m off-axis). Both west wall runs turn with the park
+  // boundary (rotY 1.8592); their ends project onto the run
+  // direction and the gap between them is measured there.
+  const westWalls = cks.parts.filter((p) => p.type === 'box' && p.d === 0.8 && Math.abs(p.rotY - 1.8592) < 0.001);
+  assert.equal(westWalls.length, 2, 'two west wall runs');
+  const westDir = [Math.cos(1.8592), Math.sin(1.8592)];
+  const westEnds = westWalls.map((p) => {
+    const c = p.dx * westDir[0] + p.dz * westDir[1];
+    return [c - p.w / 2, c + p.w / 2];
+  }).sort((a, b) => a[0] - b[0]);
+  const westGap = westEnds[1][0] - westEnds[0][1];
+  assert.ok(Math.abs(westGap - 38) < 0.5, `west gate gap is 38 m (got ${westGap.toFixed(1)})`);
+  assert.ok(Math.abs((westEnds[0][1] + westEnds[1][0]) / 2 - (-92.6)) < 0.5, 'west gate gap centred on the square axis');
   const finial = cks.parts.find((p) => p.type === 'cylinder');
   assert.ok(finial && partTop(finial) === 70, 'gold finial tops out at the published 70 m');
 
