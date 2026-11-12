@@ -8390,19 +8390,27 @@ export function planTaipeiBuildings(geodata, opts = {}) {
         // folded angle within 2.9° of an axis is effectively
         // unturned, and the state is rejected (the lot keeps
         // the grid rather than carrying a near-zero rot).
+        // Issue #386: the dev check must read the ROUNDED angle —
+        // lot.rot is emitted rounded to 4 decimals and the test
+        // reconstructs the footprint from the emitted value. An
+        // unrounded rotN of 2.9016° passed this gate, then rounded
+        // to 0.0506 (2.899°) and failed the orientation test's
+        // devDeg > 2.9° bar (one lot, at -2914.4,-286.8). Checking
+        // the rounded value closes the 0.003° window.
         let rotN = cd.rot1;
         const k = Math.floor(rotN / (Math.PI / 2));
         rotN -= k * (Math.PI / 2);
         let wN = cd.depAxis === 'w' ? dep : fro;
         let dN = cd.depAxis === 'w' ? fro : dep;
         if (k % 2 !== 0) { const t = wN; wN = dN; dN = t; }
-        const devN = Math.min(rotN, Math.PI / 2 - rotN);
+        const rotR = Math.round(rotN * 10000) / 10000;
+        const devN = Math.min(rotR, Math.PI / 2 - rotR);
         if (devN <= (2.9 * Math.PI) / 180) return false;
         lot.x = nx;
         lot.z = nz;
         lot.w = wN;
         lot.d = dN;
-        lot.rot = Math.round(rotN * 10000) / 10000;
+        lot.rot = rotR;
         // cos/sin of the ROUNDED angle: pullClear's rotated
         // checks then see exactly the corners the tests
         // reconstruct from the emitted plan.
