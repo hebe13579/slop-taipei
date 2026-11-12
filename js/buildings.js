@@ -2923,7 +2923,13 @@ function buildCityBlocks(scene, opts = null) {
   // injects the blade atlas, the panels sample real shop-name plates
   // instead (see vSignPlateColor below). Filled from blk.signs
   // (planner policy data); Manhattan blocks never carry any.
-  const MAX_VSIGNS = 1024;
+  // Issue #354: the cap was 1024 — one InstancedMesh shared by the
+  // whole city, filled in streaming order, so only the first 1,024 of
+  // ~32,700 planned blades ever rendered (31,661 silently dropped).
+  // That is why most streets showed no protruding signs at all. The
+  // cap now covers the whole planned blade set (measured census in
+  // the PR; the node suite asserts the total fits) with headroom.
+  const MAX_VSIGNS = 40000;
   const vSignMat = new THREE.MeshStandardNodeMaterial({ roughness: 0.42, metalness: 0.08 });
   const vSignLook = () => {
     const uvN = uv();
@@ -2980,12 +2986,33 @@ function buildCityBlocks(scene, opts = null) {
   // as the panel colour, so a panel keeps its shop on every load, and
   // the glyph look remains the fallback where no atlas is injected.
   // Blade atlas grid, mirrored from js/taipei-signs.js (BLADE_ATLAS /
-  // TAIPEI_BLADE_SIGNS): 9 cols × 6 rows, 51 plates, plate row counted
+  // TAIPEI_BLADE_SIGNS): 12 cols × 7 rows, 76 plates, plate row counted
   // from the texture's bottom. The node suite source-pins these
   // literals against the signs module — change them together.
-  const SIGN_BLADE_COLS = 9.0;
-  const SIGN_BLADE_ROWS = 6.0;
-  const SIGN_BLADE_PLATES = 51.0;
+  const SIGN_BLADE_COLS = 12.0;
+  const SIGN_BLADE_ROWS = 7.0;
+  const SIGN_BLADE_PLATES = 76.0;
+  // Issue #354: the commonest shops are picked by weight, not
+  // uniformly — a real Taipei street has a 7-ELEVEN or FamilyMart on
+  // most commercial corners, and 八方雲集 / 鍋貼 / 東一排骨 are this
+  // issue's named cases. Plate indices mirror js/taipei-signs.js
+  // (blade pool order — band plate i is blade plate i); the node
+  // suite source-pins them against the pool. Shares: 7-ELEVEN 8%,
+  // FamilyMart 4%, 八方雲集 5%, 鍋貼 4%, 東一排骨 3%, 燦坤 3%,
+  // 全聯 3%, NET 2%; the rest share the remaining 68% uniformly
+  // (each plate also keeps its ~1.3% uniform share, so a brand plate
+  // can still appear twice).
+  const SIGN_BLADE_BRAND_711 = 1.0;
+  const SIGN_BLADE_BRAND_FAMILY = 26.0;
+  const SIGN_BLADE_BRAND_BAFANG = 52.0;
+  const SIGN_BLADE_BRAND_GUOTIE = 53.0;
+  const SIGN_BLADE_BRAND_DONGYI = 51.0;
+  // Issue #354 (genre broadening): the new genre brands get their
+  // own weight bands — 燦坤 (Tsannkuen, the 3C anchor), 全聯 (PX
+  // Mart, the market anchor), NET (the clothes anchor).
+  const SIGN_BLADE_BRAND_TSANNKUEN = 68.0;
+  const SIGN_BLADE_BRAND_PX = 71.0;
+  const SIGN_BLADE_BRAND_NET = 64.0;
   const bladeAtlasTex = getTaipeiSignAtlases().blade;
   const vSignPlateColor = () => {
     const uvN = uv();
@@ -2993,7 +3020,17 @@ function buildCityBlocks(scene, opts = null) {
     const faceCoord = mix(positionWorld.z, positionWorld.x, step(abs(nW.z), abs(nW.x)));
     const hashN = (v) => mx_noise_float(v).mul(0.5).add(0.5);
     const hp = hashN(vec2(floor(faceCoord.mul(0.5)), 4.97));
-    const plate = floor(hp.mul(SIGN_BLADE_PLATES));
+    const hp2 = hashN(vec2(floor(faceCoord.mul(0.5)), 9.31));
+    const band = (lo, hi) => step(lo, hp).mul(float(1.0).sub(step(hi, hp)));
+    let plate = floor(hp2.mul(SIGN_BLADE_PLATES));
+    plate = mix(plate, SIGN_BLADE_BRAND_711, band(0.0, 0.08));
+    plate = mix(plate, SIGN_BLADE_BRAND_FAMILY, band(0.08, 0.12));
+    plate = mix(plate, SIGN_BLADE_BRAND_BAFANG, band(0.12, 0.17));
+    plate = mix(plate, SIGN_BLADE_BRAND_GUOTIE, band(0.17, 0.21));
+    plate = mix(plate, SIGN_BLADE_BRAND_DONGYI, band(0.21, 0.24));
+    plate = mix(plate, SIGN_BLADE_BRAND_TSANNKUEN, band(0.24, 0.27));
+    plate = mix(plate, SIGN_BLADE_BRAND_PX, band(0.27, 0.30));
+    plate = mix(plate, SIGN_BLADE_BRAND_NET, band(0.30, 0.32));
     const colI = mod(plate, SIGN_BLADE_COLS);
     const rowB = floor(plate.div(SIGN_BLADE_COLS));
     const inset = float(0.03);
@@ -3025,6 +3062,8 @@ function buildCityBlocks(scene, opts = null) {
     return vSignPlateColor().mul(0.30);
   })();
   const vSignInst = new THREE.InstancedMesh(unitBox, vSignMat, MAX_VSIGNS);
+  vSignInst.name = 'TaipeiVerticalSigns'; // Issue #354: the evidence
+  // stage reads the live blade count (vSignInst.count) by name.
   vSignInst.castShadow = vSignInst.receiveShadow = true;
   vSignInst.frustumCulled = false;
   group.add(vSignInst);
