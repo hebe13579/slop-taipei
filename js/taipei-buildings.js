@@ -844,6 +844,106 @@ function expandCapsuleParts(part, s, groundAt, lift) {
   return drapedCapsuleParts(part.cx, part.cz, part.straight, part.width, part.fieldWidth, part.rotY, part.trackColor, part.fieldColor, s.x, s.z, groundAt, lift);
 }
 
+// Issue #353: expand a `cksroof` placeholder part. The Memorial
+// Hall's smooth octagonal roof is a baked-vertex mesh (the #333
+// capsule precedent for generated mesh geometry) — static, so the
+// planner expands it on every plan, bare or draped. No other
+// consumer ever sees the `cksroof` type.
+function expandCksRoofParts(part) {
+  return cksRoofMeshParts(part);
+}
+
+// Issue #353: the Chiang Kai-shek Memorial Hall roof as one smooth
+// octagonal mesh. The real roof is a blue-tiled octagonal double
+// eave (Esri z18 top-down: the dark octagon with the gold finial at
+// its centre, flats facing the hall's axes; front photos
+// photo-cks-1/2.jpg: two tiers, the lower skirt flatter and wider,
+// the upper steeper, both eaves' corners kicked up). The nine
+// stepped boxes read as a minecraft cube stack, so the roof is
+// rebuilt as a single baked-vertex mesh: an octagon of flat-to-flat
+// 80 -> 71 m over the 8 m lower skirt and 65 -> 43 m over the 14 m
+// upper roof — the same #116/#138 profile and total height
+// (40.5 -> 62.5) and the same blue tile colour — now a continuous
+// surface with a smooth concave profile, a flat ledge between the
+// tiers, and the eave corners raised (upturned eaves).
+// Rings are densified with the flat midpoints (16 points: 8 vertices
+// + 8 midpoints) so the eave edge can curve up toward the corners.
+// Winding follows the capsule: points run counter-clockwise viewed
+// from above, strips triangulated (A[i], A[j], B[j]) / (A[i], B[j],
+// B[i]) face up (signed area in (x,z) < 0 — pinned by the #353 test).
+// The ledge and the top cap duplicate their rings (the capsule's
+// skirt-top trick) so the double-eave step and the cap edge stay
+// crisp; within each tier the rings share vertices, so
+// computeVertexNormals smooths the profile. The mesh part's w/d are
+// the octagon's corner-to-corner (86.6 m) — the drive collider's OBB
+// cover, over-covering the diagonal faces as the #333 capsule's OBB
+// over-covers its rounded ends. The octagon's flat-to-flat is NOT
+// re-measured from the satellite: the Esri roof image is displaced
+// ~14 m NNW by parallax (the 50 m roof leans in the off-nadir view)
+// and the shadow extends further, so the #116 80 m profile stands.
+function cksRoofMeshParts(part) {
+  const rotY = part.rotY || 0;
+  const c = Math.cos(rotY), s = Math.sin(rotY);
+  const toStructure = (u, v) => [u * c - v * s, u * s + v * c];
+  const COS225 = Math.cos(Math.PI / 8); // 22.5 deg
+  // One octagon ring, 16 points, counter-clockwise viewed from above
+  // (vertices at 22.5 - 45k deg, flat midpoints at -45k deg). The
+  // vertices are raised by `up` (the upturned-eave kick); the
+  // midpoints stay at the ring height, so each eave edge sags down
+  // at its middle and rises at the corners.
+  const ring = (flatWidth, y, up) => {
+    const R = flatWidth / (2 * COS225);
+    const half = flatWidth / 2;
+    const pts = [];
+    for (let k = 0; k < 8; k++) {
+      const aV = ((22.5 - 45 * k) * Math.PI) / 180;
+      const aM = ((-45 * k) * Math.PI) / 180;
+      pts.push([R * Math.cos(aV), R * Math.sin(aV), y + up]);
+      pts.push([half * Math.cos(aM), half * Math.sin(aM), y]);
+    }
+    return pts;
+  };
+  // Profile rings (flat-to-flat width, height, corner upturn).
+  // Skirt: 5 rings, ease t^1.6 (flares at the eave, steepens up).
+  // Upper: 7 rings, ease t^1.3. The ledge is the strip from the
+  // skirt's top ring to the upper's bottom ring (same height, so it
+  // reads flat, rising 1.0 m at the corners with the upper eave).
+  const skirt = [0, 0.25, 0.5, 0.75, 1].map((t) => ring(80 - 9 * Math.pow(t, 1.6), 40.5 + 8 * t, 2 * (1 - t)));
+  const upper = [0, 1 / 6, 2 / 6, 3 / 6, 4 / 6, 5 / 6, 1].map((t) => ring(65 - 22 * Math.pow(t, 1.3), 48.5 + 14 * t, 1 * (1 - t)));
+  const verts = [], tris = [];
+  const pushRing = (pts) => {
+    const base = verts.length / 3;
+    for (const [u, v, y] of pts) {
+      const [dx, dz] = toStructure(u, v);
+      verts.push(dx, y, dz);
+    }
+    return base;
+  };
+  const strip = (aBase, bBase) => {
+    for (let i = 0; i < 16; i++) {
+      const j = (i + 1) % 16;
+      tris.push(aBase + i, aBase + j, bBase + j, aBase + i, bBase + j, bBase + i);
+    }
+  };
+  const skirtBases = skirt.map(pushRing);
+  const ledgeOuter = pushRing(skirt[4]); // duplicate of the skirt top
+  const upperBases = upper.map(pushRing);
+  const capRing = pushRing(upper[6]); // duplicate of the upper top
+  const capCentre = verts.length / 3;
+  verts.push(0, 62.5, 0);
+  for (let r = 0; r < 4; r++) strip(skirtBases[r], skirtBases[r + 1]);
+  strip(ledgeOuter, upperBases[0]);
+  for (let r = 0; r < 6; r++) strip(upperBases[r], upperBases[r + 1]);
+  for (let i = 0; i < 16; i++) {
+    const j = (i + 1) % 16;
+    tris.push(capCentre, capRing + i, capRing + j);
+  }
+  return [{
+    type: 'mesh', flat: part.flat, rotY,
+    w: 86.6, d: 86.6, y0: 40.5, h: 22, verts, tris,
+  }];
+}
+
 // Tianmu Baseball Stadium (issue #166): the project's first
 // stadium form — an elliptical stepped bowl of tangent segment
 // boxes around an open field, generated like taoZhuParts().
@@ -3328,21 +3428,12 @@ const LANDMARK_STRUCTURES = [
       { type: 'box', w: 60.4, d: 60.4, h: 1.5, y0: 39.0, dx: -1.3, dz: -0.7, rotY: 0.4924, flat: 0xf0ebdf },
       { type: 'box', w: 71, d: 71, h: 0.8, y0: 39.9, rotY: 0.4924, flat: 0xe9e5db },
       { type: 'box', w: 20, d: 4.5, h: 1.2, y0: 62.2, rotY: 0.4924, flat: 0x2a5a9e },
-      // Issue #116: the two blue eave frustums as stepped box
-      // tiers (see the entry note). Issue #138 gate revision:
-      // the profile is re-cut so the DOUBLE EAVE reads — a wide,
-      // flatter lower skirt (80 -> 71 m over 8 m, flaring past
-      // the battered body) under a steeper upper roof (65 ->
-      // 43 m over 14 m). Same total roof height (40.5 -> 62.5).
-      { type: 'box', w: 80, d: 80, h: 2, y0: 40.5, rotY: 0.4924, flat: 0x1e4d8c },
-      { type: 'box', w: 77, d: 77, h: 2, y0: 42.5, rotY: 0.4924, flat: 0x1e4d8c },
-      { type: 'box', w: 74, d: 74, h: 2, y0: 44.5, rotY: 0.4924, flat: 0x1e4d8c },
-      { type: 'box', w: 71, d: 71, h: 2, y0: 46.5, rotY: 0.4924, flat: 0x1e4d8c },
-      { type: 'box', w: 65, d: 65, h: 2.8, y0: 48.5, rotY: 0.4924, flat: 0x1e4d8c },
-      { type: 'box', w: 59.5, d: 59.5, h: 2.8, y0: 51.3, rotY: 0.4924, flat: 0x1e4d8c },
-      { type: 'box', w: 54, d: 54, h: 2.8, y0: 54.1, rotY: 0.4924, flat: 0x1e4d8c },
-      { type: 'box', w: 48.5, d: 48.5, h: 2.8, y0: 56.9, rotY: 0.4924, flat: 0x1e4d8c },
-      { type: 'box', w: 43, d: 43, h: 2.8, y0: 59.7, rotY: 0.4924, flat: 0x1e4d8c },
+      // Issue #353: the roof is one smooth octagonal mesh (see
+      // cksRoofMeshParts) — the nine stepped boxes read as a
+      // minecraft cube stack. Same profile (80 -> 71 skirt,
+      // 65 -> 43 upper, 40.5 -> 62.5) and blue tile colour, now a
+      // continuous double eave with upturned corners.
+      { type: 'cksroof', rotY: 0.4924, flat: 0x1e4d8c },
       { type: 'cylinder', r: 2.4, h: 7.5, y0: 62.5, flat: 0xcfa14e },
       // Issue #98: the front the references show, authored on
       // the WEST face (the Liberty Square side): the stair
@@ -3390,8 +3481,18 @@ const LANDMARK_STRUCTURES = [
       // they must stay at 0.000 m².
       { type: 'box', w: 142.9, d: 0.8, h: 3, dx: -385.1, dz: -305.1, rotY: 1.8592, flat: 0xe9e4d4, despawnFar: true },
       { type: 'box', w: 142.9, d: 1.7, h: 0.55, y0: 3, dx: -385.1, dz: -305.1, rotY: 1.8592, flat: 0x2c4a7c, despawnFar: true },
-      { type: 'box', w: 131.5, d: 0.8, h: 3, dx: -442.4, dz: -112.1, rotY: 1.8592, flat: 0xe9e4d4, despawnFar: true },
-      { type: 'box', w: 131.5, d: 1.7, h: 0.55, y0: 3, dx: -442.4, dz: -112.1, rotY: 1.8592, flat: 0x2c4a7c, despawnFar: true },
+      // Issue #353: the west gate gap was 64.1 m wide and 12.8 m off
+      // the square axis (the south run started 26 m too far south);
+      // the gap is re-cut to the 38 m the #138 note intends, centred
+      // on the axis crossing — the south run is extended 26 m north
+      // (131.5 -> 157.5 m, centre 13 m north along the run), the north
+      // run is untouched (its end was already exact). The west runs
+      // keep their direction: the OSM park polygon's west edge is
+      // genuinely skewed ~12 deg from the arch (measured end-to-end),
+      // so the fence follows the real boundary and the gate is
+      // aligned by the centred opening, not by rotating the wall.
+      { type: 'box', w: 157.5, d: 0.8, h: 3, dx: -438.7, dz: -124.5, rotY: 1.8592, flat: 0xe9e4d4, despawnFar: true },
+      { type: 'box', w: 157.5, d: 1.7, h: 0.55, y0: 3, dx: -438.7, dz: -124.5, rotY: 1.8592, flat: 0x2c4a7c, despawnFar: true },
       { type: 'box', w: 260.5, d: 0.8, h: 3, dx: -342.4, dz: 20.4, rotY: 0.4872, flat: 0xe9e4d4, despawnFar: true },
       { type: 'box', w: 260.5, d: 1.7, h: 0.55, y0: 3, dx: -342.4, dz: 20.4, rotY: 0.4872, flat: 0x2c4a7c, despawnFar: true },
       { type: 'box', w: 138.7, d: 0.8, h: 3, dx: -151.9, dz: 121.4, rotY: 0.4872, flat: 0xe9e4d4, despawnFar: true },
@@ -6924,6 +7025,14 @@ export function planTaipeiBuildings(geodata, opts = {}) {
     const groundAt = typeof opts.groundAt === 'function' ? opts.groundAt : null;
     const lift = groundAt ? groundAt(s.x, s.z) : 0;
     s.parts = s.parts.flatMap((p) => (p.type === 'capsule' ? expandCapsuleParts(p, s, groundAt, lift) : p));
+  }
+  // Issue #353: `cksroof` placeholders expand here — the Memorial
+  // Hall's smooth octagonal roof is a baked-vertex mesh (same
+  // precedent as the capsule above); no other consumer ever sees the
+  // `cksroof` type.
+  for (const s of landmarkTowers) {
+    if (!s.parts.some((p) => p.type === 'cksroof')) continue;
+    s.parts = s.parts.flatMap((p) => (p.type === 'cksroof' ? expandCksRoofParts(p) : p));
   }
   // MRT elevated stations (issue #118): the structures straddle the
   // guideway corridor, so their footprint bounding boxes join the
