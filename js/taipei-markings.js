@@ -6,12 +6,14 @@
 // renderer all run the exact same rules.
 //
 // SCOPE (user, 2026-10-24): scooter waiting boxes （機車停等區） are
-// OUT — cut from this increment entirely. Traffic lights are STATIC
-// geometry for now: pole + horizontal 3-lamp head, lenses modelled
-// unlit (muted lens colours); no phase cycle, and traffic AI does not
-// obey them (a later increment). Pedestrian signals are a small box
-// with a STATIC lit red panel — no animated little-green-man figure
-// and no countdown digits (standing user directive).
+// OUT — cut from this increment entirely. Traffic lights are WORKING
+// geometry (issue #356): pole + horizontal 3-lamp head, one unit per
+// signalized approach, each stamped with its phase group (widest road
+// = 0); the renderer lights the lenses from signalPhase and the
+// traffic network marks the junction's node with the same assignment,
+// so the AI obeys the heads it sees. Pedestrian signals are a small
+// box with a STATIC lit red panel — no animated little-green-man
+// figure and no countdown digits (standing user directive).
 //
 // LANE RULE. The generated roadbeds carry no lane tags (the generator
 // baked lanes into width at 3.2 m per lane — tools/taipei), so lane
@@ -943,6 +945,81 @@ export function detectJunctions(roadbeds) {
 // ---------------------------------------------------------------------
 // Junction furniture: crosswalks, stop lines, signal placements.
 
+// Phase groups (issue #356): at a signalized junction, the
+// approaches on the widest road form group 0 (the "avenue" phase);
+// every other approach is group 1 (the "street" phase). The
+// pairing mirrors sidesAndGroups in js/road-network.js — opposite
+// arms (dot < -0.82, straightest first, exclusive mates) form a
+// road, roads rank by their widest member's half width — and the
+// network's signalized nodes take their arm groups from this
+// function via the env (see there), so the group is computed once,
+// here, and the rendered lens phase can never disagree with the
+// phase js/traffic.js obeys. (A rank tie would make a mirrored
+// rule order-dependent — measured 72 exact ties among the 480
+// signalized junctions — which is why the network copies this
+// assignment instead of re-deriving it.)
+// Returns an array of groups aligned with junction.arms.
+export function junctionPhaseGroups(junction) {
+  const arms = junction.arms;
+  const pairs = [];
+  for (let i = 0; i < arms.length; i++) for (let j = i + 1; j < arms.length; j++) {
+    const d = arms[i].dirX * arms[j].dirX + arms[i].dirZ * arms[j].dirZ;
+    if (d < -0.82) pairs.push([d, arms[i], arms[j]]);
+  }
+  pairs.sort((p, q) => p[0] - q[0]);
+  const mates = new Map();
+  for (const [, a, b] of pairs) {
+    if (mates.has(a) || mates.has(b)) continue;
+    mates.set(a, b); mates.set(b, a);
+  }
+  const roads = [];
+  const done = new Set();
+  for (const a of arms) {
+    if (done.has(a)) continue;
+    done.add(a);
+    const mate = mates.get(a);
+    if (mate) done.add(mate);
+    const members = mate ? [a, mate] : [a];
+    roads.push({ members, rank: Math.max(...members.map((m) => m.width / 2)) });
+  }
+  // Issue #356: merge roads that run the same way. The junction
+  // detector merges crossings within 40 m, so one approach can
+  // appear twice — two sightings of the same road (a name change
+  // at a section boundary, a fork just outside the box, the two
+  // carriageways of a divided road) — pointing within ~18° of each
+  // other but paired with different opposite arms, so the two
+  // sightings land in different roads and get different groups.
+  // The network then has one arm for that approach and must pick
+  // one sighting by direction; the rendered unit on the other
+  // sighting disagrees (measured: 8 tight mismatches, dots
+  // 0.995–1.000, before this merge). Two arms pointing the same
+  // way never conflict — their traffic flows together through the
+  // box — so they belong in one road and share a phase. The merge
+  // can only flip group-1 arms to group 0 (a merged road's rank is
+  // the max of its constituents', so the widest road never
+  // changes); it never flips a group-0 arm to group 1.
+  const SAME_DIR_DOT = 0.95; // ~18°
+  const parent = roads.map((_, i) => i);
+  const find = (i) => { while (parent[i] !== i) { parent[i] = parent[parent[i]]; i = parent[i]; } return i; };
+  for (let i = 0; i < roads.length; i++) for (let j = i + 1; j < roads.length; j++) {
+    const sameDir = roads[i].members.some((a) => roads[j].members.some((b) => a.dirX * b.dirX + a.dirZ * b.dirZ > SAME_DIR_DOT));
+    if (sameDir) { const ri = find(i), rj = find(j); if (ri !== rj) parent[ri] = rj; }
+  }
+  const merged = new Map();
+  roads.forEach((r, i) => {
+    const root = find(i);
+    if (!merged.has(root)) merged.set(root, { members: [], rank: 0 });
+    const m = merged.get(root);
+    m.members.push(...r.members);
+    m.rank = Math.max(m.rank, r.rank);
+  });
+  const mergedRoads = [...merged.values()];
+  mergedRoads.sort((p, q) => q.rank - p.rank);
+  const groupOf = new Map();
+  mergedRoads.forEach((r, i) => { for (const m of r.members) groupOf.set(m, i === 0 ? 0 : 1); });
+  return arms.map((a) => groupOf.get(a) ?? 1);
+}
+
 // junctionArmDivided(junction, arm, roadbeds): the approach runs
 // on a divided roadbed — a merged bed whose median strip
 // taipei-surfaces draws (the same median laneLayout splits at), or
@@ -1002,9 +1079,9 @@ export function dividedAvenueInfo(j, roadbeds) {
 // bands are the shader render form of the stripes (issue #90): one
 // band per crosswalk, bandJunction aligned with bands like
 // stripeJunction is with stripes.
-// signals: { x, z, faceX, faceZ, kind, armLen, bed } — a static unit
-// per tertiary-or-above approach, standing on the far right-hand
-// CORNER of the approach (issue #64): anchored on the approach's
+// signals: { x, z, faceX, faceZ, kind, armLen, bed, group } — a
+// working unit per tertiary-or-above approach (issue #356),
+// standing on the far right-hand CORNER of the approach (issue #64): anchored on the approach's
 // own centreline at the junction box's far edge, offset past the
 // approach's right carriageway edge, then verified against every
 // roadbed ribbon and escaped diagonally off the corner until clear
@@ -1216,8 +1293,14 @@ export function buildJunctionFurniture(roadbeds, junctions, capsIn = null, opts 
   junctions.forEach((j, ji) => {
     if (!j.signalized) return;
     stats.junctions++;
+    // Issue #356: this junction's phase groups (widest road = 0),
+    // computed once — every signal unit on it carries its arm's
+    // group, and the traffic network copies the same assignment
+    // (js/road-network.js), so render and traffic cannot disagree.
+    const phaseGroups = junctionPhaseGroups(j);
     const site = claimOf.get(ji);
-    for (const arm of j.arms) {
+    for (let ai = 0; ai < j.arms.length; ai++) {
+      const arm = j.arms[ai];
       const bed = roadbeds[arm.bed];
       if (site && site.ringName && bed.name === site.ringName) { stats.ringArmsSkipped++; continue; }
       // Deck arms (issue #88): the bed is drawn elevated, not at
@@ -1369,6 +1452,14 @@ export function buildJunctionFurniture(roadbeds, junctions, capsIn = null, opts 
           x: px, z: pz,
           faceX: arm.dirX, faceZ: arm.dirZ,
           kind: divided ? 'mast' : 'pole', armLen, bed: arm.bed,
+          // Issue #356: the phase group of this approach (0 = the
+          // junction's widest road, 1 = every other approach). The
+          // renderer lights this unit's lenses from
+          // signalPhase(elapsed, group === 0) and the traffic
+          // network marks the junction's node with the same
+          // assignment — one source of truth, in
+          // junctionPhaseGroups above.
+          group: phaseGroups[ai],
         });
         stats.signals++;
         if (divided) stats.mastSignals++; else stats.poleSignals++;

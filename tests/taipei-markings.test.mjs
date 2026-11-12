@@ -19,8 +19,10 @@ import {
 // renderer draws with: the width-derived lane rule (no lane tags in
 // the geodata), junction detection from bed endpoints, the
 // signalized rule, crosswalk / stop-line placement, and the two user
-// scope cuts (no scooter boxes at all; signals static, no phase
-// logic) — on synthetic beds and on the real generated tile.
+// scope cuts (no scooter boxes at all; signals working since
+// issue #356 — phase groups in js/taipei-markings.js, lenses
+// cycled by the boot, traffic obeying them) — on synthetic beds
+// and on the real generated tile.
 
 const bed = (name, highway, width, ways = [1], pts = [0, 0, 100, 0]) => ({
   name, highway, width, pedestrianLayout: 'sidewalk', pts, sourceWayIds: ways,
@@ -36,11 +38,20 @@ const fourWay = () => [
   bed('NS Ave', 'primary', 24, [3], [0, 0, 0, 100]),
 ];
 
-test('scope cuts are structural: no scooter-box or phase machinery exists', () => {
+test('scope cuts are structural: no scooter-box or cycle machinery exists', () => {
   for (const key of Object.keys(markings)) {
     assert.ok(!/scooter/i.test(key), `unexpected scooter export ${key}`);
-    assert.ok(!/phase|cycle/i.test(key), `unexpected signal-phase export ${key}`);
+    // Issue #356: the phase ban is retired — phase groups ARE the signal
+    // mechanism now (junctionPhaseGroups below). What stays cut is a
+    // cycle/timer machine in the markings module; the 60 s cycle lives in
+    // js/city-config.js and the boot's per-frame update, not here.
+    assert.ok(!/cycle/i.test(key), `unexpected signal-cycle export ${key}`);
   }
+  assert.deepEqual(
+    Object.keys(markings).filter((k) => /phase/i.test(k)),
+    ['junctionPhaseGroups'],
+    'the only phase export is the #356 phase-group helper',
+  );
 });
 
 test('laneLayout: merged bed splits at its median, boundaries stay off the strip', () => {

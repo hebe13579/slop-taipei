@@ -25,6 +25,7 @@ import { createCurtainWallMaterial, createPreWarBuildingMaterial, createTaipeiMa
 import { color, mix, smoothstep, uv, float } from 'three/tsl';
 import { drawBandAtlas, drawBladeAtlas, drawRoofAtlas, drawTowerAtlas, BAND_ATLAS, BLADE_ATLAS, ROOF_ATLAS, TOWER_ATLAS, TAIPEI_BAND_SIGNS, TAIPEI_BLADE_SIGNS, TAIPEI_ROOF_SIGNS } from './taipei-signs.js';
 import { createBuildProgress, TAIPEI_BUILD_STAGES } from './taipei-progress.js';
+import { signalPhase } from './city-config.js'; // issue #356: the same 60 s phase cycle js/traffic.js obeys, for the signal lenses
 
 // js/taipei-boot.js
 // Boot builder for registry tiles. It renders what the geodata honestly
@@ -1140,9 +1141,20 @@ function buildParkAmenityMeshes(amenityPlan, yAt = null) {
 // every carriageway (issue #64). Every unit is vertex-coloured
 // geometry, transformed per placement and merged into ONE mesh /
 // one draw call.
+// Issue #356: the signal geometry is split into buckets — 'static'
+// (poles, mast arms, housings, the pedestrian box) and one lens
+// bucket per colour ('lensRed', 'lensAmber', 'lensGreen'). The
+// static bucket renders as one merged mesh with baked vertex
+// colours named 'TaipeiTrafficSignals', exactly as before; each
+// lens bucket renders as its own mesh per phase group (0/1), with a
+// plain material whose colour the per-frame update swaps between
+// the lit and unlit tint. The pedestrian box (pedBox) stays in the
+// static bucket — its red panel is STATIC, per the standing rule.
+// addPart's bucket param defaults to 'static', so static parts read
+// exactly as before.
 function signalPartsGeometry(build) {
-  const parts = [];
-  const addPart = (geo, color, x, y, z, rx = 0) => {
+  const buckets = { static: [], lensRed: [], lensAmber: [], lensGreen: [] };
+  const addPart = (geo, color, x, y, z, rx = 0, bucket = 'static') => {
     const g = geo.index ? geo.toNonIndexed() : geo;
     if (rx) g.rotateX(rx);
     g.translate(x, y, z);
@@ -1150,30 +1162,34 @@ function signalPartsGeometry(build) {
     const colors = new Float32Array(pos.count * 3);
     const c = new THREE.Color(color);
     for (let i = 0; i < pos.count; i++) { colors[i * 3] = c.r; colors[i * 3 + 1] = c.g; colors[i * 3 + 2] = c.b; }
-    parts.push({ pos: pos.array, nor: g.getAttribute('normal').array, colors });
+    buckets[bucket].push({ pos: pos.array, nor: g.getAttribute('normal').array, colors });
   };
   const head = (hx, hy, hz) => {
     addPart(new THREE.BoxGeometry(1.5, 0.44, 0.3), 0x17191d, hx, hy, hz); // head housing
-    addPart(new THREE.CylinderGeometry(0.145, 0.145, 0.06, 10), 0x7a1f16, hx - 0.48, hy, hz + 0.17, Math.PI / 2); // red lens (unlit)
-    addPart(new THREE.CylinderGeometry(0.145, 0.145, 0.06, 10), 0x7a5c14, hx, hy, hz + 0.17, Math.PI / 2); // amber lens (unlit)
-    addPart(new THREE.CylinderGeometry(0.145, 0.145, 0.06, 10), 0x1d5c2a, hx + 0.48, hy, hz + 0.17, Math.PI / 2); // green lens (unlit)
+    addPart(new THREE.CylinderGeometry(0.145, 0.145, 0.06, 10), 0x7a1f16, hx - 0.48, hy, hz + 0.17, Math.PI / 2, 'lensRed'); // red lens (unlit tint; lit by the per-frame update)
+    addPart(new THREE.CylinderGeometry(0.145, 0.145, 0.06, 10), 0x7a5c14, hx, hy, hz + 0.17, Math.PI / 2, 'lensAmber'); // amber lens
+    addPart(new THREE.CylinderGeometry(0.145, 0.145, 0.06, 10), 0x1d5c2a, hx + 0.48, hy, hz + 0.17, Math.PI / 2, 'lensGreen'); // green lens
   };
   const pedBox = () => {
     addPart(new THREE.BoxGeometry(0.52, 0.64, 0.2), 0x17191d, 0, 2.9, 0.14); // pedestrian signal box
     addPart(new THREE.BoxGeometry(0.38, 0.5, 0.03), 0xa8321f, 0, 2.9, 0.25); // static lit red panel
   };
   build(addPart, head, pedBox);
-  const total = parts.reduce((s, p) => s + p.pos.length, 0);
-  const positions = new Float32Array(total);
-  const normals = new Float32Array(total);
-  const colors = new Float32Array(total);
-  let o = 0;
-  for (const p of parts) { positions.set(p.pos, o); normals.set(p.nor, o); colors.set(p.colors, o); o += p.pos.length; }
-  const geo = new THREE.BufferGeometry();
-  geo.setAttribute('position', new THREE.BufferAttribute(positions, 3));
-  geo.setAttribute('normal', new THREE.BufferAttribute(normals, 3));
-  geo.setAttribute('color', new THREE.BufferAttribute(colors, 3));
-  return geo;
+  const merged = {};
+  for (const [key, parts] of Object.entries(buckets)) {
+    const total = parts.reduce((s, p) => s + p.pos.length, 0);
+    const positions = new Float32Array(total);
+    const normals = new Float32Array(total);
+    const colors = new Float32Array(total);
+    let o = 0;
+    for (const p of parts) { positions.set(p.pos, o); normals.set(p.nor, o); colors.set(p.colors, o); o += p.pos.length; }
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+    geo.setAttribute('normal', new THREE.BufferAttribute(normals, 3));
+    geo.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+    merged[key] = geo;
+  }
+  return merged;
 }
 
 function signalPoleGeometry() {
@@ -1198,6 +1214,29 @@ function signalMastGeometry(armLen) {
   });
 }
 
+// Issue #356: working signal heads. Returns a Group containing the
+// static mesh (housings, poles, pedestrian boxes — named
+// 'TaipeiTrafficSignals', as before, so the boot-smoke signalTri
+// check and the shadows stage keep working) plus one lens mesh per
+// (phase group, colour) — 6 in all — each with a plain unlit
+// material whose colour update(elapsed) swaps per frame. The group
+// carries userData.signalApi = { update, materials }; the boot
+// result exposes it as `signals` and main.js calls
+// signals.update(elapsed) every frame (Taipei only). A unit with
+// no group (defensive; every unit carries one since #356) renders
+// its lenses in group 1.
+// Per-frame cost is six material colour assignments. The phase is
+// signalPhase from js/city-config.js — the SAME function
+// js/traffic.js uses to brake cars — so the lens a driver sees and
+// the phase the car obeys can never drift: both read one global
+// 60 s cycle (group 0 green 0–26 s, amber 26–30 s, red 30–60 s;
+// group 1 the mirror). All group-0 signals city-wide are green
+// together — the upstream model, not per-junction offsets; real
+// Taipei coordinates its signals, but the upstream cycle is what
+// "working" means here.
+const SIGNAL_LIT = { red: 0xff2424, amber: 0xffaa10, green: 0x18ff68 }; // the NYC lit hues
+const SIGNAL_UNLIT = { red: 0x7a1f16, amber: 0x7a5c14, green: 0x1d5c2a }; // the pre-#356 static tints, kept for the off state
+
 function buildSignalMesh(signals, groundAt = null) {
   if (!signals.length) return null;
   const poleBase = signalPoleGeometry();
@@ -1207,9 +1246,25 @@ function buildSignalMesh(signals, groundAt = null) {
   // mast units carry per-unit arm lengths and cannot share one
   // vcount (the PR #58 under-allocation came from assuming one:
   // vcount vertices x 3 float components per unit, never vcount x
-  // units).
-  const chunks = [];
-  let total = 0;
+  // units). The static bucket merges across groups (it does not
+  // vary by phase); each lens bucket merges per group, so one
+  // material swap lights every head of that group at once.
+  const mergeChunks = (chunks, total) => {
+    const positions = new Float32Array(total);
+    const normals = new Float32Array(total);
+    const colors = new Float32Array(total);
+    let o = 0;
+    for (const ch of chunks) { positions.set(ch.p, o); normals.set(ch.n, o); colors.set(ch.c, o); o += ch.p.length; }
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+    geo.setAttribute('normal', new THREE.BufferAttribute(normals, 3));
+    geo.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+    return geo;
+  };
+  const staticChunks = [];
+  let staticTotal = 0;
+  const lensChunks = { 0: { red: [], amber: [], green: [] }, 1: { red: [], amber: [], green: [] } };
+  const lensTotals = { 0: { red: 0, amber: 0, green: 0 }, 1: { red: 0, amber: 0, green: 0 } };
   const dummy = new THREE.Object3D();
   signals.forEach((s) => {
     const base = s.kind === 'mast' ? signalMastGeometry(s.armLen || 8) : poleBase;
@@ -1218,23 +1273,43 @@ function buildSignalMesh(signals, groundAt = null) {
     dummy.position.set(s.x, groundAt ? groundAt(s.x, s.z) : 0, s.z);
     dummy.rotation.set(0, Math.atan2(s.faceX, s.faceZ), 0);
     dummy.updateMatrix();
-    const g = base.clone().applyMatrix4(dummy.matrix);
-    const p = g.getAttribute('position').array;
-    chunks.push({ p, n: g.getAttribute('normal').array, c: g.getAttribute('color').array });
-    total += p.length;
+    const gIdx = s.group === 0 ? 0 : 1;
+    for (const [key, baseGeo] of Object.entries(base)) {
+      const g = baseGeo.clone().applyMatrix4(dummy.matrix);
+      const chunk = { p: g.getAttribute('position').array, n: g.getAttribute('normal').array, c: g.getAttribute('color').array };
+      if (key === 'static') { staticChunks.push(chunk); staticTotal += chunk.p.length; }
+      else {
+        const colour = key.slice(4).toLowerCase(); // 'lensRed' -> 'red'
+        lensChunks[gIdx][colour].push(chunk);
+        lensTotals[gIdx][colour] += chunk.p.length;
+      }
+    }
   });
-  const positions = new Float32Array(total);
-  const normals = new Float32Array(total);
-  const colors = new Float32Array(total);
-  let o = 0;
-  for (const ch of chunks) { positions.set(ch.p, o); normals.set(ch.n, o); colors.set(ch.c, o); o += ch.p.length; }
-  const geo = new THREE.BufferGeometry();
-  geo.setAttribute('position', new THREE.BufferAttribute(positions, 3));
-  geo.setAttribute('normal', new THREE.BufferAttribute(normals, 3));
-  geo.setAttribute('color', new THREE.BufferAttribute(colors, 3));
-  const mesh = new THREE.Mesh(geo, new THREE.MeshStandardNodeMaterial({ vertexColors: true, roughness: 0.85, metalness: 0.0 }));
-  mesh.name = 'TaipeiTrafficSignals';
-  return mesh;
+  const group = new THREE.Group();
+  group.name = 'TaipeiTrafficSignalGroup';
+  const staticMesh = new THREE.Mesh(mergeChunks(staticChunks, staticTotal), new THREE.MeshStandardNodeMaterial({ vertexColors: true, roughness: 0.85, metalness: 0.0 }));
+  staticMesh.name = 'TaipeiTrafficSignals';
+  group.add(staticMesh);
+  const materials = { 0: {}, 1: {} };
+  for (const g of [0, 1]) {
+    for (const colour of ['red', 'amber', 'green']) {
+      const mesh = new THREE.Mesh(mergeChunks(lensChunks[g][colour], lensTotals[g][colour]), new THREE.MeshBasicNodeMaterial({ color: SIGNAL_UNLIT[colour] }));
+      mesh.name = `TaipeiTrafficSignalLens-g${g}-${colour}`;
+      group.add(mesh);
+      materials[g][colour] = mesh.material;
+    }
+  }
+  const updateSignalLenses = (elapsed) => {
+    for (const g of [0, 1]) {
+      const phase = signalPhase(elapsed, g === 0);
+      materials[g].red.color.setHex(phase === 'red' ? SIGNAL_LIT.red : SIGNAL_UNLIT.red);
+      materials[g].amber.color.setHex(phase === 'amber' ? SIGNAL_LIT.amber : SIGNAL_UNLIT.amber);
+      materials[g].green.color.setHex(phase === 'green' ? SIGNAL_LIT.green : SIGNAL_UNLIT.green);
+    }
+  };
+  updateSignalLenses(0);
+  group.userData.signalApi = { update: updateSignalLenses, materials };
+  return group;
 }
 
 // Controller world options for a registry tile (see the opts contract in
@@ -1861,9 +1936,14 @@ export async function buildTaipeiGround(scene, tile, deps = {}) {
       'TaipeiRoadCenterLines'
     );
   }
+  // Issue #356: buildSignalMesh returns a Group (the static mesh
+  // plus one lens mesh per phase group and colour); its signalApi
+  // drives the lens phases and is exposed on the boot result as
+  // `signals`, for main.js to call every frame.
+  let signalApi = null;
   const signalMesh = buildSignalMesh(markings.signals, drapeHeight);
-  if (signalMesh) group.add(signalMesh);
-  console.info(`[taipei-markings] ${markings.stats.dividerKm.toFixed(1)} km of lane dividers on ${markings.stats.dividerBeds} beds; ${markings.stats.centerDoubleKm.toFixed(1)} km double-yellow + ${markings.stats.centerDashKm.toFixed(1)} km dashed-yellow centre lines on ${markings.stats.centerBeds} beds; ${markings.stats.signalized} signalized junctions, ${markings.stats.crosswalks} crosswalks, ${markings.stats.stopLines} stop lines, ${markings.stats.signalUnits} static signal units (${markings.stats.signalMast} mast-arm / ${markings.stats.signalPole} corner-pole, ${markings.stats.clearanceUnresolved} unresolved corners) planned in ${Math.round(performance.now() - markingsStart)}ms`);
+  if (signalMesh) { group.add(signalMesh); signalApi = signalMesh.userData.signalApi ?? null; }
+  console.info(`[taipei-markings] ${markings.stats.dividerKm.toFixed(1)} km of lane dividers on ${markings.stats.dividerBeds} beds; ${markings.stats.centerDoubleKm.toFixed(1)} km double-yellow + ${markings.stats.centerDashKm.toFixed(1)} km dashed-yellow centre lines on ${markings.stats.centerBeds} beds; ${markings.stats.signalized} signalized junctions, ${markings.stats.crosswalks} crosswalks, ${markings.stats.stopLines} stop lines, ${markings.stats.signalUnits} signal units (${markings.stats.signalMast} mast-arm / ${markings.stats.signalPole} corner-pole, ${markings.stats.clearanceUnresolved} unresolved corners) planned in ${Math.round(performance.now() - markingsStart)}ms`);
   await completeStage('markings', `${markings.stats.crosswalks} crosswalks, ${markings.stats.signalUnits} signal units`);
 
   // Elevated highway decks (issue #61, js/taipei-viaduct.js): the
@@ -2258,6 +2338,11 @@ export async function buildTaipeiGround(scene, tile, deps = {}) {
     allBlocks: [],
     update: null,
     taipeiSettings,
+    // Issue #356: the working-signal API ({ update(elapsed),
+    // materials }) — null when the tile has no signals (or in a
+    // sandbox slice with none); main.js calls signals.update(elapsed)
+    // every frame next to the NYC signalClock line.
+    signals: signalApi,
     // Sandbox: a notice string when the box is empty (null otherwise);
     // main.js shows it on the loading overlay until clicked.
     sandboxNotice,

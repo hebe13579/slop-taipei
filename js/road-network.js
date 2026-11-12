@@ -1070,6 +1070,38 @@ function buildRoadNetwork(sidewalks, obstacles, env = null) {
     for (const r of roads) if (r.group < 0) r.group = groups++;
     for (const r of roads) for (const m of r.members) m.group = r.group;
     n.groupCount = Math.max(2, groups);
+    // Issue #356 (Taipei only): at a signalized node the arms take
+    // their groups from the markings' phase assignment — the same
+    // junction object step 8 stored on the node — so the phase the
+    // renderer shows and the phase traffic.js obeys are the same by
+    // construction. Match arms by direction: an arm follows the
+    // markings arm it most closely faces (dot > cos 25° ≈ 0.906);
+    // unmatched arms (an approach the markings see as part of a
+    // neighbouring junction, or a merged arm) keep their rank group
+    // from above — no rendered head shows them, so no
+    // contradiction. This only relabels which road is group 0 vs
+    // 1; the pairing (which arms form a road) is unchanged, and any
+    // node without a signalJunction is untouched. The override
+    // lives here, after the rank assignment, because sidesAndGroups
+    // is called both lazily by inTheWay and in step 9, so the
+    // assignment is consistent everywhere the groups are read —
+    // including the step-9 axisIndex the traffic system brakes on.
+    // (One ordering note: the squeezed-edge trim above runs before
+    // step 8, so its inTheWay decisions use the rank groups; the
+    // trim only shortens a stop line by a metre or so, and the
+    // runtime groups come from step 9, so no signal behaviour
+    // depends on it.)
+    if (n.signalJunction) {
+      for (const a of arms) {
+        let best = null, bd = 0.906;
+        for (const m of n.signalJunction.arms) {
+          const d = a.ux * m.dirX + a.uz * m.dirZ;
+          if (d > bd) { bd = d; best = m; }
+        }
+        if (best) a.group = best.group;
+      }
+      n.groupCount = Math.max(2, new Set(arms.map((a) => a.group)).size);
+    }
   }
 
   // A short link squeezed between two corners may leave its stop line inside the road crossing ahead, where whoever
@@ -1228,6 +1260,37 @@ function buildRoadNetwork(sidewalks, obstacles, env = null) {
     for (const s of (env ? [] : STREETS)) {
       const n = nodes.find((m) => Math.abs(m.x - a.x) < 4 && Math.abs(m.z - s.z) < 4);
       if (n) n.signal = true;
+    }
+  }
+
+  // Issue #356 (Taipei only): an injected env carries the markings'
+  // signalized junctions with their phase groups (the widest road
+  // is group 0, every other approach is group 1 — computed once in
+  // js/taipei-markings.js, so the network and the rendered heads
+  // agree by construction). Mark the nearest GENERAL node — a real
+  // junction — never a shape node, which is a bend on one road
+  // within 20 m of each junction. The 20 m reach is measured, not
+  // guessed: 454 of 480 signalized junctions sit within it, and 0
+  // signalized junction pairs sit within 30 m of each other, so a
+  // 20 m radius cannot confuse two signalized junctions. The 43
+  // junctions it misses are highway interchanges, bridge ramps,
+  // tunnel mouths and one mountain trail junction, with no drivable
+  // node anywhere near (9 have a general node at 20–36 m, 17 only
+  // a shape node within 30 m, 17 nothing within 30 m), and no AI
+  // car can reach them, so staying unmarked is correct. A node
+  // claimed by two junctions keeps the nearer junction. The NYC
+  // grid has no such table and is untouched (env is null there, and
+  // the NYC env never sets signalJunctions).
+  if (env?.signalJunctions) {
+    const SIGNAL_MATCH_M = 20;
+    for (const n of nodes) {
+      if (!n.general || n.shape) continue;
+      let best = null, bd = SIGNAL_MATCH_M * SIGNAL_MATCH_M;
+      for (const j of env.signalJunctions) {
+        const dx = n.x - j.x, dz = n.z - j.z, d2 = dx * dx + dz * dz;
+        if (d2 < bd) { bd = d2; best = j; }
+      }
+      if (best) { n.signal = true; n.signalJunction = best; }
     }
   }
 
