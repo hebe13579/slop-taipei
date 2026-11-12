@@ -22,6 +22,7 @@ import {
   SIGN_FONT_STACK,
   SIGN_GENRE_STYLE,
   SIGN_GENRES,
+  SIGN_LOGO_FILES,
   nameWidthUnits,
   bandSignFits,
   bladeSignFits,
@@ -107,10 +108,10 @@ for (const named of ['NET', '服飾店', '流行女裝', '童裝', '燦坤', '�
 }
 assert.ok(names.has('全聯福利中心'), 'issue #354 blade extra present: 全聯福利中心');
 
-// The two brand logo plates are the pool entries themselves (not
-// extra plates): 7-ELEVEN and 全家 carry a `logo` marker so the
-// painters draw the real lockup instead of plain text.
-for (const [name, logo] of [['7-ELEVEN', 'seven-eleven'], ['全家', 'familymart']]) {
+// The three brand logo plates are the pool entries themselves (not
+// extra plates): 7-ELEVEN, 全家 and 五十嵐 carry a `logo` marker so
+// the painters draw the real lockup instead of plain text.
+for (const [name, logo] of [['7-ELEVEN', 'seven-eleven'], ['全家', 'familymart'], ['五十嵐', 'fifty-lan']]) {
   const sign = TAIPEI_BAND_SIGNS.find((s) => s.name === name);
   assert.equal(sign && sign.logo, logo, `${name} plate carries its logo lockup`);
   assert.equal(
@@ -176,6 +177,18 @@ for (const named of ['日立', '三洋', '大同', '國際牌']) {
 assert.equal(ROOF_MAX_UNITS, 5.0);
 assert.equal(TOWER_MAX_CHARS, 8);
 
+// --- Issue #372: the logo plates are real image files -----------
+ // Every logo key has a real PNG in the repo (the user's 7-Eleven
+ // image, the 50 Lan logo, the FamilyMart 2016 logo) — the painters
+ // draw these instead of the vector lockups. The roof 7-ELEVEN
+ // board is a logo plate too, so the real logo appears on roofs.
+for (const [key, file] of Object.entries(SIGN_LOGO_FILES)) {
+  const buf = readFileSync(new URL(`../${file}`, import.meta.url));
+  assert.equal(buf.subarray(0, 8).toString('hex'), '89504e470d0a1a0a', `${key} logo file is a PNG: ${file}`);
+  assert.ok(buf.length > 1000, `${key} logo file is a real image, not a stub: ${file}`);
+}
+assert.equal(TAIPEI_ROOF_SIGNS.find((s) => s.name === '7-ELEVEN').logo, 'seven-eleven', 'roof 7-ELEVEN board carries its logo lockup');
+
 // --- Font stack: every Taiwan device resolves a real CJK face -------
 for (const face of ['Noto Sans TC', 'PingFang TC', 'JhengHei']) {
   assert.ok(SIGN_FONT_STACK.includes(face), `font stack covers ${face}`);
@@ -223,6 +236,7 @@ assert.equal(tsl.split('bandPlateColor(bandUV,').length - 1, 2, 'both band plate
 const boot = read('../js/taipei-boot.js');
 assert.ok(boot.includes('setTaipeiSignAtlases('), 'taipei-boot injects the atlases');
 assert.ok(boot.includes("from './taipei-signs.js'"), 'taipei-boot imports the signs module');
+assert.ok(boot.includes('loadSignLogoImages'), 'taipei-boot loads the real logo images (issue #372)');
 assert.ok(boot.includes('drawRoofAtlas'), 'taipei-boot paints the roof atlas');
 assert.ok(boot.includes('drawTowerAtlas'), 'taipei-boot paints the tower atlas');
 

@@ -128,7 +128,7 @@ export const TAIPEI_BAND_SIGNS = [
   { name: '燒臘店', bg: '#a31f24', fg: '#ffd94d', genre: 'eat' },
   { name: '雞排店', bg: '#d95d39', fg: '#ffffff', genre: 'eat' },
   { name: '珍珠奶茶', bg: '#b08968', fg: '#ffffff', genre: 'drink' },
-  { name: '五十嵐', bg: '#ffd400', fg: '#141414', genre: 'drink' },
+  { name: '五十嵐', bg: '#ffd400', fg: '#141414', logo: 'fifty-lan', genre: 'drink' },
   { name: '清心福全', bg: '#1e7a46', fg: '#ffffff', genre: 'drink' },
   { name: '大苑子', bg: '#ffffff', fg: '#2e8b3a', genre: 'drink' },
   { name: 'OK超商', bg: '#e60012', fg: '#ffffff', genre: 'convenience' },
@@ -237,6 +237,80 @@ function cellOrigin(index, atlas) {
   return { x: col * atlas.cellW, y: (atlas.rows - 1 - rowFromBottom) * atlas.cellH };
 }
 
+// Issue #372: real brand logos. The logo plates are real image
+// files in assets/sign-logos/ — the user's own 7-Eleven image, the
+// 50 Lan logo (Wikipedia, from 50 Lan's own ordering portal), the
+// FamilyMart 2016 logo (Wikimedia Commons) — drawn onto the atlas
+// instead of the vector lockups below. The vector painters stay as
+// the fallback when an image is missing or fails to load, and the
+// plain-text plate stays the fallback for an image-only logo
+// (fifty-lan), so the atlas is never empty and the node suite (which
+// never loads images) keeps testing the fallback. Files resolve
+// against this module's own URL, so the path works on Pages and in
+// the shot rigs regardless of which page boots. Each image gets its
+// own timeout so a stalled load can never hang the boot; a failed
+// load resolves to an empty map (never rejects).
+export const SIGN_LOGO_FILES = {
+  'seven-eleven': 'assets/sign-logos/7-eleven.png',
+  'familymart': 'assets/sign-logos/familymart.png',
+  'fifty-lan': 'assets/sign-logos/fifty-lan.png',
+};
+// Wide wordmarks (FamilyMart) rotate 90° on portrait cells so the
+// lockup reads top-to-bottom like a real vertical blade sign.
+// Near-square marks (7-Eleven, 50 Lan) never rotate — rotating them
+// would turn their characters sideways.
+export const SIGN_LOGO_ROTATE_PORTRAIT = { 'familymart': true };
+
+export function loadSignLogoImages() {
+  if (typeof Image === 'undefined') return Promise.resolve({});
+  let base = '';
+  try {
+    base = new URL('../', import.meta.url).href;
+  } catch (err) {
+    return Promise.resolve({});
+  }
+  const loadOne = ([key, file]) => new Promise((resolve) => {
+    const img = new Image();
+    const timer = setTimeout(() => resolve(null), 8000);
+    img.onload = () => { clearTimeout(timer); resolve([key, img]); };
+    img.onerror = () => { clearTimeout(timer); resolve(null); };
+    img.src = base + file;
+  });
+  return Promise.all(Object.entries(SIGN_LOGO_FILES).map(loadOne))
+    .then((pairs) => {
+      const out = {};
+      for (const p of pairs) if (p) out[p[0]] = p[1];
+      return out;
+    })
+    .catch(() => ({}));
+}
+
+// Draw a real logo image into a plate cell, aspect-preserving
+// (contain) on a white plate, never stretched. `rotate` turns a wide
+// wordmark 90° clockwise so it reads top-to-bottom on a tall cell.
+function drawLogoImage(ctx, x, y, w, h, img, rotate = false) {
+  ctx.save();
+  ctx.globalAlpha = 1;
+  ctx.fillStyle = '#ffffff';
+  ctx.fillRect(x, y, w, h);
+  const iw = img.naturalWidth || img.width;
+  const ih = img.naturalHeight || img.height;
+  if (iw > 0 && ih > 0) {
+    if (rotate) {
+      ctx.translate(x + w / 2, y + h / 2);
+      ctx.rotate(Math.PI / 2);
+      const s = Math.min(w / ih, h / iw);
+      const dw = iw * s, dh = ih * s;
+      ctx.drawImage(img, -dw / 2, -dh / 2, dw, dh);
+    } else {
+      const s = Math.min(w / iw, h / ih);
+      const dw = iw * s, dh = ih * s;
+      ctx.drawImage(img, x + (w - dw) / 2, y + (h - dh) / 2, dw, dh);
+    }
+  }
+  ctx.restore();
+}
+
 // Issue #354: real brand lockups, drawn from the reference photos
 // (the user's attached 7-Eleven logo; the FamilyMart storefront
 // photo: green + blue two-bar logo on white). Both lockups are
@@ -301,13 +375,19 @@ function drawFamilyMartLogo(ctx, x, y, w, h, portrait) {
 // Paint every band plate into ctx (the canvas is BAND_ATLAS.w ×
 // BAND_ATLAS.h). Font size comes from the width-units estimator, not
 // measureText, so the atlas is identical on every machine regardless
-// of which CJK face the stack resolves to.
-export function drawBandAtlas(ctx) {
+// of which CJK face the stack resolves to. `images` (issue #372) is
+// the loaded real-logo map; a logo plate draws its real image when
+// present and its vector lockup when not.
+export function drawBandAtlas(ctx, images = null) {
   const { cellW, cellH } = BAND_ATLAS;
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
   TAIPEI_BAND_SIGNS.forEach((sign, i) => {
     const { x, y } = cellOrigin(i, BAND_ATLAS);
+    if (sign.logo) {
+      const img = images && images[sign.logo];
+      if (img) { drawLogoImage(ctx, x, y, cellW, cellH, img); return; }
+    }
     if (sign.logo === 'seven-eleven') { drawSevenElevenLogo(ctx, x, y, cellW, cellH, false); return; }
     if (sign.logo === 'familymart') { drawFamilyMartLogo(ctx, x, y, cellW, cellH, false); return; }
     ctx.globalAlpha = 1;
@@ -344,13 +424,19 @@ export function drawBandAtlas(ctx) {
 }
 
 // Paint every blade plate: the name stacked top-to-bottom, one
-// character per line, centred in the tall cell.
-export function drawBladeAtlas(ctx) {
+// character per line, centred in the tall cell. `images` (issue
+// #372) is the loaded real-logo map; a wide wordmark rotates 90° on
+// a blade so the lockup reads top-to-bottom.
+export function drawBladeAtlas(ctx, images = null) {
   const { cellW, cellH } = BLADE_ATLAS;
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
   TAIPEI_BLADE_SIGNS.forEach((sign, i) => {
     const { x, y } = cellOrigin(i, BLADE_ATLAS);
+    if (sign.logo) {
+      const img = images && images[sign.logo];
+      if (img) { drawLogoImage(ctx, x, y, cellW, cellH, img, !!SIGN_LOGO_ROTATE_PORTRAIT[sign.logo]); return; }
+    }
     if (sign.logo === 'seven-eleven') { drawSevenElevenLogo(ctx, x, y, cellW, cellH, true); return; }
     if (sign.logo === 'familymart') { drawFamilyMartLogo(ctx, x, y, cellW, cellH, true); return; }
     ctx.globalAlpha = 1;
@@ -426,7 +512,7 @@ export const TAIPEI_ROOF_SIGNS = [
   { name: '中華電信', latin: null, bg: '#005bac', fg: '#ffffff' },
   { name: '國泰世華', latin: null, bg: '#007a5e', fg: '#ffffff' },
   { name: '台灣大哥大', latin: null, bg: '#f58220', fg: '#ffffff' },
-  { name: '7-ELEVEN', latin: null, bg: '#ffffff', fg: '#e4572e', bar: '#009444' },
+  { name: '7-ELEVEN', latin: null, bg: '#ffffff', fg: '#e4572e', bar: '#009444', logo: 'seven-eleven' },
 ];
 
 // Wide cells for wide roof boards (2:1); tall cells for tower signs
@@ -451,12 +537,18 @@ export function towerSignFits(sign) {
 // one — Hitachi's green HITACHI line from the photo). Font size
 // comes from the width-units estimator, so the atlas is identical on
 // every machine regardless of which CJK face the stack resolves to.
-export function drawRoofAtlas(ctx) {
+// `images` (issue #372) is the loaded real-logo map; the 7-ELEVEN
+// roof board draws its real logo when present.
+export function drawRoofAtlas(ctx, images = null) {
   const { cellW, cellH } = ROOF_ATLAS;
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
   TAIPEI_ROOF_SIGNS.forEach((sign, i) => {
     const { x, y } = cellOrigin(i, ROOF_ATLAS);
+    if (sign.logo) {
+      const img = images && images[sign.logo];
+      if (img) { drawLogoImage(ctx, x, y, cellW, cellH, img); return; }
+    }
     ctx.globalAlpha = 1;
     ctx.fillStyle = sign.bg;
     ctx.fillRect(x, y, cellW, cellH);
@@ -486,12 +578,18 @@ export function drawRoofAtlas(ctx) {
 // Paint every tower plate: the brand name stacked top-to-bottom, one
 // character per line, centred in the tall cell — the blade idiom, for
 // a tall side sign on a tower. Latin-only brands stack their letters.
-export function drawTowerAtlas(ctx) {
+// `images` (issue #372) is the loaded real-logo map; the 7-ELEVEN
+// tower sign draws its real logo when present.
+export function drawTowerAtlas(ctx, images = null) {
   const { cellW, cellH } = TOWER_ATLAS;
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
   TAIPEI_ROOF_SIGNS.forEach((sign, i) => {
     const { x, y } = cellOrigin(i, TOWER_ATLAS);
+    if (sign.logo) {
+      const img = images && images[sign.logo];
+      if (img) { drawLogoImage(ctx, x, y, cellW, cellH, img); return; }
+    }
     ctx.globalAlpha = 1;
     ctx.fillStyle = sign.bg;
     ctx.fillRect(x, y, cellW, cellH);
