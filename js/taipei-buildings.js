@@ -9160,14 +9160,26 @@ export function taipeiNewerEntrance(lot) {
 // own side; a panel starts above the ground floor (y0 ≈ 4.1–4.6 m)
 // and never crosses the roof.
 //
+// Issue #355: signs are a commercial-frontage treatment, like the
+// ground-floor shopfronts below. A lot fronts a commercial /
+// mixed-use street only when its BEST frontage — the highest road
+// rank over its four faces, per taipeiFrontageLookup, the same
+// definition the #153 roof-board policy uses — is rank >= 2
+// (tertiary/collector or better). A lot whose best frontage is rank
+// 1 (a residential lane / unclassified / living street / service
+// drive) or which fronts no road at all is pure residential: it
+// carries no vertical sign. Measured on main: 77.8% of all signed
+// lots (18,451 of 23,718) and 77.9% of all panels fronted rank 0–1
+// — quiet lanes read commercial only because this gate was missing.
+// SHOP_FRONTAGE_MIN_RANK is the shared threshold for the sign gate
+// here and the shopfront gate in taipeiCityBlocksOptions.
 // Issue #354: the policy turns frontage-aware. A real Taipei street
 // is dense with blades on its commercial frontages and sparse on
 // residential lanes, so lots fronting an arterial (rank >= 3, the
 // #106 classification the roof boards already use) sign at 0.85
 // with more two-panel lots, while the rest stay at the 0.55 base
 // rate. The `front` argument is the adapter's frontage lookup
-// result; without it (unit tests, direct calls) the policy is exactly
-// the old one — same rate, same two-panel share, same draws.
+// result; a call without it returns no sign (the #355 gate above).
 // Form variety (the user's "sign does not need to be a plain board"):
 // `thick` now varies 0.18–0.55 m per panel (flat plate vs chunky
 // lightbox), `y0` 3.9–4.8 m and `h` up to 8.0 m so blades start at
@@ -9175,6 +9187,7 @@ export function taipeiNewerEntrance(lot) {
 // stacked signs. `out` stays 0.95–1.40 m: a +0.3 m deepening was
 // measured to grow roadbed clipping from 79 blades to 210 (the
 // shipped blades already clip 6.07 m²), so depth is NOT bought here.
+export const SHOP_FRONTAGE_MIN_RANK = 2;
 const SIGN_RATE = 0.55;
 const SIGN_RATE_ARTERIAL = 0.85;
 
@@ -9183,6 +9196,8 @@ export function taipeiVerticalSigns(lot, front = null, clear = null) {
   // Taiwan set; family 12 (the lobby tower) stays out with 10/11 —
   // a residential tower carries no vertical shop sign.
   if (!lot || ![6, 7, 8, 9, 13].includes(lot.mat) || lot.h < 10) return [];
+  // Issue #355: no sign without a commercial frontage (see above).
+  if (!front || front.rank < SHOP_FRONTAGE_MIN_RANK) return [];
   const seed = lotPolicySeed(lot, 0x5167);
   const arterial = Boolean(front && front.rank >= 3);
   if (hash01(seed) >= (arterial ? SIGN_RATE_ARTERIAL : SIGN_RATE)) return [];
@@ -9432,8 +9447,10 @@ export function taipeiRoofBoards(lot, front) {
 // carriageway set, sampling the four face midpoints pushed 7 m
 // outward with reach 16 (the planner's edgeRankAt sampling). Built
 // once per taipeiCityBlocksOptions call; a geodata without
-// carriageways yields no frontage and no boards.
-function taipeiFrontageLookup(geodata) {
+// carriageways yields no frontage and no boards. Exported for the
+// #355 sign/shopfront gate tests, which need the exact production
+// lookup (not a re-implementation) against real plan lots.
+export function taipeiFrontageLookup(geodata) {
   const carriageways = Array.isArray(geodata.roadbeds) && geodata.roadbeds.length
     ? geodata.roadbeds
     : (geodata.roads || []).filter((r) => !NON_CARRIAGEWAY.has(r.highway));
@@ -9564,11 +9581,24 @@ export function taipeiCityBlocksOptions(geodata, plan = planTaipeiBuildings(geod
         const entrance = taipeiNewerEntrance(r);
         if (entrance) r.entrance = entrance;
       }
+      // Issue #355: shops and signs are a commercial-frontage
+      // treatment. The frontage query (below) is the lot's best road
+      // rank over its four faces; a lot whose best frontage is rank 1
+      // (a residential lane) or which fronts no road is pure
+      // residential — it carries no vertical sign (the gate inside
+      // taipeiVerticalSigns) and no ground-floor shopfront: r.shops
+      // = 0 flows through populatePlannedLot's existing probability
+      // path (tone < 0 never fires), so the street fronts paint a
+      // residential entrance instead, with no storefront glass, no
+      // painted band sign and no awning. Lots with a rank >= 2
+      // frontage leave r.shops unset and keep the per-family table
+      // exactly as before.
+      const front = frontageFor(r);
+      if (!front || front.rank < SHOP_FRONTAGE_MIN_RANK) r.shops = 0;
       // Issue #56: vertical signs on a hashed subset of Taiwan-type lots.
       // Issue #354: the frontage lookup (computed once per lot above)
       // feeds the sign policy, so arterial frontages sign denser; the
       // clearance pass pulls each blade in off the roadbed or drops it.
-      const front = frontageFor(r);
       const signs = taipeiVerticalSigns(r, front, clearSigns);
       if (signs.length) r.signs = signs;
       // Issue #153: rooftop billboard signs on arterial commercial
