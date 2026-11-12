@@ -216,7 +216,16 @@ async function initApp() {
     streetDetails = buildStreetDetails(scene);
     markInit('streetDetails');
   }
-  const allColliders = [...landmarkColliders, ...cityBlocks.colliders, ...boroughs.colliders, ...(cityGrid.colliders || [])];
+  // Issue #358: the merged collider set is a LIVE array, refilled in
+  // place — the lot colliders change on a density rebuild, and the
+  // controller holds this array by reference (see the panel's
+  // onDensity callback below).
+  const allColliders = [];
+  const syncAllColliders = () => {
+    allColliders.length = 0;
+    allColliders.push(...landmarkColliders, ...cityBlocks.colliders, ...boroughs.colliders, ...(cityGrid.colliders || []));
+  };
+  syncAllColliders();
 
   // Issue #210/#252: Taipei traffic, built and destroyed live from the
   // settings gear (on/off, density, spawn range). The module import is
@@ -273,6 +282,13 @@ async function initApp() {
     // Issue #132: the drape is a boot-time setting — the toggle
     // persists (above) and the page reloads into the new ground.
     onDrape: () => window.location.reload(),
+    // Issue #358: a density rebuild re-plans the lots, so the
+    // controller's lot colliders must be refreshed in place — the
+    // controller holds allColliders by reference and rebuilds its
+    // spatial hash on refreshColliders(). (The callback only runs
+    // on a user click, after boot, so controllerManager below is
+    // initialized by then.)
+    onDensity: () => { syncAllColliders(); controllerManager.refreshColliders(); },
     persist: () => persistSettings(window.localStorage, settings),
   });
 

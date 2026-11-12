@@ -2068,7 +2068,14 @@ function createTrafficSystem(scene, sidewalks, obstacles, env = null) {
     refreshNear(radii.near, focusY);
     updateView(camera);
 
-    player.active = Boolean(playerEntity && activeMode !== 'helicopter' && playerEntity.position.y < 2.6);
+    // Issue #358: the old `playerEntity.position.y < 2.6` gate was
+    // an NYC assumption — the player sits at y = 0 there, but in
+    // Taipei the player is metres up on a hillside or a deck. The
+    // level separation is already handled by the relative
+    // |v.y - player.y| < 3 check in relateToPlayer and at the
+    // collideWithPlayer call below, so the gate only ever switched
+    // car-car collision OFF where it was needed most. Drop it.
+    player.active = Boolean(playerEntity && activeMode !== 'helicopter');
     if (playerEntity) {
       const heading = playerEntity.heading || 0;
       const speed = playerEntity.speed || 0;

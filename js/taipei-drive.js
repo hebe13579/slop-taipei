@@ -75,6 +75,7 @@ import { mrtStationFootprint } from './taipei-mrt-stations.js';
 
 export const DRIVE_CELL = 48;          // spatial-hash cell, m (the nearColliders idiom)
 export const MOUNT_REACH_M = 1.0;      // a ground-bearing surface this close to the hint may claim the entity
+export const END_TOL_M = 5;           // a deck segment may claim a point this far past its ends (issue #358)
 
 const cellKey = (ix, iz) => (ix + 4096) * 8192 + (iz + 4096);
 
@@ -209,7 +210,19 @@ export function buildDriveModel(elevated, opts = {}) {
     let gb = null, gbDist = Infinity;
     for (const seg of list) {
       const px = x - seg.ax, pz = z - seg.az;
-      const t = Math.max(0, Math.min(1, (px * seg.ux + pz * seg.uz) / seg.len));
+      // Issue #358: the old clamp of t to [0, 1] let a deck surface
+      // claim points up to a whole cell (~48 m) past a line end —
+      // the car drove on air well past a dangling deck end. A
+      // segment may only claim a point within END_TOL_M past its
+      // ends: enough to bridge a small join gap (the #211 census
+      // has joins agreeing to 0.11 m) and to keep the ramp-foot
+      // ground-bearing rule working for a car approaching within
+      // 5 m of a foot; beyond that the point falls to the ground
+      // (or to the next line's surface).
+      const tRaw = (px * seg.ux + pz * seg.uz) / seg.len;
+      const pastEnd = tRaw < 0 ? -tRaw * seg.len : tRaw > 1 ? (tRaw - 1) * seg.len : 0;
+      if (pastEnd > END_TOL_M) continue;
+      const t = Math.max(0, Math.min(1, tRaw));
       const lat = px * -seg.uz + pz * seg.ux;
       if (Math.abs(lat) > seg.half) continue;
       const surf = seg.sA + (seg.sB - seg.sA) * t;
@@ -241,8 +254,10 @@ export function buildDriveModel(elevated, opts = {}) {
 // box parts sit at (s.x + dx, s.z + dz) turned by part.rotY in the
 // tile-plane convention (local +x -> (cos, +sin)), so the resolver
 // frame takes cs = cos(rotY), sn = -sin(rotY); cylinder / dome /
-// frustum / ridge parts cannot rotate and take AABBs of their
-// plan extents. part.y0 is the part's base: minY, so an elevated
+// frustum parts cannot rotate and take AABBs of their
+// plan extents. Ridge parts take an OBB when rotated and an
+// AABB when not (issue #358).
+// part.y0 is the part's base: minY, so an elevated
 // part never blocks the ground it bridges.
 // ------------------------------------------------------------------
 export function structureColliders(structures, groundAt = null) {
@@ -272,11 +287,20 @@ export function structureColliders(structures, groundAt = null) {
         // Issue #299: frustum colliders sit at centre+dx/dz, mirroring
         // the renderer — the Grand Hyatt's roof feature moved 10 m
         // south when the renderer learned dx/dz, and its collider
-        // must follow it. (The ridge collider below still reads the
-        // pin — pre-existing, same class; not this issue.)
+        // must follow it.
         out.push(aabbCollider(cx - part.wB / 2, cx + part.wB / 2, cz - part.dB / 2, cz + part.dB / 2, y0 + part.h, y0));
       } else if (part.type === 'ridge') {
-        out.push(aabbCollider(s.x - part.w / 2, s.x + part.w / 2, s.z - part.d / 2, s.z + part.d / 2, y0 + part.h + (part.ridgeH || 0), y0));
+        // Issue #358: the ridge collider used to read the pin
+        // (s.x, s.z) — the Expo Dome canopy ridges sit up to 152 m
+        // from their pin and the Jianguo 紅樓 ridges up to 90 m, so
+        // the car hit an invisible wall at the pin and drove through
+        // the real roof. Ridge parts honour dx/dz + rotY in the
+        // renderer, so the collider sits at centre+dx/dz too; a
+        // rotated ridge takes an OBB like a box part, an
+        // unrotated one an AABB like a frustum.
+        const hx = part.w / 2, hz = part.d / 2, maxY = y0 + part.h + (part.ridgeH || 0);
+        if (part.rotY) out.push(obbCollider(cx, cz, hx, hz, Math.cos(part.rotY), -Math.sin(part.rotY), maxY, y0));
+        else out.push(aabbCollider(cx - hx, cx + hx, cz - hz, cz + hz, maxY, y0));
       } else if (part.type === 'mesh') {
         // Issue #333: baked-vertex mesh — the OBB of its authored
         // footprint (w x d at rotY), floored at its lowest baked

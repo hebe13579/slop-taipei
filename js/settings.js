@@ -323,7 +323,7 @@ export function applyGraphicsSettings(renderer, sunLight, preset, devicePixelRat
 //                    boot-time setting)
 //   persist        — called after any change (storage write)
 //   doc            — document (injectable for tests)
-export function initSettingsPanel({ settings, taipeiSettings = null, onGraphics = null, onFarDetail = null, onTraffic = null, onDrape = null, persist = null, doc = null } = {}) {
+export function initSettingsPanel({ settings, taipeiSettings = null, onGraphics = null, onFarDetail = null, onTraffic = null, onDrape = null, onDensity = null, persist = null, doc = null } = {}) {
   const d = doc || (typeof document !== 'undefined' ? document : null);
   if (!d) return null;
   const pop = d.getElementById('settings-popover');
@@ -504,6 +504,9 @@ export function initSettingsPanel({ settings, taipeiSettings = null, onGraphics 
             if (densityStatus) {
               densityStatus.textContent = `${res.lots.toLocaleString('en-US')} buildings · ${(res.ms / 1000).toFixed(1)}s`;
             }
+            // Issue #358: the lots were re-planned — refresh the
+            // controller's collider set in place.
+            if (onDensity) onDensity(preset);
           }
         } catch (err) {
           console.error('[settings] density rebuild failed', err);

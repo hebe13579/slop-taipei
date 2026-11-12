@@ -221,6 +221,7 @@ class ThirdPersonControllerManager {
     this._deriveSpeedTables();
     this.colliders = colliders;
     this._colliderCells = null; // built on first use, see nearColliders()
+    this._colliderCount = 0; // stamped at each hash build (issue #358)
     this.activeMode = 'car'; // 'person' | 'car' | 'cyclist' | 'helicopter'
 
     this.keys = {
@@ -1032,12 +1033,26 @@ class ThirdPersonControllerManager {
     return 0.0;
   }
 
+  // Issue #358: drop the cached collider hash so nearColliders()
+  // rebuilds it from the (refilled) collider array — called after
+  // a density rebuild swaps in the new lots' colliders.
+  refreshColliders() {
+    this._colliderCells = null;
+    this._colliderCount = 0;
+  }
+
   // The colliders whose bounds come within `r` of (x, z), in their original order. They never move, so they are
   // bucketed once into 48 m cells (tens of thousands of buildings: testing them all every frame cost ~0.5 ms)
   nearColliders(x, z, r) {
     const CELL = 48;
     const key = (ix, iz) => (ix + 4096) * 8192 + (iz + 4096);
-    if (!this._colliderCells) {
+    // Issue #358: the collider array is refilled in place on a
+    // density rebuild (the lot count changes with the preset), so
+    // the spatial hash must be rebuilt when its length changes —
+    // otherwise the car would collide with the old density's
+    // buildings. _colliderCount is stamped at each build; an
+    // explicit refreshColliders() also clears the hash.
+    if (!this._colliderCells || this.colliders.length !== this._colliderCount) {
       this._colliderCells = new Map();
       this.colliders.forEach((c, i) => {
         c._order = i;
@@ -1050,6 +1065,7 @@ class ThirdPersonControllerManager {
           }
         }
       });
+      this._colliderCount = this.colliders.length;
       this._nearList = [];
       this._nearStamp = 0;
     }
@@ -1380,14 +1396,36 @@ class ThirdPersonControllerManager {
     this.resolveHorizontalCollision(c.position, 1.35, c.position.y + 1.0, c);
     c.position.y = this.getGroundHeight(c.position.x, c.position.z, 'car', c.position.y);
 
+    // Issue #358: the car ignored the ground slope — it climbed a
+    // 31% grade at full speed, stayed level, and sank its nose
+    // into the hill. Sample the ground under the front and rear
+    // bumpers (halfL 2.18 m is the car body, traffic.js) and pitch
+    // the chassis to the slope; cap the uphill speed by the grade
+    // (full speed to a 10% grade, half at 25%, stalled at 40% —
+    // the car can always reverse back down). NYC is flat, so both
+    // terms are ~0 there.
+    const halfL = 2.18;
+    const sinH = Math.sin(c.heading), cosH = Math.cos(c.heading);
+    const frontG = this.getGroundHeight(c.position.x + sinH * halfL, c.position.z + cosH * halfL, 'car', c.position.y);
+    const rearG = this.getGroundHeight(c.position.x - sinH * halfL, c.position.z - cosH * halfL, 'car', c.position.y);
+    const grade = (frontG - rearG) / (2 * halfL); // +ve = climbing
+    if (c.speed > 0 && grade > 0.10) {
+      const uphillCap = Math.max(0, 1 - (grade - 0.10) * 3.33);
+      if (c.speed > maxSpeed * uphillCap) c.speed = maxSpeed * uphillCap;
+    }
+    const slopeAngle = Math.atan2(frontG - rearG, 2 * halfL);
+
     // 3-DOF Spring-Damper Chassis Suspension (Pitch, Roll & Vertical Heave)
-    const targetPitch = -Math.max(-1, Math.min(1, acceleration / drive.acceleration)) * 0.026;
+    const targetPitch = -Math.max(-1, Math.min(1, acceleration / drive.acceleration)) * 0.026 - slopeAngle;
     const targetRoll = -c.steerAngle * (c.speed / maxSpeed) * 0.092;
     const springK = 68.0;
     const dampC = 11.2;
     c.pitchVel += ((targetPitch - c.chassisPivot.rotation.x) * springK - c.pitchVel * dampC) * dt;
     c.rollVel += ((targetRoll - c.chassisPivot.rotation.z) * springK - c.rollVel * dampC) * dt;
-    c.chassisPivot.rotation.x = Math.max(-0.22, Math.min(0.22, c.chassisPivot.rotation.x + c.pitchVel * dt));
+    // Issue #358: the pitch clamp widens from ±0.22 to ±0.35 rad so
+    // the chassis can pitch to the steepest sampled grade (31% =
+    // 0.30 rad); the acceleration pitch (max 0.026) is unaffected.
+    c.chassisPivot.rotation.x = Math.max(-0.35, Math.min(0.35, c.chassisPivot.rotation.x + c.pitchVel * dt));
     c.chassisPivot.rotation.z = Math.max(-0.26, Math.min(0.26, c.chassisPivot.rotation.z + c.rollVel * dt));
 
     c.heaveVel += (-c.heaveY * 85.0 - c.heaveVel * 12.0) * dt;
