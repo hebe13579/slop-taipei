@@ -20,6 +20,8 @@ import {
   ROOF_MAX_UNITS,
   TOWER_MAX_CHARS,
   SIGN_FONT_STACK,
+  SIGN_GENRE_STYLE,
+  SIGN_GENRES,
   nameWidthUnits,
   bandSignFits,
   bladeSignFits,
@@ -67,6 +69,56 @@ for (const named of ['牛肉麵', '7-ELEVEN', '魯肉飯', '藥局']) {
   assert.ok(names.has(named), `user-named shop present: ${named}`);
 }
 assert.ok([...names].some((n) => n.includes('小吃')), 'user-named 小吃 present');
+// Issue #354: the expanded pool — the user's named shops and the
+// names legible in the reference photos (Beimen street photo, Bafang
+// storefront, Ah-Chung's Ximending sign, the Ningxia night market
+// signs) are all present.
+for (const named of ['志明滷肉飯', '好吃便當', '健康蔬食', '東一排骨', '八方雲集', '鍋貼', '阿宗麵線', '拉亞漢堡', '永和豆漿', '蚵仔煎大王', '寧夏排骨麵', '新東陽', '迷你火鍋城', '湯姆熊', '加力敦']) {
+  assert.ok(names.has(named), `issue #354 shop present: ${named}`);
+}
+// Issue #354 (genre broadening): every shop belongs to a daily-life
+// genre, and each genre has its own colour + border pattern — the
+// genre is what makes a street read as food vs clothes vs 3C vs
+// market. Every plate (band pool and blade extras) carries a genre
+// from the allowed set, and each of the user's named genres has at
+// least one shop; the genre style table covers every genre with a
+// hex stripe colour.
+const genreCounts = {};
+for (const sign of [...TAIPEI_BAND_SIGNS, ...TAIPEI_BLADE_EXTRA]) {
+  assert.ok(SIGN_GENRES.includes(sign.genre), `${sign.name} genre is in the allowed set: ${sign.genre}`);
+  genreCounts[sign.genre] = (genreCounts[sign.genre] || 0) + 1;
+}
+for (const genre of ['eat', 'clothes', 'drink', '3c', 'market']) {
+  assert.ok(genreCounts[genre] >= 1, `genre present in the pool: ${genre}`);
+}
+for (const genre of SIGN_GENRES) {
+  assert.match(SIGN_GENRE_STYLE[genre].stripe, /^#[0-9a-f]{6}$/i, `${genre} stripe is a hex colour`);
+  assert.equal(typeof SIGN_GENRE_STYLE[genre].doubleBorder, 'boolean', `${genre} doubleBorder is a boolean`);
+}
+assert.equal(SIGN_GENRE_STYLE.clothes.doubleBorder, true, 'clothes is the double-border genre');
+for (const genre of SIGN_GENRES) {
+  if (genre !== 'clothes') assert.equal(SIGN_GENRE_STYLE[genre].doubleBorder, false, `only clothes is double-border: ${genre}`);
+}
+// The genre-broadening shops are all present: the clothes shops,
+// the 3C brands (Tsannkuen, E-Life, the phone shop) and PX Mart,
+// plus its full blade name.
+for (const named of ['NET', '服飾店', '流行女裝', '童裝', '燦坤', '全國電子', '手機行', '全聯']) {
+  assert.ok(names.has(named), `issue #354 genre shop present: ${named}`);
+}
+assert.ok(names.has('全聯福利中心'), 'issue #354 blade extra present: 全聯福利中心');
+
+// The two brand logo plates are the pool entries themselves (not
+// extra plates): 7-ELEVEN and 全家 carry a `logo` marker so the
+// painters draw the real lockup instead of plain text.
+for (const [name, logo] of [['7-ELEVEN', 'seven-eleven'], ['全家', 'familymart']]) {
+  const sign = TAIPEI_BAND_SIGNS.find((s) => s.name === name);
+  assert.equal(sign && sign.logo, logo, `${name} plate carries its logo lockup`);
+  assert.equal(
+    TAIPEI_BLADE_SIGNS.findIndex((s) => s.name === name),
+    TAIPEI_BAND_SIGNS.findIndex((s) => s.name === name),
+    `${name} plate index matches across the band/blade pools`
+  );
+}
 
 // --- Fit: a name never overflows its sign ---------------------------
 assert.equal(BAND_MAX_UNITS, 5.0);
@@ -154,6 +206,19 @@ assert.ok(buildings.includes(roofBgLiteral), 'roof plate bg colours match the po
 
 const planner = read('../js/taipei-buildings.js');
 assert.ok(planner.includes(`export const ROOF_BOARD_PLATES = ${TAIPEI_ROOF_SIGNS.length};`), 'planner plate count matches the pool');
+// Issue #354: the blade shader weights the commonest brands (not a
+// uniform pick) — its brand plate indices must match the pool order.
+for (const [name, literal] of [['7-ELEVEN', 'SIGN_BLADE_BRAND_711'], ['全家', 'SIGN_BLADE_BRAND_FAMILY'], ['八方雲集', 'SIGN_BLADE_BRAND_BAFANG'], ['鍋貼', 'SIGN_BLADE_BRAND_GUOTIE'], ['東一排骨', 'SIGN_BLADE_BRAND_DONGYI'], ['燦坤', 'SIGN_BLADE_BRAND_TSANNKUEN'], ['全聯', 'SIGN_BLADE_BRAND_PX'], ['NET', 'SIGN_BLADE_BRAND_NET']]) {
+  const idx = TAIPEI_BLADE_SIGNS.findIndex((s) => s.name === name);
+  assert.ok(idx >= 0, `brand plate in the pool: ${name}`);
+  assert.ok(buildings.includes(`const ${literal} = ${idx}.0;`), `blade brand index matches the pool: ${name} = ${idx}`);
+}
+// Issue #354 (mirrored signs): the band plate is sampled through the
+// wall-corrected coordinate — facadeCell's `flip` (1 on the -z and
+// +x walls, where the box-local `along` runs right-to-left)
+// un-mirrors it. Both band call sites (colour + emissive) use it.
+assert.ok(tsl.includes('cell.flip'), 'band plate samples the wall-corrected coordinate (mirrored-sign fix)');
+assert.equal(tsl.split('bandPlateColor(bandUV,').length - 1, 2, 'both band plate call sites use the corrected coordinate');
 
 const boot = read('../js/taipei-boot.js');
 assert.ok(boot.includes('setTaipeiSignAtlases('), 'taipei-boot injects the atlases');

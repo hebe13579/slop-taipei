@@ -429,6 +429,15 @@ function facadeCell(windowWidth, floorHeight, boxLocal, cornerPier = 0) {
   let wallH = float(1.0);
   let fromTop = float(0.0);
   let boxSeed = float(0.0);
+  // Issue #354: `flip` tells whether the box-local `along` runs
+  // right-to-left for someone facing the wall (1 on the -z and +x
+  // walls, 0 on the +z and -x walls — see the assignment below).
+  // `wallS` is already flip-corrected; `gridU`/`cellUV` are NOT, so
+  // the band plate (sampled from cellUV) rendered mirrored on those
+  // two walls. Returned so the band call sites can un-mirror it.
+  // World-space walls keep 0 (no correction — their u runs world-x/z
+  // and the band plates only render on box-local shophouses anyway).
+  let flip = float(0.0);
 
   if (boxLocal) {
     const box = attribute('box', 'vec4'); // width, height, depth, seed (+ the building's tone in its fraction)
@@ -448,7 +457,7 @@ function facadeCell(windowWidth, floorHeight, boxLocal, cornerPier = 0) {
     const along = mix(positionGeometry.x, positionGeometry.z, alongZ).add(0.5); // 0..1 from the wall's corner
     wallW = wallWidth;
     // Reading left to right for someone facing the wall
-    const flip = mix(step(nWall.z, 0.0), step(0.0, nWall.x), alongZ);
+    flip = mix(step(nWall.z, 0.0), step(0.0, nWall.x), alongZ);
     wallS = mix(along, float(1.0).sub(along), flip).mul(wallWidth);
     wallH = box.y;
     fromTop = float(0.5).sub(positionGeometry.y).mul(box.y);
@@ -499,7 +508,7 @@ function facadeCell(windowWidth, floorHeight, boxLocal, cornerPier = 0) {
   const solid = max(max(inPier.mul(float(1.0).sub(isGroundFloor)), blank), partial);
   return {
     isRoof, uCoord, vCoord, gridV, cellId, cellUV, fw, bayWidth, isGroundFloor, solid, floor0, back, blank, door, tone,
-    wallS, wallW, wallH, fromTop, boxSeed, partial, coping
+    wallS, wallW, wallH, fromTop, boxSeed, partial, coping, flip
   };
 }
 
@@ -1156,12 +1165,12 @@ function signFallbackTexture() {
   return _signFallbackTex;
 }
 // Band atlas grid, mirrored from js/taipei-signs.js (BAND_ATLAS /
-// TAIPEI_BAND_SIGNS): 8 cols × 6 rows of plates, 48 plates, plate row
+// TAIPEI_BAND_SIGNS): 8 cols × 9 rows of plates, 72 plates, plate row
 // counted from the texture's bottom. The node suite source-pins these
 // literals against the signs module — change them together.
 const SIGN_BAND_COLS = 8.0;
-const SIGN_BAND_ROWS = 6.0;
-const SIGN_BAND_PLATES = 48.0;
+const SIGN_BAND_ROWS = 9.0;
+const SIGN_BAND_PLATES = 72.0;
 // Sample one band plate for a shop bay: the plate is chosen by a
 // seed/bay hash (deterministic — the same bay shows the same shop on
 // every load), and the plate UV spans exactly the panel zone the
@@ -1577,7 +1586,13 @@ function createTileShophouseMaterial(opts = {}) {
     const glyphCol = mix(sign.bg, sign.ink, glyph.mul(panelMask));
     // Issue #105: with the atlas injected, the panel is one real shop
     // sign — canvas-painted name plate instead of glyph bars.
-    const plateCol = bandPlateColor(cellUV, cellId, boxSeed, bandAtlasTex);
+    // Issue #354 (mirrored signs): the plate's u must run
+    // left-to-right for someone facing the wall. cellUV.x follows the
+    // box-local `along`, which runs backwards on the -z and +x walls,
+    // so sample the plate through the wall-corrected coordinate
+    // (cell.flip, from facadeCell) — the same shop, un-mirrored.
+    const bandUV = vec2(mix(cellUV.x, float(1.0).sub(cellUV.x), cell.flip), cellUV.y);
+    const plateCol = bandPlateColor(bandUV, cellId, boxSeed, bandAtlasTex);
     const signCol = mix(glyphCol, plateCol, uSignText);
     col = mix(col, signCol, panelMask);
     // Thin darker outline under the panel so it reads as a mounted board.
@@ -1721,8 +1736,11 @@ function createTileShophouseMaterial(opts = {}) {
     const glyphEmit = sign.bg.mul(panelMask).mul(cityUniforms.uInteriorGlow)
       .mul(float(0.42).sub(glyph.mul(0.22)));
     // Issue #105: a real-text plate glows like the lightbox sign it
-    // is — the whole plate, lettering included.
-    const plateEmit = bandPlateColor(cellUV, cellId, boxSeed, bandAtlasTex)
+    // is — the whole plate, lettering included. Issue #354: sample
+    // through the wall-corrected coordinate (see the colour node) so
+    // the glowing plate reads un-mirrored on every wall.
+    const bandUV = vec2(mix(cellUV.x, float(1.0).sub(cellUV.x), cell.flip), cellUV.y);
+    const plateEmit = bandPlateColor(bandUV, cellId, boxSeed, bandAtlasTex)
       .mul(panelMask).mul(cityUniforms.uInteriorGlow).mul(0.38);
     const signEmit = mix(glyphEmit, plateEmit, uSignText);
 

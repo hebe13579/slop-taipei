@@ -19,6 +19,7 @@ import {
   stripTileKind,
   taipeiRooftopAdditions,
   taipeiVerticalSigns,
+  taipeiFrontageLookup,
   HIGH_RISE_TAIWAN_SHARE,
   HIGH_RISE_TAIWAN_MIN_H,
   HIGH_RISE_TAIWAN_MAX_H,
@@ -146,20 +147,25 @@ test('taiwan108: strip-tile lots carry vertical signs, high-rise lots carry none
   // with the other mid-rise Taiwan types and keeps family 12 out
   // with 10/11 — a residential tower carries no vertical shop sign.
   const { opts } = planAndOpts();
+  // Issue #355: the sign policy takes the lot's frontage — signs live
+  // only on rank >= 2 frontage, so pass it explicitly.
+  const frontageFor = taipeiFrontageLookup(TAIPEI_GEO);
   const f13 = opts.lots.filter((l) => l.mat === 13);
   const f12 = opts.lots.filter((l) => l.mat === 12);
   let signed13 = 0;
-  for (const l of f13) if (taipeiVerticalSigns(l).length) signed13++;
+  for (const l of f13) if (taipeiVerticalSigns(l, frontageFor(l)).length) signed13++;
   // Issue #110: signed F13 2,323 -> 2,338 — more F13 lots in the renderer options, same sign rule.
   // Re-pinned for issue #258: signed F13 2,338 -> 2,597 (more F13
   // lots, same sign rule).
   // Issue #278: signed F13 2,597 -> 2,590 (−7 — seven signed F13 lots removed with their F13 lots; same sign rule).
   // Issue #282: signed F13 2,590 -> 2,591 (+1 — one of the 3 new F13 lots carries a sign; same sign rule, and no F12 lot carries one). Proven by cross-run: with { facing: false } signed13 is exactly 2,602 on BOTH this tree and pristine main (facing282-evidence/proof-signs.mjs).
-  assert.equal(signed13, 2621, 'strip-tile lots carry vertical signs'); // BATCH: measured = #282's 2,591 + #326's −2 // Issue #313: signed F13 2,589 -> 2,600 (+11 - more F13 lots in the renderer options, same sign rule) // Issue #314: signed F13 2,600 -> 2,621 (+21 - more F13 lots in the renderer options, same sign rule)
+  assert.equal(signed13, 644, 'strip-tile lots carry vertical signs'); // BATCH: measured = #282's 2,591 + #326's −2 // Issue #313: signed F13 2,589 -> 2,600 (+11 - more F13 lots in the renderer options, same sign rule) // Issue #314: signed F13 2,600 -> 2,621 (+21 - more F13 lots in the renderer options, same sign rule) // Issue #355: signed F13 2,621 -> 509 (the frontage gate drops signs from rank 0-1 lots; the sign rule itself is unchanged — 509/4,939 = 10.3% of F13 lots, all on rank >= 2 frontage) // Issue #354: signed F13 509 -> 644 (+135 — the frontage-aware policy signs arterial (rank >= 3) lots at 0.85 instead of 0.55; the gate is unchanged, all on rank >= 2 frontage)
   // Issue #326: signed F13 2,590 -> 2,588 (−2 — two signed F13 lots removed by the re-site; same sign rule).
   // BATCH (merge of #329 + #332): composed value MEASURED on the merged tree.
 
-  assert.ok(f12.every((l) => taipeiVerticalSigns(l).length === 0), 'no high-rise lot carries a vertical sign');
+  // Issue #355: pass an arterial frontage so the FAMILY gate does the
+  // work, not the missing frontage — F12 never signs at any rank.
+  assert.ok(f12.every((l) => taipeiVerticalSigns(l, { rank: 4 }).length === 0), 'no high-rise lot carries a vertical sign');
 });
 
 test('taiwan108: strip-tile shader parameter and material entries', () => {
