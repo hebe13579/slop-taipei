@@ -3031,9 +3031,23 @@ function buildCityBlocks(scene, opts = null) {
     const uvN = uv();
     const nW = normalWorldGeometry;
     const faceCoord = mix(positionWorld.z, positionWorld.x, step(abs(nW.z), abs(nW.x)));
-    const hashN = (v) => mx_noise_float(v).mul(0.5).add(0.5);
-    const hp = hashN(vec2(floor(faceCoord.mul(0.5)), 4.97));
-    const hp2 = hashN(vec2(floor(faceCoord.mul(0.5)), 9.31));
+    // Issue #372: the #354 plate hash was degenerate. mx_noise_float
+    // on (integer, 4.97) sits on a Perlin lattice line (fy=0.97),
+    // so hp never left 0.48-0.52 and the weighted bands below never
+    // fired; and on (integer, 9.31) the noise takes only 13 distinct
+    // values, so only 13 of 103 plates ever appeared (brute-forced
+    // over 400k q: 0 weighted hits). A Weyl-sequence hash — fract of
+    // an irrational multiple — is uniform over [0,1), so the weighted
+    // bands fire at their stated rates and every plate appears
+    // (brute-forced: all 103 plates, 7-ELEVEN 8.3%, FamilyMart 3.9%,
+    // 八方雲集 4.9%). It is also exactly reproducible from the Node
+    // finder (float32 arithmetic; see logos372-evidence/
+    // find-blades372.mjs), which the mx_noise hash was not. The
+    // 0.5 m quantization is kept, so a blade's broad face — whose
+    // face coordinate is constant — still shows exactly one plate.
+    const q = floor(faceCoord.mul(0.5));
+    const hp = fract(q.mul(0.6180339887));
+    const hp2 = fract(q.mul(0.7548776662));
     const band = (lo, hi) => step(lo, hp).mul(float(1.0).sub(step(hi, hp)));
     let plate = floor(hp2.mul(SIGN_BLADE_PLATES));
     plate = mix(plate, SIGN_BLADE_BRAND_711, band(0.0, 0.08));
