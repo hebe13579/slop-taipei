@@ -393,6 +393,8 @@ function stubPanel() {
   const carsValue = makeEl('set-traffic-cars-value');
   const radiusSlider = makeEl('set-traffic-radius');
   const radiusValue = makeEl('set-traffic-radius-value');
+  const lodSlider = makeEl('set-special-lod-far');
+  const lodValue = makeEl('set-special-lod-far-value');
   const pop = makeEl('settings-popover');
   pop.querySelectorAll = () => [];
   const doc = {
@@ -403,13 +405,15 @@ function stubPanel() {
       'set-traffic-cars-value': carsValue,
       'set-traffic-radius': radiusSlider,
       'set-traffic-radius-value': radiusValue,
+      'set-special-lod-far': lodSlider,
+      'set-special-lod-far-value': lodValue,
     }[id] || null),
   };
   // Drive a slider like a user: set the value and fire input for each
   // drag tick; fire change on release (optionally with a final value).
   const drag = (slider, ...values) => { for (const v of values) { slider.value = String(v); slider.fire('input'); } };
   const release = (slider, v) => { if (v !== undefined) { slider.value = String(v); slider.fire('input'); } slider.fire('change'); };
-  return { doc, statusEl, carsSlider, carsValue, radiusSlider, radiusValue, drag, release };
+  return { doc, statusEl, carsSlider, carsValue, radiusSlider, radiusValue, lodSlider, lodValue, drag, release };
 }
 
 async function flushFrames(rafQueue) {
@@ -507,6 +511,33 @@ test('traffic sliders: the range slider changes the spawn radius, with the same 
     if (prevRaf === undefined) delete globalThis.requestAnimationFrame;
     else globalThis.requestAnimationFrame = prevRaf;
   }
+});
+
+test('special LOD slider: a drag applies live at every value, release snaps to a tick (issue #393)', async () => {
+  // Unlike the traffic sliders there is nothing to rebuild — the
+  // per-frame LOD update reads the boot's value each frame, so a
+  // drag applies at once (no debounce) and release snaps + persists.
+  const { doc, lodSlider, lodValue, drag, release } = stubPanel();
+  const settings = resolveSettings();
+  const applied = [];
+  const persisted = [];
+  const taipeiSettings = { setSpecialLodFarM: (m) => { applied.push(m); return m; } };
+  initSettingsPanel({ settings, taipeiSettings, doc, persist: () => { persisted.push(settings.specialLodFarM); } });
+  assert.equal(lodValue.textContent, '2,000 m', 'reflect shows the default');
+  drag(lodSlider, 700, 1200, 2000);
+  assert.equal(settings.specialLodFarM, 2000);
+  assert.equal(lodValue.textContent, '2,000 m');
+  assert.deepEqual(applied, [700, 1200, 2000], 'every drag tick applies at once');
+  assert.equal(persisted.length, 0, 'nothing persists mid-drag');
+  // Release near the Far tick (2050 -> 2000): snap + persist.
+  release(lodSlider, 2050);
+  assert.equal(settings.specialLodFarM, 2000, 'snapped to the Far tick');
+  assert.deepEqual(persisted, [2000]);
+  // Release at a non-tick value (1000): no snap, still persists.
+  release(lodSlider, 1000);
+  assert.equal(settings.specialLodFarM, 1000, '1,000 is not within the snap window of any tick');
+  assert.equal(lodValue.textContent, '1,000 m');
+  assert.deepEqual(persisted, [2000, 1000]);
 });
 
 test('traffic sliders: a failed build restores the last good config, gear and world agree (issue #266)', async () => {

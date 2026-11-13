@@ -512,12 +512,12 @@ export function initSettingsPanel({ settings, taipeiSettings = null, onGraphics 
         const v = clampSpecialLodFarM(Number(specialLodSlider.value)) ?? SPECIAL_LOD_FAR_M_DEFAULT;
         if (v === settings.specialLodFarM) return;
         settings.specialLodFarM = v;
-        taipeiSettings.setSpecialLodFarM(v);
+        if (taipeiSettings.setSpecialLodFarM) taipeiSettings.setSpecialLodFarM(v);
         reflect();
       });
       specialLodSlider.addEventListener('change', () => {
         settings.specialLodFarM = snapToTick(settings.specialLodFarM, SPECIAL_LOD_FAR_M_TICKS, SPECIAL_LOD_SLIDER_SNAP_M);
-        taipeiSettings.setSpecialLodFarM(settings.specialLodFarM);
+        if (taipeiSettings.setSpecialLodFarM) taipeiSettings.setSpecialLodFarM(settings.specialLodFarM);
         if (persist) persist();
         reflect();
       });
