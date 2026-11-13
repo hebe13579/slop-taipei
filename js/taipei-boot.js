@@ -2261,14 +2261,24 @@ export async function buildTaipeiGround(scene, tile, deps = {}) {
   // factory products over shared atlas textures and are left to
   // the GC — bounded at a handful per switch).
   const allBlocksLive = [];
+  // Issue #358: the live lot-collider array — see syncAllBlocks.
+  const allCollidersLive = [];
   const syncAllBlocks = () => {
     allBlocksLive.length = 0;
     if (cityBlocks?.allBlocks) allBlocksLive.push(...cityBlocks.allBlocks);
+    // Issue #358: the lot colliders live here too — the facade used
+    // to expose `colliders: []`, so main.js handed the controller
+    // the extra colliders only and the car drove straight through
+    // every generated building. The array is refilled in place, so
+    // a density rebuild (below) swaps in the new lots' colliders
+    // without the controller holding a stale snapshot.
+    allCollidersLive.length = 0;
+    if (cityBlocks?.colliders) allCollidersLive.push(...cityBlocks.colliders);
   };
   syncAllBlocks();
   const cityBlocksFacade = {
     get group() { return cityBlocks?.group ?? null; },
-    colliders: [],
+    colliders: allCollidersLive,
     allBlocks: allBlocksLive,
     update: (x, z, force) => { if (cityBlocks) cityBlocks.update(x, z, force); if (schoolLodGroup) updateSchoolLodGroup(schoolLodGroup, x, z); for (const g of specialGroups) { updateSpecialLodGroup(g, x, z); updateDespawnGroup(g, x, z); } if (skybridgeGroup) updateDespawnGroup(skybridgeGroup, x, z); },
     updateLights: (camera) => { if (cityBlocks?.updateLights) cityBlocks.updateLights(camera); },
