@@ -20,6 +20,9 @@ import {
   TRAFFIC_CARS_TICKS,
   TRAFFIC_RADIUS_TICKS,
   TRAFFIC_SLIDER_DEBOUNCE_MS,
+  SPECIAL_LOD_FAR_M_DEFAULT,
+  SPECIAL_LOD_FAR_M_MIN,
+  SPECIAL_LOD_FAR_M_MAX,
 } from '../js/settings.js';
 
 // Issue #218 — the settings gear: resolution rules, graphics
@@ -46,21 +49,21 @@ function fingerprint(plan) {
 }
 
 test('settings resolution: defaults are the pre-#218 behaviour', () => {
-  assert.deepEqual(resolveSettings(), { specials: true, density: 'fine', graphics: 'medium', farDetail: 'fade', drape: true, trafficCars: 0, trafficRadiusM: 380 });
+  assert.deepEqual(resolveSettings(), { specials: true, density: 'fine', graphics: 'medium', farDetail: 'fade', specialLodFarM: 2000, drape: true, trafficCars: 0, trafficRadiusM: 380 });
   assert.deepEqual(resolveSettings({ search: '', stored: null }), DEFAULT_SETTINGS);
 });
 
 test('settings resolution: storage beats defaults, URL beats storage, per field', () => {
   const stored = JSON.stringify({ specials: false, density: 'dense', graphics: 'low' });
-  assert.deepEqual(resolveSettings({ stored }), { specials: false, density: 'dense', graphics: 'low', farDetail: 'fade', drape: true, trafficCars: 0, trafficRadiusM: 380 });
+  assert.deepEqual(resolveSettings({ stored }), { specials: false, density: 'dense', graphics: 'low', farDetail: 'fade', specialLodFarM: 2000, drape: true, trafficCars: 0, trafficRadiusM: 380 });
   // URL overrides only the fields it names.
   assert.deepEqual(
     resolveSettings({ stored, search: '?density=coarse' }),
-    { specials: false, density: 'coarse', graphics: 'low', farDetail: 'fade', drape: true, trafficCars: 0, trafficRadiusM: 380 },
+    { specials: false, density: 'coarse', graphics: 'low', farDetail: 'fade', specialLodFarM: 2000, drape: true, trafficCars: 0, trafficRadiusM: 380 },
   );
   assert.deepEqual(
     resolveSettings({ stored, search: '?specials=on&graphics=high' }),
-    { specials: true, density: 'dense', graphics: 'high', farDetail: 'fade', drape: true, trafficCars: 0, trafficRadiusM: 380 },
+    { specials: true, density: 'dense', graphics: 'high', farDetail: 'fade', specialLodFarM: 2000, drape: true, trafficCars: 0, trafficRadiusM: 380 },
   );
   // Stored value may arrive as an object too.
   assert.equal(resolveSettings({ stored: { density: 'coarse' } }).density, 'coarse');
@@ -69,11 +72,11 @@ test('settings resolution: storage beats defaults, URL beats storage, per field'
 test('settings resolution: invalid values fall back per field, never throw', () => {
   assert.deepEqual(
     resolveSettings({ stored: '{not json', search: '?density=huge&graphics=ultra&specials=maybe' }),
-    { specials: true, density: 'fine', graphics: 'medium', farDetail: 'fade', drape: true, trafficCars: 0, trafficRadiusM: 380 },
+    { specials: true, density: 'fine', graphics: 'medium', farDetail: 'fade', specialLodFarM: 2000, drape: true, trafficCars: 0, trafficRadiusM: 380 },
   );
   assert.deepEqual(
     resolveSettings({ stored: JSON.stringify({ density: 'huge', graphics: 7, specials: 'off' }) }),
-    { specials: false, density: 'fine', graphics: 'medium', farDetail: 'fade', drape: true, trafficCars: 0, trafficRadiusM: 380 },
+    { specials: false, density: 'fine', graphics: 'medium', farDetail: 'fade', specialLodFarM: 2000, drape: true, trafficCars: 0, trafficRadiusM: 380 },
   );
   // Boolean spellings the URL layer accepts.
   for (const [raw, want] of [['off', false], ['0', false], ['no', false], ['on', true], ['1', true], ['yes', true]]) {
@@ -87,7 +90,7 @@ test('settings persistence: round-trip through storage, failures stay silent', (
     getItem: (k) => (mem.has(k) ? mem.get(k) : null),
     setItem: (k, v) => mem.set(k, String(v)),
   };
-  const s = { specials: false, density: 'dense', graphics: 'high', farDetail: 'full', drape: false, trafficCars: 350, trafficRadiusM: 500 };
+  const s = { specials: false, density: 'dense', graphics: 'high', farDetail: 'full', specialLodFarM: 1200, drape: false, trafficCars: 350, trafficRadiusM: 500 };
   assert.equal(persistSettings(storage, s), true);
   assert.deepEqual(resolveSettings({ stored: readStoredSettings(storage) }), s);
   assert.equal(mem.has(SETTINGS_STORAGE_KEY), true);
@@ -235,6 +238,25 @@ test('far detail resolution: default fade, storage beats default, URL beats stor
   // Invalid values fall back to the default, never throw.
   assert.equal(resolveSettings({ search: '?farDetail=everything' }).farDetail, 'fade');
   assert.equal(resolveSettings({ stored: JSON.stringify({ farDetail: 7 }) }).farDetail, 'fade');
+});
+
+test('special LOD resolution: default 2,000 m, storage beats default, URL beats storage (issue #393)', () => {
+  // The special-building LOD swap distance: specials keep full detail
+  // within this range, then simplify to their flat far massing. Same
+  // per-field resolution as the other rows: URL param > localStorage >
+  // default. The old 700 m swap is the slider's near end.
+  assert.equal(resolveSettings().specialLodFarM, SPECIAL_LOD_FAR_M_DEFAULT);
+  assert.equal(resolveSettings({ stored: JSON.stringify({ specialLodFarM: 1200 }) }).specialLodFarM, 1200);
+  assert.equal(
+    resolveSettings({ stored: JSON.stringify({ specialLodFarM: 1200 }), search: '?specialLodFarM=3000' }).specialLodFarM,
+    3000,
+  );
+  assert.equal(resolveSettings({ search: '?specialLodFarM=700' }).specialLodFarM, SPECIAL_LOD_FAR_M_MIN);
+  // Out-of-span values clamp; invalid values fall back to the default.
+  assert.equal(resolveSettings({ stored: JSON.stringify({ specialLodFarM: 99999 }) }).specialLodFarM, SPECIAL_LOD_FAR_M_MAX);
+  assert.equal(resolveSettings({ stored: JSON.stringify({ specialLodFarM: 50 }) }).specialLodFarM, SPECIAL_LOD_FAR_M_MIN);
+  assert.equal(resolveSettings({ search: '?specialLodFarM=abc' }).specialLodFarM, SPECIAL_LOD_FAR_M_DEFAULT);
+  assert.equal(resolveSettings({ stored: JSON.stringify({ specialLodFarM: 'far' }) }).specialLodFarM, SPECIAL_LOD_FAR_M_DEFAULT);
 });
 
 test('traffic resolution: default off, storage beats default, URL beats storage (issues #252/#266/#281)', () => {
@@ -617,7 +639,7 @@ test('mobile detection: phones count, tablets and desktops do not (issue #268)',
 test('mobile defaults: phones SET Coarse + Low over stored settings, URL still wins (issue #268)', () => {
   assert.deepEqual(
     resolveSettings({ isMobile: true }),
-    { specials: true, density: 'coarse', graphics: 'low', farDetail: 'fade', drape: true, trafficCars: 0, trafficRadiusM: 380 },
+    { specials: true, density: 'coarse', graphics: 'low', farDetail: 'fade', specialLodFarM: 2000, drape: true, trafficCars: 0, trafficRadiusM: 380 },
   );
   assert.deepEqual(resolveSettings({ isMobile: false }), resolveSettings(), 'desktop resolution is unchanged');
   // The phone never reads the previous density/graphics: a stored

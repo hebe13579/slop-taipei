@@ -17,6 +17,13 @@
 //               flat colour with distance. 'fade' is the default;
 //               specials are exempt either way. Applied live via
 //               a shared shader uniform — no rebuild.
+//   specialLodFarM — (Taipei; issue #393): the distance in metres
+//               past which registry specials with farParts swap to
+//               their simplified flat massing (near side one
+//               hysteresis band inside). Default 2,000 m; the old
+//               700 m is the slider's near end. Applied live — the
+//               per-frame LOD update reads it each frame, no
+//               rebuild. Schools keep the 700/600 m swap.
 //   drape     — (Taipei; issue #132): the Beitou + Yuanshan
 //               terrain drape — roads and buildings follow the
 //               baked SRTM DEM. Default ON; turning it off restores
@@ -79,12 +86,25 @@ export const TRAFFIC_SLIDER_DEBOUNCE_MS = 250;
 // close, so the old presets stay one flick away.
 export const TRAFFIC_SLIDER_SNAP_CARS = 12;
 export const TRAFFIC_SLIDER_SNAP_M = 12;
+// Issue #393: the special-building LOD swap distance. 700 m is the
+// old behaviour (the slider's near end); 2,000 m is the new default
+// — specials keep full detail across the whole downtown view; 3,000 m
+// keeps them detailed from anywhere in the central city. The near side
+// of the hysteresis band sits 100 m inside the far side (see
+// lodNearM in js/taipei-buildings.js).
+export const SPECIAL_LOD_FAR_M_MIN = 700;
+export const SPECIAL_LOD_FAR_M_MAX = 3000;
+export const SPECIAL_LOD_FAR_M_DEFAULT = 2000;
+export const SPECIAL_LOD_FAR_M_TICKS = Object.freeze([700, 1200, 2000, 3000]);
+// On release the LOD slider snaps to a tick when it lands this close.
+export const SPECIAL_LOD_SLIDER_SNAP_M = 100;
 
 export const DEFAULT_SETTINGS = Object.freeze({
   specials: true,
   density: 'fine',
   graphics: 'medium',
   farDetail: 'fade',
+  specialLodFarM: SPECIAL_LOD_FAR_M_DEFAULT,
   drape: true,
   trafficCars: 0,
   trafficRadiusM: 380,
@@ -127,6 +147,14 @@ const clampTrafficCars = (v) => {
 const clampTrafficRadiusM = (v) => {
   if (typeof v !== 'number' || !Number.isFinite(v)) return null;
   return Math.max(TRAFFIC_RADIUS_MIN_M, Math.min(TRAFFIC_RADIUS_MAX_M, Math.round(v)));
+};
+// Issue #393: clamp the special-LOD swap distance to its span, or
+// null when it is not a number at all (absent / unparsable — the
+// caller keeps the value from the lower-precedence layer).
+// Exported for the Taipei boot (js/taipei-boot.js).
+export const clampSpecialLodFarM = (v) => {
+  if (typeof v !== 'number' || !Number.isFinite(v)) return null;
+  return Math.max(SPECIAL_LOD_FAR_M_MIN, Math.min(SPECIAL_LOD_FAR_M_MAX, Math.round(v)));
 };
 // A URLSearchParams value as a finite number, or null when the param
 // is absent, empty, or unparsable.
@@ -185,6 +213,9 @@ export function resolveSettings({ search = '', stored = null, isMobile = false }
     if (g) out.graphics = g;
     const f = validFarDetail(s.farDetail);
     if (f) out.farDetail = f;
+    // Issue #393: a stored LOD distance wins over the default.
+    const slf = clampSpecialLodFarM(s.specialLodFarM);
+    if (slf !== null) out.specialLodFarM = slf;
     // Issue #281: the sliders are numeric now. A stored number wins;
     // otherwise an old stored preset maps onto its count/radius, and
     // a pre-#266 trafficEnabled maps onto Normal (200) / Off (0).
@@ -227,6 +258,9 @@ export function resolveSettings({ search = '', stored = null, isMobile = false }
   if (g) out.graphics = g;
   const f = validFarDetail(q.get('farDetail'));
   if (f) out.farDetail = f;
+  // Issue #393: the LOD distance param wins over storage.
+  const qslf = clampSpecialLodFarM(numParam(q.get('specialLodFarM')));
+  if (qslf !== null) out.specialLodFarM = qslf;
   // Issue #281: the numeric slider params win; the old preset params
   // map onto the sliders, and trafficEnabled maps onto them only when
   // no trafficCars / trafficDensity param is given.
@@ -269,6 +303,7 @@ export function persistSettings(storage, settings) {
       density: settings.density,
       graphics: settings.graphics,
       farDetail: settings.farDetail,
+      specialLodFarM: settings.specialLodFarM,
       trafficCars: settings.trafficCars,
       trafficRadiusM: settings.trafficRadiusM,
       drape: settings.drape,
@@ -342,11 +377,15 @@ export function initSettingsPanel({ settings, taipeiSettings = null, onGraphics 
   const trafficCarsValue = d.getElementById('set-traffic-cars-value');
   const trafficRadiusSlider = d.getElementById('set-traffic-radius');
   const trafficRadiusValue = d.getElementById('set-traffic-radius-value');
+  const specialLodSlider = d.getElementById('set-special-lod-far');
+  const specialLodValue = d.getElementById('set-special-lod-far-value');
 
   const reflect = () => {
     for (const b of densityBtns) b.classList.toggle('active', b.dataset.settingDensity === settings.density);
     for (const b of graphicsBtns) b.classList.toggle('active', b.dataset.settingGraphics === settings.graphics);
     for (const b of farDetailBtns) b.classList.toggle('active', b.dataset.settingFardetail === settings.farDetail);
+    if (specialLodSlider) specialLodSlider.value = String(settings.specialLodFarM);
+    if (specialLodValue) specialLodValue.textContent = `${settings.specialLodFarM.toLocaleString('en-US')} m`;
     if (trafficCarsSlider) trafficCarsSlider.value = String(settings.trafficCars);
     if (trafficCarsValue) trafficCarsValue.textContent = settings.trafficCars === 0 ? 'Off' : `${settings.trafficCars} cars`;
     if (trafficRadiusSlider) trafficRadiusSlider.value = String(settings.trafficRadiusM);
@@ -370,7 +409,7 @@ export function initSettingsPanel({ settings, taipeiSettings = null, onGraphics 
       b.disabled = true;
       b.title = 'Taipei mode only';
     }
-    for (const s of [trafficCarsSlider, trafficRadiusSlider].filter(Boolean)) {
+    for (const s of [trafficCarsSlider, trafficRadiusSlider, specialLodSlider].filter(Boolean)) {
       s.disabled = true;
       s.title = 'Taipei mode only';
     }
@@ -461,6 +500,26 @@ export function initSettingsPanel({ settings, taipeiSettings = null, onGraphics 
         settings.trafficRadiusM = snapToTick(settings.trafficRadiusM, TRAFFIC_RADIUS_TICKS, TRAFFIC_SLIDER_SNAP_M);
         reflect();
         releaseTrafficApply();
+      });
+    }
+    // Issue #393: the special-LOD distance slider. Unlike traffic,
+    // the apply is instant — the per-frame LOD update reads the
+    // boot's value each frame, so there is nothing to rebuild and
+    // nothing to debounce: input applies at once, release snaps to
+    // a tick and persists.
+    if (specialLodSlider) {
+      specialLodSlider.addEventListener('input', () => {
+        const v = clampSpecialLodFarM(Number(specialLodSlider.value)) ?? SPECIAL_LOD_FAR_M_DEFAULT;
+        if (v === settings.specialLodFarM) return;
+        settings.specialLodFarM = v;
+        taipeiSettings.setSpecialLodFarM(v);
+        reflect();
+      });
+      specialLodSlider.addEventListener('change', () => {
+        settings.specialLodFarM = snapToTick(settings.specialLodFarM, SPECIAL_LOD_FAR_M_TICKS, SPECIAL_LOD_SLIDER_SNAP_M);
+        taipeiSettings.setSpecialLodFarM(settings.specialLodFarM);
+        if (persist) persist();
+        reflect();
       });
     }
   }

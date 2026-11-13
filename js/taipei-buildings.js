@@ -10072,6 +10072,14 @@ export const SCHOOL_LOD_FAR_DOME_HEIGHT_SEGMENTS = 6;
 export const SCHOOL_LOD_FAR_M = 700;
 export const SCHOOL_LOD_NEAR_M = 600;
 
+// Issue #393: the swap distance is adjustable for specials (see
+// js/settings.js `specialLodFarM`, default 2,000 m). The near side of
+// the band sits one band-width inside the far side, so a custom far
+// distance keeps the same 100 m hysteresis as the 700/600 default.
+export function lodNearM(farM) {
+  return farM - (SCHOOL_LOD_FAR_M - SCHOOL_LOD_NEAR_M);
+}
+
 export function domeTriangleCount(widthSegments, heightSegments) {
   return widthSegments * (heightSegments - 1) * 2 + widthSegments;
 }
@@ -10150,15 +10158,17 @@ export function updateDespawnGroup(group, camX, camZ) {
 // builder stashes on the group (see createTaipeiLandmarkTowers); each
 // entry carries its near/far tree groups, its plan position and its
 // current mode. Pure visibility flags — no geometry work per frame.
-export function updateSchoolLod(entries, camX, camZ) {
+// Issue #393: the swap distances are parameters (defaulting to the
+// 700/600 m constants) so specials can swap farther out than schools.
+export function updateSchoolLod(entries, camX, camZ, farM = SCHOOL_LOD_FAR_M, nearM = SCHOOL_LOD_NEAR_M) {
   for (const e of entries) {
     const dx = e.x - camX, dz = e.z - camZ;
     const d2 = dx * dx + dz * dz;
-    if (e.mode !== 'far' && d2 > SCHOOL_LOD_FAR_M * SCHOOL_LOD_FAR_M) {
+    if (e.mode !== 'far' && d2 > farM * farM) {
       e.mode = 'far';
       e.near.visible = false;
       e.far.visible = true;
-    } else if (e.mode !== 'near' && d2 < SCHOOL_LOD_NEAR_M * SCHOOL_LOD_NEAR_M) {
+    } else if (e.mode !== 'near' && d2 < nearM * nearM) {
       e.mode = 'near';
       e.near.visible = true;
       e.far.visible = false;
@@ -10166,18 +10176,20 @@ export function updateSchoolLod(entries, camX, camZ) {
   }
 }
 
-export function updateSchoolLodGroup(group, camX, camZ) {
+export function updateSchoolLodGroup(group, camX, camZ, farM, nearM) {
   const entries = group && group.userData ? group.userData.schoolLod : null;
-  if (entries && entries.length) updateSchoolLod(entries, camX, camZ);
+  if (entries && entries.length) updateSchoolLod(entries, camX, camZ, farM, nearM);
 }
 
 // Issues #255/#257: the same 700/600 m swap for registry specials with
 // farParts — the entry's near subgroup (full detail) hides past
 // SCHOOL_LOD_FAR_M and its far subgroup (simplified massing)
 // shows; the massing itself never despawns, only simplifies.
-export function updateSpecialLodGroup(group, camX, camZ) {
+// Issue #393: the caller passes the adjustable distance (default
+// 2,000 m, see js/settings.js); schools keep the 700/600 m swap.
+export function updateSpecialLodGroup(group, camX, camZ, farM, nearM) {
   const entries = group && group.userData ? group.userData.specialLod : null;
-  if (entries && entries.length) updateSchoolLod(entries, camX, camZ);
+  if (entries && entries.length) updateSchoolLod(entries, camX, camZ, farM, nearM);
 }
 
 function landmarkFacadeMaterial(THREE, factories, facade, fallbackColor, doubleSide) {

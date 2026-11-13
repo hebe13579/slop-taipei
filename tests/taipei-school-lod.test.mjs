@@ -5,6 +5,7 @@ import {
   planTaipeiBuildings,
   updateSchoolLod,
   domeTriangleCount,
+  lodNearM,
   SCHOOL_DOME_WIDTH_SEGMENTS,
   SCHOOL_DOME_HEIGHT_SEGMENTS,
   SCHOOL_LOD_FAR_DOME_WIDTH_SEGMENTS,
@@ -46,6 +47,35 @@ test('far swap: hysteresis band, sticky inside it, swaps both ways', () => {
   assert.equal(far.visible, false);
   updateSchoolLod(entries, 0, 0);
   assert.equal(entries[0].mode, 'near', 'no-op when already near');
+});
+
+test('far swap: explicit distances move the swap (issue #393)', () => {
+  // The adjustable special-LOD distance (default 2,000 m): the swap
+  // happens at the passed distances, not at the 700/600 m constants.
+  // The near side sits one band-width (100 m) inside the far side.
+  assert.equal(lodNearM(2000), 1900, 'near = far - 100 m');
+  assert.equal(lodNearM(700), 600, 'the old constants are the 700 m case');
+  assert.equal(lodNearM(3000), 2900);
+  const near = { visible: true }, far = { visible: false };
+  const entries = [{ near, far, x: 0, z: 0, mode: 'near' }];
+  const farM = 2000, nearM = lodNearM(farM);
+  updateSchoolLod(entries, 1500, 0, farM, nearM);
+  assert.equal(entries[0].mode, 'near', 'still full detail at 1,500 m with the 2,000 m default');
+  updateSchoolLod(entries, SCHOOL_LOD_FAR_M + 50, 0, farM, nearM);
+  assert.equal(entries[0].mode, 'near', 'past the OLD 700 m swap, still near at the new distance');
+  updateSchoolLod(entries, farM + 50, 0, farM, nearM);
+  assert.equal(entries[0].mode, 'far');
+  assert.equal(near.visible, false);
+  assert.equal(far.visible, true);
+  updateSchoolLod(entries, (farM + nearM) / 2, 0, farM, nearM);
+  assert.equal(entries[0].mode, 'far', 'inside the band the mode sticks');
+  updateSchoolLod(entries, nearM - 50, 0, farM, nearM);
+  assert.equal(entries[0].mode, 'near');
+  assert.equal(near.visible, true);
+  assert.equal(far.visible, false);
+  // No explicit distances: the old 700/600 m behaviour is unchanged.
+  updateSchoolLod(entries, SCHOOL_LOD_FAR_M + 50, 0);
+  assert.equal(entries[0].mode, 'far', 'defaults are still the old constants');
 });
 
 test('every school campus carries trees, paired trunk + canopy', () => {
