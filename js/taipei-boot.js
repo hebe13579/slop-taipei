@@ -3,6 +3,7 @@ import * as THREE from 'three/webgpu';
 import { planTaipeiBuildings, taipeiCityBlocksOptions, createTaipei101, createTaipeiLandmarkTowers, updateSchoolLodGroup, updateSpecialLodGroup, updateDespawnGroup } from './taipei-buildings.js';
 import { buildSidewalkBands, planStreetTrees, planParkTrees, planStreetLamps, LAMP_HEAD_H, LAMP_POOL_RX, LAMP_POOL_RZ } from './taipei-streetscape.js';
 import { planParkAmenities } from './taipei-park-amenities.js';
+import { planStreetAmenities } from './taipei-street-amenities.js';
 import { AvatarFigure } from './avatar-figure.js';
 import { buildPaintedBands } from './taipei-painted.js';
 import { buildAirfieldPaint, buildRoadTunnelPortals, roadTrenchSlots } from './taipei-airfield.js';
@@ -994,6 +995,49 @@ function bushGeometry() {
     addPart(new THREE.IcosahedronGeometry(1.0, 0), 0x466f36, { p: [0, 0.55, 0], s: [1, 0.62, 1] });
     addPart(new THREE.IcosahedronGeometry(0.62, 0), 0x527a3e, { p: [0.45, 0.78, 0.25], s: [1, 0.6, 1] });
   });
+}
+
+// ---------------------------------------------------------------------
+// Street amenity kit (issue #362): the sidewalk furniture layer —
+// a single chair and a bus-stop sign pole. Benches, bins and bushes
+// reuse the park kit geometries above (same look, separate
+// InstancedMeshes so the two layers stay distinct). Fronts face
+// local +Z; the planner's rot already aims each item (benches and
+// chairs face the road, bus-stop boards face along the road).
+function chairGeometry() {
+  return mergeColouredParts((addPart) => {
+    addPart(new THREE.BoxGeometry(0.46, 0.06, 0.44), 0x8a6844, { p: [0, 0.45, 0] }); // seat
+    addPart(new THREE.BoxGeometry(0.46, 0.5, 0.05), 0x8a6844, { p: [0, 0.72, -0.2], r: [-0.1, 0, 0] }); // backrest
+    for (const sx of [-1, 1]) for (const sz of [-1, 1]) {
+      addPart(new THREE.BoxGeometry(0.05, 0.45, 0.05), 0x33373b, { p: [sx * 0.19, 0.225, sz * 0.18] });
+    }
+  });
+}
+
+function busStopSignGeometry() {
+  return mergeColouredParts((addPart) => {
+    addPart(new THREE.CylinderGeometry(0.09, 0.11, 0.15, 6), 0x3a3e44, { p: [0, 0.075, 0] }); // base
+    addPart(new THREE.CylinderGeometry(0.045, 0.06, 2.6, 6), 0x2f3338, { p: [0, 1.3, 0] }); // pole
+    addPart(new THREE.BoxGeometry(0.62, 0.5, 0.04), 0x1e5fa3, { p: [0, 2.35, 0] }); // blue board
+    addPart(new THREE.BoxGeometry(0.5, 0.1, 0.045), 0xf2f2e8, { p: [0, 2.45, 0] }); // white header stripe
+    addPart(new THREE.BoxGeometry(0.2, 0.16, 0.045), 0xf2f2e8, { p: [0, 2.2, 0] }); // white bus glyph block
+  });
+}
+
+function buildStreetAmenityMeshes(streetPlan, yAt = null) {
+  const it = streetPlan.items;
+  const meshes = [];
+  const add = (mesh) => { if (mesh) meshes.push(mesh); };
+  // Sidewalk surface (0.045) PLUS the drape — the same seat rule
+  // the park furniture uses (PARK_SURFACE_Y + drape), one
+  // InstancedMesh per kit class.
+  const seat = yAt ? (x, z) => 0.045 + yAt(x, z) : null;
+  add(instancedFromGeometry(benchGeometry(), it.bench, 'TaipeiStreetBenches', 0.045, {}, seat));
+  add(instancedFromGeometry(chairGeometry(), it.chair, 'TaipeiStreetChairs', 0.045, {}, seat));
+  add(instancedFromGeometry(binGeometry(), it.bin, 'TaipeiStreetBins', 0.045, {}, seat));
+  add(instancedFromGeometry(busStopSignGeometry(), it.busStop, 'TaipeiStreetBusStops', 0.045, {}, seat));
+  add(instancedFromGeometry(bushGeometry(), it.bush, 'TaipeiStreetBushes', 0.045, {}, seat));
+  return meshes;
 }
 
 // ---------------------------------------------------------------------
@@ -2243,14 +2287,29 @@ export async function buildTaipeiGround(scene, tile, deps = {}) {
     const lampPlan = planStreetLamps(geo, forPlan, { exclusions: treeExclusions });
     for (const mesh of buildStreetLampMeshes(lampPlan.lamps, drapeHeight)) meshes.push(mesh);
     console.info(`[taipei-lamps] ${lampPlan.lamps.length} street lamps (${lampPlan.stats.ground} ground, ${lampPlan.stats.deck} deck${lampPlan.stats.capped ? `, capped at ${lampPlan.stats.cap}` : ''}) planned in ${Math.round(performance.now() - lampStart)}ms`);
+    // Issue #362: street amenities — benches, chairs, bins, bus-stop
+    // signs and street bushes on the sidewalk bands. Planned AFTER
+    // the lamps and trees so their posts/trunks (both at the band
+    // centre) are passed as avoid points — a bench never lands on a
+    // lamp post or a tree trunk. Same exclusions as the lamps.
+    const streetAmenityStart = performance.now();
+    const streetAmenityPlan = planStreetAmenities(geo, forPlan, {
+      exclusions: treeExclusions,
+      avoid: [
+        ...lampPlan.lamps.map((l) => ({ x: l.x, z: l.z, r: 0.4 })),
+        ...street.trees.map((t) => ({ x: t.x, z: t.z, r: 0.5 })),
+      ],
+    });
+    for (const mesh of buildStreetAmenityMeshes(streetAmenityPlan, drapeHeight)) meshes.push(mesh);
+    console.info(`[taipei-street-amenities] ${streetAmenityPlan.stats.total} street amenity items (${Object.entries(streetAmenityPlan.items).map(([k, v]) => `${k} ${v.length}`).join(', ')}) planned in ${Math.round(performance.now() - streetAmenityStart)}ms`);
     const amenityTotal = Object.values(amenityPlan.items).reduce((s, v) => s + v.length, 0);
     console.info(`[taipei-parks] ${amenityTotal} amenity items (${Object.entries(amenityPlan.items).map(([k, v]) => `${k} ${v.length}`).join(', ')}) in ${amenityPlan.stats.parksDressed} parks (${amenityPlan.stats.parksPathless} pathless parks get trees only) planned in ${Math.round(performance.now() - amenityStart)}ms`);
-    return { street, park, amenityPlan, amenityTotal, parkByVariant, meshes, lamps: lampPlan };
+    return { street, park, amenityPlan, amenityTotal, parkByVariant, meshes, lamps: lampPlan, streetAmenities: streetAmenityPlan };
   };
   let trees = buildTrees(plan);
   for (const mesh of trees.meshes) group.add(mesh);
   console.info(`[taipei-trees] ${trees.street.trees.length} street trees (${trees.street.stats.sidewalk} sidewalk, ${trees.street.stats.median} median${trees.street.stats.capped ? `, capped at ${trees.street.stats.cap}` : ''}) + ${trees.park.trees.length} park trees${trees.park.stats.capped ? ` (capped at ${trees.park.stats.cap})` : ''} planned in ${Math.round(performance.now() - treesStart)}ms`);
-  await completeStage('trees', `${trees.street.trees.length + trees.park.trees.length} trees, ${trees.amenityTotal} park amenity items`);
+  await completeStage('trees', `${trees.street.trees.length + trees.park.trees.length} trees, ${trees.amenityTotal} park amenity items, ${trees.streetAmenities.stats.total} street amenity items`);
 
   // Issue #218: main.js drives ONE cityBlocks object per frame, so
   // the boot returns a stable facade over the current
