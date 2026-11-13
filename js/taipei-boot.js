@@ -23,7 +23,7 @@ import { buildGreenTintLayers, buildLoopTintLayers, consumeGreenFamilyOverlaps, 
 import { unionExclusionRects, clipRectToBoxes } from './taipei-union.js';
 import { createCurtainWallMaterial, createPreWarBuildingMaterial, createTaipeiMarkingMaterial, setTaipeiSignAtlases, cityUniforms } from './tsl-materials.js';
 import { color, mix, smoothstep, uv, float } from 'three/tsl';
-import { drawBandAtlas, drawBladeAtlas, drawRoofAtlas, drawTowerAtlas, BAND_ATLAS, BLADE_ATLAS, ROOF_ATLAS, TOWER_ATLAS, TAIPEI_BAND_SIGNS, TAIPEI_BLADE_SIGNS, TAIPEI_ROOF_SIGNS } from './taipei-signs.js';
+import { drawBandAtlas, drawBladeAtlas, drawRoofAtlas, drawTowerAtlas, loadSignLogoImages, BAND_ATLAS, BLADE_ATLAS, ROOF_ATLAS, TOWER_ATLAS, TAIPEI_BAND_SIGNS, TAIPEI_BLADE_SIGNS, TAIPEI_ROOF_SIGNS } from './taipei-signs.js';
 import { createBuildProgress, TAIPEI_BUILD_STAGES } from './taipei-progress.js';
 import { signalPhase } from './city-config.js'; // issue #356: the same 60 s phase cycle js/traffic.js obeys, for the signal lenses
 
@@ -2053,6 +2053,15 @@ export async function buildTaipeiGround(scene, tile, deps = {}) {
   // vertical blades the blade atlas; js/taipei-signs.js holds the
   // pool and the painters). A failure here must never block the
   // city: the materials keep their glyph treatment without atlases.
+  // Issue #372: real brand logos — load the logo images first
+  // (fast, local files, timeout-guarded inside the loader); a failed
+  // load falls back to the vector plates and never blocks the city.
+  let signLogoImages = null;
+  try {
+    signLogoImages = await loadSignLogoImages();
+  } catch (err) {
+    console.warn('[taipei-signs] logo images failed to load; vector plates remain', err);
+  }
   try {
     const mkSignTexture = (draw, atlas) => {
       const c = document.createElement('canvas');
@@ -2065,10 +2074,10 @@ export async function buildTaipeiGround(scene, tile, deps = {}) {
       return t;
     };
     setTaipeiSignAtlases(
-      mkSignTexture(drawBandAtlas, BAND_ATLAS),
-      mkSignTexture(drawBladeAtlas, BLADE_ATLAS),
-      mkSignTexture(drawRoofAtlas, ROOF_ATLAS),
-      mkSignTexture(drawTowerAtlas, TOWER_ATLAS)
+      mkSignTexture((c2d) => drawBandAtlas(c2d, signLogoImages), BAND_ATLAS),
+      mkSignTexture((c2d) => drawBladeAtlas(c2d, signLogoImages), BLADE_ATLAS),
+      mkSignTexture((c2d) => drawRoofAtlas(c2d, signLogoImages), ROOF_ATLAS),
+      mkSignTexture((c2d) => drawTowerAtlas(c2d, signLogoImages), TOWER_ATLAS)
     );
     console.info(`[taipei-signs] real-text sign atlases ready (${TAIPEI_BAND_SIGNS.length} band plates, ${TAIPEI_BLADE_SIGNS.length} blade plates, ${TAIPEI_ROOF_SIGNS.length} roof plates)`);
   } catch (err) {

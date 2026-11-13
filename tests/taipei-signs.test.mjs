@@ -20,9 +20,15 @@ import {
   ROOF_MAX_UNITS,
   TOWER_MAX_CHARS,
   SIGN_FONT_STACK,
+  SIGN_FONT_VARIANTS,
   SIGN_GENRE_STYLE,
   SIGN_GENRES,
+  SIGN_LOGO_FILES,
+  SIGN_LOGO_ROTATE_PORTRAIT,
+  SIGN_LOGO_DARK_PLATE,
+  logoPlateBg,
   nameWidthUnits,
+  signFontVariant,
   bandSignFits,
   bladeSignFits,
   roofSignFits,
@@ -107,10 +113,62 @@ for (const named of ['NET', '服飾店', '流行女裝', '童裝', '燦坤', '�
 }
 assert.ok(names.has('全聯福利中心'), 'issue #354 blade extra present: 全聯福利中心');
 
-// The two brand logo plates are the pool entries themselves (not
-// extra plates): 7-ELEVEN and 全家 carry a `logo` marker so the
-// painters draw the real lockup instead of plain text.
-for (const [name, logo] of [['7-ELEVEN', 'seven-eleven'], ['全家', 'familymart']]) {
+// Issue #372 (expansion): every real-brand logo plate is the pool
+// entry itself — 42 brands carry a `logo` marker so the painters
+// draw the real image instead of plain text. The band and blade
+// plate indices match (the blade pool is the band pool in the same
+// order). The two full-name blade extras carry their brand's logo
+// too. Every logo file is used by a plate, and every plate marker
+// resolves to a file — no orphans either way. 東一排骨 is the one
+// real brand with no clean logo anywhere, so it keeps its text plate
+// (pinned as text-only, so a future logo addition is a deliberate
+// change, not silent drift).
+const LOGO_PLATES = [
+  ['7-ELEVEN', 'seven-eleven'],
+  ['全家', 'familymart'],
+  ['五十嵐', 'fifty-lan'],
+  ['萊爾富', 'hi-life'],
+  ['屈臣氏', 'watsons'],
+  ['清心福全', 'ching-shin'],
+  ['大苑子', 'dayuanzi'],
+  ['OK超商', 'ok-mart'],
+  ['八方雲集', 'bafang'],
+  ['阿宗麵線', 'achung'],
+  ['拉亞漢堡', 'laya'],
+  ['永和豆漿', 'yonghe'],
+  ['新東陽', 'shinyang'],
+  ['湯姆熊', 'toms-world'],
+  ['NET', 'net'],
+  ['燦坤', 'tsannkuen'],
+  ['全國電子', 'elife'],
+  ['全聯', 'pxmart'],
+  ['寶雅', 'poya'],
+  ['大潤發', 'rtmart'],
+  ['家樂福', 'carrefour'],
+  ['麥當勞', 'mcdonalds'],
+  ['肯德基', 'kfc'],
+  ['摩斯漢堡', 'mos'],
+  ['星巴克', 'starbucks'],
+  ['路易莎', 'louisa'],
+  ['85°C', 'eight-five'],
+  ['可不可', 'kebuke'],
+  ['迷客夏', 'milksha'],
+  ['麻古茶坊', 'macu'],
+  ['鬍鬚張', 'huxuzhang'],
+  ['三商巧福', 'sanshang'],
+  ['吉野家', 'yoshinoya'],
+  ['爭鮮', 'zhengxian'],
+  ['藏壽司', 'kura'],
+  ['壽司郎', 'sushiro'],
+  ['康是美', 'cosmed'],
+  ['鼎泰豐', 'dingtaifung'],
+  ['春水堂', 'chunsuitang'],
+  ['CoCo都可', 'coco'],
+  ['茶湯會', 'chatime'],
+  ['吳寶春', 'wupaochun'],
+];
+assert.equal(LOGO_PLATES.length, 42, '42 real-brand logo plates in the band pool');
+for (const [name, logo] of LOGO_PLATES) {
   const sign = TAIPEI_BAND_SIGNS.find((s) => s.name === name);
   assert.equal(sign && sign.logo, logo, `${name} plate carries its logo lockup`);
   assert.equal(
@@ -119,6 +177,37 @@ for (const [name, logo] of [['7-ELEVEN', 'seven-eleven'], ['全家', 'familymart
     `${name} plate index matches across the band/blade pools`
   );
 }
+for (const [name, logo] of [['全家便利商店', 'familymart'], ['全聯福利中心', 'pxmart']]) {
+  const sign = TAIPEI_BLADE_SIGNS.find((s) => s.name === name);
+  assert.equal(sign && sign.logo, logo, `${name} blade extra carries its logo lockup`);
+  assert.ok(!TAIPEI_BAND_SIGNS.some((s) => s.name === name), `${name} is blade-only`);
+}
+const usedLogos = new Set([...LOGO_PLATES, ['全家便利商店', 'familymart'], ['全聯福利中心', 'pxmart']].map(([, logo]) => logo));
+assert.deepEqual([...Object.keys(SIGN_LOGO_FILES)].sort(), [...usedLogos].sort(), 'every logo file is used by a plate (no orphan files)');
+for (const sign of [...TAIPEI_BAND_SIGNS, ...TAIPEI_BLADE_EXTRA]) {
+  if (sign.logo) assert.ok(SIGN_LOGO_FILES[sign.logo], `${sign.name} logo marker resolves to a file: ${sign.logo}`);
+}
+assert.equal(
+  TAIPEI_BAND_SIGNS.find((s) => s.name === '東一排骨').logo,
+  undefined,
+  '東一排骨 is text-only (no clean logo graphic found anywhere)'
+);
+// The rotate set is exactly the wide wordmarks (> 2:1 at source):
+// a wide lockup reads top-to-bottom on a blade, a compact mark does
+// not rotate. The dark-plate set is exactly the two light-on-
+// transparency logos (kebuke's beige K, wupaochun's white mark).
+assert.deepEqual(
+  Object.keys(SIGN_LOGO_ROTATE_PORTRAIT).sort(),
+  ['achung', 'chunsuitang', 'coco', 'dayuanzi', 'dingtaifung', 'elife', 'familymart', 'huxuzhang', 'kfc', 'poya', 'pxmart', 'rtmart', 'sanshang', 'shinyang', 'watsons', 'yoshinoya', 'zhengxian'].sort(),
+  'the rotate set is the wide wordmarks'
+);
+for (const key of ['seven-eleven', 'fifty-lan']) {
+  assert.ok(!SIGN_LOGO_ROTATE_PORTRAIT[key], `compact mark never rotates: ${key}`);
+}
+assert.deepEqual(Object.keys(SIGN_LOGO_DARK_PLATE).sort(), ['kebuke', 'wupaochun'], 'exactly two dark-plate logos');
+assert.equal(logoPlateBg('kebuke'), '#1a1a1a', 'kebuke plate is near-black');
+assert.equal(logoPlateBg('wupaochun'), '#1a1a1a', 'wupaochun plate is near-black');
+assert.equal(logoPlateBg('seven-eleven'), '#ffffff', 'ordinary logos keep the white plate');
 
 // --- Fit: a name never overflows its sign ---------------------------
 assert.equal(BAND_MAX_UNITS, 5.0);
@@ -176,10 +265,70 @@ for (const named of ['日立', '三洋', '大同', '國際牌']) {
 assert.equal(ROOF_MAX_UNITS, 5.0);
 assert.equal(TOWER_MAX_CHARS, 8);
 
+// --- Issue #372: the logo plates are real image files -----------
+ // Every logo key has a real PNG in the repo (the user's 7-Eleven
+ // image, the 50 Lan logo, the FamilyMart 2016 logo) — the painters
+ // draw these instead of the vector lockups. The roof 7-ELEVEN
+ // board is a logo plate too, so the real logo appears on roofs.
+for (const [key, file] of Object.entries(SIGN_LOGO_FILES)) {
+  const buf = readFileSync(new URL(`../${file}`, import.meta.url));
+  assert.equal(buf.subarray(0, 8).toString('hex'), '89504e470d0a1a0a', `${key} logo file is a PNG: ${file}`);
+  assert.ok(buf.length > 1000, `${key} logo file is a real image, not a stub: ${file}`);
+}
+assert.equal(TAIPEI_ROOF_SIGNS.find((s) => s.name === '7-ELEVEN').logo, 'seven-eleven', 'roof 7-ELEVEN board carries its logo lockup');
+
 // --- Font stack: every Taiwan device resolves a real CJK face -------
 for (const face of ['Noto Sans TC', 'PingFang TC', 'JhengHei']) {
   assert.ok(SIGN_FONT_STACK.includes(face), `font stack covers ${face}`);
 }
+
+// --- Issue #372: font variety for the text plates --------------------
+// The variant is deterministic per name (same name → same weight and
+// size-scale on every machine, so the atlas is identical on every
+// load), sizes only shrink (scale ≤ 1.0, so the fit-by-construction
+// guarantees still hold), and every variant is actually used by the
+// pool (the variety is visible, not a dead branch).
+for (const v of SIGN_FONT_VARIANTS) {
+  assert.ok([400, 500, 700].includes(v.weight), `font variant weight is a text weight: ${v.weight}`);
+  assert.ok(v.scale > 0 && v.scale <= 1.0, `font variant scale only shrinks: ${v.scale}`);
+}
+assert.equal(SIGN_FONT_VARIANTS.length, 4, 'four font variants (weight × size)');
+for (const name of ['牛肉麵', '7-ELEVEN', '八方雲集', '燦坤']) {
+  assert.deepEqual(signFontVariant(name), signFontVariant(name), `font variant is deterministic: ${name}`);
+}
+const variantCounts = {};
+for (const sign of TAIPEI_BAND_SIGNS) {
+  const key = `${signFontVariant(sign.name).weight}/${signFontVariant(sign.name).scale}`;
+  variantCounts[key] = (variantCounts[key] || 0) + 1;
+}
+for (const [key, count] of Object.entries(variantCounts)) {
+  assert.ok(count >= 5, `font variant ${key} is used by at least 5 band plates (got ${count})`);
+}
+assert.equal(Object.keys(variantCounts).length, 4, 'all four font variants appear in the band pool');
+
+// --- Issue #372: emoji on a SPARSE handful of signs -----------------
+// Exactly three names carry an emoji (user: "don't overuse it") —
+// the clinic the user named (鍾小和診所➕), a pharmacy and a noodle
+// shop. They are blade-only (too long for a horizontal band plate,
+// which caps at 5 units) and fit a blade (≤ 8 chars, emoji included).
+// No emoji on any real-logo plate.
+const EMOJI_RE = /[\u2795\u{1F48A}\u{1F35C}]/u;
+const emojiNames = [...TAIPEI_BLADE_SIGNS].filter((s) => EMOJI_RE.test(s.name)).map((s) => s.name);
+assert.deepEqual(emojiNames.sort(), ['健保藥局💊', '阿婆麵線🍜', '鍾小和診所➕'].sort(), 'exactly three emoji-bearing names, and no others');
+for (const name of emojiNames) {
+  assert.ok(!TAIPEI_BAND_SIGNS.some((s) => s.name === name), `${name} is blade-only, not a band plate`);
+  assert.ok(bladeSignFits(TAIPEI_BLADE_SIGNS.find((s) => s.name === name)), `${name} fits its blade`);
+  assert.ok(!TAIPEI_BLADE_SIGNS.find((s) => s.name === name).logo, `${name} is a text plate, not a logo plate`);
+}
+// An emoji is a fixed 1-unit cell in the width estimator, so an
+// emoji name sizes (and fits) like a plain name of the same length.
+assert.equal(nameWidthUnits('➕'), 1, 'the heavy plus sign is one width unit');
+assert.equal(nameWidthUnits('💊'), 1, 'the pill emoji is one width unit');
+assert.equal(nameWidthUnits('🍜'), 1, 'the noodle emoji is one width unit');
+assert.equal(nameWidthUnits('鍾小和診所➕'), 6, 'the clinic name is six width units');
+// The font stack falls through to a device emoji face, so the emoji
+// renders instead of a missing-glyph box.
+assert.ok(SIGN_FONT_STACK.includes('Color Emoji') || SIGN_FONT_STACK.includes('Segoe UI Emoji'), 'font stack covers emoji');
 
 // --- Source contracts: the preloaded shaders mirror the grid --------
 const tsl = read('../js/tsl-materials.js');
@@ -223,6 +372,7 @@ assert.equal(tsl.split('bandPlateColor(bandUV,').length - 1, 2, 'both band plate
 const boot = read('../js/taipei-boot.js');
 assert.ok(boot.includes('setTaipeiSignAtlases('), 'taipei-boot injects the atlases');
 assert.ok(boot.includes("from './taipei-signs.js'"), 'taipei-boot imports the signs module');
+assert.ok(boot.includes('loadSignLogoImages'), 'taipei-boot loads the real logo images (issue #372)');
 assert.ok(boot.includes('drawRoofAtlas'), 'taipei-boot paints the roof atlas');
 assert.ok(boot.includes('drawTowerAtlas'), 'taipei-boot paints the tower atlas');
 

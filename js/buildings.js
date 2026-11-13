@@ -2992,12 +2992,19 @@ function buildCityBlocks(scene, opts = null) {
   // as the panel colour, so a panel keeps its shop on every load, and
   // the glyph look remains the fallback where no atlas is injected.
   // Blade atlas grid, mirrored from js/taipei-signs.js (BLADE_ATLAS /
-  // TAIPEI_BLADE_SIGNS): 12 cols × 7 rows, 76 plates, plate row counted
+  // TAIPEI_BLADE_SIGNS): 16 cols × 7 rows, 103 plates, plate row counted
   // from the texture's bottom. The node suite source-pins these
   // literals against the signs module — change them together.
-  const SIGN_BLADE_COLS = 12.0;
+  // Issue #372: 79 plates (was 76) — the three sparse-emoji blade
+  // extras (鍾小和診所➕ / 健保藥局💊 / 阿婆麵線🍜). The grid still
+  // holds 84 cells, so no grid growth is needed for these three.
+  // Issue #372 (expansion): 103 plates — the band pool grows 72 → 96
+  // (24 new real-brand plates, appended at the end, so the brand pins
+  // below keep their indices) plus the 7 blade extras. The grid
+  // grows 12×7 → 16×7 (112 cells hold 103 plates).
+  const SIGN_BLADE_COLS = 16.0;
   const SIGN_BLADE_ROWS = 7.0;
-  const SIGN_BLADE_PLATES = 76.0;
+  const SIGN_BLADE_PLATES = 103.0;
   // Issue #354: the commonest shops are picked by weight, not
   // uniformly — a real Taipei street has a 7-ELEVEN or FamilyMart on
   // most commercial corners, and 八方雲集 / 鍋貼 / 東一排骨 are this
@@ -3024,9 +3031,23 @@ function buildCityBlocks(scene, opts = null) {
     const uvN = uv();
     const nW = normalWorldGeometry;
     const faceCoord = mix(positionWorld.z, positionWorld.x, step(abs(nW.z), abs(nW.x)));
-    const hashN = (v) => mx_noise_float(v).mul(0.5).add(0.5);
-    const hp = hashN(vec2(floor(faceCoord.mul(0.5)), 4.97));
-    const hp2 = hashN(vec2(floor(faceCoord.mul(0.5)), 9.31));
+    // Issue #372: the #354 plate hash was degenerate. mx_noise_float
+    // on (integer, 4.97) sits on a Perlin lattice line (fy=0.97),
+    // so hp never left 0.48-0.52 and the weighted bands below never
+    // fired; and on (integer, 9.31) the noise takes only 13 distinct
+    // values, so only 13 of 103 plates ever appeared (brute-forced
+    // over 400k q: 0 weighted hits). A Weyl-sequence hash — fract of
+    // an irrational multiple — is uniform over [0,1), so the weighted
+    // bands fire at their stated rates and every plate appears
+    // (brute-forced: all 103 plates, 7-ELEVEN 8.3%, FamilyMart 3.9%,
+    // 八方雲集 4.9%). It is also exactly reproducible from the Node
+    // finder (float32 arithmetic; see logos372-evidence/
+    // find-blades372.mjs), which the mx_noise hash was not. The
+    // 0.5 m quantization is kept, so a blade's broad face — whose
+    // face coordinate is constant — still shows exactly one plate.
+    const q = floor(faceCoord.mul(0.5));
+    const hp = fract(q.mul(0.6180339887));
+    const hp2 = fract(q.mul(0.7548776662));
     const band = (lo, hi) => step(lo, hp).mul(float(1.0).sub(step(hi, hp)));
     let plate = floor(hp2.mul(SIGN_BLADE_PLATES));
     plate = mix(plate, SIGN_BLADE_BRAND_711, band(0.0, 0.08));
