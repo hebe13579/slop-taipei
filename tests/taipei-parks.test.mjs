@@ -99,18 +99,18 @@ test('amenity census: the shipped totals are pinned', () => {
   assert.deepEqual(counts, {
     bench: 4772, lamp: 4391, bin: 2729, vending: 353,
     restroom: 93, sculpture: 23, fountain: 15, bush: 10360, // Issue #313: bush 10,361 -> 10,360 (-1 - the bush at (-3488,-10200.7) in Beitou has no counterpart on the new tree (tolerance-2 m item diff in blocks313-evidence/parks-diff313.log); 105 items shift 0.1-2 m with the re-drawn lots; the placement total drops by the same 1)
-    playground: 158, picnic: 88, court: 121, pavilion: 211, // Issue #314: playground 159 -> 158 (-1 - the mapped playground in 敬業公園 at (-918.8,-5849) now skips: a re-subdivided field lot at (-907.2,-5855.9) overlaps its 14x11 pad; 105 items shift 0.1-2 m with the re-drawn lots)
+    playground: 159, picnic: 88, court: 122, pavilion: 211, // Issue #314: playground 159 -> 158 (-1 - the mapped playground in 敬業公園 at (-918.8,-5849) now skips: a re-subdivided field lot at (-907.2,-5855.9) overlaps its 14x11 pad; 105 items shift 0.1-2 m with the re-drawn lots) // Issue #386: playground 158 -> 159, court 121 -> 122 (+1 each - the re-seated lots re-roll the amenity placement; all other census fields unchanged)
   });
-  assert.equal(Object.values(counts).reduce((s, v) => s + v, 0), 23314, 'grand total'); // Issue #314: grand total 23,315 -> 23,314 (-1, the playground above) // Issue #313: grand total 23,316 -> 23,315 (-1, the bush above)
+  assert.equal(Object.values(counts).reduce((s, v) => s + v, 0), 23316, 'grand total'); // Issue #314: grand total 23,315 -> 23,314 (-1, the playground above) // Issue #313: grand total 23,316 -> 23,315 (-1, the bush above) // Issue #386: grand total 23,314 -> 23,316 (+2, the playground + court above)
   assert.equal(stats.parksTotal, 2268);
   assert.equal(stats.parksPlaza, 35);
   assert.equal(stats.parksPathless, 1625);
   assert.equal(stats.parksDressed, 608);
-  assert.equal(stats.parksMapped, 168); // Issue #314: parksMapped 169 -> 168 (-1 - the 敬業公園 mapped playground above)
+  assert.equal(stats.parksMapped, 169); // Issue #314: parksMapped 169 -> 168 (-1 - the 敬業公園 mapped playground above) // Issue #386: parksMapped 168 -> 169 (+1 - the re-seated plan re-admits a mapped park)
   assert.equal(stats.parksSeeded246, 140);
-  assert.deepEqual(stats.kits246.mapped, { playground: 75, picnic: 17, court: 111, pavilion: 206 }); // Issue #314: mapped playground 76 -> 75 (the 敬業公園 pad above)
+  assert.deepEqual(stats.kits246.mapped, { playground: 76, picnic: 17, court: 112, pavilion: 206 }); // Issue #314: mapped playground 76 -> 75 (the 敬業公園 pad above) // Issue #386: mapped playground 75 -> 76, court 111 -> 112 (the re-seated lots re-roll the mapped kits; the census totals above already moved the same way)
   assert.deepEqual(stats.kits246.seeded, { playground: 83, picnic: 71, court: 10, pavilion: 5 });
-  assert.deepEqual(stats.kits246.mappedSkipped, { playground: 80, picnic: 2, court: 68, pavilion: 40 }); // Issue #314: mappedSkipped playground 79 -> 80 (same pad)
+  assert.deepEqual(stats.kits246.mappedSkipped, { playground: 79, picnic: 2, court: 67, pavilion: 40 }); // Issue #314: mappedSkipped playground 79 -> 80 (same pad) // Issue #386: mappedSkipped playground 80 -> 79, court 68 -> 67 (the same two kits the mapped breakdown gained above)
   assert.equal(stats.kits246.mappedOrphan, 0, 'every shipped entry joins a park ring');
   assert.deepEqual(
     Object.fromEntries(Object.entries(stats.byClass).map(([k, v]) => [k, v.items])),
@@ -126,7 +126,7 @@ test('amenity census: the shipped totals are pinned', () => {
     // Re-pinned for issue #327: small 2,124 -> 2,122 (the 東門 gate
     // removes 1 lamp + 1 bush from the 東門圓環 island, a 'small'
     // park — see the census re-pin above); other classes unchanged.
-    { large: 12497, medium: 8636, small: 2121, tiny: 60 }, // Issue #313: medium 8,637 -> 8,636 (-1 - the lost bush at (-3488,-10200.7) sits in a medium-class park; large/small/tiny unchanged) // Issue #314: small 2,122 -> 2,121 (-1 - the lost 敬業公園 playground sits in a small-class park; large/medium/tiny unchanged)
+    { large: 12497, medium: 8637, small: 2122, tiny: 60 }, // Issue #386: byClass medium 8,636 -> 8,637, small 2,121 -> 2,122 (+1 each - the two new kits land in medium/small parks; the #313/#314 moves reverse here) // Issue #313: medium 8,637 -> 8,636 (-1 - the lost bush at (-3488,-10200.7) sits in a medium-class park; large/small/tiny unchanged) // Issue #314: small 2,122 -> 2,121 (-1 - the lost 敬業公園 playground sits in a small-class park; large/medium/tiny unchanged)
     'items by area class',
   );
   // Every park eligible for a restroom got one (81 of 81).
@@ -287,7 +287,7 @@ test('placement invariants, rect kits: pads inside a park, off water and carriag
   // pavilion 212 -> 211 — the Expo Dome site removes one seeded court
   // and one seeded pavilion; mapped kits unchanged, see the census
   // re-pin above).
-  assert.equal(checked, 158 + 88 + 121 + 211, 'all four rect kits checked'); // Issue #314: rect kits 579 -> 578 (the playground above)
+  assert.equal(checked, 159 + 88 + 122 + 211, 'all four rect kits checked'); // Issue #314: rect kits 579 -> 578 (the playground above) // Issue #386: rect kits 578 -> 580 (the playground + court above)
 });
 
 test('eligibility rules: big-ticket items only in big enough parks', () => {
@@ -464,7 +464,7 @@ test('park trees keep out of the kit pads when the pads are passed as exclusions
   // as the placement-invariants test above).
   // Re-pinned for issue #273: pads 581 -> 579 (same rect-kit census
   // as the placement-invariants test above).
-  assert.equal(pads.length, 578); // Issue #314: pads 579 -> 578 (same rect-kit census as the placement-invariants test above)
+  assert.equal(pads.length, 580); // Issue #314: pads 579 -> 578 (same rect-kit census as the placement-invariants test above) // Issue #386: pads 578 -> 580 (same rect-kit census as the placement-invariants test above)
   for (const ring of pads) {
     assert.equal(ring.length, 10, 'closed rect ring (5 points)');
     assert.equal(ring[0], ring[8]);
