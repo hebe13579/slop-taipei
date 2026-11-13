@@ -189,10 +189,14 @@ test('env: no grid, no signals source, pedestrians off, bus scaling, spawn radiu
 test('network: generic builder keeps a strongly connected drivable core', () => {
   // The largest strongly connected set is the routing-safety property: no
   // vehicle can reach a dead end. 19,314 directed lane edges are built,
-  // 14,921 survive the SCC cut (77%), over 6,857 nodes; no junction is
-  // signalized (Taipei has no node-level signal table — right of way is the
-  // step-9 arm groups). Re-pinned at the merge gate: the same A/B as the
-  // census above — 21,397 / 16,332 / 7,495 on the composed tile, the
+  // 14,921 survive the SCC cut (77%), over 6,857 nodes. Issue #356:
+  // 691 junctions ARE signalized now — the markings' signalized
+  // junctions mark their nodes (tests/taipei-signals.test.mjs pins
+  // 691 nodes over 437 junctions) and the step-9 arm groups at those
+  // nodes follow the markings' phase assignment, so the AI obeys the
+  // heads it sees. The core counts are unchanged: marking adds no
+  // nodes or edges, and the moves do not read the groups.
+  // Re-pinned at the merge gate: the same A/B as the census above — 21,397 / 16,332 / 7,495 on the composed tile, the
   // strip fabric's streets joining the same strongly connected core.
   // Re-pinned for issue #252 (same cross-run proof as the census test):
   // the deck/ramp drop costs 6% of the core — 20,984 / 15,229 / 6,890 —

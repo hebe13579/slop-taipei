@@ -937,6 +937,7 @@ async function initApp() {
     controllerManager.update(dt, elapsed);
     cameraSystem.update(dt, elapsed);
     streetDetails.signalClock.value = elapsed;
+    if (isTaipei && cityGrid.signals) cityGrid.signals.update(elapsed); // issue #356: cycle the Taipei signal lenses on the same clock traffic.js brakes on
     trafficSystem.update(
       dt,
       elapsed,

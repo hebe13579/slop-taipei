@@ -2,6 +2,7 @@ import { TAIPEI_GEO } from './taipei-sandbox.js'; // sandbox wrapper: the genera
 import { ASPHALT_LIFT } from './taipei-viaduct.js'; // three-free geometry constants; the sampler below reuses the digest the renderer draws
 import { ROAD_TRENCH_DEPTH_M } from './taipei-airfield.js'; // issue #279: the #196 trench datum the underpass floor agrees with
 import { drapeHeight } from './taipei-drape.js'; // issue #285: the one height field the rendered road ribbons and the player drive model sample
+import { detectJunctions, junctionPhaseGroups } from './taipei-markings.js'; // issue #356: the signalized junctions the network marks
 
 // js/taipei-traffic.js — issue #210 EXPERIMENT: traffic generation for the Taipei tile.
 //
@@ -34,11 +35,12 @@ import { drapeHeight } from './taipei-drape.js'; // issue #285: the one height f
 //   from 7,495 nodes to 3,591. Deck driving with real heights is
 //   issue #254.
 // - taipeiTrafficEnv() is the environment buildRoadNetwork/createTrafficSystem accept:
-//   no avenues/streets/medians, land = the tile bbox, NO signalized junctions (Taipei's
-//   signal furniture exists as markings, but no node-level signal table exists, so every
-//   junction is unsignalized and right of way falls to the step-9 arm groups), and
-//   pedestrians OFF (createPedestrianRoutes is fed by NYC block data; Taipei pedestrian
-//   space is per-road `pedestrianLayout`, a different model — vehicles only here).
+//   no avenues/streets/medians, land = the tile bbox, signalized junctions from
+//   taipeiSignalJunctions() (issue #356: the markings' signalized junctions with
+//   their phase groups — the node-level signal table the network marks, so the
+//   AI obeys the heads it sees), and pedestrians OFF (createPedestrianRoutes is
+//   fed by NYC block data; Taipei pedestrian space is per-road `pedestrianLayout`,
+//   a different model — vehicles only here).
 //
 // Vehicles therefore drive with the upstream machinery untouched: IDM car-following, lane
 // choice, turn curves, junction box discipline. Spawning is upstream's local-population
@@ -828,6 +830,33 @@ export function buildTaipeiRoadGraph(source = TAIPEI_GEO, opts = {}) {
 
 const cachedGraphs = new Map();
 
+// Issue #356: the signalized junctions, with the phase group of
+// every approach (junctionPhaseGroups in js/taipei-markings.js —
+// widest road = 0, every other approach = 1). Computed once per
+// process from the same roadbeds the markings are planned from, so
+// the network's signal table and the rendered heads describe the
+// same junctions. Junctions with no drivable network node nearby
+// (highway interchanges, tunnel mouths, the mountain trail —
+// measured 43 of 480 at the 20 m match radius) simply match no
+// node and stay unmarked; no AI car can reach them.
+// The sandbox wrapper filters the geodata, so a sandbox slice sees
+// only its own junctions — the same slice the markings show.
+let cachedSignalJunctions = null;
+export function taipeiSignalJunctions() {
+  if (!cachedSignalJunctions) {
+    cachedSignalJunctions = detectJunctions(TAIPEI_GEO.roadbeds)
+      .filter((j) => j.signalized)
+      .map((j) => {
+        const groups = junctionPhaseGroups(j);
+        return {
+          x: j.x, z: j.z,
+          arms: j.arms.map((a, i) => ({ dirX: a.dirX, dirZ: a.dirZ, group: groups[i] })),
+        };
+      });
+  }
+  return cachedSignalJunctions;
+}
+
 export function taipeiTrafficEnv(carCount, opts = {}) {
   // Issue #254: the live env always uses the deck graph — cars drive
   // the decks through the same gear switch as ground traffic. Issue
@@ -857,6 +886,14 @@ export function taipeiTrafficEnv(carCount, opts = {}) {
       // than the 0.6 m join tolerance across the merged nodes).
       // Only the Taipei env sets this; the NYC env does not.
       groundAt: drapeHeight,
+      // Issue #356: the signalized junctions with their phase
+      // groups (see taipeiSignalJunctions above). js/road-network.js
+      // marks the nearest node of each signal=true and takes the
+      // node's arm groups from the same assignment the rendered
+      // heads carry — one source of truth, in
+      // js/taipei-markings.js. Only the Taipei env sets this; the
+      // NYC env does not, and its step-8 grid table is untouched.
+      signalJunctions: taipeiSignalJunctions(),
       // The tile is one land rectangle for lane-clearance purposes: Taipei's roads are
       // building-free by construction (the planner excludes every roadbed), so no obstacle
       // list is needed to keep lanes on the carriageway.
