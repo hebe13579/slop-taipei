@@ -10041,8 +10041,13 @@ function mergePartGeometries(THREE, geometries) {
 // ~1–2 px — measured from frames, see
 // xinyi255-evidence/MEASUREMENT.md. Hysteresis band, the #244
 // pattern: hide past FAR, show again inside NEAR.
-export const DESPAWN_FAR_M = 1500;
-export const DESPAWN_NEAR_M = 1300;
+// Issue #388: FAR/NEAR were 1500/1300 m; now 700/600 m to match
+// SCHOOL_LOD_FAR_M / SCHOOL_LOD_NEAR_M — the codebase's standard
+// far distance (far-building fade also starts at 700 m). The
+// constants are shared: the same change despawns the 堤防 flood
+// walls, the skybridge chains, and the CKS fence runs at 700 m.
+export const DESPAWN_FAR_M = 700;
+export const DESPAWN_NEAR_M = 600;
 
 // Per-frame far despawn. `entries` carry the toggled object, its
 // plan position and its current state — pure visibility flags,
