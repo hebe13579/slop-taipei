@@ -5004,6 +5004,82 @@ const LANDMARK_STRUCTURES = [
           ],
         },
       ),
+      // ---- Issue #357: more NTU buildings (the campus read sparse).
+      // Fitted rects from the OSM outlines (PBF scan, scan-full.json),
+      // all verified 0.00 m² against the roadbeds (ntu357-evidence/
+      // overlap357b.mjs). Heights are OSM building:levels x 3.6 m where
+      // tagged, else estimated (EST) at 14 m for a standard 4-floor
+      // department block. All boxes use the entry's prewar brick facade
+      // (the user's 3D aerial shows the campus department buildings as
+      // red-brick; Astro-Math is the only glass tower, already modelled).
+      // Physics / Condensed Matter 物理凝態中心 (way/191354836, 14 floors):
+      // two boxes — the min-area rect (90.7 x 37.3) overhung a service
+      // drive at its east end by 78.5 m² (the outline only grazes it
+      // by 3.6 m²), so the main block stops short and the east end is
+      // a narrower strip whose north edge sits 1 m south of the drive.
+      { type: 'box', w: 64, d: 38, h: 50, dx: -304.1, dz: -547.4, rotY: 3.127 },
+      { type: 'box', w: 27, d: 17, h: 50, dx: -258.6, dz: -539.9, rotY: 3.127 },
+      // Liberal Arts Teaching Hall 博雅教學館 (way/191358132, 4 floors):
+      // the min-area rect (113.9 x 30.1) overhung a service-drive loop
+      // at its west end by 237 m², so the rect is shortened 21 m on the
+      // west (the main bar is the recognisable part; the loop-wrapped
+      // west end is not modelled).
+      { type: 'box', w: 93, d: 30.1, h: 14, dx: -282.0, dz: -225.4, rotY: 3.125 },
+      // NTU Gym, old 臺大體育館 (way/1052252308; height EST 10 m).
+      { type: 'box', w: 71.9, d: 40.2, h: 10, dx: -310.1, dz: -315.7, rotY: 3.129 },
+      // Civil Engineering 土木系館 (way/191350725; height EST 14 m).
+      { type: 'box', w: 112.6, d: 45.6, h: 14, dx: -126.4, dz: -111.6, rotY: -0.016 },
+      // Chemical Engineering 化工館 (way/191350741; height EST 14 m).
+      { type: 'box', w: 112.6, d: 26.7, h: 14, dx: -126.9, dz: -147.7, rotY: 3.127 },
+      // Mechanical Engineering 機械系館 (way/1323358387; height EST 14 m).
+      { type: 'box', w: 75.1, d: 38.3, h: 14, dx: 2.6, dz: -242.7, rotY: 3.110 },
+      // Life Sciences 生命科學大樓 (way/191350734; height EST 14 m):
+      // diagonal bar — the min-area rect (86.6 x 44.6) overhung two
+      // drives by 294 m², so a thinner 76 x 30 m bar on the outline's
+      // centreline (74% of the outline covered, 85% of the rect real).
+      { type: 'box', w: 76, d: 30, h: 14, dx: -84.1, dz: 154.0, rotY: 2.764 },
+      // Common Classroom 共同教學館 (way/191350727; height EST 14 m).
+      { type: 'box', w: 81.2, d: 39.8, h: 14, dx: -198.4, dz: 118.0, rotY: 3.129 },
+      // Freshman Teaching 新生教學館 (way/191354845; height EST 11 m).
+      { type: 'box', w: 63.4, d: 16.9, h: 11, dx: -114.7, dz: -318.4, rotY: -0.017 },
+      // Koo Library 辜振甫圖書館 (way/311536360, 2 floors).
+      { type: 'box', w: 57.7, d: 50.9, h: 7, dx: 276.6, dz: -393.5, rotY: -3.126 },
+      // Barry Lam Hall 博理館 (way/191358145; height EST 14 m):
+      // shortened 63.6 -> 55 m on the east so the SE corner clears the
+      // diagonal drive and the two E-W drives on its north edge.
+      { type: 'box', w: 55, d: 28.2, h: 14, dx: 269.7, dz: -269.3, rotY: 3.129 },
+      // International Building 國際大樓 (way/249701078, 12 floors):
+      // a chevron (bent bar) — two diagonal boxes, the upper bar and
+      // the lower arm; the min-area rect (74.8 x 72.8) overhung four
+      // drives by 67.5 m² and only 57% of it is real building.
+      { type: 'box', w: 64, d: 27, h: 43, dx: 57.5, dz: 402.1, rotY: 2.246 },
+      { type: 'box', w: 68, d: 27, h: 43, dx: 63.0, dz: 439.1, rotY: 0.628 },
+      // Student Activity Center 學生活動中心 (way/202164133; EST 14 m).
+      { type: 'box', w: 63.2, d: 55.7, h: 14, dx: 322.6, dz: 328.8, rotY: -2.328 },
+      // 2nd Teaching Building 第二教學大樓 (way/646382069; EST 14 m).
+      { type: 'box', w: 80.5, d: 58.5, h: 14, dx: 141.8, dz: 522.5, rotY: -2.329 },
+      // Humanities 人文館 (way/1323137034, 6 floors).
+      { type: 'box', w: 86.0, d: 51.4, h: 22, dx: -541.7, dz: -102.2, rotY: -0.002 },
+      // Hall No.2 二號館 (way/185260559, 3 floors).
+      { type: 'box', w: 92.8, d: 45.9, h: 11, dx: -369.3, dz: 10.3, rotY: -0.012 },
+      // Geology 地質系館 (way/191360824; height EST 14 m): a U-shaped
+      // courtyard block — two arms (the 7.6 m gap between them is the
+      // courtyard opening). The min-area rect (64.3 x 48.5) overhung a
+      // diagonal drive at the SW corner and the N-S drive at the east.
+      { type: 'box', w: 62, d: 15, h: 14, dx: -245.2, dz: 212.8, rotY: 0.048 },
+      { type: 'box', w: 55, d: 21, h: 14, dx: -242.0, dz: 238.4, rotY: -0.024 },
+      // Siliang Hall 思亮館 (way/191350735; height EST 14 m):
+      // the min-area rect (113.3 x 27.2) overhung the E-W road along
+      // its south edge by 258.5 m², so the depth is cut to 19.2 m and
+      // the centre shifted 4 m north (the outline itself is clean).
+      { type: 'box', w: 113.3, d: 19.2, h: 14, dx: -97.0, dz: -449.4, rotY: -0.016 },
+      // Drunken Moon Lake 醉月湖 (relation/206483, outer ring
+      // way/39220087): NOT in the geodata water layer, so it is a flat
+      // water ellipse (axis-aligned; the real lake tilts 8.6° off N-S).
+      // Centre and radii are the ring's bbox (latLonToTile); the
+      // ellipse clears the roadbeds (the min-area rect overhung the
+      // lakeside drive by 75 m²). Colour 0x2f6d96 = the geodata water.
+      { type: 'cylinder', r: 48.6, rz: 85.25, h: 0.3, y0: 0.02, dx: -197.0, dz: -367.1, flat: 0x2f6d96 },
     ],
   },
   {

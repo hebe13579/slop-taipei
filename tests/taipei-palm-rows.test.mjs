@@ -64,7 +64,9 @@ test('NTU palm rows: 108 palms, 54 north + 54 south, heights 13–17 m', () => {
   // 29 pre-#316 parts + the 108 palms = 137. (121 stations at 8 m
   // along the 491 m through section, minus 1 skipped at the
   // west-end bend and 12 skipped at drive crossings.)
-  assert.equal(ntu.parts.length, 137, 'NTU part count pinned (issue #316)');
+  // Issue #357: 137 -> 159 (+22: 21 fitted building boxes + 1
+  // Drunken Moon Lake cylinder; plan diff in ntu357-evidence/).
+  assert.equal(ntu.parts.length, 159, 'NTU part count pinned (issue #316, #357)');
   assert.equal(palms.length, 108, 'two rows, 54 north + 54 south');
   for (const p of palms) {
     assert.ok(p.h >= 13 && p.h <= 17, `palm height ${p.h} in [13, 17] m`);
