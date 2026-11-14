@@ -4761,11 +4761,6 @@ const LANDMARK_STRUCTURES = [
       { type: 'cylinder', r: 0.35, h: 0.9, dx: -20.42, dz: -72.45, flat: 0x6b655c },
       { type: 'dome', rx: 0.45, rz: 0.45, h: 0.45, dx: -20.42, dz: -72.45, y0: 0.9, flat: 0x4e7d32 },
 // --- Statue + roundabout + main gate + guard booth (#334; moved north by #344) ---
-      // Issue #365: the roundabout curb as photographed (2023
-      // central photo) — a cream tile face with a red-brick top
-      // course, not all brick. The cream cylinder (r 7.05) wraps
-      // the lower 0.35 m of the brick curb (r 7, h 0.5).
-      { type: 'cylinder', r: 7.05, h: 0.35, dx: -41.7, dz: -84, flat: 0xd9d2c4 },
       { type: 'cylinder', r: 7, h: 0.5, dx: -41.7, dz: -84, flat: 0x9c4a36 },
       { type: 'cylinder', r: 6.2, h: 0.65, dx: -41.7, dz: -84, y0: 0.5, flat: 0xa03a2a },
       { type: 'box', w: 0.6, d: 0.6, h: 0.5, dx: -43.1, dz: -78.6, y0: 1.15, rotY: -0.262, flat: 0x4e7d32 },

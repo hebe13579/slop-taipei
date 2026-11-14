@@ -386,11 +386,6 @@ test('issue #334/#344: Jianguo fence (red brick + iron bars), Honglou detail fac
   const plinthMarks = jianguo.parts.filter((p) => p.type === 'box' && p.flat === 0xd8b13c && p.w === 0.4 && p.h === 0.35);
   assert.equal(plinthMarks.length, 4, 'four gold inscription marks on the plinth front');
   assert.ok(plinthMarks.every((p) => p.dx === -41.92 && p.dz === -84.82), 'marks on the plinth north face');
-  // Issue #365: the roundabout curb as photographed — a cream tile
-  // face with a red-brick top course (the brick curb, r 7, stays).
-  const creamCurb = jianguo.parts.find((p) => p.type === 'cylinder' && p.r === 7.05);
-  assert.ok(creamCurb, 'cream tile curb face present');
-  assert.equal(creamCurb.h, 0.35, 'cream face is the lower 0.35 m of the 0.5 m curb');
   // Issue #365: topiary urns at the tower bases (2023 central photo —
   // three dark stone urns with round green topiary at the foot of
   // each tower's north face, 1.3 m out, spread ±3.5 m along it).
@@ -400,10 +395,13 @@ test('issue #334/#344: Jianguo fence (red brick + iron bars), Honglou detail fac
   assert.equal(urnBalls.length, 6, 'six green topiary balls, one per pot');
   assert.ok(urnBalls.every((p) => Math.abs(p.y0 - 0.9) < 0.01), 'topiary sits on the pot (y0 0.9)');
   // The whole entry: 162 Honglou (150 + 12 urns) + 3716 fence +
-  // 56 statue/gate/guard (51 + 4 plinth marks + 1 cream curb; the
-  // cane is a swap, net 0) + 28 trees + 21 classroom/court/track
-  // parts = 3983.
-  assert.equal(jianguo.parts.length, 3983, 'Jianguo part count pinned');
+  // 55 statue/gate/guard (51 + 4 plinth marks; the cane is a swap,
+  // net 0) + 28 trees + 21 classroom/court/track parts = 3982.
+  // (A cream tile face on the roundabout curb was tried and reverted:
+  // its r 7.05 ring overlaps the unnamed entrance drive by 0.41 +
+  // 18.88 m², and the #344 exception set is exact — it cannot grow.
+  // The curb stays the #334 all-brick cylinder.)
+  assert.equal(jianguo.parts.length, 3982, 'Jianguo part count pinned');
 });
 
 test('issue #333: Qingjiang track is a draped mesh on a groundAt plan', () => {

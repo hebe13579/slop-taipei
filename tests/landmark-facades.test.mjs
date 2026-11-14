@@ -124,6 +124,11 @@ const EXPECTED_FACADES = {
 
 // The only Latin wordmarks a landmark sign may carry — the ones the
 // real buildings carry. Everything else is abstract glyph blocks.
+// EXCEPTION (issue #365): the 建國中學紅樓's gold 建國中學 on its
+// grey stone band is a real CJK inscription the school itself
+// carries, drawn for real (not glyph blocks) because a school name
+// cannot be abstracted. It is a band inscription (0.8 m tall, the
+// band's own height), not a big wordmark — see the `band` flag below.
 const EXPECTED_SIGNS = {
   'taipei-nan-shan-plaza': { text: 'Breeze' },
   'cathay-landmark': { text: 'Breeze' },
@@ -156,6 +161,10 @@ const EXPECTED_SIGNS = {
   // Issue #289: the VieShow marquee — the big movie-advertisement
   // board on the south face, a real wordmark the cinema carries.
   'vieshow-cinemas-xinyi': { text: 'VIESHOW' },
+  // Issue #365: the Honglou's gold 建國中學 on the grey stone band
+  // below the central gable — real CJK characters (see the map header),
+  // 12 x 0.8 m, the band's own size.
+  'jianguo-high-school': { text: '建國中學', band: true },
   // Issue #278: the planetarium's red 天文館 roof sign (3 abstract
   // glyph blocks) and the NTSEC's 'NTSEC' wordmark — both are real
   // signs the buildings carry. (VGH has no sign: its vertical
@@ -215,7 +224,10 @@ test('landmark signs are pinned, placed on a real face and wordmark-restricted',
     for (const k of ['w', 'h', 'y', 'dz']) {
       assert.ok(Number.isFinite(s.sign[k]), `${s.id} sign ${k} is not finite`);
     }
-    assert.ok(s.sign.w >= 10 && s.sign.h >= 2.5, `${s.id} sign implausibly small`);
+    assert.ok(s.sign.w >= 10, `${s.id} sign implausibly narrow`);
+    // A band inscription is the band's own height (the Honglou band
+    // is 0.8 m) — the 2.5 m floor is for big wordmark signs only.
+    assert.ok(expected.band || s.sign.h >= 2.5, `${s.id} sign implausibly small`);
     assert.ok(s.sign.y - s.sign.h / 2 >= 0 && s.sign.y + s.sign.h / 2 <= s.realHeight, `${s.id} sign escapes its structure's height`);
     assert.match(s.sign.bg, /^#[0-9a-f]{6}$/i, `${s.id} sign bg`);
     assert.match(s.sign.fg, /^#[0-9a-f]{6}$/i, `${s.id} sign fg`);
