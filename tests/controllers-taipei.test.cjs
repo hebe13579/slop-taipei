@@ -448,7 +448,7 @@ test('taipei-boot wires the tile world into main.js (source contract)', () => {
   // for CPU-posed figures; on WebGPU the factory stays null.
   assert.match(boot, /avatarFigureFactory: env\.webglFallback \? \(appearance\) => new AvatarFigure\(appearance\) : null/);
   const main = readFileSync(join(__dirname, '../js/main.js'), 'utf8');
-  assert.match(main, /tileBoot\.controllerOptions\(activeTile, \{ webglFallback: renderer\.backend\?\.isWebGLBackend === true \}\)/);
+  assert.match(main, /tileBoot\.controllerOptions\(activeTile, \{ webglFallback: renderer\.backend\?\.isWebGLBackend === true, ghostMode: settings\.ghostMode \}\)/);
   assert.match(main, /: undefined/);
 });
 
