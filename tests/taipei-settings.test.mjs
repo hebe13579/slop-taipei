@@ -352,7 +352,7 @@ test('settings UI: distant-buildings row in index.html, wired in main.js', () =>
 test('settings wiring: main.js resolves + passes settings, boot exposes the runtime API', () => {
   assert.match(mainSource, /resolveSettings\(\{/);
   assert.match(mainSource, /initSettingsPanel\(\{/);
-  assert.match(mainSource, /settings: \{ density: settings\.density, specials: settings\.specials, drape: settings\.drape \}/);
+  assert.match(mainSource, /settings: \{ density: settings\.density, specials: settings\.specials, drape: settings\.drape, specialLodFarM: settings\.specialLodFarM \}/); // issue #393: the boot deps literal carries the new field
   // Sandbox (?sandbox=): the boot also passes opts.bounds (the sandbox
   // box; SANDBOX_BOX is null without the param, so the call is the
   // pre-sandbox call exactly — the bounds filter is a no-op then).
