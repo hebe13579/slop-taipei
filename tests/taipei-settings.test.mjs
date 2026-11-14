@@ -630,7 +630,7 @@ test('mobile detection: phones count, tablets and desktops do not (issue #268)',
 test('mobile defaults: phones SET Coarse + Low over stored settings, URL still wins (issue #268)', () => {
   assert.deepEqual(
     resolveSettings({ isMobile: true }),
-    { specials: true, density: 'coarse', graphics: 'low', farDetail: 'fade', drape: true, trafficCars: 0, trafficRadiusM: 380 },
+    { specials: true, density: 'coarse', graphics: 'low', farDetail: 'fade', drape: true, trafficCars: 0, trafficRadiusM: 380, ghostMode: false },
   );
   assert.deepEqual(resolveSettings({ isMobile: false }), resolveSettings(), 'desktop resolution is unchanged');
   // The phone never reads the previous density/graphics: a stored
