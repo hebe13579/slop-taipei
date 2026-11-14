@@ -217,6 +217,62 @@ for (const preset of ['chase', 'observatory', 'drone']) {
   });
 }
 
+test('orbit pitch reaches straight down and straight up on drag (issue #360)', () => {
+  const h = cameraHarness();
+  h.pointer(h.canvas, 'pointerdown', 1, 0);
+  h.pointer(h.canvas, 'pointermove', 1, 0, 400);
+  close(h.camera.orbitPitchOffset, Math.PI / 2);
+  h.pointer(h.canvas, 'pointermove', 1, 0, -400);
+  close(h.camera.orbitPitchOffset, -Math.PI / 2);
+  h.pointer(h.canvas, 'pointerup', 1, 0, -400);
+});
+
+test('orbit pitch reaches straight down and straight up on gamepad look (issue #360)', () => {
+  const h = cameraHarness();
+  h.camera.applyGamepadInput(0, 1, 0, 1);
+  h.camera.applyGamepadInput(0, 1, 0, 1);
+  close(h.camera.orbitPitchOffset, Math.PI / 2);
+  h.camera.applyGamepadInput(0, -1, 0, 1);
+  h.camera.applyGamepadInput(0, -1, 0, 1);
+  h.camera.applyGamepadInput(0, -1, 0, 1);
+  close(h.camera.orbitPitchOffset, -Math.PI / 2);
+});
+
+test('POV look follows the pitch to straight down and straight up (issue #360)', () => {
+  const h = cameraHarness();
+  h.camera.setCameraPreset('pov', true);
+  // Level view: framing unchanged from before the change.
+  h.camera.orbitPitchOffset = 0;
+  h.camera.update(1 / 60, 0);
+  close(h.camera.currentLookAt.x, 0);
+  close(h.camera.currentLookAt.y, 0 + 1.52 + 1.5);
+  close(h.camera.currentLookAt.z, 100 + 40);
+  // Straight down: the look point sits directly below the eye.
+  h.camera.orbitPitchOffset = Math.PI / 2;
+  h.camera.update(1 / 60, 1 / 60);
+  close(h.camera.currentLookAt.x, 0);
+  close(h.camera.currentLookAt.z, 100);
+  close(h.camera.currentLookAt.y, 0 + 1.52 - 40 + 1.5);
+  // Straight up: directly above the eye.
+  h.camera.orbitPitchOffset = -Math.PI / 2;
+  h.camera.update(1 / 60, 2 / 60);
+  close(h.camera.currentLookAt.x, 0);
+  close(h.camera.currentLookAt.z, 100);
+  close(h.camera.currentLookAt.y, 0 + 1.52 + 40 + 1.5);
+});
+
+test('chase camera sits directly above the entity and aims at it at +90° pitch (issue #360)', () => {
+  const h = cameraHarness();
+  h.camera.orbitPitchOffset = Math.PI / 2;
+  h.camera.update(1 / 60, 0);
+  close(h.camera.currentPos.x, 0);
+  close(h.camera.currentPos.z, 100);
+  close(h.camera.currentPos.y, 0 + 2.12 + 6.9 * 0.85);
+  // The look target is the entity itself, directly below the camera.
+  close(h.camera.currentLookAt.x, 0);
+  close(h.camera.currentLookAt.z, 100);
+  close(h.camera.currentLookAt.y, 0 + 1 + 0.52);
+});
 test('teleport releases every camera pointer and ignores old gestures before accepting a new drag', () => {
   const h = cameraHarness();
   h.pointer(h.canvas, 'pointerdown', 1, 0);

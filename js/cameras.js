@@ -19,6 +19,17 @@ const CAMERA_PRESETS = [
   { id: 'drone',       name: 'Auto-Director Aerial',     short: 'Director',    category: 'scenic', fov: 50 }
 ];
 
+// Issue #360: the orbit pitch is a true elevation angle — +90° puts the
+// camera directly above the followed entity looking straight down, -90°
+// directly below looking straight up. (It was clamped to -0.32..0.68 rad,
+// about -18°..+39°.)
+const ORBIT_PITCH_MIN = -Math.PI / 2;
+const ORBIT_PITCH_MAX = Math.PI / 2;
+
+function clampOrbitPitch(value) {
+  return Math.max(ORBIT_PITCH_MIN, Math.min(ORBIT_PITCH_MAX, value));
+}
+
 class CameraSystem {
   constructor(domElement, controllerManager) {
     this.domElement = domElement;
@@ -88,7 +99,7 @@ class CameraSystem {
         }
       } else {
         this.orbitYawOffset -= dx * 0.0065;
-        this.orbitPitchOffset = Math.max(-0.32, Math.min(0.68, this.orbitPitchOffset + dy * 0.005));
+        this.orbitPitchOffset = clampOrbitPitch(this.orbitPitchOffset + dy * 0.005);
       }
       this.userOrbitTimer = 4.0;
     });
@@ -134,7 +145,7 @@ class CameraSystem {
     if (this.activePresetId !== 'chase') zoom = 0;
     if (!lookX && !lookY && !zoom) return;
     this.orbitYawOffset -= lookX * 2.0 * dt;
-    this.orbitPitchOffset = Math.max(-0.32, Math.min(0.68, this.orbitPitchOffset + lookY * 1.25 * dt));
+    this.orbitPitchOffset = clampOrbitPitch(this.orbitPitchOffset + lookY * 1.25 * dt);
     this.zoomMultiplier = Math.max(0.45, Math.min(2.4, this.zoomMultiplier + zoom * 0.9 * dt));
     this.userOrbitTimer = 4.0;
   }
@@ -202,10 +213,15 @@ class CameraSystem {
         );
 
         const lookUpBias = entity.type === 'helicopter' ? 0.2 : (entity.type === 'car' ? 0.52 : 1.55);
+        // Issue #360: the look-ahead shrinks with cos(pitch), so at ±90°
+        // the camera aims at the entity itself — directly below it when
+        // overhead (straight down) and directly above it when underneath
+        // (straight up). At level pitch this is the unchanged 5.2 m.
+        const lookAhead = 5.2 * Math.cos(this.orbitPitchOffset);
         desiredLook.set(
-          entity.position.x + Math.sin(entity.heading) * 5.2,
+          entity.position.x + Math.sin(entity.heading) * lookAhead,
           entity.position.y + entity.cameraTargetOffset.y + lookUpBias,
-          entity.position.z + Math.cos(entity.heading) * 5.2
+          entity.position.z + Math.cos(entity.heading) * lookAhead
         );
         break;
       }
@@ -247,10 +263,16 @@ class CameraSystem {
           entity.position.y + eyeY,
           entity.position.z + Math.cos(entity.heading) * fwdOffset
         );
+        // Issue #360: the look direction follows the orbit pitch as a true
+        // angle — at +90° the look point sits directly below the eye
+        // (straight down), at -90° directly above (straight up). The
+        // +1.5 m bias keeps the level-view framing unchanged.
+        const pitch = this.orbitPitchOffset;
+        const lookDist = 40.0;
         desiredLook.set(
-          entity.position.x + Math.sin(totalYaw) * 40.0,
-          entity.position.y + eyeY + Math.sin(-this.orbitPitchOffset) * 18.0 + 1.5,
-          entity.position.z + Math.cos(totalYaw) * 40.0
+          entity.position.x + Math.sin(totalYaw) * Math.cos(pitch) * lookDist,
+          entity.position.y + eyeY - Math.sin(pitch) * lookDist + 1.5,
+          entity.position.z + Math.cos(totalYaw) * Math.cos(pitch) * lookDist
         );
         break;
       }
