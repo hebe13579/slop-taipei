@@ -46,21 +46,21 @@ function fingerprint(plan) {
 }
 
 test('settings resolution: defaults are the pre-#218 behaviour', () => {
-  assert.deepEqual(resolveSettings(), { specials: true, density: 'fine', graphics: 'medium', farDetail: 'fade', drape: true, trafficCars: 0, trafficRadiusM: 380 });
+  assert.deepEqual(resolveSettings(), { specials: true, density: 'fine', graphics: 'medium', farDetail: 'fade', drape: true, trafficCars: 0, trafficRadiusM: 380, ghostMode: false });
   assert.deepEqual(resolveSettings({ search: '', stored: null }), DEFAULT_SETTINGS);
 });
 
 test('settings resolution: storage beats defaults, URL beats storage, per field', () => {
   const stored = JSON.stringify({ specials: false, density: 'dense', graphics: 'low' });
-  assert.deepEqual(resolveSettings({ stored }), { specials: false, density: 'dense', graphics: 'low', farDetail: 'fade', drape: true, trafficCars: 0, trafficRadiusM: 380 });
+  assert.deepEqual(resolveSettings({ stored }), { specials: false, density: 'dense', graphics: 'low', farDetail: 'fade', drape: true, trafficCars: 0, trafficRadiusM: 380, ghostMode: false });
   // URL overrides only the fields it names.
   assert.deepEqual(
     resolveSettings({ stored, search: '?density=coarse' }),
-    { specials: false, density: 'coarse', graphics: 'low', farDetail: 'fade', drape: true, trafficCars: 0, trafficRadiusM: 380 },
+    { specials: false, density: 'coarse', graphics: 'low', farDetail: 'fade', drape: true, trafficCars: 0, trafficRadiusM: 380, ghostMode: false },
   );
   assert.deepEqual(
     resolveSettings({ stored, search: '?specials=on&graphics=high' }),
-    { specials: true, density: 'dense', graphics: 'high', farDetail: 'fade', drape: true, trafficCars: 0, trafficRadiusM: 380 },
+    { specials: true, density: 'dense', graphics: 'high', farDetail: 'fade', drape: true, trafficCars: 0, trafficRadiusM: 380, ghostMode: false },
   );
   // Stored value may arrive as an object too.
   assert.equal(resolveSettings({ stored: { density: 'coarse' } }).density, 'coarse');
@@ -69,11 +69,11 @@ test('settings resolution: storage beats defaults, URL beats storage, per field'
 test('settings resolution: invalid values fall back per field, never throw', () => {
   assert.deepEqual(
     resolveSettings({ stored: '{not json', search: '?density=huge&graphics=ultra&specials=maybe' }),
-    { specials: true, density: 'fine', graphics: 'medium', farDetail: 'fade', drape: true, trafficCars: 0, trafficRadiusM: 380 },
+    { specials: true, density: 'fine', graphics: 'medium', farDetail: 'fade', drape: true, trafficCars: 0, trafficRadiusM: 380, ghostMode: false },
   );
   assert.deepEqual(
     resolveSettings({ stored: JSON.stringify({ density: 'huge', graphics: 7, specials: 'off' }) }),
-    { specials: false, density: 'fine', graphics: 'medium', farDetail: 'fade', drape: true, trafficCars: 0, trafficRadiusM: 380 },
+    { specials: false, density: 'fine', graphics: 'medium', farDetail: 'fade', drape: true, trafficCars: 0, trafficRadiusM: 380, ghostMode: false },
   );
   // Boolean spellings the URL layer accepts.
   for (const [raw, want] of [['off', false], ['0', false], ['no', false], ['on', true], ['1', true], ['yes', true]]) {
@@ -87,7 +87,7 @@ test('settings persistence: round-trip through storage, failures stay silent', (
     getItem: (k) => (mem.has(k) ? mem.get(k) : null),
     setItem: (k, v) => mem.set(k, String(v)),
   };
-  const s = { specials: false, density: 'dense', graphics: 'high', farDetail: 'full', drape: false, trafficCars: 350, trafficRadiusM: 500 };
+  const s = { specials: false, density: 'dense', graphics: 'high', farDetail: 'full', drape: false, trafficCars: 350, trafficRadiusM: 500, ghostMode: true };
   assert.equal(persistSettings(storage, s), true);
   assert.deepEqual(resolveSettings({ stored: readStoredSettings(storage) }), s);
   assert.equal(mem.has(SETTINGS_STORAGE_KEY), true);
@@ -235,6 +235,19 @@ test('far detail resolution: default fade, storage beats default, URL beats stor
   // Invalid values fall back to the default, never throw.
   assert.equal(resolveSettings({ search: '?farDetail=everything' }).farDetail, 'fade');
   assert.equal(resolveSettings({ stored: JSON.stringify({ farDetail: 7 }) }).farDetail, 'fade');
+});
+
+test('ghost mode resolution: default off, storage beats default, URL beats storage (issue #398)', () => {
+  assert.equal(resolveSettings().ghostMode, false);
+  assert.equal(resolveSettings({ stored: JSON.stringify({ ghostMode: true }) }).ghostMode, true);
+  assert.equal(
+    resolveSettings({ stored: JSON.stringify({ ghostMode: true }), search: '?ghostMode=off' }).ghostMode,
+    false,
+  );
+  assert.equal(resolveSettings({ search: '?ghostMode=on' }).ghostMode, true);
+  // Invalid values fall back to the default, never throw.
+  assert.equal(resolveSettings({ search: '?ghostMode=maybe' }).ghostMode, false);
+  assert.equal(resolveSettings({ stored: JSON.stringify({ ghostMode: 7 }) }).ghostMode, false);
 });
 
 test('traffic resolution: default off, storage beats default, URL beats storage (issues #252/#266/#281)', () => {

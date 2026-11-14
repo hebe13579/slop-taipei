@@ -289,6 +289,11 @@ async function initApp() {
     // on a user click, after boot, so controllerManager below is
     // initialized by then.)
     onDensity: () => { syncAllColliders(); controllerManager.refreshColliders(); },
+    // Issue #398: ghost mode flips live — the controller skips the
+    // car's collider resolution and traffic stops seeing the player
+    // (see the animation loop below). Same deferred reference as
+    // onDensity: the callback only runs on a user click, after boot.
+    onGhostMode: (on) => controllerManager.setGhostMode(on),
     persist: () => persistSettings(window.localStorage, settings),
   });
 
@@ -315,7 +320,7 @@ async function initApp() {
   // ground, tile spawns); NYC passes nothing and keeps the legacy defaults.
   const controllerManager = new ThirdPersonControllerManager(
     scene, allColliders, tileBoot
-      ? tileBoot.controllerOptions(activeTile, { webglFallback: renderer.backend?.isWebGLBackend === true })
+      ? tileBoot.controllerOptions(activeTile, { webglFallback: renderer.backend?.isWebGLBackend === true, ghostMode: settings.ghostMode })
       : undefined
   );
   // Player state is saved per city: a tile must never restore coordinates
@@ -954,15 +959,27 @@ async function initApp() {
     cameraSystem.update(dt, elapsed);
     streetDetails.signalClock.value = elapsed;
     if (isTaipei && cityGrid.signals) cityGrid.signals.update(elapsed); // issue #356: cycle the Taipei signal lenses on the same clock traffic.js brakes on
+    // Issue #398: ghost mode — the player is invisible to traffic.
+    // A null player entity leaves player.active false, so AI cars
+    // never brake for the player (relateToPlayer returns early,
+    // pAhead stays Infinity) and collideWithPlayer never runs (no
+    // push-apart, no momentum trade, no collision report) — the
+    // same gate the helicopter already rides. Only the two traffic
+    // updates get the blinded player; savePlayerState, honk and
+    // the camera keep the real entity. (Spawn protection also
+    // rides player.active, so while ghosting a car may appear near
+    // the player — harmless, and contact re-arms the frame ghost
+    // is turned off.)
+    const trafficPlayer = settings.ghostMode ? null : controllerManager.getActiveEntity();
     trafficSystem.update(
       dt,
       elapsed,
       cameraSystem.currentPos,
-      controllerManager.getActiveEntity(),
+      trafficPlayer,
       controllerManager.activeMode,
       cameraSystem.camera
     );
-    highwayTraffic.update(dt, cameraSystem.camera, controllerManager.getActiveEntity(), controllerManager.activeMode);
+    highwayTraffic.update(dt, cameraSystem.camera, trafficPlayer, controllerManager.activeMode);
     if (!document.hidden && now >= nextPlayerSave) {
       savePlayerState();
       nextPlayerSave = now + 5000;

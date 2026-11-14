@@ -1346,6 +1346,10 @@ export function controllerOptions(tile, env = {}) {
     // hillsides; with the drape off it is the flat model exactly.
     groundHeight: (x, z, mode, yHint) => buildDriveModel(tile.geodata.elevatedRoads, { groundAt: drapeHeight }).sample(x, z, yHint),
     speedScale: 2,
+    // Issue #398: ghost mode rides the env object (like
+    // webglFallback) — main.js passes the resolved setting here
+    // at construction; live toggles go through setGhostMode().
+    ghostMode: env.ghostMode === true,
     // Helicopter (user request 2026-10-24): ceiling above 600 m — 750
     // clears Taipei 101 (508 m) with margin — and ascend/descend 5×
     // faster than the current in-Taipei rate: the vertical cap becomes
