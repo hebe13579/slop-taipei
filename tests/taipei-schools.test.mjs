@@ -351,9 +351,59 @@ test('issue #334/#344: Jianguo fence (red brick + iron bars), Honglou detail fac
   const head = jianguo.parts.find((p) => p.type === 'cylinder' && p.r === 0.16 && p.flat === 0x8a5a3a);
   assert.ok(head, 'bronze figure head present');
   assert.ok(Math.abs(head.y0 - 5.85) < 0.01, `figure stands ~2.05 m on the plinth (head y0 ${head.y0})`);
-  // The whole entry: 150 Honglou + 3716 fence + 51 statue/gate/guard +
-  // 28 trees + 21 classroom/court/track parts = 3966.
-  assert.equal(jianguo.parts.length, 3966, 'Jianguo part count pinned');
+  // Issue #365: the cane, visible this time. #334's cylinder (r 0.05,
+  // west side, the statue's left hand) never read in the render; the
+  // 2018 + 2023 photos show it in the RIGHT hand, east side, clear
+  // of the body silhouette — r 0.08, 0.35 m east of the east arm,
+  // tip on the plinth top (y0 4.1), top just past the hand (5.2).
+  const cane = jianguo.parts.find((p) => p.type === 'cylinder' && p.r === 0.08 && p.flat === 0x1f1610);
+  assert.ok(cane, 'visible cane cylinder present');
+  assert.equal(cane.dx, -40.95, 'cane east of the east arm (right hand, facing the gate)');
+  assert.equal(cane.dz, -84.2, 'cane beside the east arm');
+  assert.equal(cane.h, 1.4, 'cane from the plinth top past the hand');
+  assert.ok(!jianguo.parts.some((p) => p.type === 'cylinder' && p.r === 0.05 && p.flat === 0x6b4a30),
+    'the invisible west-side cane is gone');
+  // Issue #365: the gold 建國中學 on the grey stone band below the
+  // central gable — real CJK characters on the landmark sign plane
+  // (the glyph-blocks stylization cannot carry a school name), sized
+  // to the band (12 x 0.8, centre y 10.4), 0.12 m proud of the
+  // string course's north face, rotY π − 0.262 out of the north face.
+  assert.ok(jianguo.sign, 'Jianguo carries a landmark sign');
+  assert.equal(jianguo.sign.text, '建國中學', 'sign reads the school name in gold');
+  assert.equal(jianguo.sign.w, 12, 'sign is the band itself, 12 m wide');
+  assert.equal(jianguo.sign.h, 0.8, 'sign is the band itself, 0.8 m tall');
+  assert.equal(jianguo.sign.y, 10.4, 'sign centred on the band (y 10–10.8)');
+  assert.equal(jianguo.sign.dx, -36.57, 'sign on the band centre, proud of the north face');
+  assert.equal(jianguo.sign.dz, -65.06, 'sign on the band centre, proud of the north face');
+  assert.ok(Math.abs(jianguo.sign.rotY - (Math.PI - 0.262)) < 0.001, `sign faces out of the north face (got ${jianguo.sign.rotY})`);
+  assert.equal(jianguo.sign.bg, '#9f988e', 'sign background is the band stone');
+  assert.equal(jianguo.sign.fg, '#d8b13c', 'sign characters are gold');
+  // Issue #365: the plinth's vertical gold inscription (2023 central
+  // photo) — four small gold marks down the plinth shaft's north
+  // face. The sign mechanism carries one sign per structure and it
+  // is spent on the 紅樓 characters, so these are stylized marks,
+  // not legible characters.
+  const plinthMarks = jianguo.parts.filter((p) => p.type === 'box' && p.flat === 0xd8b13c && p.w === 0.4 && p.h === 0.35);
+  assert.equal(plinthMarks.length, 4, 'four gold inscription marks on the plinth front');
+  assert.ok(plinthMarks.every((p) => p.dx === -41.92 && p.dz === -84.82), 'marks on the plinth north face');
+  // Issue #365: the roundabout curb as photographed — a cream tile
+  // face with a red-brick top course (the brick curb, r 7, stays).
+  const creamCurb = jianguo.parts.find((p) => p.type === 'cylinder' && p.r === 7.05);
+  assert.ok(creamCurb, 'cream tile curb face present');
+  assert.equal(creamCurb.h, 0.35, 'cream face is the lower 0.35 m of the 0.5 m curb');
+  // Issue #365: topiary urns at the tower bases (2023 central photo —
+  // three dark stone urns with round green topiary at the foot of
+  // each tower's north face, 1.3 m out, spread ±3.5 m along it).
+  const urnPots = jianguo.parts.filter((p) => p.type === 'cylinder' && p.r === 0.35 && p.flat === 0x6b655c);
+  assert.equal(urnPots.length, 6, 'six stone urn pots at the tower bases');
+  const urnBalls = jianguo.parts.filter((p) => p.type === 'dome' && p.rx === 0.45 && p.flat === 0x4e7d32);
+  assert.equal(urnBalls.length, 6, 'six green topiary balls, one per pot');
+  assert.ok(urnBalls.every((p) => Math.abs(p.y0 - 0.9) < 0.01), 'topiary sits on the pot (y0 0.9)');
+  // The whole entry: 162 Honglou (150 + 12 urns) + 3716 fence +
+  // 56 statue/gate/guard (51 + 4 plinth marks + 1 cream curb; the
+  // cane is a swap, net 0) + 28 trees + 21 classroom/court/track
+  // parts = 3983.
+  assert.equal(jianguo.parts.length, 3983, 'Jianguo part count pinned');
 });
 
 test('issue #333: Qingjiang track is a draped mesh on a groundAt plan', () => {

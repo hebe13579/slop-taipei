@@ -4573,6 +4573,14 @@ const LANDMARK_STRUCTURES = [
     lat: 25.0303, lon: 121.5126, realHeight: 25.2, estimated: true, color: 0xd9d2c4,
     site: { w: 246, d: 232, dx: 6, dz: 8 },
     facade: { kind: 'prewar', stoneColor: 0xd9d2c4, trimColor: 0xb3aa97, windowGlassColor: 0x2e3a46, windowWidth: 2.8, floorHeight: 3.6, litProbability: 0.25, warmth: 0.55, seed: 57.45 },
+    // Issue #365: the gold 建國中學 on the grey stone band below the
+    // central gable (2018 close-up + 2023 central photos) — real CJK
+    // characters, not glyph blocks. The plane is the band's own size
+    // (12 x 0.8, centre y 10.4) on the band's grey (#9f988e), set 0.12 m
+    // proud of the 99 m string course's north face so it never
+    // z-fights either course; rotY π − 0.262 faces it out of the
+    // north face (the building's rotY −0.262).
+    sign: { text: '建國中學', w: 12, h: 0.8, y: 10.4, dx: -36.57, dz: -65.06, rotY: Math.PI - 0.262, bg: '#9f988e', fg: '#d8b13c' },
     parts: [
       // 紅樓 (issue #334): the 99 x 17 m main box is kept; the plain
       // roof slab and the two towers at u = +/-40 m are replaced by
@@ -4734,7 +4742,30 @@ const LANDMARK_STRUCTURES = [
       { type: 'box', w: 1.2, d: 0.12, h: 2.6, dx: -26, dz: -69.6, y0: 0.8, rotY: -0.262, flat: 0xd9d4cb },
       { type: 'box', w: 1.6, d: 0.06, h: 3, dx: -21.1, dz: -71, y0: 0.8, rotY: -0.262, flat: 0x9f988e },
       { type: 'box', w: 1.2, d: 0.12, h: 2.6, dx: -21.1, dz: -71, y0: 0.8, rotY: -0.262, flat: 0xd9d4cb },
+      // Issue #365: topiary urns along the tower bases (2023 central
+      // photo — three dark stone urns with round green topiary at the
+      // foot of each tower's north face). 1.3 m out from the face
+      // (tower d 19, half 9.5, so 10.8 from the tower centre along
+      // the north normal), spread ±3.5 m along the front; clear of
+      // the colonnade steps, the wing windows and the roundabout.
+      { type: 'cylinder', r: 0.35, h: 0.9, dx: -54.28, dz: -63.33, flat: 0x6b655c },
+      { type: 'dome', rx: 0.45, rz: 0.45, h: 0.45, dx: -54.28, dz: -63.33, y0: 0.9, flat: 0x4e7d32 },
+      { type: 'cylinder', r: 0.35, h: 0.9, dx: -50.9, dz: -64.24, flat: 0x6b655c },
+      { type: 'dome', rx: 0.45, rz: 0.45, h: 0.45, dx: -50.9, dz: -64.24, y0: 0.9, flat: 0x4e7d32 },
+      { type: 'cylinder', r: 0.35, h: 0.9, dx: -47.52, dz: -65.15, flat: 0x6b655c },
+      { type: 'dome', rx: 0.45, rz: 0.45, h: 0.45, dx: -47.52, dz: -65.15, y0: 0.9, flat: 0x4e7d32 },
+      { type: 'cylinder', r: 0.35, h: 0.9, dx: -27.18, dz: -70.63, flat: 0x6b655c },
+      { type: 'dome', rx: 0.45, rz: 0.45, h: 0.45, dx: -27.18, dz: -70.63, y0: 0.9, flat: 0x4e7d32 },
+      { type: 'cylinder', r: 0.35, h: 0.9, dx: -23.8, dz: -71.54, flat: 0x6b655c },
+      { type: 'dome', rx: 0.45, rz: 0.45, h: 0.45, dx: -23.8, dz: -71.54, y0: 0.9, flat: 0x4e7d32 },
+      { type: 'cylinder', r: 0.35, h: 0.9, dx: -20.42, dz: -72.45, flat: 0x6b655c },
+      { type: 'dome', rx: 0.45, rz: 0.45, h: 0.45, dx: -20.42, dz: -72.45, y0: 0.9, flat: 0x4e7d32 },
 // --- Statue + roundabout + main gate + guard booth (#334; moved north by #344) ---
+      // Issue #365: the roundabout curb as photographed (2023
+      // central photo) — a cream tile face with a red-brick top
+      // course, not all brick. The cream cylinder (r 7.05) wraps
+      // the lower 0.35 m of the brick curb (r 7, h 0.5).
+      { type: 'cylinder', r: 7.05, h: 0.35, dx: -41.7, dz: -84, flat: 0xd9d2c4 },
       { type: 'cylinder', r: 7, h: 0.5, dx: -41.7, dz: -84, flat: 0x9c4a36 },
       { type: 'cylinder', r: 6.2, h: 0.65, dx: -41.7, dz: -84, y0: 0.5, flat: 0xa03a2a },
       { type: 'box', w: 0.6, d: 0.6, h: 0.5, dx: -43.1, dz: -78.6, y0: 1.15, rotY: -0.262, flat: 0x4e7d32 },
@@ -4743,13 +4774,34 @@ const LANDMARK_STRUCTURES = [
       { type: 'box', w: 0.6, d: 0.6, h: 0.5, dx: -40.2, dz: -89.5, y0: 1.15, rotY: -0.262, flat: 0x4e7d32 },
       { type: 'box', w: 2, d: 2, h: 0.3, dx: -41.7, dz: -84, y0: 1.15, rotY: -0.262, flat: 0x1c4536 },
       { type: 'box', w: 1.6, d: 1.6, h: 2.4, dx: -41.7, dz: -84, y0: 1.45, rotY: -0.262, flat: 0x1c4536 },
+      // Issue #365: the plinth's vertical gold inscription (2023
+      // central photo — gold characters down the dark-green front
+      // face). The landmark-sign mechanism carries one sign per
+      // structure and it is spent on the 紅樓 characters, so the
+      // plinth gets four small gold marks on its north face — the
+      // project's glyph-block stylization, not legible characters.
+      // Face centre is the shaft centre + the north normal × 0.8,
+      // marks 0.05 proud of it.
+      { type: 'box', w: 0.4, d: 0.06, h: 0.35, dx: -41.92, dz: -84.82, y0: 1.775, rotY: -0.262, flat: 0xd8b13c },
+      { type: 'box', w: 0.4, d: 0.06, h: 0.35, dx: -41.92, dz: -84.82, y0: 2.275, rotY: -0.262, flat: 0xd8b13c },
+      { type: 'box', w: 0.4, d: 0.06, h: 0.35, dx: -41.92, dz: -84.82, y0: 2.775, rotY: -0.262, flat: 0xd8b13c },
+      { type: 'box', w: 0.4, d: 0.06, h: 0.35, dx: -41.92, dz: -84.82, y0: 3.275, rotY: -0.262, flat: 0xd8b13c },
       { type: 'box', w: 1.8, d: 1.8, h: 0.25, dx: -41.7, dz: -84, y0: 3.85, rotY: -0.262, flat: 0x1c4536 },
       { type: 'box', w: 0.75, d: 0.45, h: 1.1, dx: -41.7, dz: -84, y0: 4.1, rotY: -0.262, flat: 0x8a5a3a },
       { type: 'box', w: 0.75, d: 0.45, h: 0.65, dx: -41.7, dz: -84, y0: 5.2, rotY: -0.262, flat: 0x8a5a3a },
       { type: 'cylinder', r: 0.16, h: 0.3, dx: -41.7, dz: -84, y0: 5.85, flat: 0x8a5a3a },
       { type: 'box', w: 0.18, d: 0.18, h: 0.9, dx: -41.3, dz: -84.1, y0: 5.2, rotY: -0.262, flat: 0x8a5a3a },
       { type: 'box', w: 0.18, d: 0.18, h: 0.9, dx: -42, dz: -83.9, y0: 5.2, rotY: -0.262, flat: 0x8a5a3a },
-      { type: 'cylinder', r: 0.05, h: 1.3, dx: -42.1, dz: -84, y0: 4.1, flat: 0x6b4a30 },
+      // Issue #365: the cane, visible this time. #334 added a cane
+      // cylinder (r 0.05) on the WEST side — the statue's left hand
+      // when it faces the gate — but at 10 cm across, dark brown
+      // against bronze and 0.1 m from the arm, it never read in the
+      // render. The 2018 + 2023 photos show the cane in the RIGHT
+      // hand (east side, facing the gate), a thin dark stick clear
+      // of the body silhouette: r 0.08, 0.35 m east of the east arm,
+      // tip on the plinth top (y0 4.1) and top just past the hand
+      // (5.2) so it reads as gripped.
+      { type: 'cylinder', r: 0.08, h: 1.4, dx: -40.95, dz: -84.2, y0: 4.1, flat: 0x1f1610 },
       { type: 'box', w: 0.9, d: 0.9, h: 3.4, dx: -41.7, dz: -103.2, rotY: -0.264, flat: 0x9c4a36 },
       { type: 'box', w: 1.1, d: 1.1, h: 0.15, dx: -41.7, dz: -103.2, y0: 3.4, rotY: -0.264, flat: 0x9f988e },
       { type: 'box', w: 0.9, d: 0.9, h: 3.4, dx: -51.3, dz: -100.6, rotY: -0.264, flat: 0x9c4a36 },
@@ -10271,6 +10323,12 @@ function landmarkFacadeMaterial(THREE, factories, facade, fallbackColor, doubleS
 // ones the real building carries (Breeze, W, eslite); Chinese
 // signage stays abstract glyph blocks, per the project stylization
 // — character-like blocks with a stroke gap, never real characters.
+// EXCEPTION (issue #365): when sign.text itself carries CJK, the
+// characters are drawn for real — the 紅樓's gold 建國中學 on its
+// stone band is the school's name and the user asked for it readable,
+// and a glyph block cannot carry it. The CJK path draws each
+// character in a CJK serif, sized to fill the band height and spread
+// across the middle half of the band, the way the real band is set.
 // Deterministic: glyph widths come from a fixed pattern.
 function landmarkSignMesh(THREE, s) {
   const sign = s.sign;
@@ -10296,9 +10354,25 @@ function landmarkSignMesh(THREE, s) {
     g.fillStyle = sign.fg;
     g.textAlign = 'center';
     g.textBaseline = 'middle';
-    const fontPx = Math.round(ch * (sign.text.length <= 1 ? 0.8 : 0.56));
-    g.font = `${sign.text === 'Breeze' ? 'italic ' : ''}700 ${fontPx}px Georgia, 'Times New Roman', serif`;
-    g.fillText(sign.text, sign.accent ? cw / 2 + ch * 0.4 : cw / 2, ch / 2 + fontPx * 0.05);
+    if (/[\u4e00-\u9fff]/.test(sign.text)) {
+      // Issue #365: real CJK characters (the 紅樓 gold 建國中學).
+      // One fillText at the Latin sizing (0.56 * ch for a whole word)
+      // would shrink four square glyphs to a quarter of the band, so
+      // each character is drawn on its own, sized to fill the band
+      // height and spread across the middle half of the band — the
+      // real band's four characters span about half its width.
+      const chars = [...sign.text];
+      const fontPx = Math.round(ch * 0.85);
+      g.font = `700 ${fontPx}px 'Noto Serif CJK TC', 'Noto Serif CJK SC', Georgia, 'Times New Roman', serif`;
+      const span = cw * 0.5;
+      const step = chars.length > 1 ? span / (chars.length - 1) : 0;
+      const x0 = cw / 2 - span / 2;
+      chars.forEach((c, i) => g.fillText(c, x0 + i * step, ch / 2 + fontPx * 0.05));
+    } else {
+      const fontPx = Math.round(ch * (sign.text.length <= 1 ? 0.8 : 0.56));
+      g.font = `${sign.text === 'Breeze' ? 'italic ' : ''}700 ${fontPx}px Georgia, 'Times New Roman', serif`;
+      g.fillText(sign.text, sign.accent ? cw / 2 + ch * 0.4 : cw / 2, ch / 2 + fontPx * 0.05);
+    }
   } else if (sign.glyphs) {
     const widths = [0.92, 0.55, 0.74, 1.0, 0.62, 0.84, 0.7, 0.95];
     const gh = ch * 0.52, gy = (ch - gh) / 2;
