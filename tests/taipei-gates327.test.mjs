@@ -32,7 +32,7 @@ const expected = {
 
 test('issue #327: the three city gates are registered (registry 53 -> 56)', () => {
   assert.equal(plan.landmarkTowers.length, 56, '53 + 3 new gates');
-  assert.equal(plan.lots.length, 77808, 'the three junction-island site rects move no lots (76,209 + 51 from #326; re-pinned by #333)'); // Issue #313: 76,260 -> 76,650 (+390 net: 3,016 added, 2,626 removed - every changed lot at z < -7000 in the Beitou creek corridors; full-JSON plan diff in blocks313-evidence/plan-diff-ordered313.log) // Issue #314: 76,650 -> 77,808 (+1,158 net: 3,583 added, 2,425 removed full-JSON - every changed lot inside x -3265..494, z -8184..-4923 in the old interior; the new door plates flip 82 blocks to fine grain, re-subdividing them; plan diff in heights314-evidence/plan-diff-full-transplant314.log)
+  assert.equal(plan.lots.length, 76253, 'the three junction-island site rects move no lots (76,209 + 51 from #326; re-pinned by #333)'); // Issue #313: 76,260 -> 76,650 (+390 net: 3,016 added, 2,626 removed - every changed lot at z < -7000 in the Beitou creek corridors; full-JSON plan diff in blocks313-evidence/plan-diff-ordered313.log) // Issue #314: 76,650 -> 77,808 (+1,158 net: 3,583 added, 2,425 removed full-JSON - every changed lot inside x -3265..494, z -8184..-4923 in the old interior; the new door plates flip 82 blocks to fine grain, re-subdividing them; plan diff in heights314-evidence/plan-diff-full-transplant314.log) // Issue #386: 77,808 -> 76,253 (-1,555 - part 2 re-lays 454 more blocks on rotated grids; a rotated grid's corner lots fall outside the inset bbox)
   for (const id of Object.keys(expected)) assert.ok(byId.has(id), `${id} registered`);
 });
 

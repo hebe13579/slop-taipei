@@ -79,19 +79,19 @@ assert.deepEqual(
 // Issue #354: signed lots 5,267 -> 6,589 (+1,322 — the frontage-aware
 // policy signs arterial (rank >= 3) lots at 0.85 instead of 0.55; the
 // residential gate is unchanged, rank 0–1 still carries no sign).
-assert.equal(signedLots, 6589, 'signed lots after the residential gate');
+assert.equal(signedLots, 6534, 'signed lots after the residential gate'); // Issue #386: signed lots 6,589 -> 6,534 (-55 - the re-seated plan re-rolls which lots carry signs; same count in the taipei test)
 // Issue #354: panels 7,238 -> 9,665 (+2,427 — arterial lots sign
 // denser and more of them carry two panels, same mechanism as above).
-assert.equal(panels, 9665, 'sign panels after the residential gate');
+assert.equal(panels, 9566, 'sign panels after the residential gate'); // Issue #386: panels 9,665 -> 9,566 (-99 - same re-roll as signed lots; same count in the taipei test)
 // Issue #355: 59,760 lots (the rank 0–1 set, 76.8% of the city)
 // carry the shop gate.
-assert.equal(shops0, 59760, 'shop-gated lots after the residential gate');
+assert.equal(shops0, 58370, 'shop-gated lots after the residential gate'); // Issue #386: shops0 59,760 -> 58,370 (-1,390 - the re-laid grids re-draw frontages, so fewer lots sit on rank 0-1 only; the plan drops 1,555)
 // Roof boards are already rank-gated (#153) and untouched by #355.
 assert.equal(
-  opts.lots.filter((l) => l.roofBoards?.length).length, 757, 'roof-board lots unchanged');
+  opts.lots.filter((l) => l.roofBoards?.length).length, 747, 'roof-board lots unchanged'); // Issue #386: roof-board lots 757 -> 747 (-10 - the re-seated lots re-roll the rank-gated roof-board rule)
 // The plan itself is untouched by #355 (render-only: the adapter
 // output changes, the lot rects do not).
-assert.equal(plan.lots.length, 77808, 'plan lots unchanged');
+assert.equal(plan.lots.length, 76253, 'plan lots unchanged'); // Issue #386: 77,808 -> 76,253 (-1,555 - part 2 re-lays 454 more blocks on rotated grids; a rotated grid's corner lots fall outside the inset bbox)
 assert.equal(opts.lots.length, plan.lots.length, 'adapter lots match the plan');
 
 // --- Upstream honouring ----------------------------------------------

@@ -451,7 +451,7 @@ test('issue #178: with boot-exact exclusions (full cap surface), no tree stands 
   ];
   const before = [...planStreetTrees(geo, plan, { exclusions: oldExclusions }).trees,
     ...planParkTrees(geo, plan, { exclusions: oldExclusions }).trees];
-  assert.equal(before.filter((t) => pointInAnyPoly(surfGrid, surfPolys, [t.x, t.z])).length, 1,
+  assert.equal(before.filter((t) => pointInAnyPoly(surfGrid, surfPolys, [t.x, t.z])).length, 2, // Issue #386: counterfactual 1 -> 2 (the re-seated lots re-roll the street-tree candidates; the boot-exact invariant below still measures 0)
     'trees on the full surface under the old ring+extras exclusions (counterfactual — the old wiring\'s luck; the boot-exact invariant below still measures 0)');
   const exclusions = [
     ...caps.flatMap((c) => capSurfacePolys(c).map((p) => p.flatMap((pt) => pt))),
@@ -522,8 +522,8 @@ test('issue #272: with the airfield site-ring exclusion, no tree stands on Songs
   const inside = (trees) => trees.filter((t) => pointInAnyPoly(siteGrid, sitePolys, [t.x, t.z]));
   const beforeStreet = planStreetTrees(geo, plan, { exclusions: baseExclusions });
   const beforePark = planParkTrees(geo, plan, { exclusions: baseExclusions });
-  assert.equal(inside(beforeStreet.trees).length, 3, 'street trees inside the site ring before the exclusion');
-  assert.equal(inside(beforePark.trees).length, 491, 'park trees inside the site ring before the exclusion');
+  assert.equal(inside(beforeStreet.trees).length, 1, 'street trees inside the site ring before the exclusion'); // Issue #386: counterfactual 3 -> 1 (the re-seated lots re-roll the street-tree candidates; the exclusion itself still removes all of them)
+  assert.equal(inside(beforePark.trees).length, 490, 'park trees inside the site ring before the exclusion'); // Issue #386: counterfactual 491 -> 490 (the re-seated lots re-roll the park-tree candidates; the exclusion itself still removes all of them)
   const exclusions = [...baseExclusions, ...siteRings];
   const street = planStreetTrees(geo, plan, { exclusions });
   const park = planParkTrees(geo, plan, { exclusions });

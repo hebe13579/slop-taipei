@@ -326,7 +326,7 @@ test('lot seating: flat lots are untouched, steep lots seat with the roofline pr
   // Issue #263: the extended rect covers the 天母/士林/大直 lots, so
   // the seated count rises from 8,811 (measured 2026-10-30) to 16,065
   // (measured 2026-11-04 on the #263 tree).
-  assert.ok(seated > 16000, `seated lots ${seated}`);
+  assert.ok(seated > 15000, `seated lots ${seated}`); // Issue #386: seated lots 16,065 -> 15,936 (-129 - the rotated grids drop corner lots, fewer lots to seat; still far above the pre-#263 8,811)
 });
 
 test('lot seating: a synthetic slope seats at the lowest corner', () => {

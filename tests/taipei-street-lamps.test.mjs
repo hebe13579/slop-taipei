@@ -116,9 +116,9 @@ test('real tile: census pins (cap, split, rejections)', (t) => {
   // roads (Jianguo/Keelung/Xinhai + Wenhu guideway south) add deck
   // lamps, and the 12,000 cap displaces ground lamps — ground 8,978
   // -> 8,937, deck 3,022 -> 3,063 (8,937 + 3,063 = 12,000).
-  assert.equal(real.stats.ground, 8936, 'ground lamps'); // Issue #314: ground 8,937 -> 8,936 (-1 - one more ground candidate is rejected for standing on a re-drawn lot: rejected.lot 80 -> 81; the 12,000 cap backfills with a deck lamp)
+  assert.equal(real.stats.ground, 8937, 'ground lamps'); // Issue #314: ground 8,937 -> 8,936 (-1 - one more ground candidate is rejected for standing on a re-drawn lot: rejected.lot 80 -> 81; the 12,000 cap backfills with a deck lamp) // Issue #386: ground 8,936 -> 8,937 (+1 - one more ground candidate is accepted on the re-seated plan; the 12,000 cap backfills with a deck lamp)
   // Issue #110: deck lamps 3,023 -> 3,022 (-1) — the lamp cap is 12,000, so the +1 ground lamp displaces one deck lamp (8,978 + 3,022 = 12,000).
-  assert.equal(real.stats.deck, 3064, 'deck lamps'); // Issue #314: deck 3,063 -> 3,064 (+1 - the cap backfill; cap rejections 2,081 -> 2,080; the kept-lamp set re-picks wholesale under the cap's even thinning, 1,510 positions change, so no single lamp is 'the' lost one)
+  assert.equal(real.stats.deck, 3063, 'deck lamps'); // Issue #314: deck 3,063 -> 3,064 (+1 - the cap backfill; cap rejections 2,081 -> 2,080; the kept-lamp set re-picks wholesale under the cap's even thinning, 1,510 positions change, so no single lamp is 'the' lost one) // Issue #386: deck 3,064 -> 3,063 (-1 - the cap backfill; the kept-lamp set re-picks under the cap, so no single lamp is the lost one)
   assert.equal(real.stats.cap, LAMP_CAP);
   assert.ok(real.stats.capped, 'raw candidates exceed the cap');
   assert.ok(real.stats.rejected.junction > 1000, 'junction rejections');

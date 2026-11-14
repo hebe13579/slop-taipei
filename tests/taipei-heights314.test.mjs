@@ -142,5 +142,5 @@ test('issue #314: shipped heights are the HEAD builder output (as a multiset)', 
 
 test('issue #314: plan moves only inside the old interior', () => {
   const plan = planTaipeiBuildings(TAIPEI_GEO);
-  assert.equal(plan.lots.length, 77808, 'plan 76,650 -> 77,808 (+1,158 net: 2,403 removed, 3,561 added — every changed lot inside x -3265..494, z -8184..-4923, the old interior; plan-diff2-314 full-JSON diff; a naive data-file-order rebuild flips 701 lots\' overlap winners and is rejected)');
+  assert.equal(plan.lots.length, 76253, 'plan 76,650 -> 77,808 (+1,158 net: 2,403 removed, 3,561 added — every changed lot inside x -3265..494, z -8184..-4923, the old interior; plan-diff2-314 full-JSON diff; a naive data-file-order rebuild flips 701 lots\' overlap winners and is rejected)'); // Issue #386: 77,808 -> 76,253 (-1,555 - part 2 re-lays 454 more blocks on rotated grids; a rotated grid's corner lots fall outside the inset bbox)
 });
