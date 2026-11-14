@@ -944,6 +944,127 @@ function cksRoofMeshParts(part) {
   }];
 }
 
+// Issue #364: expand a `hiproof` placeholder part. A smooth double-eaved
+// Chinese hip roof as a baked-vertex mesh (the #353 cksroof precedent,
+// generalised from octagon to rectangle) — static, so the planner
+// expands it on every plan, bare or draped. No other consumer ever sees
+// the `hiproof` type.
+function expandHipRoofParts(part) {
+  return hipRoofMeshParts(part);
+}
+
+// Issue #364: a smooth hip roof as one baked-vertex mesh. The real
+// palace roofs (Grand Hotel, Main Station, the two 兩廳院 halls, the
+// Liberty Square Arch) are continuous sloped surfaces with upturned
+// eaves — the stepped boxes read as a minecraft cube stack, so each
+// roof is rebuilt as a single mesh: rectangular rings (8 points: 4
+// corners + 4 edge midpoints), corners kicked up, eased concave
+// profile, a flat ledge between the two eave tiers when the upper eave
+// is inset, and a flat ridge cap on top. Same eave footprint and total
+// height as the stepped boxes it replaces.
+// Rings run counter-clockwise viewed from above (decreasing angle, the
+// capsule/CKS convention); strips triangulated (A[i], A[j], B[j]) /
+// (A[i], B[j], B[i]) face up (signed area in (x,z) < 0 — pinned by the
+// #364 test). The mesh part's w/d are the eave footprint (the drive
+// collider's OBB cover). The ridge top is a flat (ridge x ridgeD) cap.
+function hipRoofMeshParts(part) {
+  const rotY = part.rotY || 0;
+  const c = Math.cos(rotY), s = Math.sin(rotY);
+  const dx0 = part.dx || 0, dz0 = part.dz || 0;
+  const toStructure = (u, v) => [u * c - v * s + dx0, u * s + v * c + dz0];
+  const W = part.w, D = part.d;
+  const y0 = part.y0 || 0, H = part.h;
+  const ridge = part.ridge !== undefined ? part.ridge : W - D;
+  const ridgeD = part.ridgeD !== undefined ? part.ridgeD : 1;
+  const split = part.split !== undefined ? part.split : 0.5;
+  const up = part.up !== undefined ? part.up : 2;
+  const up2 = part.up2 !== undefined ? part.up2 : up * 0.75;
+  // Lower tier top and upper tier eave (defaults mirror the CKS
+  // 80 -> 71 skirt and 71 -> 65 upper step).
+  const w1 = part.w1 !== undefined ? part.w1 : W - 9;
+  const d1 = part.d1 !== undefined ? part.d1 : D - 9;
+  const w2 = part.w2 !== undefined ? part.w2 : w1 - 6;
+  const d2 = part.d2 !== undefined ? part.d2 : d1 - 6;
+  const y1 = y0 + H * split;
+  const y2 = y0 + H;
+  const hasLedge = w2 < w1 || d2 < d1;
+  // One rectangular ring, 8 points, counter-clockwise viewed from above
+  // (decreasing angle, the CKS order): corner, midpoint, corner,
+  // midpoint... Corners are raised by `kick` (upturned eave); edge
+  // midpoints stay at the ring height, so each eave edge sags at its
+  // middle and rises at the corners.
+  const ring = (a, b, y, kick) => [
+    [a, -b, y + kick], [0, -b, y], [-a, -b, y + kick], [-a, 0, y],
+    [-a, b, y + kick], [0, b, y], [a, b, y + kick], [a, 0, y],
+  ];
+  const verts = [], tris = [];
+  const pushRing = (pts) => {
+    const base = verts.length / 3;
+    for (const [u, v, y] of pts) {
+      const [px, pz] = toStructure(u, v);
+      verts.push(px, y, pz);
+    }
+    return base;
+  };
+  const strip = (aBase, bBase) => {
+    for (let i = 0; i < 8; i++) {
+      const j = (i + 1) % 8;
+      tris.push(aBase + i, aBase + j, bBase + j, aBase + i, bBase + j, bBase + i);
+    }
+  };
+  // One tier's profile rings: eased shrink from the tier's eave to its
+  // top, the corner kick fading from kickA at the eave to kickB at the top.
+  const tierRings = (a0, b0, a1, b1, yA, yB, n, ease, kickA, kickB) => {
+    const rings = [];
+    for (let k = 0; k < n; k++) {
+      const t = k / (n - 1);
+      const e = Math.pow(t, ease);
+      rings.push(ring(
+        a0 + (a1 - a0) * e, b0 + (b1 - b0) * e,
+        yA + (yB - yA) * t, kickA + (kickB - kickA) * t,
+      ));
+    }
+    return rings;
+  };
+  let topBase;
+  if (split >= 1) {
+    // Single tier: 7 rings from the eave to the ridge cap.
+    const rings = tierRings(W / 2, D / 2, ridge / 2, ridgeD / 2, y0, y2, 7, 1.3, up, 0);
+    const bases = rings.map(pushRing);
+    for (let r = 0; r < 6; r++) strip(bases[r], bases[r + 1]);
+    topBase = bases[6];
+  } else {
+    // Lower tier: 5 rings, ease t^1.6 (flares at the eave, steepens up).
+    // Upper tier: 7 rings, ease t^1.3. When the upper eave is inset, the
+    // ledge is the strip from the lower top ring to the upper bottom ring
+    // (same height, so it reads flat); when it sits exactly on the lower
+    // top, the two tiers share that ring (which then carries the upper
+    // eave's kick).
+    const lowerKickB = hasLedge ? 0 : up2;
+    const lower = tierRings(W / 2, D / 2, w1 / 2, d1 / 2, y0, y1, 5, 1.6, up, lowerKickB);
+    const lowerBases = lower.map(pushRing);
+    for (let r = 0; r < 4; r++) strip(lowerBases[r], lowerBases[r + 1]);
+    const upper = tierRings(w2 / 2, d2 / 2, ridge / 2, ridgeD / 2, y1, y2, 7, 1.3, up2, 0);
+    if (hasLedge) {
+      const ledgeOuter = pushRing(lower[4]); // duplicate of the lower top
+      const upperBases = upper.map(pushRing);
+      strip(ledgeOuter, upperBases[0]);
+      for (let r = 0; r < 6; r++) strip(upperBases[r], upperBases[r + 1]);
+      topBase = upperBases[6];
+    } else {
+      const upperBases = upper.slice(1).map(pushRing); // skip the shared bottom ring
+      for (let r = 0; r < 6; r++) strip(r === 0 ? lowerBases[4] : upperBases[r - 1], upperBases[r]);
+      topBase = upperBases[5];
+    }
+  }
+  // Ridge cap: flat quad over the top ring's corners (points 0, 2, 4, 6).
+  tris.push(topBase + 0, topBase + 2, topBase + 4, topBase + 0, topBase + 4, topBase + 6);
+  return [{
+    type: 'mesh', flat: part.flat, rotY,
+    w: W, d: D, y0, h: H, verts, tris,
+  }];
+}
+
 // Tianmu Baseball Stadium (issue #166): the project's first
 // stadium form — an elliptical stepped bowl of tangent segment
 // boxes around an open field, generated like taoZhuParts().
@@ -3251,12 +3372,13 @@ const LANDMARK_STRUCTURES = [
     sign: { glyphs: 4, w: 30, h: 4, y: 20, dx: 3.0, dz: 43.7, rotY: -0.1859, bg: '#7c3a2c', fg: '#efe6d0' },
     parts: [
       { type: 'box', w: 150, d: 96, h: 27, dx: 11.9, dz: -3.9, rotY: 0.1859 },
-      { type: 'box', w: 154, d: 100, h: 3.25, y0: 27, dx: 11.9, dz: -3.9, rotY: 0.1859, flat: 0x9c4a38 },
-      { type: 'box', w: 139, d: 86, h: 3.25, y0: 30.25, dx: 11.9, dz: -3.9, rotY: 0.1859, flat: 0x9c4a38 },
-      { type: 'box', w: 125, d: 72, h: 3.25, y0: 33.5, dx: 11.9, dz: -3.9, rotY: 0.1859, flat: 0x9c4a38 },
-      { type: 'box', w: 110, d: 58, h: 3.25, y0: 36.75, dx: 11.9, dz: -3.9, rotY: 0.1859, flat: 0x9c4a38 },
-      { type: 'box', w: 95, d: 44, h: 3.25, y0: 40, dx: 11.9, dz: -3.9, rotY: 0.1859, flat: 0x9c4a38 },
-      { type: 'box', w: 80, d: 30, h: 3.25, y0: 43.25, dx: 11.9, dz: -3.9, rotY: 0.1859, flat: 0x9c4a38 },
+      // Issue #364: the roof is one smooth hip mesh (see
+      // hipRoofMeshParts) — the six stepped boxes read as a ziggurat.
+      // Same eave footprint (154 x 100), same profile (27 -> 46.5) and
+      // terracotta colour (the night photo: warm orange-brown hip roof),
+      // now a continuous sloped surface with upturned eave corners and
+      // a flat 62 x 12 ridge deck for the skylight to sit on.
+      { type: 'hiproof', w: 154, d: 100, y0: 27, h: 19.5, ridge: 62, ridgeD: 12, dx: 11.9, dz: -3.9, rotY: 0.1859, flat: 0x9c4a38, up: 2, split: 1 },
       { type: 'box', w: 62, d: 12, h: 1.5, y0: 46.5, dx: 11.9, dz: -3.9, rotY: 0.1859, flat: 0xd8d4c8 },
       { type: 'box', w: 16, d: 5, h: 6, dx: -34.7, dz: 38.7, rotY: 0.1859 },
       { type: 'box', w: 18, d: 7, h: 1.2, y0: 6, dx: -34.7, dz: 38.7, rotY: 0.1859, flat: 0x9c4a38 },
@@ -3549,20 +3671,14 @@ const LANDMARK_STRUCTURES = [
       { type: 'box', w: 25, d: 5.6, h: 2.2, y0: 15.8, dx: -418.2, dz: -190.0, rotY: 2.0632, flat: 0xe9e4d4 },
       { type: 'box', w: 11, d: 0.4, h: 2.2, y0: 20.3, dx: -402.1, dz: -213.7, rotY: 2.0632, flat: 0x2e2a26 },
       { type: 'box', w: 11, d: 0.4, h: 2.2, y0: 20.3, dx: -407.3, dz: -216.5, rotY: 2.0632, flat: 0x2e2a26 },
-      { type: 'box', w: 36, d: 7, h: 2.4, y0: 22.6, dx: -404.7, dz: -215.1, rotY: 2.0632, flat: 0x26548f },
-      { type: 'box', w: 30, d: 7, h: 2.3, y0: 25, dx: -404.7, dz: -215.1, rotY: 2.0632, flat: 0x26548f },
-      { type: 'box', w: 23, d: 7, h: 2.2, y0: 27.3, dx: -404.7, dz: -215.1, rotY: 2.0632, flat: 0x26548f },
-      { type: 'box', w: 14, d: 7, h: 0.9, y0: 29.5, dx: -404.7, dz: -215.1, rotY: 2.0632, flat: 0x2a5a9e },
-      { type: 'box', w: 19, d: 6.6, h: 2.3, y0: 18, dx: -393.4, dz: -236.2, rotY: 2.0632, flat: 0x26548f },
-      { type: 'box', w: 14.5, d: 6.6, h: 2.2, y0: 20.3, dx: -393.4, dz: -236.2, rotY: 2.0632, flat: 0x26548f },
-      { type: 'box', w: 10, d: 6.6, h: 2, y0: 22.5, dx: -393.4, dz: -236.2, rotY: 2.0632, flat: 0x26548f },
-      { type: 'box', w: 19, d: 6.6, h: 2.3, y0: 18, dx: -416.0, dz: -194.0, rotY: 2.0632, flat: 0x26548f },
-      { type: 'box', w: 14.5, d: 6.6, h: 2.2, y0: 20.3, dx: -416.0, dz: -194.0, rotY: 2.0632, flat: 0x26548f },
-      { type: 'box', w: 10, d: 6.6, h: 2, y0: 22.5, dx: -416.0, dz: -194.0, rotY: 2.0632, flat: 0x26548f },
-      { type: 'box', w: 12.5, d: 6.2, h: 2, y0: 18, dx: -387.9, dz: -246.3, rotY: 2.0632, flat: 0x26548f },
-      { type: 'box', w: 9, d: 6.2, h: 1.9, y0: 20, dx: -387.9, dz: -246.3, rotY: 2.0632, flat: 0x26548f },
-      { type: 'box', w: 12.5, d: 6.2, h: 2, y0: 18, dx: -421.5, dz: -183.9, rotY: 2.0632, flat: 0x26548f },
-      { type: 'box', w: 9, d: 6.2, h: 1.9, y0: 20, dx: -421.5, dz: -183.9, rotY: 2.0632, flat: 0x26548f },
+      // Issue #364: the arch's five blue roofs are smooth hip meshes
+      // (see hipRoofMeshParts) — the stepped boxes read as stacks at
+      // close range. Same footprints, profiles and blue tile colour.
+      { type: 'hiproof', w: 36, d: 7, y0: 22.6, h: 7.8, ridge: 29, dx: -404.7, dz: -215.1, rotY: 2.0632, flat: 0x26548f, up: 0.8, split: 1 },
+      { type: 'hiproof', w: 19, d: 6.6, y0: 18, h: 6.5, ridge: 12.4, dx: -393.4, dz: -236.2, rotY: 2.0632, flat: 0x26548f, up: 0.7, split: 1 },
+      { type: 'hiproof', w: 19, d: 6.6, y0: 18, h: 6.5, ridge: 12.4, dx: -416.0, dz: -194.0, rotY: 2.0632, flat: 0x26548f, up: 0.7, split: 1 },
+      { type: 'hiproof', w: 12.5, d: 6.2, y0: 18, h: 3.9, ridge: 6.3, dx: -387.9, dz: -246.3, rotY: 2.0632, flat: 0x26548f, up: 0.6, split: 1 },
+      { type: 'hiproof', w: 12.5, d: 6.2, y0: 18, h: 3.9, ridge: 6.3, dx: -421.5, dz: -183.9, rotY: 2.0632, flat: 0x26548f, up: 0.6, split: 1 },
     ],
   },
   {
@@ -3618,12 +3734,12 @@ const LANDMARK_STRUCTURES = [
       { type: 'box', w: 30, d: 2.4, h: 4.95, dx: -25.4, dz: 47.3, rotY: 0.4924, flat: 0xbdb098 },
       { type: 'box', w: 30, d: 2.4, h: 3.3, dx: -26.5, dz: 49.4, rotY: 0.4924, flat: 0xbdb098 },
       { type: 'box', w: 30, d: 2.4, h: 1.65, dx: -27.7, dz: 51.6, rotY: 0.4924, flat: 0xbdb098 },
-      { type: 'box', w: 112, d: 108, h: 3, y0: 20, rotY: 0.4924, flat: 0xc79a3f },
-      { type: 'box', w: 103, d: 99, h: 3, y0: 23, rotY: 0.4924, flat: 0xc79a3f },
-      { type: 'box', w: 94, d: 90, h: 3, y0: 26, rotY: 0.4924, flat: 0xc79a3f },
-      { type: 'box', w: 84, d: 80, h: 2.67, y0: 29, rotY: 0.4924, flat: 0xc79a3f },
-      { type: 'box', w: 84, d: 53, h: 2.67, y0: 31.67, rotY: 0.4924, flat: 0xc79a3f },
-      { type: 'box', w: 84, d: 27, h: 2.67, y0: 34.33, rotY: 0.4924, flat: 0xc79a3f },
+      // Issue #364: the roof is one smooth double-eaved hip mesh (see
+      // hipRoofMeshParts) — the six stepped boxes read as a stack. Same
+      // eave footprint (112 x 108), same profile (20 -> 29 lower,
+      // 29 -> 37 upper) and gold tile colour, now a continuous surface
+      // with upturned eave corners.
+      { type: 'hiproof', w: 112, d: 108, y0: 20, h: 17, ridge: 6, rotY: 0.4924, flat: 0xc79a3f, up: 2, split: 9 / 17, w1: 84, d1: 80, w2: 66, d2: 62 },
     ],
   },
   {
@@ -3663,12 +3779,12 @@ const LANDMARK_STRUCTURES = [
       { type: 'box', w: 30, d: 2.4, h: 4.95, dx: 25.9, dz: -48.2, rotY: 0.4924, flat: 0xbdb098 },
       { type: 'box', w: 30, d: 2.4, h: 3.3, dx: 27.0, dz: -50.3, rotY: 0.4924, flat: 0xbdb098 },
       { type: 'box', w: 30, d: 2.4, h: 1.65, dx: 28.1, dz: -52.4, rotY: 0.4924, flat: 0xbdb098 },
-      { type: 'box', w: 116, d: 110, h: 3, y0: 20, rotY: 0.4924, flat: 0xc79a3f },
-      { type: 'box', w: 107, d: 101, h: 3, y0: 23, rotY: 0.4924, flat: 0xc79a3f },
-      { type: 'box', w: 97, d: 92, h: 3, y0: 26, rotY: 0.4924, flat: 0xc79a3f },
-      { type: 'box', w: 88, d: 82, h: 2.67, y0: 29, rotY: 0.4924, flat: 0xc79a3f },
-      { type: 'box', w: 88, d: 55, h: 2.67, y0: 31.67, rotY: 0.4924, flat: 0xc79a3f },
-      { type: 'box', w: 88, d: 28, h: 2.67, y0: 34.33, rotY: 0.4924, flat: 0xc79a3f },
+      // Issue #364: the roof is one smooth double-eaved hip mesh (see
+      // hipRoofMeshParts) — the six stepped boxes read as a stack. Same
+      // eave footprint (116 x 110), same profile (20 -> 29 lower,
+      // 29 -> 37 upper) and gold tile colour, now a continuous surface
+      // with upturned eave corners.
+      { type: 'hiproof', w: 116, d: 110, y0: 20, h: 17, ridge: 6, rotY: 0.4924, flat: 0xc79a3f, up: 2, split: 9 / 17, w1: 88, d1: 82, w2: 70, d2: 64 },
     ],
   },
   {
@@ -4093,13 +4209,15 @@ const LANDMARK_STRUCTURES = [
       { type: 'box', w: 66, d: 12, h: 5.5, dx: 7.1, dz: 32.2, rotY: -0.216, flat: 0xa39a86 },
       { type: 'box', w: 100, d: 45, h: 8, y0: 11, rotY: -0.216 },
       { type: 'box', w: 98, d: 40, h: 40, y0: 19, rotY: -0.216, facade: { kind: 'prewar', stoneColor: 0xa63c26, trimColor: 0x5f7a6a, windowGlassColor: 0x232d38, windowWidth: 2.6, floorHeight: 4.2, litProbability: 0.34, warmth: 0.62, seed: 57.36 } },
-      { type: 'box', w: 102, d: 44, h: 2.2, y0: 59, rotY: -0.216, flat: 0x52796a },
-      { type: 'box', w: 105, d: 53, h: 3.4, y0: 61.2, rotY: -0.216, flat: 0xc99636 },
-      { type: 'box', w: 100, d: 42, h: 4.6, y0: 64.6, rotY: -0.216, flat: 0xdfd8c4 },
+      // Issue #364: the roof is one smooth double-eaved hip mesh (see
+      // hipRoofMeshParts) — the seven stepped boxes read as a stack.
+      // Same eave footprint (105 x 53), same profile (59 -> 71 lower,
+      // 71 -> 87 upper) and gold tile colour, now a continuous surface
+      // with upturned eave corners. The green band under the upper eave
+      // stays (the photo's green trim); the lower green band and the
+      // white mid-tier slab sat inside the slope, so they are gone.
       { type: 'box', w: 102, d: 44, h: 2.0, y0: 69.2, rotY: -0.216, flat: 0x52796a },
-      { type: 'box', w: 100, d: 45, h: 6.5, y0: 71.2, rotY: -0.216, flat: 0xc99636 },
-      { type: 'box', w: 92, d: 38, h: 5.5, y0: 77.7, rotY: -0.216, flat: 0xc99636 },
-      { type: 'box', w: 66, d: 20, h: 3.8, y0: 83.2, rotY: -0.216, flat: 0xbd8a2e },
+      { type: 'hiproof', w: 105, d: 53, y0: 59, h: 28, ridge: 52, rotY: -0.216, flat: 0xc99636, up: 2.5, split: 12 / 28, w1: 100, d1: 45, w2: 88, d2: 40 },
       // The entrance porch on the south face (local (0, +29)
       // in the building frame, rotated into tile offsets) with
       // its own small golden roof slab.
@@ -7160,6 +7278,13 @@ export function planTaipeiBuildings(geodata, opts = {}) {
   for (const s of landmarkTowers) {
     if (!s.parts.some((p) => p.type === 'cksroof')) continue;
     s.parts = s.parts.flatMap((p) => (p.type === 'cksroof' ? expandCksRoofParts(p) : p));
+  }
+  // Issue #364: `hiproof` placeholders expand here — smooth hip roofs
+  // as baked-vertex meshes (the #353 cksroof precedent, generalised);
+  // no other consumer ever sees the `hiproof` type.
+  for (const s of landmarkTowers) {
+    if (!s.parts.some((p) => p.type === 'hiproof')) continue;
+    s.parts = s.parts.flatMap((p) => (p.type === 'hiproof' ? expandHipRoofParts(p) : p));
   }
   // MRT elevated stations (issue #118): the structures straddle the
   // guideway corridor, so their footprint bounding boxes join the
