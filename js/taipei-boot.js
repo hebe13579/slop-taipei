@@ -1,6 +1,7 @@
 import * as THREE from 'three/webgpu';
 
-import { planTaipeiBuildings, taipeiCityBlocksOptions, createTaipei101, createTaipeiLandmarkTowers, updateSchoolLodGroup, updateSpecialLodGroup, updateDespawnGroup } from './taipei-buildings.js';
+import { planTaipeiBuildings, taipeiCityBlocksOptions, createTaipei101, createTaipeiLandmarkTowers, updateSchoolLodGroup, updateSpecialLodGroup, updateDespawnGroup, lodNearM, SCHOOL_LOD_FAR_M, SCHOOL_LOD_NEAR_M } from './taipei-buildings.js';
+import { SPECIAL_LOD_FAR_M_DEFAULT, clampSpecialLodFarM } from './settings.js'; // issue #393: the adjustable special-LOD distance
 import { buildSidewalkBands, planStreetTrees, planParkTrees, planStreetLamps, LAMP_HEAD_H, LAMP_POOL_RX, LAMP_POOL_RZ } from './taipei-streetscape.js';
 import { planParkAmenities } from './taipei-park-amenities.js';
 import { AvatarFigure } from './avatar-figure.js';
@@ -2089,9 +2090,13 @@ export async function buildTaipeiGround(scene, tile, deps = {}) {
   // special buildings (Taipei 101 + registry landmarks + airport
   // site structures) are visible. Absent or invalid values fall
   // back to the pre-#218 boot exactly (Fine density, specials on).
+  // Issue #393: the special-LOD swap distance (default 2,000 m) —
+  // the per-frame update below reads it live, so the settings
+  // slider applies without a rebuild.
   const bootSettings = {
     density: deps.settings?.density === 'coarse' || deps.settings?.density === 'dense' ? deps.settings.density : 'fine',
     specials: deps.settings?.specials !== false,
+    specialLodFarM: clampSpecialLodFarM(deps.settings?.specialLodFarM) ?? SPECIAL_LOD_FAR_M_DEFAULT,
   };
   const buildingsStart = performance.now();
   // Sandbox (?sandbox=): the box bounds the registry/site structures
@@ -2289,7 +2294,7 @@ export async function buildTaipeiGround(scene, tile, deps = {}) {
     get group() { return cityBlocks?.group ?? null; },
     colliders: allCollidersLive,
     allBlocks: allBlocksLive,
-    update: (x, z, force) => { if (cityBlocks) cityBlocks.update(x, z, force); if (schoolLodGroup) updateSchoolLodGroup(schoolLodGroup, x, z); for (const g of specialGroups) { updateSpecialLodGroup(g, x, z); updateDespawnGroup(g, x, z); } if (skybridgeGroup) updateDespawnGroup(skybridgeGroup, x, z); },
+    update: (x, z, force) => { if (cityBlocks) cityBlocks.update(x, z, force); if (schoolLodGroup) updateSchoolLodGroup(schoolLodGroup, x, z, SCHOOL_LOD_FAR_M, SCHOOL_LOD_NEAR_M); for (const g of specialGroups) { updateSpecialLodGroup(g, x, z, bootSettings.specialLodFarM, lodNearM(bootSettings.specialLodFarM)); updateDespawnGroup(g, x, z); } if (skybridgeGroup) updateDespawnGroup(skybridgeGroup, x, z); },
     updateLights: (camera) => { if (cityBlocks?.updateLights) cityBlocks.updateLights(camera); },
   };
   const disposeBuilt = (obj) => {
@@ -2299,6 +2304,18 @@ export async function buildTaipeiGround(scene, tile, deps = {}) {
   const taipeiSettings = {
     get density() { return bootSettings.density; },
     get specials() { return bootSettings.specials; },
+    get specialLodFarM() { return bootSettings.specialLodFarM; },
+    // Issue #393: the special-LOD swap distance, live — the
+    // settings slider calls this on every input; the per-frame
+    // update above reads bootSettings each frame, so the swap
+    // distance moves with no rebuild. Schools keep the 700/600 m
+    // swap (their far representation is a subtle canopy
+    // simplification); only specials follow this distance.
+    // Returns the clamped distance in metres.
+    setSpecialLodFarM(m) {
+      bootSettings.specialLodFarM = clampSpecialLodFarM(m) ?? SPECIAL_LOD_FAR_M_DEFAULT;
+      return bootSettings.specialLodFarM;
+    },
     // Re-plan and rebuild the building + tree layers in place —
     // no reload. Synchronous (the plan is CPU-bound); the panel
     // yields a frame before calling so its busy state paints.

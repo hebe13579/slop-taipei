@@ -20,6 +20,9 @@ import {
   TRAFFIC_CARS_TICKS,
   TRAFFIC_RADIUS_TICKS,
   TRAFFIC_SLIDER_DEBOUNCE_MS,
+  SPECIAL_LOD_FAR_M_DEFAULT,
+  SPECIAL_LOD_FAR_M_MIN,
+  SPECIAL_LOD_FAR_M_MAX,
 } from '../js/settings.js';
 
 // Issue #218 — the settings gear: resolution rules, graphics
@@ -46,21 +49,21 @@ function fingerprint(plan) {
 }
 
 test('settings resolution: defaults are the pre-#218 behaviour', () => {
-  assert.deepEqual(resolveSettings(), { specials: true, density: 'fine', graphics: 'medium', farDetail: 'fade', drape: true, trafficCars: 0, trafficRadiusM: 380 });
+  assert.deepEqual(resolveSettings(), { specials: true, density: 'fine', graphics: 'medium', farDetail: 'fade', specialLodFarM: 2000, drape: true, trafficCars: 0, trafficRadiusM: 380 });
   assert.deepEqual(resolveSettings({ search: '', stored: null }), DEFAULT_SETTINGS);
 });
 
 test('settings resolution: storage beats defaults, URL beats storage, per field', () => {
   const stored = JSON.stringify({ specials: false, density: 'dense', graphics: 'low' });
-  assert.deepEqual(resolveSettings({ stored }), { specials: false, density: 'dense', graphics: 'low', farDetail: 'fade', drape: true, trafficCars: 0, trafficRadiusM: 380 });
+  assert.deepEqual(resolveSettings({ stored }), { specials: false, density: 'dense', graphics: 'low', farDetail: 'fade', specialLodFarM: 2000, drape: true, trafficCars: 0, trafficRadiusM: 380 });
   // URL overrides only the fields it names.
   assert.deepEqual(
     resolveSettings({ stored, search: '?density=coarse' }),
-    { specials: false, density: 'coarse', graphics: 'low', farDetail: 'fade', drape: true, trafficCars: 0, trafficRadiusM: 380 },
+    { specials: false, density: 'coarse', graphics: 'low', farDetail: 'fade', specialLodFarM: 2000, drape: true, trafficCars: 0, trafficRadiusM: 380 },
   );
   assert.deepEqual(
     resolveSettings({ stored, search: '?specials=on&graphics=high' }),
-    { specials: true, density: 'dense', graphics: 'high', farDetail: 'fade', drape: true, trafficCars: 0, trafficRadiusM: 380 },
+    { specials: true, density: 'dense', graphics: 'high', farDetail: 'fade', specialLodFarM: 2000, drape: true, trafficCars: 0, trafficRadiusM: 380 },
   );
   // Stored value may arrive as an object too.
   assert.equal(resolveSettings({ stored: { density: 'coarse' } }).density, 'coarse');
@@ -69,11 +72,11 @@ test('settings resolution: storage beats defaults, URL beats storage, per field'
 test('settings resolution: invalid values fall back per field, never throw', () => {
   assert.deepEqual(
     resolveSettings({ stored: '{not json', search: '?density=huge&graphics=ultra&specials=maybe' }),
-    { specials: true, density: 'fine', graphics: 'medium', farDetail: 'fade', drape: true, trafficCars: 0, trafficRadiusM: 380 },
+    { specials: true, density: 'fine', graphics: 'medium', farDetail: 'fade', specialLodFarM: 2000, drape: true, trafficCars: 0, trafficRadiusM: 380 },
   );
   assert.deepEqual(
     resolveSettings({ stored: JSON.stringify({ density: 'huge', graphics: 7, specials: 'off' }) }),
-    { specials: false, density: 'fine', graphics: 'medium', farDetail: 'fade', drape: true, trafficCars: 0, trafficRadiusM: 380 },
+    { specials: false, density: 'fine', graphics: 'medium', farDetail: 'fade', specialLodFarM: 2000, drape: true, trafficCars: 0, trafficRadiusM: 380 },
   );
   // Boolean spellings the URL layer accepts.
   for (const [raw, want] of [['off', false], ['0', false], ['no', false], ['on', true], ['1', true], ['yes', true]]) {
@@ -87,7 +90,7 @@ test('settings persistence: round-trip through storage, failures stay silent', (
     getItem: (k) => (mem.has(k) ? mem.get(k) : null),
     setItem: (k, v) => mem.set(k, String(v)),
   };
-  const s = { specials: false, density: 'dense', graphics: 'high', farDetail: 'full', drape: false, trafficCars: 350, trafficRadiusM: 500 };
+  const s = { specials: false, density: 'dense', graphics: 'high', farDetail: 'full', specialLodFarM: 1200, drape: false, trafficCars: 350, trafficRadiusM: 500 };
   assert.equal(persistSettings(storage, s), true);
   assert.deepEqual(resolveSettings({ stored: readStoredSettings(storage) }), s);
   assert.equal(mem.has(SETTINGS_STORAGE_KEY), true);
@@ -237,6 +240,25 @@ test('far detail resolution: default fade, storage beats default, URL beats stor
   assert.equal(resolveSettings({ stored: JSON.stringify({ farDetail: 7 }) }).farDetail, 'fade');
 });
 
+test('special LOD resolution: default 2,000 m, storage beats default, URL beats storage (issue #393)', () => {
+  // The special-building LOD swap distance: specials keep full detail
+  // within this range, then simplify to their flat far massing. Same
+  // per-field resolution as the other rows: URL param > localStorage >
+  // default. The old 700 m swap is the slider's near end.
+  assert.equal(resolveSettings().specialLodFarM, SPECIAL_LOD_FAR_M_DEFAULT);
+  assert.equal(resolveSettings({ stored: JSON.stringify({ specialLodFarM: 1200 }) }).specialLodFarM, 1200);
+  assert.equal(
+    resolveSettings({ stored: JSON.stringify({ specialLodFarM: 1200 }), search: '?specialLodFarM=3000' }).specialLodFarM,
+    3000,
+  );
+  assert.equal(resolveSettings({ search: '?specialLodFarM=700' }).specialLodFarM, SPECIAL_LOD_FAR_M_MIN);
+  // Out-of-span values clamp; invalid values fall back to the default.
+  assert.equal(resolveSettings({ stored: JSON.stringify({ specialLodFarM: 99999 }) }).specialLodFarM, SPECIAL_LOD_FAR_M_MAX);
+  assert.equal(resolveSettings({ stored: JSON.stringify({ specialLodFarM: 50 }) }).specialLodFarM, SPECIAL_LOD_FAR_M_MIN);
+  assert.equal(resolveSettings({ search: '?specialLodFarM=abc' }).specialLodFarM, SPECIAL_LOD_FAR_M_DEFAULT);
+  assert.equal(resolveSettings({ stored: JSON.stringify({ specialLodFarM: 'far' }) }).specialLodFarM, SPECIAL_LOD_FAR_M_DEFAULT);
+});
+
 test('traffic resolution: default off, storage beats default, URL beats storage (issues #252/#266/#281)', () => {
   assert.equal(resolveSettings().trafficCars, 0);
   assert.equal(resolveSettings().trafficRadiusM, 380);
@@ -330,7 +352,7 @@ test('settings UI: distant-buildings row in index.html, wired in main.js', () =>
 test('settings wiring: main.js resolves + passes settings, boot exposes the runtime API', () => {
   assert.match(mainSource, /resolveSettings\(\{/);
   assert.match(mainSource, /initSettingsPanel\(\{/);
-  assert.match(mainSource, /settings: \{ density: settings\.density, specials: settings\.specials, drape: settings\.drape \}/);
+  assert.match(mainSource, /settings: \{ density: settings\.density, specials: settings\.specials, drape: settings\.drape, specialLodFarM: settings\.specialLodFarM \}/); // issue #393: the boot deps literal carries the new field
   // Sandbox (?sandbox=): the boot also passes opts.bounds (the sandbox
   // box; SANDBOX_BOX is null without the param, so the call is the
   // pre-sandbox call exactly — the bounds filter is a no-op then).
@@ -371,6 +393,8 @@ function stubPanel() {
   const carsValue = makeEl('set-traffic-cars-value');
   const radiusSlider = makeEl('set-traffic-radius');
   const radiusValue = makeEl('set-traffic-radius-value');
+  const lodSlider = makeEl('set-special-lod-far');
+  const lodValue = makeEl('set-special-lod-far-value');
   const pop = makeEl('settings-popover');
   pop.querySelectorAll = () => [];
   const doc = {
@@ -381,13 +405,15 @@ function stubPanel() {
       'set-traffic-cars-value': carsValue,
       'set-traffic-radius': radiusSlider,
       'set-traffic-radius-value': radiusValue,
+      'set-special-lod-far': lodSlider,
+      'set-special-lod-far-value': lodValue,
     }[id] || null),
   };
   // Drive a slider like a user: set the value and fire input for each
   // drag tick; fire change on release (optionally with a final value).
   const drag = (slider, ...values) => { for (const v of values) { slider.value = String(v); slider.fire('input'); } };
   const release = (slider, v) => { if (v !== undefined) { slider.value = String(v); slider.fire('input'); } slider.fire('change'); };
-  return { doc, statusEl, carsSlider, carsValue, radiusSlider, radiusValue, drag, release };
+  return { doc, statusEl, carsSlider, carsValue, radiusSlider, radiusValue, lodSlider, lodValue, drag, release };
 }
 
 async function flushFrames(rafQueue) {
@@ -485,6 +511,33 @@ test('traffic sliders: the range slider changes the spawn radius, with the same 
     if (prevRaf === undefined) delete globalThis.requestAnimationFrame;
     else globalThis.requestAnimationFrame = prevRaf;
   }
+});
+
+test('special LOD slider: a drag applies live at every value, release snaps to a tick (issue #393)', async () => {
+  // Unlike the traffic sliders there is nothing to rebuild — the
+  // per-frame LOD update reads the boot's value each frame, so a
+  // drag applies at once (no debounce) and release snaps + persists.
+  const { doc, lodSlider, lodValue, drag, release } = stubPanel();
+  const settings = resolveSettings();
+  const applied = [];
+  const persisted = [];
+  const taipeiSettings = { setSpecialLodFarM: (m) => { applied.push(m); return m; } };
+  initSettingsPanel({ settings, taipeiSettings, doc, persist: () => { persisted.push(settings.specialLodFarM); } });
+  assert.equal(lodValue.textContent, '2,000 m', 'reflect shows the default');
+  drag(lodSlider, 700, 1200, 2000);
+  assert.equal(settings.specialLodFarM, 2000);
+  assert.equal(lodValue.textContent, '2,000 m');
+  assert.deepEqual(applied, [700, 1200, 2000], 'every drag tick applies at once');
+  assert.equal(persisted.length, 0, 'nothing persists mid-drag');
+  // Release near the Far tick (2050 -> 2000): snap + persist.
+  release(lodSlider, 2050);
+  assert.equal(settings.specialLodFarM, 2000, 'snapped to the Far tick');
+  assert.deepEqual(persisted, [2000]);
+  // Release at a non-tick value (1000): no snap, still persists.
+  release(lodSlider, 1000);
+  assert.equal(settings.specialLodFarM, 1000, '1,000 is not within the snap window of any tick');
+  assert.equal(lodValue.textContent, '1,000 m');
+  assert.deepEqual(persisted, [2000, 1000]);
 });
 
 test('traffic sliders: a failed build restores the last good config, gear and world agree (issue #266)', async () => {
@@ -617,7 +670,7 @@ test('mobile detection: phones count, tablets and desktops do not (issue #268)',
 test('mobile defaults: phones SET Coarse + Low over stored settings, URL still wins (issue #268)', () => {
   assert.deepEqual(
     resolveSettings({ isMobile: true }),
-    { specials: true, density: 'coarse', graphics: 'low', farDetail: 'fade', drape: true, trafficCars: 0, trafficRadiusM: 380 },
+    { specials: true, density: 'coarse', graphics: 'low', farDetail: 'fade', specialLodFarM: 2000, drape: true, trafficCars: 0, trafficRadiusM: 380 },
   );
   assert.deepEqual(resolveSettings({ isMobile: false }), resolveSettings(), 'desktop resolution is unchanged');
   // The phone never reads the previous density/graphics: a stored
