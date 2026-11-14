@@ -11,6 +11,7 @@ import { buildRoadMarkings, detectJunctions, DASH_LEN, DASH_GAP, STRIPE_W, STRIP
 import { planJunctionCaps, planRoundabouts, ringPoints, capSurfacePolys, capClipPolys, capWaterPolys, CAP_Y, ISLAND_Y } from './taipei-junctions.js';
 import { buildDeckGeometry, groundContactPolys, portalTrenchSlots, diveAdjustedPiers, PIER_W, PIER_D } from './taipei-viaduct.js';
 import { buildDriveModel, taipeiExtraColliders } from './taipei-drive.js';
+import { underpassDepthAt } from './taipei-traffic.js'; // issue #359: the player car descends the 復北地下道 bore on the same trench function the AI profiles ride
 import { SANDBOX_BOX, SANDBOX_INFO, sandboxEmptiness } from './taipei-sandbox.js'; // sandbox bounds + empty-box notice
 import { ribbonsQuads, jointFramesFor, densifyPts } from './taipei-ribbons.js';
 import { drapeHeight, drapeEnabled, setDrapeEnabled, DRAPE_RECTS, DRAPE_FEATHER, buildAdaptiveDrapeGround } from './taipei-drape.js';
@@ -1331,6 +1332,13 @@ function buildSignalMesh(signals, groundAt = null) {
 export function controllerOptions(tile, env = {}) {
   const bb = tile.geodata.frame.bbox;
   const s = tile.spawn;
+  // Issue #359: the underpass depth function for the player
+  // drive model — computed ONCE per tile, not per frame: the
+  // drive model memoizes on the function identity, and a fresh
+  // arrow per frame would defeat the cache. Null when the tile
+  // carries no trench (then the drive model is exactly the flat
+  // model).
+  const tileUnderpassDepthAt = underpassDepthAt(tile.geodata.airfield);
   return {
     bounds: { minX: bb.minX, maxX: bb.maxX, minZ: bb.minZ, maxZ: bb.maxZ },
     // Union-of-boxes tile (issue #60): the parts of the bounding rect
@@ -1344,7 +1352,10 @@ export function controllerOptions(tile, env = {}) {
     // Issue #132: the drive model is drape-aware — its ground
     // candidate is the draped height, so agents stand on the
     // hillsides; with the drape off it is the flat model exactly.
-    groundHeight: (x, z, mode, yHint) => buildDriveModel(tile.geodata.elevatedRoads, { groundAt: drapeHeight }).sample(x, z, yHint),
+    // Issue #359: the same model carries the underpass bore —
+    // the player car descends the 復北地下道 trench instead of
+    // floating at grade over it.
+    groundHeight: (x, z, mode, yHint) => buildDriveModel(tile.geodata.elevatedRoads, { groundAt: drapeHeight, underpassDepthAt: tileUnderpassDepthAt }).sample(x, z, yHint),
     speedScale: 2,
     // Helicopter (user request 2026-10-24): ceiling above 600 m — 750
     // clears Taipei 101 (508 m) with margin — and ascend/descend 5×

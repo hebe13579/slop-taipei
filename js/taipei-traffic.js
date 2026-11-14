@@ -358,9 +358,35 @@ function underpassSampler(airfield) {
       }
       return best;
     },
+    // Issue #359: the player drive model needs the same depth
+    // field as a point query, not an edge match — the depth below
+    // local grade at (x, z), 0 outside every corridor. With
+    // several tunnels the deepest covering one wins (today there
+    // is exactly one).
+    depthAt(x, z) {
+      let best = 0;
+      for (const t of built) {
+        const d = t.depthAt(x, z);
+        if (d < best) best = d;
+      }
+      return best;
+    },
   };
   underpassSamplerCache.set(airfield, out);
   return out;
+}
+
+// Issue #359: the player drive model samples the same trench
+// function the AI profiles ride — a point query, not an edge
+// match. Returns null when the geodata carries no tunnel (then
+// the drive model is exactly the flat model). The sampler is
+// WeakMap-cached per airfield object, but the returned arrow is
+// fresh per call — the boot must call this once per tile, not
+// per frame, so the drive model's memoization can key on it.
+export function underpassDepthAt(airfield) {
+  const s = underpassSampler(airfield);
+  if (!s) return null;
+  return (x, z) => s.depthAt(x, z);
 }
 
 // Depth samples along one roadGraph edge, a -> b order, at most
