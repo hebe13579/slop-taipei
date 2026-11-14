@@ -439,7 +439,10 @@ test('taipei-boot wires the tile world into main.js (source contract)', () => {
   // height as its ground candidate, so driving follows the hills;
   // the behaviour is pinned by the drive-sampler tests in
   // tests/taipei-drape.test.mjs, this regex only pins the wiring.
-  assert.match(boot, /groundHeight: \(x, z, mode, yHint\) => buildDriveModel\(tile\.geodata\.elevatedRoads, \{ groundAt: drapeHeight \}\)\.sample\(x, z, yHint\)/);
+  // Issue #359: the sampler also takes the underpass depth function,
+  // computed once per tile above, so the player car descends the
+  // 復北地下道 bore on the same trench function the AI profiles ride.
+  assert.match(boot, /groundHeight: \(x, z, mode, yHint\) => buildDriveModel\(tile\.geodata\.elevatedRoads, \{ groundAt: drapeHeight, underpassDepthAt: tileUnderpassDepthAt \}\)\.sample\(x, z, yHint\)/);
   // Issue #60: the union's dropped bands reach the controllers.
   assert.match(boot, /excludeRects: unionExclusionRects\(tile\.geodata\.frame\.boxes, bb\)/);
   assert.match(source, /excludeRects: Array\.isArray\(opts\.excludeRects\)/);
