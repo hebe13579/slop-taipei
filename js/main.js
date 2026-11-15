@@ -21,6 +21,7 @@ import { setupSceneCulling, updateSceneCulling } from './scene-culling.js';
 import { CityAudioSystem } from './audio-system.js';
 import { resolveSettings, readStoredSettings, persistSettings, graphicsConfig, applyGraphicsSettings, initSettingsPanel, trafficConfig, isMobileDevice } from './settings.js';
 import { setFarFadeEnabled } from './tsl-materials.js';
+import { refillLiveArray } from './live-array.js'; // issue #407: bounded-chunk refill, no spread-push over plan-scale arrays
 
 // js/main.js
 // Main entry point for New York City (Midtown Manhattan) in Three.js WebGPURenderer & TSL (three.js dev, see index.html)
@@ -223,8 +224,12 @@ async function initApp() {
   // onDensity callback below).
   const allColliders = [];
   const syncAllColliders = () => {
-    allColliders.length = 0;
-    allColliders.push(...landmarkColliders, ...cityBlocks.colliders, ...boroughs.colliders, ...(cityGrid.colliders || []));
+    // Issue #407: the old `allColliders.push(...a, ...b, ...)` spread
+    // ~100k colliders into one push() call and died at boot with
+    // `RangeError: Maximum call stack size exceeded` in the user's
+    // browser. Refill in bounded chunks instead; the array identity
+    // (and the in-place refill the controller relies on) is unchanged.
+    refillLiveArray(allColliders, landmarkColliders, cityBlocks.colliders, boroughs.colliders, cityGrid.colliders || []);
   };
   syncAllColliders();
 
