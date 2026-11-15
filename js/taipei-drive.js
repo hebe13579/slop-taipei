@@ -35,6 +35,25 @@
 //        (joins agree to <= 0.11 m per the #211 census, so
 //        line-to-line transitions are seamless).
 //
+//    THE UNDERPASS SURFACE (issue #359) is the downward mirror
+//    of a deck ramp: a below-grade surface in the rendered
+//    復北地下道 trench, supplied as opts.underpassDepthAt (the
+//    depth below local grade at a point, 0 outside the trench
+//    corridor — js/taipei-traffic.js underpassDepthAt, the same
+//    trench function the AI profiles ride). The bore floor is
+//    the ground candidate plus that depth (the rendered trench
+//    floor is the cut depth lifted by the draped ground, #285),
+//    so it needs no new datum. It joins the same contest: a
+//    below-grade surface within mounting reach of the hint
+//    claims the entity, so a car driving into the cut descends
+//    the ramp instead of floating at grade, and closeness keeps
+//    it in the bore. A car crossing OVER the bore at grade stays
+//    up — the bore floor is 5.35 m away, far outside mounting
+//    reach. There are no trench-wall colliders (same class as
+//    deck edges): a car steering laterally out of the bore snaps
+//    back to grade at the corridor edge, but the corridor is the
+//    road itself, so normal driving never hits it.
+//
 // 2. COLLIDERS. controllers.js already resolves horizontal
 //    push-out against AABB / oriented-box colliders in a 48 m
 //    spatial hash; a tile just has to feed it some. Building
@@ -114,9 +133,20 @@ export function buildDriveModel(elevated, opts = {}) {
   // would let any nearby deck surface win the closeness rule.
   // The ground-bearing test still reads the AUTHORED profile.
   const groundAt = typeof opts.groundAt === 'function' ? opts.groundAt : FLAT_GROUND;
+  // Issue #359: the underpass depth field (below-grade surface),
+  // or null when the tile carries no trench. The model is
+  // memoized per (elevated, groundAt, underpassDepthAt): the
+  // boot asks twice (surface for controllerOptions, colliders
+  // for the ground build) and pays once per configuration — the
+  // colliders call passes no underpass function, the
+  // groundHeight call passes the tile's, so they must not share
+  // one cached model.
+  const underpassDepthAt = typeof opts.underpassDepthAt === 'function' ? opts.underpassDepthAt : null;
   let byGround = modelCache.get(elevated);
   if (!byGround) { byGround = new Map(); modelCache.set(elevated, byGround); }
-  const hit = byGround.get(groundAt);
+  let byUnderpass = byGround.get(groundAt);
+  if (!byUnderpass) { byUnderpass = new Map(); byGround.set(groundAt, byUnderpass); }
+  const hit = byUnderpass.get(underpassDepthAt);
   if (hit) return hit;
 
   const depth = elevated.deckDepth ?? 1.8;
@@ -202,11 +232,35 @@ export function buildDriveModel(elevated, opts = {}) {
   // header for the ground-bearing / hint rules.
   const sample = (x, z, yHint) => {
     const hint = Number.isFinite(yHint) ? yHint : 0;
-    const list = cells.get(cellKey(Math.floor(x / DRIVE_CELL), Math.floor(z / DRIVE_CELL)));
     // Issue #132: the ground candidate is the draped height, not 0.
     const ground = groundAt(x, z);
-    if (!list) return ground;
+    // Issue #359: the underpass candidate — the bore floor is the
+    // ground candidate plus the trench depth (0 outside the
+    // corridor, so `under` is null there). It is evaluated BEFORE
+    // the no-deck-cells early return: deck cells don't cover the
+    // tunnel, and a car in the bore must not fall through to the
+    // ground when no deck segment is nearby.
+    const underDepth = underpassDepthAt ? underpassDepthAt(x, z) : 0;
+    const under = underDepth < 0 ? ground + underDepth : null;
+    const list = cells.get(cellKey(Math.floor(x / DRIVE_CELL), Math.floor(z / DRIVE_CELL)));
+    if (!list) {
+      // No deck nearby: the mount rule still applies — a bore
+      // floor within reach claims the car, so it descends the
+      // cut ramp instead of floating at grade (without this, a
+      // hint sitting exactly on the ground would always win the
+      // closeness contest and the descent would never start).
+      // Otherwise the closer of the ground and the bore floor
+      // wins — a car in the bore stays down, a car crossing
+      // over it at grade stays up.
+      if (under != null && Math.abs(under - hint) <= MOUNT_REACH_M) return under;
+      if (under != null && Math.abs(under - hint) < Math.abs(ground - hint)) return under;
+      return ground;
+    }
     let best = ground, bestDist = Math.abs(ground - hint); // the ground is always a candidate
+    if (under != null) {
+      const ud = Math.abs(under - hint);
+      if (ud < bestDist) { best = under; bestDist = ud; }
+    }
     let gb = null, gbDist = Infinity;
     for (const seg of list) {
       const px = x - seg.ax, pz = z - seg.az;
@@ -236,6 +290,15 @@ export function buildDriveModel(elevated, opts = {}) {
     // one farther away than a step is just a wall beside the
     // road, and the closeness rule decides.
     if (gb != null && gbDist <= MOUNT_REACH_M) return gb;
+    // Issue #359: the downward mirror of the ramp foot — a
+    // below-grade surface within mounting reach claims the
+    // entity even over the ground itself. This is what pulls a
+    // car down the cut ramp: at the cut mouth the bore floor is
+    // at grade, and it descends continuously from there, so the
+    // hint tracks it down instead of floating at grade. A car
+    // crossing over the bore is 5.35 m above the floor — far
+    // outside mounting reach — and stays on the ground.
+    if (under != null && Math.abs(under - hint) <= MOUNT_REACH_M) return under;
     return best;
   };
 
@@ -244,7 +307,7 @@ export function buildDriveModel(elevated, opts = {}) {
     parapetColliders,
     stats: { segments, elevatedSegments, cells: cells.size, parapetTrimmedM: trims.stats.blockedM },
   };
-  byGround.set(groundAt, model);
+  byUnderpass.set(underpassDepthAt, model);
   return model;
 }
 

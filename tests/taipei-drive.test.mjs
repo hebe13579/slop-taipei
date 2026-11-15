@@ -10,6 +10,8 @@ import { TAIPEI_GEO } from '../js/taipei-geodata.js';
 import { buildDriveModel, structureColliders, stationColliders, taipei101Colliders, taipeiExtraColliders, MOUNT_REACH_M } from '../js/taipei-drive.js';
 import { planTaipeiBuildings } from '../js/taipei-buildings.js';
 import { LOW_BED_H, ASPHALT_LIFT, PARAPET_H } from '../js/taipei-viaduct.js';
+import { underpassDepthAt } from '../js/taipei-traffic.js'; // issue #359: the trench field the drive model samples
+import { drapeHeight } from '../js/taipei-drape.js'; // issue #359: the draped ground the bore floor is lifted by
 
 const LOW_SURF = LOW_BED_H + ASPHALT_LIFT;
 
@@ -180,4 +182,100 @@ test('real tile: extra colliders assemble from plan + geodata', () => {
 
 test('mount reach constant is the documented step', () => {
   assert.equal(MOUNT_REACH_M, 1.0);
+});
+
+// Issue #359: the underpass bore — a below-grade surface in the
+// rendered trench. A synthetic trench (straight along z, ramps 30 m
+// each end, bore floor -5.35 m) proves the drive-in / hold /
+// climb-out cycle and the over-crossing rule in isolation.
+const trenchDepthAt = (x, z) => {
+  if (Math.abs(x) > 8) return 0;
+  if (z > -100 || z < -260) return 0;
+  if (z >= -130) return -5.35 * ((-100 - z) / 30);
+  if (z <= -230) return -5.35 * ((z + 260) / 30);
+  return -5.35;
+};
+
+test('underpass: a car driving in descends the ramp, holds the bore, climbs out', () => {
+  // The digest carries one deck line in the same cell as the
+  // trench but not covering it, so the walk goes through the
+  // main sample path (a list exists), not just the no-list
+  // early return.
+  const digest = {
+    deckDepth: 1.8, piers: [],
+    lines: [{ wayId: 9, width: 14, pts: [40, -150, 80, -150], h: [9, 9] }],
+  };
+  const m = buildDriveModel(digest, { underpassDepthAt: trenchDepthAt });
+  let y = 0;
+  let prev = 0;
+  for (let z = -90; z >= -150; z -= 2) {
+    y = m.sample(0, z, y);
+    assert.ok(y <= prev + 1e-9, `never climbs on the way down: z=${z} y=${y}`);
+    prev = y;
+  }
+  assert.ok(Math.abs(y + 5.35) < 0.05, `down the ramp: ${y}`);
+  for (let z = -150; z >= -230; z -= 5) y = m.sample(0, z, y);
+  assert.ok(Math.abs(y + 5.35) < 0.05, `through the bore: ${y}`);
+  prev = y;
+  for (let z = -230; z >= -270; z -= 2) {
+    y = m.sample(0, z, y);
+    assert.ok(y >= prev - 1e-9, `never sinks on the way out: z=${z} y=${y}`);
+    prev = y;
+  }
+  assert.ok(Math.abs(y) < 0.05, `out the far ramp: ${y}`);
+  // And back the other way, so the rule is not direction-bound.
+  for (let z = -270; z <= -150; z += 2) y = m.sample(0, z, y);
+  assert.ok(Math.abs(y + 5.35) < 0.05, `back down the far ramp: ${y}`);
+  for (let z = -150; z <= -90; z += 2) y = m.sample(0, z, y);
+  assert.ok(Math.abs(y) < 0.05, `back out the near ramp: ${y}`);
+});
+
+test('underpass: teleporting to mid-ramp stays at grade, the bore holds, the crossing stays up', () => {
+  const m = buildDriveModel({ deckDepth: 1.8, piers: [], lines: [] }, { underpassDepthAt: trenchDepthAt });
+  // A caller dropped onto mid-ramp at grade never drove in, so
+  // the mount rule (1 m reach) does not claim it — the descent
+  // only happens by driving in from the cut end.
+  assert.equal(m.sample(0, -115, 0), 0, 'mid-ramp teleport stays at grade');
+  // A caller already in the bore stays in it, and a caller at
+  // grade over the bore stays up (the floor is 5.35 m away).
+  assert.ok(Math.abs(m.sample(0, -180, -5.35) + 5.35) < 0.01, 'bore hold');
+  assert.equal(m.sample(0, -180, 0), 0, 'over-crossing stays at grade');
+  // Outside the corridor there is no trench at all.
+  assert.equal(m.sample(20, -180, -5.35), 0, 'outside the corridor is ground');
+  // Without the option the same digest drives the trench flat
+  // at grade — the bug this issue fixes.
+  const flat = buildDriveModel({ deckDepth: 1.8, piers: [], lines: [] });
+  assert.equal(flat.sample(0, -180, -5.35), 0, 'no underpass option: flat at grade');
+});
+
+test('real tile: the player car descends the 復北地下道 bore (issue #359)', () => {
+  const depthAt = underpassDepthAt(TAIPEI_GEO.airfield);
+  assert.ok(typeof depthAt === 'function', 'the tile carries a trench');
+  const m = buildDriveModel(TAIPEI_GEO.elevatedRoads, { groundAt: drapeHeight, underpassDepthAt: depthAt });
+  // The trench field itself: at grade at the cut ends, -5.35 in
+  // the bore, nothing outside the corridor.
+  assert.equal(depthAt(-2087.9, -3729.3), 0, 'north cut end at grade');
+  assert.ok(Math.abs(depthAt(-2088.5, -3995.9) + 5.35) < 0.01, 'bore floor -5.35');
+  assert.equal(depthAt(-2089.1, -4328.3), 0, 'south cut end at grade');
+  assert.equal(depthAt(-2058.5, -3995.9), 0, 'outside the corridor there is no trench');
+  // A car that drives in descends the north ramp and holds the
+  // bore floor (the south mouth sits on draped ground, so the
+  // floor there is drape - 5.35, about -4.42 at the face).
+  let y = 0;
+  for (let z = -3725; z >= -3800; z -= 2) y = m.sample(-2087.9, z, y);
+  assert.ok(Math.abs(y + 5.35) < 0.05, `down the north ramp: ${y}`);
+  for (let z = -3800; z >= -4230; z -= 10) y = m.sample(-2088.5, z, y);
+  assert.ok(y < -4, `through the bore: ${y}`);
+  // ...and climbs the south ramp back to the draped ground.
+  for (let z = -4230; z >= -4330; z -= 2) y = m.sample(-2089.1, z, y);
+  assert.ok(Math.abs(y - drapeHeight(-2089.1, -4330)) < 0.01, `up the south ramp: ${y}`);
+  // A car crossing over the bore at grade stays up; a car in
+  // the bore stays down.
+  assert.equal(m.sample(-2088.5, -3995.9, 0), 0, 'over-crossing stays at grade');
+  assert.ok(Math.abs(m.sample(-2088.5, -3995.9, -5.35) + 5.35) < 0.01, 'bore hold');
+  // Without the underpass option the same model drives the
+  // tunnel flat at grade — the bug this issue fixes, pinned as
+  // the before-behavior of the no-option model.
+  const flat = buildDriveModel(TAIPEI_GEO.elevatedRoads, { groundAt: drapeHeight });
+  assert.equal(flat.sample(-2088.5, -3995.9, -5.35), 0, 'no underpass option: flat at grade');
 });
