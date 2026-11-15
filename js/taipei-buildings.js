@@ -4090,7 +4090,11 @@ const LANDMARK_STRUCTURES = [
       { type: 'box', w: 102, d: 47, h: 5.5, y0: 5.5, rotY: -0.216, flat: 0xa39a86 },
       // The south forecourt terrace (local (0, +33)): a
       // single-height apron in front of the entrance steps.
-      { type: 'box', w: 66, d: 12, h: 5.5, dx: 7.1, dz: 32.2, rotY: -0.216, flat: 0xa39a86 },
+      // Issue #363: the terrace floats up to 6.0 m above the
+      // hillside at its south edge (drape 34.17–38.18 m under it,
+      // lift 40.19) — plinth it to the lowest ground under the
+      // footprint; the top stays at the podium level (5.5).
+      { type: 'box', w: 66, d: 12, h: 11.5, y0: -6, dx: 7.1, dz: 32.2, rotY: -0.216, flat: 0xa39a86 },
       { type: 'box', w: 100, d: 45, h: 8, y0: 11, rotY: -0.216 },
       { type: 'box', w: 98, d: 40, h: 40, y0: 19, rotY: -0.216, facade: { kind: 'prewar', stoneColor: 0xa63c26, trimColor: 0x5f7a6a, windowGlassColor: 0x232d38, windowWidth: 2.6, floorHeight: 4.2, litProbability: 0.34, warmth: 0.62, seed: 57.36 } },
       { type: 'box', w: 102, d: 44, h: 2.2, y0: 59, rotY: -0.216, flat: 0x52796a },
@@ -5296,8 +5300,12 @@ const LANDMARK_STRUCTURES = [
     facade: { kind: 'curtain', glassTint: 0x51707c, frameTint: 0xa8b0ae, windowWidth: 3.4, floorHeight: 3.8, litProbability: 0.36, warmth: 0.55, reflectivity: 0.8, seed: 186.21 },
     sign: { text: 'MIRAMAR', w: 46, h: 6.5, y: 25, dx: -24, dz: -1.2, bg: '#1d2a30', fg: '#e8f0ee', accent: '#c8372d' },
     parts: [
-      { type: 'box', w: 150, d: 92, h: 32, dx: -24, dz: -48 },
-      { type: 'cylinder', r: 26, h: 32, dx: -78, dz: -70 },
+      // Issue #363: the main block and the round drum float up to
+      // 2.0 / 1.7 m above the ground at their downhill corners
+      // (drape 5.02 / 5.28 m under them, lift 6.99) — plinth both to
+      // the lowest ground under their footprints; the tops stay 32.
+      { type: 'box', w: 150, d: 92, h: 34, y0: -2, dx: -24, dz: -48 },
+      { type: 'cylinder', r: 26, h: 33.7, y0: -1.7, dx: -78, dz: -70 },
       { type: 'box', w: 62, d: 40, h: 38, dx: 28, dz: -84, facade: { kind: 'curtain', glassTint: 0x3d5a66, frameTint: 0x9aa39f, windowWidth: 3.4, floorHeight: 3.8, litProbability: 0.3, warmth: 0.5, reflectivity: 0.8, seed: 186.22 } },
       { type: 'box', w: 120, d: 36, h: 20, dx: -10, dz: -138, flat: 0x8d9296 },
       // Boarding-plaza deck + the wheel's portal frame.
@@ -5917,6 +5925,42 @@ function generateSchoolCampus(ground, frame, gateSide, origin, opts = {}) {
   const clipped = frame.fill < 0.72;
   const { theta, W, D } = frame;
   const cosT = Math.cos(theta), sinT = Math.sin(theta);
+  // Issue #363: seat on the draped terrain. When the boot injects
+  // groundAt (threaded via planSchoolCampuses), every part is seated
+  // against the terrain instead of the flat lift: base building slabs
+  // get a plinth down to the lowest ground under the footprint (top
+  // unchanged), thin ground sheets seat at their lowest ground, the
+  // yard slab is dropped when the campus relief is large, the track
+  // becomes a capsule placeholder (expanded to the draped mesh in
+  // planTaipeiBuildings), and the fence splits into short seated
+  // runs. Without groundAt this whole block is inert and the output
+  // is byte-identical.
+  const groundAtFn = typeof opts.groundAt === 'function' ? opts.groundAt : null;
+  const lift = groundAtFn ? groundAtFn(origin.x, origin.z) : 0;
+  const r1 = (n) => Math.round(n * 10) / 10;
+  // Lowest draped ground under a rotated world-space footprint
+  // (centre cx,cz; rotY; w along local x, d along local z), sampled
+  // on a 7 m grid plus the corners — the DEM cannot resolve finer.
+  const minGroundUnder = (cx, cz, rotY, w, d) => {
+    const c = Math.cos(rotY), s = Math.sin(rotY);
+    const ex = (w / 2) * Math.abs(c) + (d / 2) * Math.abs(s);
+    const ez = (w / 2) * Math.abs(s) + (d / 2) * Math.abs(c);
+    let min = Infinity;
+    const probe = (x, z) => {
+      const lx = (x - cx) * c + (z - cz) * s, lz = -(x - cx) * s + (z - cz) * c;
+      if (Math.abs(lx) > w / 2 || Math.abs(lz) > d / 2) return;
+      const g = groundAtFn(x, z);
+      if (g < min) min = g;
+    };
+    for (let x = cx - ex; x <= cx + ex + 0.01; x += 7) {
+      for (let z = cz - ez; z <= cz + ez + 0.01; z += 7) probe(x, z);
+    }
+    for (const [lx, lz] of [[-w / 2, -d / 2], [w / 2, -d / 2], [w / 2, d / 2], [-w / 2, d / 2]]) {
+      probe(cx + lx * c - lz * s, cz + lx * s + lz * c);
+    }
+    probe(cx, cz);
+    return min;
+  };
   const toWorld = (u, v) => [frame.cx + u * cosT - v * sinT, frame.cz + u * sinT + v * cosT];
   const inRing = (u, v, shrink = 0) => {
     const [x, z] = toWorld(u, v);
@@ -5946,6 +5990,26 @@ function generateSchoolCampus(ground, frame, gateSide, origin, opts = {}) {
     if (opts.y0) part.y0 = opts.y0;
     const rotY = theta + rot;
     if (rotY) part.rotY = Math.round(rotY * 10000) / 10000;
+    // #363: seat on the draped terrain (bare plans skip this — no
+    // groundAtFn — so the output is identical there).
+    if (groundAtFn) {
+      if (opts.y0 === undefined && h > 0.5) {
+        // Base building slab / hall: plinth down to the lowest
+        // ground under the footprint; the top stays at lift + h.
+        const minG = minGroundUnder(x, z, rotY, w, d);
+        if (minG < lift - 0.05) {
+          part.y0 = r1(minG - lift);
+          part.h = r1(h + (lift - minG));
+        }
+      } else if (opts.y0 !== undefined && opts.y0 <= 0.1 && h <= 0.5 && opts.flat !== SCHOOL_YARD_COLOR) {
+        // Thin ground sheet (court / lawn / parking): seat at the
+        // lowest ground under the footprint so it never floats; the
+        // uphill side buries into the slope, like a terrace.
+        part.y0 = r1(minGroundUnder(x, z, rotY, w, d) - lift + opts.y0);
+      }
+      // The yard slab is dropped at its call site when the campus
+      // relief is large; roof slabs (y0 > 0.1) sit on a seated base.
+    }
     if (opts.flat !== undefined) part.flat = opts.flat;
     parts.push(part);
     if (!opts.noReg) placed.push({ u, v, w: regW, d: regD });
@@ -6023,7 +6087,23 @@ function generateSchoolCampus(ground, frame, gateSide, origin, opts = {}) {
 
   // Yard slab: a pale concrete ground sheet under the whole campus,
   // only where the fitted rect honestly sits inside the ring.
-  if (frame.fill >= 0.78 && boxInRing(0, 0, W - 5, D - 5, 0)) {
+  // #363: on draped ground with real relief the terrain IS the campus
+  // ground — a flat sheet floats above it downhill and buries uphill,
+  // and a plinth under the whole campus would be a solid block — so
+  // drop the sheet when the relief across the fitted rect exceeds
+  // 2 m. (On a nearly flat campus it stays, as before.)
+  let dropYard = false;
+  if (groundAtFn) {
+    let mn = Infinity, mx = -Infinity;
+    for (const [u, v] of [[-W / 2, -D / 2], [W / 2, -D / 2], [-W / 2, D / 2], [W / 2, D / 2], [0, 0]]) {
+      const [wx, wz] = toWorld(u, v);
+      const g = groundAtFn(wx, wz);
+      if (g < mn) mn = g;
+      if (g > mx) mx = g;
+    }
+    dropYard = mx - mn > 2;
+  }
+  if (frame.fill >= 0.78 && boxInRing(0, 0, W - 5, D - 5, 0) && !dropYard) {
     addBox(0, 0, W - 5, D - 5, 0.1, { y0: 0.03, flat: SCHOOL_YARD_COLOR, noReg: true, skipFit: true });
   }
 
@@ -6038,8 +6118,18 @@ function generateSchoolCampus(ground, frame, gateSide, origin, opts = {}) {
     trackHalfW = track.width / 2; trackL = track.straight + track.width;
     placed.push({ u: 0, v: vOff, w: trackL, d: track.width });
     const [tx, tz] = toWorld(0, vOff);
-    for (const p of trackCapsuleParts(Math.round((tx - origin.x) * 10) / 10, Math.round((tz - origin.z) * 10) / 10,
-      track.straight, track.width, track.width - 12, theta, SCHOOL_TRACK_RED, SCHOOL_FIELD_GREEN)) parts.push(p);
+    // #363: on draped ground the track is a capsule placeholder —
+    // planTaipeiBuildings expands it to the draped mesh (the flat
+    // trackCapsuleParts run would float on the slope). On bare plans
+    // the placeholder is never emitted, so the output is identical.
+    if (groundAtFn) {
+      parts.push({ type: 'capsule', cx: Math.round((tx - origin.x) * 10) / 10, cz: Math.round((tz - origin.z) * 10) / 10,
+        straight: track.straight, width: track.width, fieldWidth: track.width - 12, rotY: theta,
+        trackColor: SCHOOL_TRACK_RED, fieldColor: SCHOOL_FIELD_GREEN });
+    } else {
+      for (const p of trackCapsuleParts(Math.round((tx - origin.x) * 10) / 10, Math.round((tz - origin.z) * 10) / 10,
+        track.straight, track.width, track.width - 12, theta, SCHOOL_TRACK_RED, SCHOOL_FIELD_GREEN)) parts.push(p);
+    }
   }
 
   // --- assembly hall at one end (not the gate end when the gate is
@@ -6192,7 +6282,7 @@ function generateSchoolCampus(ground, frame, gateSide, origin, opts = {}) {
   }
 
   // --- perimeter fence + gate + trees (world space, on the ring) ---
-  const fence = schoolFenceParts(ground, gateSide, frame, origin, seed);
+  const fence = schoolFenceParts(ground, gateSide, frame, origin, seed, groundAtFn);
   parts.push(...fence.parts);
 
   const archetype = isKinder ? 'kindergarten'
@@ -6211,8 +6301,16 @@ function generateSchoolCampus(ground, frame, gateSide, origin, opts = {}) {
 // ring, a gated gap where the gate side's frontage meets the ring,
 // gate posts + lintel, an optional guard house, and trees inside
 // the line. All parts in structure space.
-function schoolFenceParts(ground, gateSide, frame, origin, seed) {
+function schoolFenceParts(ground, gateSide, frame, origin, seed, groundAt) {
   const draw = (salt) => hash01(seed ^ (salt * 0x9e37 + 0x221));
+  // #363: on draped ground, seat the fence on the terrain. The lift
+  // is the draped ground at the campus anchor (the same lift the plan
+  // assigns the structure); every wall run, post, lintel and tree
+  // starts at the ground under its own position. Without groundAt
+  // seatY is 0 and the output is byte-identical.
+  const groundAtFn = typeof groundAt === 'function' ? groundAt : null;
+  const lift = groundAtFn ? groundAtFn(origin.x, origin.z) : 0;
+  const seatY = (wx, wz) => (groundAtFn ? Math.round((groundAtFn(wx, wz) - lift) * 10) / 10 : 0);
   const pts = ringPtsOf(ground.ring);
   // Simplify: drop near-duplicate vertices, then merge near-collinear
   // runs (cap ~44 segments so a wiggly OSM ring stays affordable).
@@ -6275,13 +6373,13 @@ function schoolFenceParts(ground, gateSide, frame, origin, seed) {
       const g0 = Math.max(0, cPos - gateW / 2), g1 = Math.min(sg.len, cPos + gateW / 2);
       if (g0 > 0.8) pieces.push([0, g0]);
       if (sg.len - g1 > 0.8) pieces.push([g1, sg.len]);
-      // gate posts + lintel at the gap
+      // gate posts + lintel at the gap (each seated on its own ground)
       for (const gp of [g0, g1]) {
         const px = sg.a[0] + (dx * gp) / sg.len, pz = sg.a[1] + (dz * gp) / sg.len;
-        pushBox(px, pz, 0.9, 0.9, 3.4, 0, 0xb9b2a2);
+        pushBox(px, pz, 0.9, 0.9, 3.4, 0, 0xb9b2a2, seatY(px, pz));
       }
       const mx = sg.a[0] + (dx * (g0 + g1)) / (2 * sg.len), mz = sg.a[1] + (dz * (g0 + g1)) / (2 * sg.len);
-      pushBox(mx, mz, g1 - g0 + 1.8, 1.0, 0.8, rotY, 0xb9b2a2, 3.2);
+      pushBox(mx, mz, g1 - g0 + 1.8, 1.0, 0.8, rotY, 0xb9b2a2, 3.2 + seatY(mx, mz));
       // guard house just inside the gate (seeded; dropped when the
       // spot lands outside a concave ring)
       if (draw(4243) < 0.55) {
@@ -6289,13 +6387,23 @@ function schoolFenceParts(ground, gateSide, frame, origin, seed) {
         const il = Math.hypot(...inw) || 1;
         const hx = mx + (inw[0] / il) * 4.2 + (dx / sg.len) * (gateW / 2 + 2.6);
         const hz = mz + (inw[1] / il) * 4.2 + (dz / sg.len) * (gateW / 2 + 2.6);
-        if (pointInRing(hx, hz, ground.ring)) pushBox(hx, hz, 3.2, 3, 3.0, rotY, 0xcfc8b8);
+        if (pointInRing(hx, hz, ground.ring)) pushBox(hx, hz, 3.2, 3, 3.0, rotY, 0xcfc8b8, seatY(hx, hz));
       }
     } else pieces.push([0, sg.len]);
     for (const [p0, p1] of pieces) {
       const len = p1 - p0;
-      const mx = sg.a[0] + (dx * (p0 + p1)) / (2 * sg.len), mz = sg.a[1] + (dz * (p0 + p1)) / (2 * sg.len);
-      pushBox(mx, mz, len, 0.35, 2.5, rotY, SCHOOL_FENCE_COLOR);
+      // #363: on draped ground a long wall run floats above the
+      // downhill terrain and buries uphill, so split it into short
+      // runs (<= 8 m) each seated at its own midpoint ground — the
+      // fence steps down the slope like a real hillside fence. The
+      // runs overlap 0.3 m so the step leaves no gap at the joint.
+      // On flat ground (no groundAtFn) the run stays one piece.
+      const nSub = groundAtFn ? Math.max(1, Math.ceil(len / 8)) : 1;
+      for (let k = 0; k < nSub; k++) {
+        const q0 = p0 + (len * k) / nSub, q1 = p0 + (len * (k + 1)) / nSub;
+        const mx = sg.a[0] + (dx * (q0 + q1)) / (2 * sg.len), mz = sg.a[1] + (dz * (q0 + q1)) / (2 * sg.len);
+        pushBox(mx, mz, (q1 - q0) + (nSub > 1 ? 0.3 : 0), 0.35, 2.5, rotY, SCHOOL_FENCE_COLOR, seatY(mx, mz));
+      }
     }
     // tree spots along this segment, offset toward the campus centre
     const step = 20 + draw(5000 + i) * 8;
@@ -6315,8 +6423,9 @@ function schoolFenceParts(ground, gateSide, frame, origin, seed) {
     if (gateC && Math.hypot(tx - gateC[0], tz - gateC[1]) < gateW) continue;
     if (!pointInRing(tx, tz, ground.ring)) continue;
     const r = 1.9 + draw(6000 + trees) * 1.0;
-    parts.push({ type: 'cylinder', r: 0.16, h: 2.1, dx: Math.round((tx - origin.x) * 10) / 10, dz: Math.round((tz - origin.z) * 10) / 10, flat: SCHOOL_TRUNK_COLOR });
-    parts.push({ type: 'dome', rx: r, rz: r, h: Math.round(r * 1.05 * 10) / 10, y0: 1.9, dx: Math.round((tx - origin.x) * 10) / 10, dz: Math.round((tz - origin.z) * 10) / 10, flat: SCHOOL_CANOPY_COLORS[trees % 3] });
+    const treeY = seatY(tx, tz);
+    parts.push({ type: 'cylinder', r: 0.16, h: 2.1, dx: Math.round((tx - origin.x) * 10) / 10, dz: Math.round((tz - origin.z) * 10) / 10, flat: SCHOOL_TRUNK_COLOR, ...(treeY ? { y0: treeY } : {}) });
+    parts.push({ type: 'dome', rx: r, rz: r, h: Math.round(r * 1.05 * 10) / 10, y0: 1.9 + treeY, dx: Math.round((tx - origin.x) * 10) / 10, dz: Math.round((tz - origin.z) * 10) / 10, flat: SCHOOL_CANOPY_COLORS[trees % 3] });
     trees++;
   }
   return { parts, gateSeg };
@@ -6325,7 +6434,7 @@ function schoolFenceParts(ground, gateSide, frame, origin, seed) {
 // All campuses for a geodata: grouping, skip rules, gate frontage,
 // generation. Returns { structures, report } — structures are
 // resolved like resolveLandmark's output and join plan.siteStructures.
-export function planSchoolCampuses(geodata, landmarkSites, carriageways, originLatLon) {
+export function planSchoolCampuses(geodata, landmarkSites, carriageways, originLatLon, groundAt) {
   const report = [];
   const structures = [];
   // Tile -> lat/lon for the resolved structures, the inverse of
@@ -6417,12 +6526,12 @@ export function planSchoolCampuses(geodata, landmarkSites, carriageways, originL
     let ox = 0, oz = 0;
     for (const [x, z] of pts) { ox += x; oz += z; }
     const origin = { x: Math.round((ox / pts.length) * 10) / 10, z: Math.round((oz / pts.length) * 10) / 10 };
-    let gen = generateSchoolCampus(g, frame, gateSide, origin);
+    let gen = generateSchoolCampus(g, frame, gateSide, origin, { groundAt });
     if (gen.slabCount === 0 && gen.trackClass) {
       // A track fits the ground but leaves no room a classroom
       // slab can use (dense old urban plots — 南門國小's class):
       // retry as the compact archetype before calling it no-fit.
-      const retry = generateSchoolCampus(g, frame, gateSide, origin, { forceCompact: true });
+      const retry = generateSchoolCampus(g, frame, gateSide, origin, { forceCompact: true, groundAt });
       if (retry.slabCount > 0) gen = retry;
     }
     if (gen.slabCount === 0) {
@@ -7118,7 +7227,7 @@ export function planTaipeiBuildings(geodata, opts = {}) {
   // above), so the campuses' bbox sites deliberately do NOT join
   // exclusionSites — an irregular campus bbox would clear whole
   // neighbouring city blocks that are not campus land.
-  const schoolPlan = planSchoolCampuses(geodata, landmarkSites, carriageways, originLatLon);
+  const schoolPlan = planSchoolCampuses(geodata, landmarkSites, carriageways, originLatLon, opts.groundAt);
   for (const s of schoolPlan.structures) siteStructures.push(s);
   if (bounds) {
     // Airport structures outside the box drop here (their exclusion rects
@@ -7147,7 +7256,11 @@ export function planTaipeiBuildings(geodata, opts = {}) {
   // trackCapsuleParts call the placeholder replaces); draped plans
   // expand to the 2-part draped mesh. No other consumer ever sees
   // the `capsule` type.
-  for (const s of landmarkTowers) {
+  // Issue #363: school tracks join the capsule expansion too — the
+  // generator emits a `capsule` placeholder for a draped campus
+  // (flat trackCapsuleParts on a bare plan), and this loop is the
+  // only place with the anchor + lift the baked mesh needs.
+  for (const s of [...landmarkTowers, ...siteStructures]) {
     if (!s.parts.some((p) => p.type === 'capsule')) continue;
     const groundAt = typeof opts.groundAt === 'function' ? opts.groundAt : null;
     const lift = groundAt ? groundAt(s.x, s.z) : 0;
