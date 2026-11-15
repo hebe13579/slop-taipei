@@ -177,12 +177,23 @@
     <div class="pop-title">Distant buildings</div>
     <button class="pop-item tp-btn" type="button" data-setting-fardetail="fade">
       <span class="pop-name">Fade with distance</span>
-      <span class="pop-sub">Far buildings are faint flat boxes — landmarks stay detailed · default</span>
+      <span class="pop-sub">Far buildings are faint flat boxes · default</span>
     </button>
     <button class="pop-item tp-btn" type="button" data-setting-fardetail="full">
       <span class="pop-name">Full detail</span>
       <span class="pop-sub">Window detail at every distance</span>
     </button>
+    <label class="pop-slider" for="set-special-lod-far">
+      <span class="pop-name">Landmark detail distance <span class="set-state" id="set-special-lod-far-value">2,000 m</span></span>
+      <span class="pop-sub">700–3,000 m · Near 700 · Far 2,000 · landmarks keep full detail within this range, then simplify · drag, release to apply</span>
+      <input id="set-special-lod-far" type="range" min="700" max="3000" step="1" value="2000" list="set-special-lod-far-ticks" aria-label="Landmark detail distance in metres">
+      <datalist id="set-special-lod-far-ticks">
+        <option value="700" label="Near"></option>
+        <option value="1200" label="1,200"></option>
+        <option value="2000" label="Far"></option>
+        <option value="3000" label="3,000"></option>
+      </datalist>
+    </label>
     <div class="pop-title">Graphics</div>
     <button class="pop-item tp-btn" type="button" data-setting-graphics="low">
       <span class="pop-name">Low</span>

@@ -184,7 +184,8 @@ async function initApp() {
       // Issue #218: the settings the boot builds with (density
       // preset + special-buildings visibility). Issue #132: the
       // drape flag rides the same object (the boot's kill-switch).
-      settings: { density: settings.density, specials: settings.specials, drape: settings.drape },
+      // Issue #393: the special-LOD swap distance rides it too.
+      settings: { density: settings.density, specials: settings.specials, drape: settings.drape, specialLodFarM: settings.specialLodFarM },
       // Real staged progress (issue #63): the boot fires this as each
       // construction stage actually completes — the loader names the
       // finished stage and fills its share of the bar. No estimates:
