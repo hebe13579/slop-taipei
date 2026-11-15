@@ -101,7 +101,15 @@ assert.equal(opts.lots.length, plan.lots.length, 'adapter lots match the plan');
 // taipei-farfade.test.mjs pattern: the behaviour cannot run in node
 // without three.js, so the test pins the wiring itself.
 const buildingsSource = readFileSync(new URL('../js/buildings.js', import.meta.url), 'utf8');
-assert.match(buildingsSource, /shops: lot\.shops \?\? \[0\.85, 0\.9, 0\.45, 0\.35, 0\.35, 0\.3\]\[mat - 6\]/,
+// Issue #369: the table now covers families 12/13 too. Before, both
+// fell through to 'all' — measured on the merged tree, 307/307 eligible
+// F12 lots and 996/996 eligible F13 lots carried shopfronts (100%).
+// F12 (high-rise lobby tower) takes 0.3, the lowest share like 11;
+// F13 (strip-tile mid-rise) takes 0.35, the mid-rise housing-led
+// share like 9/10. Measured realised rates of the neighbours on the
+// merged tree: 6: 0.84, 7: 0.90, 8: 0.45, 9: 0.35, 10: 0.44 (n=112),
+// 11: 0.26 (n=102) — the table values re-appear as realised rates.
+assert.match(buildingsSource, /shops: lot\.shops \?\? \[0\.85, 0\.9, 0\.45, 0\.35, 0\.35, 0\.3, 0\.3, 0\.35\]\[mat - 6\]/,
   'Taiwan-type commit honours lot.shops');
 assert.match(buildingsSource, /shops: lot\.shops \?\? 0\.3/g,
   'glass and masonry commits honour lot.shops');
