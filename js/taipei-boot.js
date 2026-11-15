@@ -28,6 +28,7 @@ import { createCurtainWallMaterial, createPreWarBuildingMaterial, createTaipeiMa
 import { color, mix, smoothstep, uv, float } from 'three/tsl';
 import { drawBandAtlas, drawBladeAtlas, drawRoofAtlas, drawTowerAtlas, loadSignLogoImages, BAND_ATLAS, BLADE_ATLAS, ROOF_ATLAS, TOWER_ATLAS, TAIPEI_BAND_SIGNS, TAIPEI_BLADE_SIGNS, TAIPEI_ROOF_SIGNS } from './taipei-signs.js';
 import { createBuildProgress, TAIPEI_BUILD_STAGES } from './taipei-progress.js';
+import { refillLiveArray } from './live-array.js'; // issue #407: bounded-chunk refill, no spread-push over plan-scale arrays
 import { signalPhase } from './city-config.js'; // issue #356: the same 60 s phase cycle js/traffic.js obeys, for the signal lenses
 
 // js/taipei-boot.js
@@ -2348,16 +2349,22 @@ export async function buildTaipeiGround(scene, tile, deps = {}) {
   // Issue #358: the live lot-collider array — see syncAllBlocks.
   const allCollidersLive = [];
   const syncAllBlocks = () => {
-    allBlocksLive.length = 0;
-    if (cityBlocks?.allBlocks) allBlocksLive.push(...cityBlocks.allBlocks);
+    // Issue #407: the old `push(...cityBlocks.allBlocks)` /
+    // `push(...cityBlocks.colliders)` spread plan-scale arrays into
+    // one push() call — the same footgun that crashed initApp in
+    // main.js (there the COMBINED spread crossed the browser's max
+    // argument count; these single-array spreads fit, but a denser
+    // tree would cross them too). Refill in bounded chunks instead;
+    // the array identities (and the in-place refill the map system
+    // relies on) are unchanged.
+    refillLiveArray(allBlocksLive, cityBlocks?.allBlocks);
     // Issue #358: the lot colliders live here too — the facade used
     // to expose `colliders: []`, so main.js handed the controller
     // the extra colliders only and the car drove straight through
     // every generated building. The array is refilled in place, so
     // a density rebuild (below) swaps in the new lots' colliders
     // without the controller holding a stale snapshot.
-    allCollidersLive.length = 0;
-    if (cityBlocks?.colliders) allCollidersLive.push(...cityBlocks.colliders);
+    refillLiveArray(allCollidersLive, cityBlocks?.colliders);
   };
   syncAllBlocks();
   const cityBlocksFacade = {
