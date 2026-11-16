@@ -26,7 +26,7 @@ test('city module preloads start after the import map and before stylesheets', (
 
 test('native module entry and imports share canonical preloaded URLs on GitHub Pages', () => {
   const links = preloads.map((match) => match[1]);
-  assert.equal(links.length, 29);
+  assert.equal(links.length, 32); // #405: three missing preloads added — pedestrian-routes.js (traffic.js imports createPedestrianRoutes, used at traffic.js:1479) and settings.js (main.js imports it), plus live-array.js (main.js:24 and taipei-boot.js:31 import refillLiveArray; added by #409 for the #407 fix, also absent from the preloads); all were real boot-graph modules absent from the preloads
   assert.equal(new Set(links).size, links.length, 'each module is preloaded once');
   assert.equal(entries.length, 1);
   assert.equal(entries[0][1], './js/main.js');
