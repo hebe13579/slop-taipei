@@ -616,6 +616,10 @@ body.hud-minimized .icon-show {
   gap: 1px;
 }
 
+.pop-item[href] {
+  text-decoration: none;
+}
+
 /* Settings popover (issue #218): wider panel, an On/Off state chip on
    the toggle row, a live status note beside the density title, and
    visibly inert disabled rows (traffic's reserved row, and the
