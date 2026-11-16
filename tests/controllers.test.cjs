@@ -289,6 +289,32 @@ test('teleport checks all overlapping buildings instead of leaving a sequential 
   }
 });
 
+test('ghost mode lets the car pass through buildings, collision stays on otherwise (issue #398)', () => {
+  const wall = { minX: 0, maxX: 10, minZ: -5, maxZ: 5, maxY: 200 };
+  // The car sits inside the wall, heading along +z at 10 m/s.
+  const { controller, ent } = teleportHarness('car', [{ ...wall }]);
+  ent.position.x = 5; ent.position.z = 0; ent.heading = 0; ent.speed = 10;
+  // Ghost OFF (the default): the push-out carries the car out of the wall.
+  controller.resolveHorizontalCollision(ent.position, 1.35, 1, ent);
+  assert.equal(ent.position.x, -0.86, 'collision pushes the car out of the wall');
+  // Ghost ON: the same overlap leaves the car exactly where it is, at speed.
+  controller.setGhostMode(true);
+  ent.position.x = 5; ent.position.z = 0; ent.speed = 10;
+  controller.resolveHorizontalCollision(ent.position, 1.35, 1, ent);
+  assert.deepEqual([ent.position.x, ent.position.z], [5, 0], 'ghost passes through the wall');
+  assert.equal(ent.speed, 10, 'ghost takes no speed off the car');
+  // Toggling back off re-arms the collision on the next resolve.
+  controller.setGhostMode(false);
+  controller.resolveHorizontalCollision(ent.position, 1.35, 1, ent);
+  assert.equal(ent.position.x, -0.86, 'turning ghost off collides again');
+  // The gate is car-only: a pedestrian inside the same wall is still pushed out with ghost on.
+  const walker = teleportHarness('person', [{ ...wall }]);
+  walker.controller.setGhostMode(true);
+  walker.ent.position.x = 5; walker.ent.position.z = 0;
+  walker.controller.resolveHorizontalCollision(walker.ent.position, 0.48, 1);
+  assert.equal(walker.ent.position.x, -0.48, 'the person still collides while ghost is on');
+});
+
 test('teleports use oriented building footprints without rejecting clear corners of their bounds', () => {
   const cs = Math.SQRT1_2;
   const box = { minX: -8, maxX: 8, minZ: -8, maxZ: 8, maxY: 200, obb: { cx: 0, cz: 0, hx: 8, hz: 2, cs, sn: cs } };

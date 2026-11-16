@@ -52,6 +52,14 @@
 // node-testable; DOM is touched only inside initSettingsPanel /
 // applyGraphicsSettings, never at module level.
 
+//   ghostMode — (Taipei; issue #398): the player car passes
+//               through other cars and buildings — the lot /
+//               building colliders and the car-car gate are
+//               ignored. Default OFF (collision stays on as
+//               shipped by #358). Terrain and deck behaviour
+//               stay: the car still follows the ground / deck
+//               surface; ghost is about collision, not flight.
+//               Applied live, no reload (see initSettingsPanel).
 export const SETTINGS_STORAGE_KEY = 'slop-settings';
 
 export const DENSITY_PRESETS = ['coarse', 'fine', 'dense'];
@@ -108,6 +116,7 @@ export const DEFAULT_SETTINGS = Object.freeze({
   drape: true,
   trafficCars: 0,
   trafficRadiusM: 380,
+  ghostMode: false,
 });
 
 // Issue #268: is this a phone? Pure and unit-tested — main.js passes
@@ -238,6 +247,8 @@ export function resolveSettings({ search = '', stored = null, isMobile = false }
     }
     const dr = parseBool(s.drape);
     if (dr !== null) out.drape = dr;
+    const gm = parseBool(s.ghostMode);
+    if (gm !== null) out.ghostMode = gm;
   }
   // Issue #268 (corrected 2026-10-29): phones SET Coarse + Low
   // instead of reading the previous density/graphics — storage is
@@ -284,6 +295,10 @@ export function resolveSettings({ search = '', stored = null, isMobile = false }
     const dr = parseBool(q.get('drape'));
     if (dr !== null) out.drape = dr;
   }
+  if (q.has('ghostMode')) {
+    const gm = parseBool(q.get('ghostMode'));
+    if (gm !== null) out.ghostMode = gm;
+  }
   return out;
 }
 
@@ -307,6 +322,7 @@ export function persistSettings(storage, settings) {
       trafficCars: settings.trafficCars,
       trafficRadiusM: settings.trafficRadiusM,
       drape: settings.drape,
+      ghostMode: settings.ghostMode,
     }));
     return true;
   } catch {
@@ -356,9 +372,12 @@ export function applyGraphicsSettings(renderer, sunLight, preset, devicePixelRat
 //   onDrape        — called with the boolean when the drape toggle
 //                    changes (the caller reloads: the drape is a
 //                    boot-time setting)
+//   onGhostMode    — called with the boolean when the ghost-mode
+//                    toggle changes (the caller flips the
+//                    controller live: no reload, no rebuild)
 //   persist        — called after any change (storage write)
 //   doc            — document (injectable for tests)
-export function initSettingsPanel({ settings, taipeiSettings = null, onGraphics = null, onFarDetail = null, onTraffic = null, onDrape = null, onDensity = null, persist = null, doc = null } = {}) {
+export function initSettingsPanel({ settings, taipeiSettings = null, onGraphics = null, onFarDetail = null, onTraffic = null, onDrape = null, onDensity = null, onGhostMode = null, persist = null, doc = null } = {}) {
   const d = doc || (typeof document !== 'undefined' ? document : null);
   if (!d) return null;
   const pop = d.getElementById('settings-popover');
@@ -368,6 +387,8 @@ export function initSettingsPanel({ settings, taipeiSettings = null, onGraphics 
   const specialsState = specialsBtn ? specialsBtn.querySelector('.set-state') : null;
   const drapeBtn = d.getElementById('set-drape');
   const drapeState = drapeBtn ? drapeBtn.querySelector('.set-state') : null;
+  const ghostBtn = d.getElementById('set-ghost');
+  const ghostState = ghostBtn ? ghostBtn.querySelector('.set-state') : null;
   const densityStatus = d.getElementById('set-density-status');
   const densityBtns = [...pop.querySelectorAll('[data-setting-density]')];
   const graphicsBtns = [...pop.querySelectorAll('[data-setting-graphics]')];
@@ -402,10 +423,14 @@ export function initSettingsPanel({ settings, taipeiSettings = null, onGraphics 
       drapeBtn.setAttribute('aria-pressed', settings.drape ? 'true' : 'false');
       if (drapeState) drapeState.textContent = settings.drape ? 'On' : 'Off';
     }
+    if (ghostBtn) {
+      ghostBtn.setAttribute('aria-pressed', settings.ghostMode ? 'true' : 'false');
+      if (ghostState) ghostState.textContent = settings.ghostMode ? 'On' : 'Off';
+    }
   };
 
   if (!taipeiSettings) {
-    for (const b of [...densityBtns, ...farDetailBtns, specialsBtn, drapeBtn].filter(Boolean)) {
+    for (const b of [...densityBtns, ...farDetailBtns, specialsBtn, drapeBtn, ghostBtn].filter(Boolean)) {
       b.disabled = true;
       b.title = 'Taipei mode only';
     }
@@ -542,6 +567,20 @@ export function initSettingsPanel({ settings, taipeiSettings = null, onGraphics 
       settings.drape = next;
       if (persist) persist();
       if (onDrape) onDrape(next);
+      reflect();
+    });
+  }
+
+  // Issue #398: ghost mode — a live setting, no reload and no
+  // rebuild. The caller flips the controller (and the traffic
+  // system's view of the player) at once; the toggle persists
+  // like the other settings.
+  if (ghostBtn && taipeiSettings) {
+    ghostBtn.addEventListener('click', () => {
+      const next = !settings.ghostMode;
+      settings.ghostMode = next;
+      if (persist) persist();
+      if (onGhostMode) onGhostMode(next);
       reflect();
     });
   }

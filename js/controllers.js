@@ -193,6 +193,12 @@ class ThirdPersonControllerManager {
   //     is heliVerticalScale's job). Taipei passes 3 (user request
   //     2026-10-24: heli movement speed ×3 — cruise 64 → 192 m/s,
   //     boost 104 → 312 m/s). NYC never passes it.
+  //   ghostMode: boolean — issue #398: the player CAR passes through
+  //     buildings (the collider push-out in resolveHorizontalCollision
+  //     is skipped for the car). Default false. Live-toggled via
+  //     setGhostMode(); the person, cyclist and helicopter keep
+  //     colliding either way — their resolve calls pass no carEntity,
+  //     so the gate below never fires for them.
   constructor(scene, colliders = [], opts = {}) {
     this.scene = scene;
     this.worldOpts = {
@@ -222,6 +228,7 @@ class ThirdPersonControllerManager {
     this.colliders = colliders;
     this._colliderCells = null; // built on first use, see nearColliders()
     this._colliderCount = 0; // stamped at each hash build (issue #358)
+    this.ghostMode = opts.ghostMode === true; // issue #398: car passes through buildings
     this.activeMode = 'car'; // 'person' | 'car' | 'cyclist' | 'helicopter'
 
     this.keys = {
@@ -1041,6 +1048,15 @@ class ThirdPersonControllerManager {
     this._colliderCount = 0;
   }
 
+  // Issue #398: flip ghost mode live (the settings gear calls this
+  // on every toggle — no reload, no rebuild). The collider array
+  // and its hash are untouched; resolveHorizontalCollision simply
+  // skips the car while this is true, and re-collides it on the
+  // next frame after it is turned off.
+  setGhostMode(on) {
+    this.ghostMode = on === true;
+  }
+
   // The colliders whose bounds come within `r` of (x, z), in their original order. They never move, so they are
   // bucketed once into 48 m cells (tens of thousands of buildings: testing them all every frame cost ~0.5 ms)
   nearColliders(x, z, r) {
@@ -1088,6 +1104,14 @@ class ThirdPersonControllerManager {
   }
 
   resolveHorizontalCollision(pos, radius, yHeight = 1.0, carEntity = null, entity = carEntity) {
+    // Issue #398: ghost mode — the player car passes through
+    // buildings. Only the car's call passes a carEntity (the
+    // person / cyclist / helicopter calls pass null), so this
+    // gate is car-only by construction: no push-out, no bounce,
+    // no collision report while ghost is on. The ground / deck
+    // height is resolved elsewhere, so the car still follows the
+    // terrain and the decks.
+    if (carEntity && this.ghostMode) return;
     // The detailed world (the helicopter may roam far out over the harbour & the boroughs / past the tile)
     const heli = this.activeMode === 'helicopter';
     const m = heli ? 6000 : 0;
