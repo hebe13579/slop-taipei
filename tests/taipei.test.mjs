@@ -969,6 +969,62 @@ test('landmark batch 4: station district — crown, hip roof, terrace hall, pala
   for (let t = 0; t < roof.tris.length; t += 3) {
     assert.ok(roofArea(roof, roof.tris[t], roof.tris[t + 1], roof.tris[t + 2]) < -1e-9, `roof triangle ${t / 3} faces up`);
   }
+  // Issue #364 re-pin: the stepped-box roofs are gone — they read as a
+  // minecraft cube stack. Each roof is one smooth hip mesh
+  // (hipRoofMeshParts, the #353 cksroof precedent): same eave footprint,
+  // same total height, same tile colour, now a continuous sloped surface
+  // with upturned eave corners.
+  assert.ok(!plan.landmarkTowers.some((s) => s.parts.some((p) => p.type === 'hiproof')), 'no hiproof placeholder reaches the plan');
+  const hip = (s, flat) => s.parts.filter((p) => p.type === 'mesh' && p.flat === flat);
+  // Main Station: one smooth terracotta hip (was six stepped boxes).
+  assert.equal(hip(station, 0x9c4a38).length, 1, 'station roof is one smooth hip mesh');
+  const stationRoof = hip(station, 0x9c4a38)[0];
+  assert.deepEqual([stationRoof.y0, stationRoof.h, stationRoof.w, stationRoof.d], [27, 19.5, 154, 100], 'station roof keeps its eave footprint and profile');
+  assert.equal(stationRoof.verts.length / 3, 56, 'station roof verts: 7 rings of 8');
+  assert.equal(stationRoof.tris.length / 3, 98, 'station roof tris: 6 strips of 16 plus the 2-triangle cap');
+  assert.equal(station.parts.filter((p) => p.type === 'box' && p.flat === 0x9c4a38 && (p.y0 || 0) >= 27).length, 0, 'no stepped terracotta boxes left on the roof');
+  assert.equal(station.parts.length, 16, 'station part count');
+  // 兩廳院: one smooth golden double-eaved hip each (was six stepped boxes).
+  // The upper eave is inset (w2 < w1) so the mesh carries a flat ledge
+  // between the tiers — without it the two tiers share one ring and the
+  // double eave does not read (the first #364 frames showed one smooth
+  // mound). The inset matches the references: the upper tier is clearly
+  // narrower than the lower, with its own upturned eave.
+  for (const [hall, w, d] of [['national-concert-hall', 112, 108], ['national-theater', 116, 110]]) {
+    const s = byId(hall);
+    assert.ok(s, `${hall} registered`);
+    assert.equal(hip(s, 0xc79a3f).length, 1, `${hall} roof is one smooth hip mesh`);
+    const r = hip(s, 0xc79a3f)[0];
+    assert.deepEqual([r.y0, r.h, r.w, r.d], [20, 17, w, d], `${hall} roof keeps its eave footprint and profile`);
+    assert.equal(r.verts.length / 3, 104, `${hall} roof verts: 5 lower + ledge + 7 upper rings of 8`);
+    assert.equal(r.tris.length / 3, 178, `${hall} roof tris: 11 strips of 16 plus the 2-triangle cap`);
+    assert.equal(s.parts.filter((p) => p.type === 'box' && p.flat === 0xc79a3f).length, 0, `no stepped gold boxes left on ${hall}`);
+    assert.equal(Math.max(...s.parts.map(partTop)), 37, `${hall} tops out at 37 m, total height unchanged`);
+    assert.equal(s.parts.length, 20, `${hall} part count`);
+  }
+  // Grand Hotel: one smooth golden double-eaved hip (was seven stepped boxes).
+  // Upper eave inset (w2 88 < w1 100) for the same ledge reason as the halls.
+  const hotel = byId('grand-hotel');
+  assert.ok(hotel, 'grand hotel registered');
+  assert.equal(hip(hotel, 0xc99636).length, 1, 'hotel roof is one smooth hip mesh');
+  const hotelRoof = hip(hotel, 0xc99636)[0];
+  assert.deepEqual([hotelRoof.y0, hotelRoof.h, hotelRoof.w, hotelRoof.d], [59, 28, 105, 53], 'hotel roof keeps its eave footprint and profile');
+  assert.equal(hotelRoof.verts.length / 3, 104, 'hotel roof verts: 5 lower + ledge + 7 upper rings of 8');
+  assert.equal(hotelRoof.tris.length / 3, 178, 'hotel roof tris: 11 strips of 16 plus the 2-triangle cap');
+  assert.equal(hotel.parts.length, 9, 'hotel part count');
+  assert.equal(Math.max(...hotel.parts.map(partTop)), 87, 'hotel tops out at 87 m, total height unchanged');
+  // Liberty Square Arch: five smooth blue hip roofs (was fourteen stepped boxes).
+  const archMeshes = hip(cks, 0x26548f);
+  assert.equal(archMeshes.length, 5, 'arch has five smooth blue hip roofs');
+  assert.deepEqual(archMeshes.map((m) => [m.y0, m.h, m.w, m.d]).sort(), [[18, 3.9, 12.5, 6.2], [18, 3.9, 12.5, 6.2], [18, 6.5, 19, 6.6], [18, 6.5, 19, 6.6], [22.6, 7.8, 36, 7]], 'arch roofs keep their footprints and profiles');
+  assert.equal(cks.parts.length, 86, 'cks part count');
+  // Winding: every hip-roof triangle faces up (signed area in (x,z) < 0,
+  // the #353 rule) — a flipped strip would light the roof from below.
+  for (const m of [stationRoof, hotelRoof, ...archMeshes, ...hip(byId('national-concert-hall'), 0xc79a3f), ...hip(byId('national-theater'), 0xc79a3f)]) {
+    for (let t = 0; t < m.tris.length; t += 3) {
+      assert.ok(roofArea(m, m.tris[t], m.tris[t + 1], m.tris[t + 2]) < -1e-9, `hip roof triangle ${t / 3} faces up`);
+    }
+  }
   // Issue #353: the west gate gap is 38 m, centred on the square
   // axis — the south run was 26 m too far south (gap 64.1 m,
   // 12.8 m off-axis). Both west wall runs turn with the park
@@ -992,11 +1048,18 @@ test('landmark batch 4: station district — crown, hip roof, terrace hall, pala
   // Issue #116 re-pin: frustum + ridge are stepped boxes since
   // #116 (they cannot rotate; the halls turn to the park axis),
   // so the recipe is eight boxes and the peak is the top step.
+  // Issue #364 re-pin: the hip roof is no longer stepped boxes —
+  // they read as a minecraft cube stack. One smooth hip mesh per
+  // hall (hipRoofMeshParts, the #353 cksroof precedent): same eave
+  // footprint, same 37 m crest, same gold tile colour, now a
+  // continuous sloped surface with upturned eave corners. The plinth
+  // and walls stay boxes; the roof is the one mesh part.
   const concert = byId('national-concert-hall');
   const theater = byId('national-theater');
   assert.ok(concert && theater, 'both national halls registered');
   for (const hall of [concert, theater]) {
-    assert.ok(hall.parts.every((p) => p.type === 'box'), `${hall.id} = plinth + walls + stepped hip roof, all boxes (issue #116)`);
+    assert.equal(hall.parts.filter((p) => p.type === 'mesh').length, 1, `${hall.id} roof is one smooth hip mesh (issue #364)`);
+    assert.ok(hall.parts.filter((p) => p.type !== 'mesh').every((p) => p.type === 'box'), `${hall.id} plinth + walls stay boxes`);
     assert.ok(hall.parts.every((p) => Math.abs(p.rotY - 0.4924) < 0.001), `${hall.id} every part turns with the park axis`);
     assert.equal(Math.max(...hall.parts.map(partTop)), 37, `${hall.id} roof crest peaks at 37 m`);
     assert.equal(hall.estimated, true, `${hall.id} height is OSM-derived, flagged estimated`);
