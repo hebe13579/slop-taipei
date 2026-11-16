@@ -2244,8 +2244,12 @@ function buildCityBlocks(scene, opts = null) {
       // shophouses and arcades are retail-led, the walk-up and pebble-dash
       // are housing-led with some shops. The newer apartment towers
       // (issue #256, families 10/11) are housing-led too: lobbies, not
-      // shops — the lowest shares in the table.
-      ? { cornice: false, roof: 'prewar', wtP: 0, shops: lot.shops ?? [0.85, 0.9, 0.45, 0.35, 0.35, 0.3][mat - 6], awnings: false }
+      // shops — the lowest shares in the table. Issue #369: the table
+      // used to stop at family 11, so 12/13 fell through to 'all'
+      // (100% shopfronts on every face); the high-rise lobby tower (12)
+      // takes the lowest share like 11, and the strip-tile mid-rise (13)
+      // takes the mid-rise housing-led share like 9/10.
+      ? { cornice: false, roof: 'prewar', wtP: 0, shops: lot.shops ?? [0.85, 0.9, 0.45, 0.35, 0.35, 0.3, 0.3, 0.35][mat - 6], awnings: false }
       : mat >= 3
         ? { cornice: false, roof: 'mech', shops: lot.shops ?? 0.3, awnings: false }
         : { roof: 'prewar', wtP: 0.35, shops: lot.shops ?? 0.3, awnings: false });
