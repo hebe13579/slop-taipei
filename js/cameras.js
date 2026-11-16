@@ -9,6 +9,7 @@ const CAMERA_PRESETS = [
   { id: 'chase',       name: '3rd-Person Chase',         short: 'Chase',       category: 'follow', fov: 56 },
   { id: 'action',      name: 'Low-Angle Action',         short: 'Action',      category: 'follow', fov: 60 },
   { id: 'pov',         name: 'First-Person / Cockpit',   short: 'POV / Dash',  category: 'follow', fov: 68 },
+  { id: 'aerial',      name: 'Aerial Top-Down',         short: 'Aerial',      category: 'follow', fov: 50 },
   { id: 'centralPark', name: 'Central Park Oasis',       short: 'Central Pk',  category: 'scenic', fov: 52 },
   { id: 'fifthAve',    name: '5th Ave & Empire State',   short: '5th Ave',     category: 'scenic', fov: 48 },
   { id: 'timesSquare', name: 'Times Square Crossroads',  short: 'Times Sq',    category: 'scenic', fov: 58 },
@@ -25,6 +26,15 @@ const CAMERA_PRESETS = [
 // about -18°..+39°.)
 const ORBIT_PITCH_MIN = -Math.PI / 2;
 const ORBIT_PITCH_MAX = Math.PI / 2;
+
+// Issue #361: aerial top-down mode hovers above the followed entity and
+// looks straight down, so the city layout and building facing can be
+// inspected from the air. 500 m by default shows ~460 m of ground across
+// at fov 50; the wheel/pinch zoom scales the altitude, clamped so the
+// camera always stays above the tallest building (Breeze Nanshan, 272 m).
+const AERIAL_ALTITUDE_M = 500;
+const AERIAL_ALTITUDE_MIN_M = 350;
+const AERIAL_ALTITUDE_MAX_M = 1200;
 
 function clampOrbitPitch(value) {
   return Math.max(ORBIT_PITCH_MIN, Math.min(ORBIT_PITCH_MAX, value));
@@ -277,6 +287,17 @@ class CameraSystem {
         break;
       }
 
+      case 'aerial': {
+        // Issue #361: hover above the followed entity and look straight
+        // down at it. The wheel/pinch zoom scales the altitude within
+        // [350, 1200] m; the default 500 m keeps the whole district in
+        // frame while staying well clear of the tallest tower.
+        const alt = Math.max(AERIAL_ALTITUDE_MIN_M, Math.min(AERIAL_ALTITUDE_MAX_M, AERIAL_ALTITUDE_M * this.zoomMultiplier));
+        desiredPos.set(entity.position.x, entity.position.y + alt, entity.position.z);
+        desiredLook.set(entity.position.x, entity.position.y, entity.position.z);
+        break;
+      }
+
       case 'centralPark': {
         // Inside Central Park South looking across The Pond, Gapstow Bridge, The Mall, Sheep Meadow & UWS/UES Skylines
         const sway = Math.sin(elapsed * 0.22) * 3.5;
@@ -386,4 +407,4 @@ class CameraSystem {
   }
 }
 
-export { CAMERA_PRESETS, CameraSystem };
+export { CAMERA_PRESETS, CameraSystem, AERIAL_ALTITUDE_M, AERIAL_ALTITUDE_MIN_M, AERIAL_ALTITUDE_MAX_M };

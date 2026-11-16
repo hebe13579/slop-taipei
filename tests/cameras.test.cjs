@@ -181,7 +181,7 @@ test('mouse orbit and wheel zoom retain their behavior and bounds', () => {
   close(h.camera.zoomMultiplier, 2.4);
 });
 
-for (const preset of ['chase', 'observatory', 'drone']) {
+for (const preset of ['chase', 'observatory', 'drone', 'aerial']) {
   test(`teleport after driving, orbiting and ${preset} snaps to a fresh chase view`, () => {
     const h = cameraHarness();
     h.entity.speed = 45;
@@ -272,6 +272,85 @@ test('chase camera sits directly above the entity and aims at it at +90° pitch 
   close(h.camera.currentLookAt.x, 0);
   close(h.camera.currentLookAt.z, 100);
   close(h.camera.currentLookAt.y, 0 + 1 + 0.52);
+});
+
+function loadCamerasModule() {
+  const window = eventTarget();
+  const document = { ...eventTarget(), hidden: false };
+  const canvas = { ...eventTarget(), style: {} };
+  canvas.setPointerCapture = () => {};
+  canvas.hasPointerCapture = () => false;
+  canvas.releasePointerCapture = () => {};
+  window.innerWidth = 1600;
+  window.innerHeight = 900;
+  return loadModule(source, {
+    globals: { window, document },
+    imports: { 'three/webgpu': { Vector3, PerspectiveCamera }, './landmarks.js': {} }
+  });
+}
+
+test('aerial preset is a follow camera so Taipei can select it (issue #361)', () => {
+  const { CAMERA_PRESETS, AERIAL_ALTITUDE_M, AERIAL_ALTITUDE_MIN_M, AERIAL_ALTITUDE_MAX_M } = loadCamerasModule();
+  const aerial = CAMERA_PRESETS.find((p) => p.id === 'aerial');
+  assert.ok(aerial, 'aerial preset exists');
+  // main.js selectCamera() falls back to chase for any non-follow preset in
+  // a tile, and the tile hides every non-follow camera button — so aerial
+  // must be a follow camera to be reachable at all in Taipei.
+  assert.equal(aerial.category, 'follow');
+  assert.equal(aerial.fov, 50);
+  assert.equal(AERIAL_ALTITUDE_M, 500);
+  assert.equal(AERIAL_ALTITUDE_MIN_M, 350);
+  assert.equal(AERIAL_ALTITUDE_MAX_M, 1200);
+  // The tallest building (Breeze Nanshan, 272 m) stays below the lowest hover.
+  assert.ok(AERIAL_ALTITUDE_MIN_M > 272);
+});
+
+test('aerial camera hovers directly above the entity and looks straight down (issue #361)', () => {
+  const h = cameraHarness();
+  h.camera.setCameraPreset('aerial', true);
+  h.camera.update(1 / 60, 0);
+  close(h.camera.currentPos.x, 0);
+  close(h.camera.currentPos.z, 100);
+  close(h.camera.currentPos.y, 0 + 500);
+  // The look target is the entity itself, directly below the camera.
+  close(h.camera.currentLookAt.x, 0);
+  close(h.camera.currentLookAt.z, 100);
+  close(h.camera.currentLookAt.y, 0);
+  close(h.camera.camera.position.y, 500);
+  close(h.camera.camera.target.x, 0);
+  close(h.camera.camera.target.z, 100);
+  close(h.camera.camera.target.y, 0);
+});
+
+test('aerial altitude follows the zoom within 350–1200 m (issue #361)', () => {
+  const h = cameraHarness();
+  h.camera.setCameraPreset('aerial', true);
+  h.camera.zoomMultiplier = 0.45;
+  h.camera.update(1 / 60, 0);
+  close(h.camera.currentPos.y, 350);
+  h.camera.zoomMultiplier = 2.4;
+  h.camera.setCameraPreset('aerial', true);
+  h.camera.update(1 / 60, 1 / 60);
+  close(h.camera.currentPos.y, 1200);
+  h.camera.zoomMultiplier = 1.5;
+  h.camera.setCameraPreset('aerial', true);
+  h.camera.update(1 / 60, 2 / 60);
+  close(h.camera.currentPos.y, 750);
+});
+
+test('aerial camera follows a moving entity from above (issue #361)', () => {
+  const h = cameraHarness();
+  h.camera.setCameraPreset('aerial', true);
+  h.camera.update(1 / 60, 0);
+  h.entity.position.set(120, 0, 260);
+  h.entity.speed = 10;
+  for (let i = 0; i < 240; i++) h.camera.update(1 / 60, (i + 1) / 60);
+  close(h.camera.currentPos.x, 120);
+  close(h.camera.currentPos.z, 260);
+  close(h.camera.currentPos.y, 500);
+  close(h.camera.currentLookAt.x, 120);
+  close(h.camera.currentLookAt.z, 260);
+  close(h.camera.currentLookAt.y, 0);
 });
 test('teleport releases every camera pointer and ignores old gestures before accepting a new drag', () => {
   const h = cameraHarness();
