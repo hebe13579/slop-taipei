@@ -4892,14 +4892,42 @@ const LANDMARK_STRUCTURES = [
       // Main Library 總圖書館 (satellite-measured; NO OSM way):
       // 91 x 73 m brick block, entrance faces WEST onto the plaza
       // at the east end of 椰林大道. Dark-grey flat roof with a
-      // central pyramid/diamond atrium roof (a box here, not a
-      // frustum: the overlap test reads frustums as centred on the
-      // structure anchor, which would misplace it onto a road).
-      // Modelled 91 x 66 m, shifted 6 m north: the measured 73 m
-      // depth overhung 舟山路's roadbed at the south-east corner.
+      // central pyramid atrium roof. Modelled 91 x 66 m, shifted
+      // 6 m north: the measured 73 m depth overhung 舟山路's roadbed
+      // at the south-east corner. Issue #397 rework (NTU visitor
+      // centre + esri-lib/library-crop.png + Wikipedia): the large
+      // arched windows echo the Old Main Library; the bell tower
+      // stands on the NORTH side (the asymmetry); the west entrance
+      // has a 4-storey entrance hall behind a colonnaded portico
+      // onto the plaza. The portico (columns + canopy + steps) is
+      // centred on the plaza (way/1557518367), not on the shifted
+      // box — hence dz -50 vs the box centre -56.7. The atrium is
+      // a frustum now, not a box: issue #299 made frustums honour
+      // dx/dz in the renderer AND the overlap test, so the old
+      // box-for-frustum workaround is gone. All rework parts
+      // verified 0.00 m² against the roadbeds (ntu397-evidence/
+      // overlap397c.mjs); the 92.5 x 67.5 m cornice grazed 舟山路
+      // by 0.13 m², so the lip is 92 x 67 m.
       { type: 'box', w: 91, d: 66, h: 18, dx: 146.9, dz: -56.7, rotY: 0, flat: { color: 0x9c6b4a, roughness: 0.92, metalness: 0.02 } },
+      { type: 'box', w: 92, d: 67, h: 1, y0: 0, dx: 146.9, dz: -56.7, rotY: 0, flat: 0xd9cbb8 },
+      { type: 'box', w: 92, d: 67, h: 0.7, y0: 17.3, dx: 146.9, dz: -56.7, rotY: 0, flat: 0xd9cbb8 },
       { type: 'box', w: 91, d: 66, h: 0.8, y0: 18, dx: 146.9, dz: -56.7, rotY: 0, flat: 0x4a4a4a },
-      { type: 'box', w: 18, d: 18, h: 5, y0: 18.8, dx: 146.9, dz: -56.7, rotY: 0, flat: 0x3a3a3a },
+      { type: 'frustum', wB: 18, dB: 18, wT: 5, dT: 5, h: 5, y0: 18.8, dx: 141, dz: -60, flat: 0x2e3a46 },
+      // Bell tower on the north side of the roof (7 x 7 m, ~10 m
+      // above the roof; height estimated from the satellite).
+      { type: 'box', w: 7, d: 7, h: 10, y0: 18, dx: 110, dz: -93, rotY: 0, flat: 0x9c6b4a },
+      { type: 'box', w: 7.5, d: 7.5, h: 1, y0: 28, dx: 110, dz: -93, rotY: 0, flat: 0x4a4a4a },
+      // Roof plant boxes (the pale rectangles on the satellite).
+      { type: 'box', w: 8, d: 4, h: 1.5, y0: 18.8, dx: 120, dz: -70, rotY: 0, flat: 0xcfd2d4 },
+      { type: 'box', w: 8, d: 4, h: 1.5, y0: 18.8, dx: 170, dz: -45, rotY: 0, flat: 0xcfd2d4 },
+      // West entrance portico: four stone columns + canopy + steps
+      // (the Breeze podium arcade precedent: cylinder columns).
+      { type: 'cylinder', r: 0.7, h: 8, dx: 94, dz: -57, flat: 0xd9cbb8 },
+      { type: 'cylinder', r: 0.7, h: 8, dx: 94, dz: -52, flat: 0xd9cbb8 },
+      { type: 'cylinder', r: 0.7, h: 8, dx: 94, dz: -48, flat: 0xd9cbb8 },
+      { type: 'cylinder', r: 0.7, h: 8, dx: 94, dz: -43, flat: 0xd9cbb8 },
+      { type: 'box', w: 10, d: 20, h: 0.8, y0: 8, dx: 96.4, dz: -50, rotY: 0, flat: 0x4a4a4a },
+      { type: 'box', w: 12, d: 22, h: 0.6, y0: 0, dx: 93, dz: -50, rotY: 0, flat: 0xd9cbb8 },
       // Sports Center 綜合體育館 (OSM way/39240218, building=stadium):
       // white domed hall on Xinhai Rd — low white box + white dome
       // (rx 46, rz 40, ~20 m high, unverified). Shifted 6 m south
@@ -5080,6 +5108,77 @@ const LANDMARK_STRUCTURES = [
       // ellipse clears the roadbeds (the min-area rect overhung the
       // lakeside drive by 75 m²). Colour 0x2f6d96 = the geodata water.
       { type: 'cylinder', r: 48.6, rz: 85.25, h: 0.3, y0: 0.02, dx: -197.0, dz: -367.1, flat: 0x2f6d96 },
+      // ---- Issue #397: more NTU buildings (the campus still read
+      // sparse after #357) — the next tranche of named buildings.
+      // Fitted rects from the OSM outlines (PBF scan, scan-full.json),
+      // all verified 0.00 m² against the roadbeds (ntu397-evidence/
+      // overlap397c.mjs). Heights are OSM building:levels x 3.6 m where
+      // tagged, else estimated (EST) at 14 m for a standard 4-floor
+      // department block. All boxes use the entry's prewar brick facade.
+      // Mingda Hall 明達館 is NOT modelled: its OSM outline is crossed
+      // diagonally by an unnamed service drive (265 m² outline overlap)
+      // and no clean single-rect fit exists in the grid — it needs a
+      // two-box split along the drive, a follow-up.
+      // Agronomy 農藝館 (way/1052271460): the L-shaped block north of
+      // the library — the min-area rect overhung the service drive at
+      // its north edge by 161.5 m² (the outline itself crosses it by
+      // 62.2 m²), so the rect is shifted 6 m south (71% coverage).
+      { type: 'box', w: 62.3, d: 21.6, h: 14, dx: 120.6, dz: -152.9, rotY: 3.130 },
+      // Institute of Oceanography 海洋研究所 (way/191360822): two wings
+      // (the whole rect is only 51% real) — west + east arms.
+      { type: 'box', w: 38.2, d: 19.2, h: 14, dx: -197.9, dz: -503.0, rotY: 1.560 },
+      { type: 'box', w: 28.1, d: 21.3, h: 14, dx: -253.9, dz: -490.1, rotY: -1.584 },
+      // Engineering Science & Ocean Engineering 工程科學及海洋工程學系館
+      // (way/1052301475): a 178.7 m diagonal bar (the single rect is
+      // only 44% real) — two boxes along the bar (74% outline covered,
+      // 72% of the boxes real, the #357 Life Sciences precedent).
+      { type: 'box', w: 94, d: 20, h: 14, dx: 273.5, dz: -20.6, rotY: -0.429 },
+      { type: 'box', w: 70, d: 14, h: 14, dx: 366.6, dz: -52.1, rotY: -0.429 },
+      // Agriculture Complex 農業綜合大樓 (way/191350740; EST 14 m).
+      { type: 'box', w: 83.6, d: 30.9, h: 14, dx: -196.5, dz: 74.6, rotY: 3.093 },
+      // Comprehensive Teaching Hall 綜合教學館 (way/575233307; EST 14 m).
+      { type: 'box', w: 61.3, d: 31.5, h: 14, dx: -5.2, dz: -149.7, rotY: 0.044 },
+      // General Teaching Hall 普通教學館 (way/1303517415, 5 floors).
+      { type: 'box', w: 80.3, d: 22.5, h: 18, dx: -284.2, dz: -187.1, rotY: 3.124 },
+      // Jingxian Building 敬賢樓 (way/191350736; EST 14 m): depth
+      // trimmed 34.1 -> 33.1 m and shifted 1 m south to clear the drive.
+      { type: 'box', w: 93.4, d: 33.1, h: 14, dx: -369.0, dz: 67.1, rotY: 0.000 },
+      // Building 1 一號館 (way/1321851980, 3 floors).
+      { type: 'box', w: 89.5, d: 24.5, h: 11, dx: -487.0, dz: 5.7, rotY: 3.126 },
+      // Building 3 三號館 (way/191350726, 3 floors).
+      { type: 'box', w: 91.4, d: 18.3, h: 11, dx: -368.0, dz: 42.0, rotY: -0.006 },
+      // Building 4 四號館 (way/191350723; EST 14 m).
+      { type: 'box', w: 86.9, d: 25.8, h: 14, dx: -192.9, dz: 0.6, rotY: 3.128 },
+      // Building 5 五號館 (way/191350731, 2 floors): a U-shaped
+      // courtyard block — two halves (97% outline covered, 68% real)
+      // instead of the whole rect (100% covered but only 48% real).
+      { type: 'box', w: 40.4, d: 16.8, h: 7, dx: -171.9, dz: 42.9, rotY: -0.015 },
+      { type: 'box', w: 39.1, d: 38.1, h: 7, dx: -213.8, dz: 32.3, rotY: -1.585 },
+      // Luming Hall 鹿鳴堂 (way/191358135; EST 14 m).
+      { type: 'box', w: 50.3, d: 29.6, h: 14, dx: -198.1, dz: 192.7, rotY: 0.928 },
+      // CS Building 資訊工程館 (way/113547891; EST 14 m): width
+      // trimmed 45.4 -> 44.4 m and shifted 1 m west to clear the drive.
+      { type: 'box', w: 44.4, d: 44.2, h: 14, dx: 209.0, dz: -293.1, rotY: 0.132 },
+      // Psychology South Hall 心理系南館 (way/191358143; EST 14 m):
+      // two arms (the whole rect is only 57% real).
+      { type: 'box', w: 25.9, d: 19.4, h: 14, dx: 80.2, dz: -297.9, rotY: -0.005 },
+      { type: 'box', w: 29.3, d: 20.6, h: 14, dx: 56.8, dz: -308.4, rotY: -1.585 },
+      // Forestry Building 森林系館 (way/1052281786; EST 14 m).
+      { type: 'box', w: 69.7, d: 23.1, h: 14, dx: -56.6, dz: -1.4, rotY: 3.131 },
+      // Foreign Language Teaching Center 外語教學中心 (way/191358160;
+      // EST 14 m).
+      { type: 'box', w: 71.2, d: 24.3, h: 14, dx: 72.8, dz: -405.4, rotY: 0.031 },
+      // Zongzhuo Zhang Hall 宗倬章館 (way/1323358386; EST 14 m).
+      { type: 'box', w: 60.0, d: 24.9, h: 14, dx: 4.8, dz: -211.8, rotY: 3.132 },
+      // Computer & Network Center 計算機及網路資訊中心 (way/191354841;
+      // EST 14 m): shifted 1 m east to clear the drive.
+      { type: 'box', w: 71.4, d: 23.2, h: 14, dx: 29.8, dz: -444.4, rotY: 0.000 },
+      // Zhiwu Hall 知武館 (way/1285081104; EST 14 m).
+      { type: 'box', w: 53.1, d: 19.7, h: 14, dx: 332.0, dz: -158.9, rotY: 3.114 },
+      // Veterinary Medicine Hall 獸醫館 (way/191358138; EST 14 m).
+      { type: 'box', w: 52.0, d: 21.7, h: 14, dx: 230.4, dz: -154.1, rotY: 3.138 },
+      // Library & Information Studies 圖資系系館 (way/191350738; EST 14 m).
+      { type: 'box', w: 36.1, d: 32.8, h: 14, dx: -16.9, dz: -112.1, rotY: -0.011 },
     ],
   },
   {
