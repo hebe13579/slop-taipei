@@ -417,6 +417,127 @@ export function logoPlateBg(key) {
   return SIGN_LOGO_DARK_PLATE[key] ? '#1a1a1a' : '#ffffff';
 }
 
+// Issue #375: the plate shape fits the logo. Measured PNG aspects
+// (IHDR, all 42) plus looking at the art (shapes375-evidence/
+// logos-contact.png):
+// - 'round': the art IS a circle — a disc plate, not a rectangle.
+//   bafang (red roundel), starbucks (green siren), chatime (purple
+//   circle), eight-five (red circle), sushiro (red ring), mos (the
+//   white-on-red disc in the user's photo — its own white-art file,
+//   see SIGN_LOGO_ROUND_FILES).
+// - 'square': the art is square-ish (aspect 0.8–1.8) — a square
+//   plate. seven-eleven (the square cup logo), fifty-lan (blue oval,
+//   fills a square's width), carrefour, ching-shin, cosmed, hi-life,
+//   kebuke, laya, louisa, macu, mcdonalds, milksha, net, ok-mart,
+//   toms-world, yonghe, kura, tsannkuen.
+// - 'wide': aspect > 2 — the SIGN_LOGO_ROTATE_PORTRAIT set (a wide
+//   lockup reads top-to-bottom on a tall blade; the box stays
+//   portrait, so 'wide' is not a box shape).
+// - 'portrait' (default): wupaochun (the only taller-than-wide logo,
+//   0.66) and every text plate. Generic text plates are unchanged.
+export const SIGN_LOGO_PLATE_SHAPE = {
+  'bafang': 'round',
+  'starbucks': 'round',
+  'chatime': 'round',
+  'eight-five': 'round',
+  'sushiro': 'round',
+  'mos': 'round',
+  'seven-eleven': 'square',
+  'fifty-lan': 'square',
+  'carrefour': 'square',
+  'ching-shin': 'square',
+  'cosmed': 'square',
+  'hi-life': 'square',
+  'kebuke': 'square',
+  'laya': 'square',
+  'louisa': 'square',
+  'macu': 'square',
+  'mcdonalds': 'square',
+  'milksha': 'square',
+  'net': 'square',
+  'ok-mart': 'square',
+  'toms-world': 'square',
+  'yonghe': 'square',
+  'kura': 'square',
+  'tsannkuen': 'square',
+};
+export function logoPlateShape(key) {
+  if (SIGN_LOGO_PLATE_SHAPE[key]) return SIGN_LOGO_PLATE_SHAPE[key];
+  if (SIGN_LOGO_ROTATE_PORTRAIT[key]) return 'wide';
+  return 'portrait';
+}
+
+// Issue #375: a round plate whose art has no clean white variant
+// on file gets its own white-art file, drawn on the round plate
+// instead of the standard file. mos-white.png is mos.png recoloured
+// to white (PIL: RGB=white where alpha>0, alpha kept) — the brand's
+// own art in the brand's own white variant, matching the user's MOS
+// disc photo (white M + white "MOS BURGER" on red). No white MOS
+// file exists on Wikimedia (only the standard red logo SVG).
+export const SIGN_LOGO_ROUND_FILES = {
+  'mos': 'assets/sign-logos/mos-white.png',
+};
+export function logoRoundFile(key) {
+  return SIGN_LOGO_ROUND_FILES[key] || null;
+}
+// The round plate's background: MOS needs its brand red under the
+// white art (white-on-white would vanish); every other round logo
+// keeps its ordinary plate bg (their white details are opaque art,
+// or the bg never shows inside the solid roundel).
+export const SIGN_LOGO_ROUND_PLATE_BG = { 'mos': '#e60012' };
+export function logoRoundPlateBg(key) {
+  return SIGN_LOGO_ROUND_PLATE_BG[key] || logoPlateBg(key);
+}
+
+// One shape char per blade plate (pool order): 'p' portrait
+// (default — all text plates, wupaochun, and the wide wordmarks,
+// whose box stays portrait while the lockup rotates), 's' square,
+// 'r' round, 'w' wide. The renderer (js/buildings.js) mirrors this
+// string as a literal — the node suite pins the two against each
+// other, so a new logo's shape is a deliberate change in both.
+export const BLADE_PLATE_SHAPES = TAIPEI_BLADE_SIGNS.map((sign) => {
+  if (!sign.logo) return 'p';
+  const shape = logoPlateShape(sign.logo);
+  return shape === 'square' ? 's' : shape === 'round' ? 'r' : shape === 'wide' ? 'w' : 'p';
+}).join('');
+export function bladePlateShape(plateIndex) {
+  const ch = BLADE_PLATE_SHAPES[plateIndex];
+  return ch === 's' ? 'square' : ch === 'r' ? 'round' : ch === 'w' ? 'wide' : 'portrait';
+}
+
+// Issue #375: the blade shader (js/buildings.js vSignPlateColor)
+// picks a plate from the broad face's world coordinate with a
+// Weyl-sequence hash — fract of an irrational multiple, uniform over
+// [0,1). This is the same hash in plain JS (float32 at every op, so
+// the prediction is bit-identical to the GPU's). It replaces
+// logos372-evidence/find-blades372.mjs's copy as the single source
+// of truth; the renderer reproduces it in js/buildings.js (preloaded
+// modules cannot import this file) and the node suite pins the two
+// against each other over a faceCoord sweep. faceCoord is the broad
+// face's constant world coordinate (x for a north/south blade, z for
+// east/west); the two faces sit at faceCoord ± thick/2 and can show
+// different plates (#383).
+const BLADE_HASH_PHI1 = 0.6180339887;
+const BLADE_HASH_PHI2 = 0.7548776662;
+const BLADE_PLATE_BANDS = [
+  [0.0, 0.08, 1], [0.08, 0.12, 26], [0.12, 0.17, 52], [0.17, 0.21, 53],
+  [0.21, 0.24, 51], [0.24, 0.27, 68], [0.27, 0.30, 71], [0.30, 0.32, 64],
+];
+export function predictBladePlate(faceCoord) {
+  const q = Math.floor(Math.fround(faceCoord) * 0.5);
+  const hashU = (k) => {
+    const prod = Math.fround(Math.fround(q) * Math.fround(k));
+    return Math.fround(prod - Math.floor(prod));
+  };
+  const hp = hashU(BLADE_HASH_PHI1);
+  const hp2 = hashU(BLADE_HASH_PHI2);
+  let plate = Math.floor(Math.fround(hp2 * TAIPEI_BLADE_SIGNS.length));
+  for (const [lo, hi, p] of BLADE_PLATE_BANDS) {
+    if (hp >= lo && hp < hi) { plate = p; break; }
+  }
+  return { plate, hp, hp2, q };
+}
+
 export function loadSignLogoImages() {
   if (typeof Image === 'undefined') return Promise.resolve({});
   let base = '';
@@ -432,7 +553,14 @@ export function loadSignLogoImages() {
     img.onerror = () => { clearTimeout(timer); resolve(null); };
     img.src = base + file;
   });
-  return Promise.all(Object.entries(SIGN_LOGO_FILES).map(loadOne))
+  // Issue #375: the round plates' white-art files load under
+  // `${key}-round` (the blade painter picks them up for round
+  // plates); a failed load resolves to nothing, never rejects.
+  const entries = [...Object.entries(SIGN_LOGO_FILES)];
+  for (const [key, file] of Object.entries(SIGN_LOGO_ROUND_FILES)) {
+    entries.push([`${key}-round`, file]);
+  }
+  return Promise.all(entries.map(loadOne))
     .then((pairs) => {
       const out = {};
       for (const p of pairs) if (p) out[p[0]] = p[1];
@@ -596,7 +724,18 @@ export function drawBladeAtlas(ctx, images = null) {
     const { x, y } = cellOrigin(i, BLADE_ATLAS);
     if (sign.logo) {
       const img = images && images[sign.logo];
-      if (img) { drawLogoImage(ctx, x, y, cellW, cellH, img, !!SIGN_LOGO_ROTATE_PORTRAIT[sign.logo], logoPlateBg(sign.logo)); return; }
+      if (img) {
+        // Issue #375: a round plate with its own white-art file
+        // (MOS) draws the round file on the round plate bg instead
+        // of the standard file — white art on red, like the user's
+        // MOS disc photo. Falls back to the standard file if the
+        // round file failed to load (a white plate + red art, still
+        // a round disc — the shape comes from the renderer, not the
+        // painter).
+        const roundImg = images && images[sign.logo + '-round'];
+        if (roundImg && logoPlateShape(sign.logo) === 'round') { drawLogoImage(ctx, x, y, cellW, cellH, roundImg, false, logoRoundPlateBg(sign.logo)); return; }
+        drawLogoImage(ctx, x, y, cellW, cellH, img, !!SIGN_LOGO_ROTATE_PORTRAIT[sign.logo], logoPlateBg(sign.logo)); return;
+      }
     }
     if (sign.logo === 'seven-eleven') { drawSevenElevenLogo(ctx, x, y, cellW, cellH, true); return; }
     if (sign.logo === 'familymart') { drawFamilyMartLogo(ctx, x, y, cellW, cellH, true); return; }

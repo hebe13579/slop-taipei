@@ -3,7 +3,7 @@
 // no 檳榔 anywhere — the user's hard exclusion), the atlas layout
 // math, and the grid literals mirrored into the two preloaded sign
 // shaders (tsl-materials bands / buildings blades), which cannot
-// import the signs module (Pages preload list is pinned at 29).
+// import the signs module (Pages preload list is pinned at 32).
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import {
@@ -26,6 +26,15 @@ import {
   SIGN_LOGO_FILES,
   SIGN_LOGO_ROTATE_PORTRAIT,
   SIGN_LOGO_DARK_PLATE,
+  SIGN_LOGO_PLATE_SHAPE,
+  SIGN_LOGO_ROUND_FILES,
+  SIGN_LOGO_ROUND_PLATE_BG,
+  logoPlateShape,
+  logoRoundFile,
+  logoRoundPlateBg,
+  BLADE_PLATE_SHAPES,
+  bladePlateShape,
+  predictBladePlate,
   logoPlateBg,
   nameWidthUnits,
   signFontVariant,
@@ -277,6 +286,94 @@ for (const [key, file] of Object.entries(SIGN_LOGO_FILES)) {
 }
 assert.equal(TAIPEI_ROOF_SIGNS.find((s) => s.name === '7-ELEVEN').logo, 'seven-eleven', 'roof 7-ELEVEN board carries its logo lockup');
 
+// --- Issue #375: the plate shape fits the logo ----------------------
+// The user: a 7-Eleven blade should be a SQUARE plate, the BFC
+// roundel a ROUND plate — not the same tall rectangle for every
+// logo. The shape comes from the logo's measured PNG aspect plus
+// looking at the art (shapes375-evidence/logos-contact.png): the
+// art is a circle → 'round'; square-ish (0.8–1.8) → 'square';
+// wide (> 2) → 'wide' (the rotate set — the box stays portrait,
+// only the lockup rotates); wupaochun, the one taller-than-wide
+// logo, and every text plate stay 'portrait'. The partition is
+// complete: every one of the 42 logos has exactly one shape, and
+// no logo is both wide and shaped (a wide lockup cannot sit on a
+// square/round box).
+const ROUND_LOGOS = ['bafang', 'starbucks', 'chatime', 'eight-five', 'sushiro', 'mos'];
+const SQUARE_LOGOS = ['seven-eleven', 'fifty-lan', 'carrefour', 'ching-shin', 'cosmed', 'hi-life', 'kebuke', 'laya', 'louisa', 'macu', 'mcdonalds', 'milksha', 'net', 'ok-mart', 'toms-world', 'yonghe', 'kura', 'tsannkuen'];
+assert.deepEqual(Object.keys(SIGN_LOGO_PLATE_SHAPE).filter((k) => SIGN_LOGO_PLATE_SHAPE[k] === 'round').sort(), [...ROUND_LOGOS].sort(), 'round set is exactly the six circular logos');
+assert.deepEqual(Object.keys(SIGN_LOGO_PLATE_SHAPE).filter((k) => SIGN_LOGO_PLATE_SHAPE[k] === 'square').sort(), [...SQUARE_LOGOS].sort(), 'square set is exactly the eighteen square-ish logos');
+for (const key of Object.keys(SIGN_LOGO_FILES)) {
+  const shape = logoPlateShape(key);
+  assert.ok(['square', 'round', 'wide', 'portrait'].includes(shape), `${key} has a plate shape: ${shape}`);
+  if (SIGN_LOGO_ROTATE_PORTRAIT[key]) {
+    assert.equal(shape, 'wide', `${key} is a wide wordmark, not a shaped plate`);
+    assert.ok(!SIGN_LOGO_PLATE_SHAPE[key], `${key} is not in the shape table (rotate and shaped are disjoint)`);
+  }
+}
+assert.equal(logoPlateShape('wupaochun'), 'portrait', 'wupaochun, the only portrait logo, stays portrait');
+assert.equal(logoPlateShape('seven-eleven'), 'square', '7-Eleven is a square plate');
+assert.equal(logoPlateShape('bafang'), 'round', 'the BFC roundel is a round plate');
+assert.equal(logoPlateShape('mos'), 'round', 'MOS is a round plate (the white-on-red disc in the user photo)');
+assert.equal(logoPlateShape('familymart'), 'wide', 'FamilyMart is a wide wordmark');
+// The MOS round plate needs the WHITE art on a RED plate: our
+// mos.png is red art on transparency, and the user's photo is a
+// white mark on a red disc. mos-white.png is mos.png recoloured
+// to white (RGB=white where alpha>0, alpha kept) — the brand's own
+// white variant. No other round logo needs a round file (their art
+// is opaque and reads on its ordinary plate bg).
+assert.equal(logoRoundFile('mos'), 'assets/sign-logos/mos-white.png', 'MOS round plate uses its white-art file');
+assert.equal(logoRoundFile('bafang'), null, 'no other round logo needs a round file');
+assert.equal(logoRoundPlateBg('mos'), '#e60012', 'MOS round plate is brand red under the white art');
+assert.equal(logoRoundPlateBg('bafang'), logoPlateBg('bafang'), 'other round plates keep their ordinary bg');
+assert.equal(SIGN_LOGO_ROUND_FILES.mos, 'assets/sign-logos/mos-white.png', 'round-file table points at the white MOS art');
+for (const [key, file] of Object.entries(SIGN_LOGO_ROUND_FILES)) {
+  const buf = readFileSync(new URL(`../${file}`, import.meta.url));
+  assert.equal(buf.subarray(0, 8).toString('hex'), '89504e470d0a1a0a', `${key} round file is a PNG: ${file}`);
+  assert.ok(buf.length > 1000, `${key} round file is a real image, not a stub: ${file}`);
+}
+assert.deepEqual(Object.keys(SIGN_LOGO_ROUND_PLATE_BG), ['mos'], 'only MOS overrides its round plate bg');
+// One shape char per blade plate (pool order): 'p' portrait, 's'
+// square, 'r' round, 'w' wide. The counts are the pool's own
+// (familymart + pxmart each appear twice in the blade pool, so 19
+// wide chars for 17 wide logos). Spot plates: 1 is 7-ELEVEN, 52 is
+// 八方雲集， 26 is 全家， 51 is the text-only 東一排骨.
+assert.equal(BLADE_PLATE_SHAPES.length, TAIPEI_BLADE_SIGNS.length, 'shape string covers every blade plate');
+assert.match(BLADE_PLATE_SHAPES, /^[psrw]+$/, 'shape string uses only p/s/r/w');
+const shapeCounts = {};
+for (const ch of BLADE_PLATE_SHAPES) shapeCounts[ch] = (shapeCounts[ch] || 0) + 1;
+assert.deepEqual(shapeCounts, { p: 60, s: 18, r: 6, w: 19 }, 'shape counts match the pool (18 square, 6 round, 19 wide, 60 portrait)');
+assert.equal(BLADE_PLATE_SHAPES, TAIPEI_BLADE_SIGNS.map((sign) => {
+  if (!sign.logo) return 'p';
+  const shape = logoPlateShape(sign.logo);
+  return shape === 'square' ? 's' : shape === 'round' ? 'r' : shape === 'wide' ? 'w' : 'p';
+}).join(''), 'shape string is the pool-derived string (a new logo shape is a deliberate change)');
+assert.equal(bladePlateShape(1), 'square', 'plate 1 (7-ELEVEN) is square');
+assert.equal(bladePlateShape(52), 'round', 'plate 52 (八方雲集） is round');
+assert.equal(bladePlateShape(26), 'wide', 'plate 26 (全家） is wide');
+assert.equal(bladePlateShape(51), 'portrait', 'plate 51 (東一排骨， text-only) is portrait');
+// predictBladePlate is the shader's Weyl hash in plain JS
+// (float32 at every op): deterministic, in range, and the weighted
+// bands fire at their stated rates over a sweep — all 103 plates
+// appear, 7-ELEVEN at ~8% (its [0, 0.08) band plus its uniform
+// share). Spot values: faceCoord 0 hashes to q 0 → plate 1
+// (7-ELEVEN); -4529.1 lands in the Bafang band → plate 52.
+assert.deepEqual(predictBladePlate(0), predictBladePlate(0), 'plate prediction is deterministic');
+assert.equal(predictBladePlate(0).plate, 1, 'faceCoord 0 → plate 1 (7-ELEVEN, hp 0)');
+assert.equal(predictBladePlate(-4529.1).plate, 52, 'faceCoord -4529.1 → plate 52 (八方雲集）');
+assert.equal(predictBladePlate(1.3).plate, 1, 'faceCoord 1.3 → plate 1 (same 0.5 m quantum as 0)');
+const sweepPlates = new Set();
+let sevenElevenHits = 0;
+for (let q = -2000; q <= 2000; q++) {
+  const { plate, hp, hp2 } = predictBladePlate(2 * q + 0.3);
+  assert.ok(hp >= 0 && hp < 1, `hash hp in [0,1): q ${q}`);
+  assert.ok(hp2 >= 0 && hp2 < 1, `hash hp2 in [0,1): q ${q}`);
+  assert.ok(plate >= 0 && plate < TAIPEI_BLADE_SIGNS.length, `plate in range: q ${q}`);
+  sweepPlates.add(plate);
+  if (plate === 1) sevenElevenHits++;
+}
+assert.equal(sweepPlates.size, TAIPEI_BLADE_SIGNS.length, 'the hash reaches all 103 plates over a 4001-quantum sweep');
+assert.ok(sevenElevenHits / 4001 >= 0.06 && sevenElevenHits / 4001 <= 0.10, `7-ELEVEN share is ~8% (got ${(sevenElevenHits / 4001).toFixed(3)})`);
+
 // --- Font stack: every Taiwan device resolves a real CJK face -------
 for (const face of ['Noto Sans TC', 'PingFang TC', 'JhengHei']) {
   assert.ok(SIGN_FONT_STACK.includes(face), `font stack covers ${face}`);
@@ -355,6 +452,24 @@ assert.ok(buildings.includes(roofBgLiteral), 'roof plate bg colours match the po
 
 const planner = read('../js/taipei-buildings.js');
 assert.ok(planner.includes(`export const ROOF_BOARD_PLATES = ${TAIPEI_ROOF_SIGNS.length};`), 'planner plate count matches the pool');
+// Issue #375: the renderer mirrors the plate-shape string and
+// the plate hash (it is preloaded and cannot import the signs
+// module). The shape string literal, the Weyl constants, the
+// weighted bands, the per-instance shape attribute and the shader
+// remap must all match the source of truth above.
+assert.ok(buildings.includes(`const SIGN_BLADE_SHAPES = '${BLADE_PLATE_SHAPES}';`), 'blade shape string literal matches the pool-derived string');
+assert.ok(buildings.includes('const SIGN_BLADE_SHAPE_SQUARE = 1;'), 'square shape code is 1');
+assert.ok(buildings.includes('const SIGN_BLADE_SHAPE_ROUND = 2;'), 'round shape code is 2');
+assert.ok(buildings.includes('0.6180339887'), 'renderer mirrors the first Weyl constant');
+assert.ok(buildings.includes('0.7548776662'), 'renderer mirrors the second Weyl constant');
+assert.ok(buildings.includes('SIGN_BLADE_PLATE_BANDS'), 'renderer mirrors the weighted plate bands');
+assert.ok(buildings.includes("attribute('aBladeShape', 'float')"), 'renderer reads the per-instance shape attribute');
+assert.ok(buildings.includes('vSignGeo.setAttribute'), 'blade geometry carries the shape attribute (unitBox is shared)');
+assert.ok(buildings.includes('vSignGeo.attributes.aBladeShape.setX(vSignCount, shape)'), 'fill loop sets the shape per blade');
+assert.ok(buildings.includes('flagRange(vSignGeo.attributes.aBladeShape, vSignCount)'), 'fill loop flags the shape attribute for upload');
+assert.ok(buildings.includes('float(0.375)'), 'shader remaps shaped plates to the cell middle square');
+assert.ok(buildings.includes('vSignMat.alphaTest = 0.5;'), 'round blades alpha-test their disc');
+assert.ok(buildings.includes('vSignMat.maskShadowNode'), 'round blades shadow as discs');
 // Issue #354: the blade shader weights the commonest brands (not a
 // uniform pick) — its brand plate indices must match the pool order.
 for (const [name, literal] of [['7-ELEVEN', 'SIGN_BLADE_BRAND_711'], ['全家', 'SIGN_BLADE_BRAND_FAMILY'], ['八方雲集', 'SIGN_BLADE_BRAND_BAFANG'], ['鍋貼', 'SIGN_BLADE_BRAND_GUOTIE'], ['東一排骨', 'SIGN_BLADE_BRAND_DONGYI'], ['燦坤', 'SIGN_BLADE_BRAND_TSANNKUEN'], ['全聯', 'SIGN_BLADE_BRAND_PX'], ['NET', 'SIGN_BLADE_BRAND_NET']]) {
