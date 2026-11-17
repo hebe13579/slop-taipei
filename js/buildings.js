@@ -2956,7 +2956,7 @@ function buildCityBlocks(scene, opts = null) {
   // One char per blade plate (pool order): 'p' portrait (default),
   // 's' square, 'r' round, 'w' wide (box stays portrait; the
   // lockup rotates). Attribute codes: 0 portrait, 1 square, 2 round.
-  const SIGN_BLADE_SHAPES = 'psppppppppppppppppppppppppwswpppppppppppppsswspppppprpwssppwppspspppswpwwwsswrrsrssswwwwsrswwwrpwppwppp';
+  const SIGN_BLADE_SHAPES = 'psppppppppppppppppppppppppwswpppppppppppppsswspppppprpwssppwppspspppswpwwwsswrrsrssswwwwsrswwwrppwwswwswswsrsswwrwppwppp';
   const SIGN_BLADE_SHAPE_PORTRAIT = 0;
   const SIGN_BLADE_SHAPE_SQUARE = 1;
   const SIGN_BLADE_SHAPE_ROUND = 2;
@@ -3062,7 +3062,7 @@ function buildCityBlocks(scene, opts = null) {
   // as the panel colour, so a panel keeps its shop on every load, and
   // the glyph look remains the fallback where no atlas is injected.
   // Blade atlas grid, mirrored from js/taipei-signs.js (BLADE_ATLAS /
-  // TAIPEI_BLADE_SIGNS): 16 cols × 7 rows, 103 plates, plate row counted
+  // TAIPEI_BLADE_SIGNS): 18 cols × 7 rows, 120 plates, plate row counted
   // from the texture's bottom. The node suite source-pins these
   // literals against the signs module — change them together.
   // Issue #372: 79 plates (was 76) — the three sparse-emoji blade
@@ -3072,9 +3072,13 @@ function buildCityBlocks(scene, opts = null) {
   // (24 new real-brand plates, appended at the end, so the brand pins
   // below keep their indices) plus the 7 blade extras. The grid
   // grows 12×7 → 16×7 (112 cells hold 103 plates).
-  const SIGN_BLADE_COLS = 16.0;
+  // Issue #376 (wiring): 120 plates — the band pool grows 96 → 113
+  // (17 new real-brand plates, appended at the end, so the brand pins
+  // below keep their indices) plus the 7 blade extras. The grid
+  // grows 16×7 → 18×7 (126 cells hold 120 plates).
+  const SIGN_BLADE_COLS = 18.0;
   const SIGN_BLADE_ROWS = 7.0;
-  const SIGN_BLADE_PLATES = 103.0;
+  const SIGN_BLADE_PLATES = 120.0;
   // Issue #354: the commonest shops are picked by weight, not
   // uniformly — a real Taipei street has a 7-ELEVEN or FamilyMart on
   // most commercial corners, and 八方雲集 / 鍋貼 / 東一排骨 are this

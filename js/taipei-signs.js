@@ -228,6 +228,34 @@ export const TAIPEI_BAND_SIGNS = [
   { name: 'CoCo都可', bg: '#ffffff', fg: '#f58220', genre: 'drink', logo: 'coco' },
   { name: '茶湯會', bg: '#6a3fb5', fg: '#ffffff', genre: 'drink', logo: 'chatime' },
   { name: '吳寶春', bg: '#1d1d22', fg: '#ffffff', genre: 'eat', logo: 'wupaochun' },
+  // Issue #376 (wiring, 2026-11-17): the 17 wireable brands from
+  // brands376-evidence (20 sourced minus the 3 transport logos —
+  // 台北捷運 / 台鐵 / 高鐵 are NOT stores and are never wired into
+  // the shop pools, user rule 2026-11-12). Appended at the END, so
+  // no existing plate index ever shifts (the blade shader's brand
+  // pins and the band/blade index match all stay valid). bg/fg are
+  // the brand's own colours, used only by the text fallback plate
+  // when the image fails to load. Genres follow the brand's trade:
+  // drink chains are drink, food chains are eat, 美廉社 is a
+  // supermarket (market), 啄木鳥藥局 a drugstore (service), 神腦 /
+  // 遠傳 are 3C/telecom, 中華郵政 is service (like the 郵局 plate).
+  { name: '一芳', bg: '#ffffff', fg: '#1d1d22', genre: 'drink', logo: 'yifang' },
+  { name: '添好運', bg: '#ffffff', fg: '#1e7a46', genre: 'drink', logo: 'timhowan' },
+  { name: '石二鍋', bg: '#ffffff', fg: '#5a5a5a', genre: 'eat', logo: 'sabu12' },
+  { name: '麥味登', bg: '#1e5c3a', fg: '#ffffff', genre: 'drink', logo: 'maiweideng' },
+  { name: '龜記', bg: '#1a1a1a', fg: '#ffffff', genre: 'drink', logo: 'guiji' },
+  { name: '大茗', bg: '#ffffff', fg: '#1d1d22', genre: 'drink', logo: 'daming' },
+  { name: '歇腳亭', bg: '#ffffff', fg: '#1d1d22', genre: 'drink', logo: 'sharetea' },
+  { name: 'Mr.Wish', bg: '#ffffff', fg: '#5b8c2a', genre: 'drink', logo: 'mrwish' },
+  { name: '喫茶小舖', bg: '#ffffff', fg: '#1d1d22', genre: 'drink', logo: 'milkshop' },
+  { name: '丹丹漢堡', bg: '#d52027', fg: '#ffffff', genre: 'eat', logo: 'dandan' },
+  { name: 'Q Burger', bg: '#ffffff', fg: '#f58220', genre: 'eat', logo: 'qburger' },
+  { name: '錢都', bg: '#f58220', fg: '#ffffff', genre: 'eat', logo: 'chientu' },
+  { name: '美廉社', bg: '#ffffff', fg: '#e6007e', genre: 'market', logo: 'simplemart' },
+  { name: '啄木鳥藥局', bg: '#ffffff', fg: '#e60012', genre: 'service', logo: 'woodpecker' },
+  { name: '神腦', bg: '#ffffff', fg: '#1b4f9c', genre: '3c', logo: 'senao' },
+  { name: '遠傳', bg: '#ffffff', fg: '#d52027', genre: '3c', logo: 'fareastone' },
+  { name: '中華郵政', bg: '#ffffff', fg: '#1b4f9c', genre: 'service', logo: 'chpost' },
 ];
 
 // Blade-only extras: names too wide for one shop bay but natural on a
@@ -280,10 +308,16 @@ export const TAIPEI_BLADE_SIGNS = [...TAIPEI_BAND_SIGNS, ...TAIPEI_BLADE_EXTRA];
 // plates, so the suite pins an exact fill) and the blade grid
 // 12×7 → 16×7 for the 103 plates (canvas 2304×4032, still under
 // 4096; 112 cells hold 103 plates with 9 spare).
-export const BAND_ATLAS = { cols: 8, rows: 12, cellW: 512, cellH: 160 };
+// Issue #376 (wiring): the band grid grows 8×12 → 8×15 for the
+// 113-name pool (canvas 4096×2400, 120 cells hold 113 plates with
+// 7 spare — 113 is prime, so no rectangle fills exactly, and the
+// suite pins "fits the grid" for the band pool from here on) and
+// the blade grid 16×7 → 18×7 for the 120 plates (canvas 2592×4032,
+// still under 4096; 126 cells hold 120 plates with 6 spare).
+export const BAND_ATLAS = { cols: 8, rows: 15, cellW: 512, cellH: 160 };
 BAND_ATLAS.w = BAND_ATLAS.cols * BAND_ATLAS.cellW;
 BAND_ATLAS.h = BAND_ATLAS.rows * BAND_ATLAS.cellH;
-export const BLADE_ATLAS = { cols: 16, rows: 7, cellW: 144, cellH: 576 };
+export const BLADE_ATLAS = { cols: 18, rows: 7, cellW: 144, cellH: 576 };
 BLADE_ATLAS.w = BLADE_ATLAS.cols * BLADE_ATLAS.cellW;
 BLADE_ATLAS.h = BLADE_ATLAS.rows * BLADE_ATLAS.cellH;
 
@@ -335,7 +369,9 @@ function cellOrigin(index, atlas) {
 // sourced from Wikipedia / Wikimedia Commons / the brands' own
 // sites — see logos372-evidence/downloads/MANIFEST-{A,B,C,D}.md for
 // the source of each). The one brand with no clean logo graphic
-// anywhere (東一排骨) keeps its text plate.
+// anywhere (東一排骨) keeps its text plate. Issue #376 adds 17 more
+// (59 logos in all — see brands376-evidence/RESUME.md for the
+// source of each; the 3 transport logos are never wired).
 export const SIGN_LOGO_FILES = {
   'seven-eleven': 'assets/sign-logos/7-eleven.png',
   'familymart': 'assets/sign-logos/familymart.png',
@@ -379,6 +415,28 @@ export const SIGN_LOGO_FILES = {
   'coco': 'assets/sign-logos/coco.png',
   'chatime': 'assets/sign-logos/chatime.png',
   'wupaochun': 'assets/sign-logos/wupaochun.png',
+  // Issue #376: the 17 wireable brands (guiji-w2.png copied as
+  // guiji.png, mrwish-us.png as mrwish.png — the keys are brand
+  // slugs, the staged names are recorded in
+  // brands376-evidence/RESUME.md). No transport logos: 台北捷運 /
+  // 台鐵 / 高鐵 are never shop signs (user rule 2026-11-12).
+  'yifang': 'assets/sign-logos/yifang.png',
+  'timhowan': 'assets/sign-logos/timhowan.png',
+  'sabu12': 'assets/sign-logos/sabu12.png',
+  'maiweideng': 'assets/sign-logos/maiweideng.png',
+  'guiji': 'assets/sign-logos/guiji.png',
+  'daming': 'assets/sign-logos/daming.png',
+  'sharetea': 'assets/sign-logos/sharetea.png',
+  'mrwish': 'assets/sign-logos/mrwish.png',
+  'milkshop': 'assets/sign-logos/milkshop.png',
+  'dandan': 'assets/sign-logos/dandan.png',
+  'qburger': 'assets/sign-logos/qburger.png',
+  'chientu': 'assets/sign-logos/chientu.png',
+  'simplemart': 'assets/sign-logos/simplemart.png',
+  'woodpecker': 'assets/sign-logos/woodpecker.png',
+  'senao': 'assets/sign-logos/senao.png',
+  'fareastone': 'assets/sign-logos/fareastone.png',
+  'chpost': 'assets/sign-logos/chpost.png',
 };
 // Wide wordmarks rotate 90° on portrait cells so the lockup reads
 // top-to-bottom like a real vertical blade sign. Near-square marks
@@ -404,17 +462,36 @@ export const SIGN_LOGO_ROTATE_PORTRAIT = {
   'yoshinoya': true,
   'zhengxian': true,
   'achung': true,
+  // Issue #376: the eight new wide wordmarks (> 2:1 at source) —
+  // timhowan (2.16), sabu12 (3.76), daming (3.33), mrwish (3.00),
+  // senao (3.80), fareastone (3.12), guiji (2.99), dandan (2.03).
+  'timhowan': true,
+  'sabu12': true,
+  'daming': true,
+  'mrwish': true,
+  'senao': true,
+  'fareastone': true,
+  'guiji': true,
+  'dandan': true,
 };
-// Two logos are light art on transparency and vanish on a white
+// Four logos are light art on transparency and vanish on a white
 // plate — kebuke's beige "K" and wupaochun's white mark (both
-// verified on the contact sheets). Their plates are near-black, so
-// the mark reads. Every other logo is dark/colourful enough for the
-// white plate (cosmed's opaque white background blends with it).
-// The plate colour is looked up per logo key, so the roof/tower
-// painters get the same treatment for free.
-export const SIGN_LOGO_DARK_PLATE = { 'kebuke': true, 'wupaochun': true };
+// verified on the contact sheets), plus the two #376 whites:
+// guiji's white 2.0 mark and dandan's white mark. Their plates are
+// near-black, so the mark reads — except dandan, whose real signs
+// are the brand's own red/orange with white text, so its plate is
+// brand red instead of black. Every other logo is dark/colourful
+// enough for the white plate (cosmed's opaque white background
+// blends with it). The plate colour is looked up per logo key, so
+// the roof/tower painters get the same treatment for free.
+export const SIGN_LOGO_PLATE_BG = {
+  'kebuke': '#1a1a1a',
+  'wupaochun': '#1a1a1a',
+  'guiji': '#1a1a1a',
+  'dandan': '#d52027',
+};
 export function logoPlateBg(key) {
-  return SIGN_LOGO_DARK_PLATE[key] ? '#1a1a1a' : '#ffffff';
+  return SIGN_LOGO_PLATE_BG[key] || '#ffffff';
 }
 
 // Issue #375: the plate shape fits the logo. Measured PNG aspects
@@ -460,6 +537,18 @@ export const SIGN_LOGO_PLATE_SHAPE = {
   'yonghe': 'square',
   'kura': 'square',
   'tsannkuen': 'square',
+  // Issue #376: maiweideng (a square in itself), sharetea and
+  // woodpecker (square app icons), qburger (1.26), milkshop (1.74),
+  // simplemart (0.97) are square; chientu (an orange disc) and
+  // chpost (the blue-ring roundel) are round.
+  'maiweideng': 'square',
+  'sharetea': 'square',
+  'woodpecker': 'square',
+  'qburger': 'square',
+  'milkshop': 'square',
+  'simplemart': 'square',
+  'chientu': 'round',
+  'chpost': 'round',
 };
 export function logoPlateShape(key) {
   if (SIGN_LOGO_PLATE_SHAPE[key]) return SIGN_LOGO_PLATE_SHAPE[key];
@@ -573,7 +662,7 @@ export function loadSignLogoImages() {
 // (contain) on the plate, never stretched. `rotate` turns a wide
 // wordmark 90° clockwise so it reads top-to-bottom on a tall cell.
 // `plateBg` is the plate colour (white, or near-black for the two
-// light-on-transparency logos — see SIGN_LOGO_DARK_PLATE).
+// light-on-transparency logos — see SIGN_LOGO_PLATE_BG).
 function drawLogoImage(ctx, x, y, w, h, img, rotate = false, plateBg = '#ffffff') {
   ctx.save();
   ctx.globalAlpha = 1;
