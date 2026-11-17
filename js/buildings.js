@@ -12,6 +12,7 @@ import {
   normalWorldGeometry,
   normalGeometry,
   abs,
+  attribute,
   floor,
   fract,
   mod,
@@ -2939,6 +2940,71 @@ function buildCityBlocks(scene, opts = null) {
   // That is why most streets showed no protruding signs at all. The
   // cap now covers the whole planned blade set (measured census in
   // the PR; the node suite asserts the total fits) with headroom.
+  // Issue #375: the plate shape fits the logo — square plates for
+  // square logos (7-Eleven), round disc plates for round logos
+  // (the BFC roundel, Starbucks, MOS), portrait boxes for wide
+  // wordmarks and text plates. The shape is decided in the fill
+  // loop, where the blade's broad-face world coordinates are known,
+  // by reproducing the shader's plate hash below (Weyl sequence,
+  // float32 at every op — the same hash js/taipei-signs.js
+  // predictBladePlate() computes, and the node suite pins the two
+  // against each other over a faceCoord sweep). The renderer cannot
+  // import js/taipei-signs.js (buildings.js is preloaded), so the
+  // shape string is a literal mirrored from BLADE_PLATE_SHAPES —
+  // the suite pins it against the pool-derived string, so adding a
+  // logo's shape is a deliberate change in both files.
+  // One char per blade plate (pool order): 'p' portrait (default),
+  // 's' square, 'r' round, 'w' wide (box stays portrait; the
+  // lockup rotates). Attribute codes: 0 portrait, 1 square, 2 round.
+  const SIGN_BLADE_SHAPES = 'psppppppppppppppppppppppppwswpppppppppppppsswspppppprpwssppwppspspppswpwwwsswrrsrssswwwwsrswwwrpwppwppp';
+  const SIGN_BLADE_SHAPE_PORTRAIT = 0;
+  const SIGN_BLADE_SHAPE_SQUARE = 1;
+  const SIGN_BLADE_SHAPE_ROUND = 2;
+  // The weighted plate bands from the shader (see vSignPlateColor
+  // below): hp is the face-coordinate hash, hp2 the second hash.
+  const SIGN_BLADE_PLATE_BANDS = [
+    [0.0, 0.08, 1], [0.08, 0.12, 26], [0.12, 0.17, 52], [0.17, 0.21, 53],
+    [0.21, 0.24, 51], [0.24, 0.27, 68], [0.27, 0.30, 71], [0.30, 0.32, 64],
+  ];
+  function predictBladePlate(faceCoord) {
+    const q = Math.floor(Math.fround(faceCoord) * 0.5);
+    const hashU = (k) => {
+      const prod = Math.fround(Math.fround(q) * Math.fround(k));
+      return Math.fround(prod - Math.floor(prod));
+    };
+    const hp = hashU(0.6180339887);
+    const hp2 = hashU(0.7548776662);
+    let plate = Math.floor(Math.fround(hp2 * SIGN_BLADE_SHAPES.length));
+    for (const [lo, hi, p] of SIGN_BLADE_PLATE_BANDS) {
+      if (hp >= lo && hp < hi) { plate = p; break; }
+    }
+    return plate;
+  }
+  // The per-blade plate shape for the fill loop: reproduces the
+  // shader's two faces (faceCoord ± thick/2) and applies the same
+  // safety rules the finder uses. Returns a shape code.
+  // - turned blocks (blk.ry ≠ 0): portrait — their faces are already
+  //   blanked by the shader's fwidth edge test, so the shape is moot.
+  // - either face within 0.01 of a 0.5 m quantum boundary: portrait —
+  //   float32 rounding could flip the floor and the shader would
+  //   paint a different plate than the box was sized for.
+  // - the two faces disagree (a split face, #383): portrait — one
+  //   box cannot be two shapes; #383's per-instance plate fix will
+  //   make the shape exact everywhere later.
+  // - otherwise the agreed plate's shape ('w' wide counts as
+  //   portrait — the box stays tall, only the lockup rotates).
+  function bladePlateShapeForBlade(faceCoordA, faceCoordB, turned) {
+    if (turned) return SIGN_BLADE_SHAPE_PORTRAIT;
+    const nearBoundary = (fc) => {
+      const v = Math.fround(fc) * 0.5;
+      return Math.abs(v - Math.round(v)) < 0.01;
+    };
+    if (nearBoundary(faceCoordA) || nearBoundary(faceCoordB)) return SIGN_BLADE_SHAPE_PORTRAIT;
+    const shapeA = SIGN_BLADE_SHAPES[predictBladePlate(faceCoordA)];
+    const shapeB = SIGN_BLADE_SHAPES[predictBladePlate(faceCoordB)];
+    if (shapeA !== shapeB) return SIGN_BLADE_SHAPE_PORTRAIT;
+    return shapeA === 's' ? SIGN_BLADE_SHAPE_SQUARE : shapeA === 'r' ? SIGN_BLADE_SHAPE_ROUND : SIGN_BLADE_SHAPE_PORTRAIT;
+  }
   const MAX_VSIGNS = 40000;
   const vSignMat = new THREE.MeshStandardNodeMaterial({ roughness: 0.42, metalness: 0.08 });
   const vSignLook = () => {
@@ -3031,6 +3097,10 @@ function buildCityBlocks(scene, opts = null) {
   const SIGN_BLADE_BRAND_PX = 71.0;
   const SIGN_BLADE_BRAND_NET = 64.0;
   const bladeAtlasTex = getTaipeiSignAtlases().blade;
+  // Issue #375: the per-instance plate shape (aBladeShape on the
+  // blade geometry — 0 portrait, 1 square, 2 round; set by the fill
+  // loop from the mirrored plate hash above).
+  const vSignShape = attribute('aBladeShape', 'float');
   const vSignPlateColor = () => {
     const uvN = uv();
     const nW = normalWorldGeometry;
@@ -3065,9 +3135,23 @@ function buildCityBlocks(scene, opts = null) {
     const colI = mod(plate, SIGN_BLADE_COLS);
     const rowB = floor(plate.div(SIGN_BLADE_COLS));
     const inset = float(0.03);
+    // Issue #375: the plate shape fits the logo. A square logo is
+    // painted by the atlas painter into the cell's MIDDLE square
+    // (cell-v [0.375, 0.625] — a 144×144 square in the 144×576
+    // cell), so a square/round box samples exactly that square
+    // instead of the full cell; a round box also discards outside
+    // the inscribed circle (see the opacity node below), leaving a
+    // disc. Portrait plates sample the full cell, unchanged. The
+    // shaped sample needs NO v-inset: its bounds sit mid-cell, so
+    // no neighbouring cell can bleed in (the u-inset still guards
+    // the cell's left/right edges).
+    const isShaped = step(0.5, vSignShape);
+    const vFracPortrait = inset.add(uvN.y.mul(float(1.0).sub(inset.mul(2.0))));
+    const vFracShaped = float(0.375).add(uvN.y.mul(0.25));
+    const vFrac = mix(vFracPortrait, vFracShaped, isShaped);
     const tuv = vec2(
       colI.add(inset).add(uvN.x.mul(float(1.0).sub(inset.mul(2.0)))).div(SIGN_BLADE_COLS),
-      rowB.add(inset).add(uvN.y.mul(float(1.0).sub(inset.mul(2.0)))).div(SIGN_BLADE_ROWS)
+      rowB.add(vFrac).div(SIGN_BLADE_ROWS)
     );
     const texCol = texture(bladeAtlasTex, tuv).rgb;
     // Thin edges and the top/bottom faces have no room for lettering:
@@ -3092,7 +3176,34 @@ function buildCityBlocks(scene, opts = null) {
     // A lit lightbox sign: the whole plate glows, lettering included.
     return vSignPlateColor().mul(0.30);
   })();
-  const vSignInst = new THREE.InstancedMesh(unitBox, vSignMat, MAX_VSIGNS);
+  // Issue #375: a round blade is a disc, not a box — discard the
+  // fragments outside the inscribed circle on the broad faces. The
+  // edge test (a nonzero face-coordinate derivative, or a horizontal
+  // normal) keeps the thin rim and the top/bottom faces solid, so
+  // the disc keeps its plate-coloured edge. The alphaTest +
+  // opacityNode pattern is the Taipei marking material's
+  // (createTaipeiMarkingMaterial) and the maskShadowNode pattern is
+  // the tree material's, so the shadow follows the disc.
+  vSignMat.alphaTest = 0.5;
+  vSignMat.opacityNode = Fn(() => {
+    const uvN = uv();
+    const nW = normalWorldGeometry;
+    const faceCoord = mix(positionWorld.z, positionWorld.x, step(abs(nW.z), abs(nW.x)));
+    const edge = step(0.001, fwidth(faceCoord)).add(step(0.5, abs(nW.y))).clamp(0.0, 1.0);
+    const isRound = step(1.5, vSignShape);
+    const d = uvN.sub(vec2(0.5, 0.5));
+    const r2 = d.x.mul(d.x).add(d.y.mul(d.y));
+    const outside = step(0.25, r2).mul(isRound).mul(float(1.0).sub(edge));
+    return float(1.0).sub(outside);
+  })();
+  vSignMat.maskShadowNode = vSignMat.opacityNode.greaterThan(0.5);
+  // Issue #375: unitBox is shared by the yard/cornice/hvac/etc.
+  // meshes, so the blade mesh gets a CLONE carrying the per-instance
+  // plate-shape attribute (aBladeShape: 0 portrait, 1 square,
+  // 2 round) — the shader reads it above. Unused entries stay 0.
+  const vSignGeo = unitBox.clone();
+  vSignGeo.setAttribute('aBladeShape', new THREE.InstancedBufferAttribute(new Float32Array(MAX_VSIGNS), 1));
+  const vSignInst = new THREE.InstancedMesh(vSignGeo, vSignMat, MAX_VSIGNS);
   vSignInst.name = 'TaipeiVerticalSigns'; // Issue #354: the evidence
   // stage reads the live blade count (vSignInst.count) by name.
   vSignInst.castShadow = vSignInst.receiveShadow = true;
@@ -3366,7 +3477,6 @@ function buildCityBlocks(scene, opts = null) {
       //    floor. Registry lots only — Manhattan blocks carry no signs.
       for (let i = 0; i < (blk.signs || []).length && vSignCount < MAX_VSIGNS; i++) {
         const s = blk.signs[i];
-        const cy = s.y0 + s.h * 0.5;
         // Issue #62: a sign on a frame-turned block carries its
         // resolved world centre (placeInFrame stored s.x/s.z);
         // unturned blocks compute it from the block bounds as
@@ -3383,11 +3493,30 @@ function buildCityBlocks(scene, opts = null) {
           px = s.side === 'e' ? blk.maxX + s.out * 0.5 : blk.minX - s.out * 0.5;
           pz = blk.minZ + s.along * (blk.maxZ - blk.minZ);
         }
+        // Issue #375: the plate shape fits the logo. A square/round
+        // plate is a ~1.0–1.4 m square box bottom-anchored at y0
+        // (h' = out), sitting just above the ground floor where the
+        // tall blade started; a portrait plate keeps the tall box.
+        // The shape comes from the shader's plate hash, reproduced
+        // here from the two broad faces' world coordinates (the
+        // broad faces are the THIN dimension's faces: ±x planes at
+        // px ± thick/2 for a north/south blade, ±z planes at
+        // pz ± thick/2 for east/west). Turned blocks, quantum-
+        // boundary faces and split faces all fall back to portrait
+        // (see bladePlateShapeForBlade) — no regression vs today.
+        let shape = SIGN_BLADE_SHAPE_PORTRAIT;
+        let h = s.h;
+        const faceA = (s.side === 's' || s.side === 'n') ? px - s.thick * 0.5 : pz - s.thick * 0.5;
+        const faceB = (s.side === 's' || s.side === 'n') ? px + s.thick * 0.5 : pz + s.thick * 0.5;
+        shape = bladePlateShapeForBlade(faceA, faceB, !!blk.ry);
+        if (shape !== SIGN_BLADE_SHAPE_PORTRAIT) h = s.out;
+        const cy = s.y0 + h * 0.5;
         dummy.position.set(px, cy, pz);
-        if (s.side === 's' || s.side === 'n') dummy.scale.set(s.thick, s.h, s.out);
-        else dummy.scale.set(s.out, s.h, s.thick);
+        if (s.side === 's' || s.side === 'n') dummy.scale.set(s.thick, h, s.out);
+        else dummy.scale.set(s.out, h, s.thick);
         dummy.updateMatrix();
         vSignInst.setMatrixAt(vSignCount, dummy.matrix);
+        vSignGeo.attributes.aBladeShape.setX(vSignCount, shape);
         vSignCount++;
       }
 
@@ -3655,6 +3784,10 @@ function buildCityBlocks(scene, opts = null) {
 
     vSignInst.count = vSignCount;
     flagRange(vSignInst.instanceMatrix, vSignCount);
+    // Issue #375: the per-instance plate-shape attribute is filled
+    // in the same loop — flag its active prefix for upload, like
+    // the instance matrix above.
+    flagRange(vSignGeo.attributes.aBladeShape, vSignCount);
 
     for (let p = 0; p < roofBoardInsts.length; p++) {
       roofBoardInsts[p].count = roofBoardCounts[p];
