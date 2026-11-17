@@ -107,7 +107,7 @@ test('menu faces sit on the board slabs, front and back', () => {
   assert.ok(Math.abs(faces[0].z - (200 + fz * MENU_BOARD.faceOffset)) < 1e-9, 'front face offset z');
   assert.ok(Math.abs(faces[1].x - (100 - fx * MENU_BOARD.faceOffset)) < 1e-9, 'back face offset');
   assert.ok(Math.abs(faces[1].rot - (board.rot + Math.PI)) < 1e-9, 'back face turned around');
-  // The two faces are 0.24 m apart — one board, readable from both sides.
+  // The two faces are 0.28 m apart — one board, readable from both sides.
   assert.ok(Math.hypot(faces[0].x - faces[1].x, faces[0].z - faces[1].z) > 0.2, 'faces are separated');
 });
 
@@ -174,9 +174,14 @@ test('real tile: a modest number of scenes, every kind present', (t) => {
   assert.equal(counts.menuBoard, cafe.stats.total, 'one menu board per scene');
   assert.equal(counts.menuFace, cafe.stats.total * 2, 'two menu faces per board');
   // Exact pins (measured 2026-11-16, issue #377): the planner is
-  // fully deterministic, so the census is pinned, not ranged. The
-  // boot passes junction-cap exclusions too, so the live count is
-  // a few lower.
+  // fully deterministic, so the census is pinned, not ranged. This
+  // run passes NO exclusions and the unfiltered lamp/tree/amenity
+  // avoid lists — the same convention as the amenities test. The
+  // boot's live count is 47, HIGHER, not lower: the boot passes
+  // junction-cap exclusions (which remove 3 scenes) but its
+  // lamp/tree/amenity avoid lists are themselves exclusion-filtered
+  // (smaller), which frees 6 scenes the test's lists collide with
+  // (measured 2026-11-17, probe-live-census.log: 44 - 3 + 6 = 47).
   assert.equal(cafe.stats.total, 44, 'total café scenes');
   assert.equal(counts.table, 88, 'table count');
   assert.equal(counts.chair, 176, 'chair count');

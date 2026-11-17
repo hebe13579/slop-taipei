@@ -64,9 +64,13 @@ const L = CAFE_SCENE_LAYOUT;
 // menu faces, the boot builds the frame from the same numbers).
 // Board 0.66 m wide, 0.95 m tall, slabs lean 12° from vertical, slab
 // centres 0.10 m either side of the board centre at y 0.55; the menu
-// faces sit on the slab surfaces, 0.12 m out.
+// faces sit 0.14 m out — 2 cm PROUD of the slab surface (0.1196 m),
+// not flush with it: at 0.12 m the faces were 0.4 mm off the slab,
+// inside float32 rounding at tile coordinates (~0.5 mm), so the slab
+// z-fought the faces and the menu rendered blank straight-on and
+// title-only at an angle (measured 2026-11-17, frame-scene0-menu-*).
 export const MENU_BOARD = {
-  w: 0.66, h: 0.95, lean: 0.21, slabOffset: 0.10, faceOffset: 0.12,
+  w: 0.66, h: 0.95, lean: 0.21, slabOffset: 0.10, faceOffset: 0.14,
   centreY: 0.55, faceW: 0.58, faceH: 0.85,
 };
 
