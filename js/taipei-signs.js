@@ -671,10 +671,21 @@ export function drawBandAtlas(ctx, images = null) {
   TAIPEI_BAND_SIGNS.forEach((sign, i) => {
     const { x, y } = cellOrigin(i, BAND_ATLAS);
     if (sign.logo) {
+      // Issue #375: the 7-Eleven BAND uses the vector wide lockup,
+      // not the square PNG. The PNG is the square cup logo on a
+      // green field (228×221) — contain-fit into the 512×160 band
+      // cell it is 165 px wide, a small green square in a wide
+      // white band (measured on the atlas probe). The vector lockup
+      // fills the wide band, as it did before #372 switched the
+      // band to the PNG. The BLADE keeps the PNG — it fills the new
+      // square plate. (Other square logos' bands have the same
+      // small-logo shape — BFC's roundel is ~160 px in its band —
+      // but no wide lockup exists for them; a composite band is a
+      // follow-up, not this change.)
+      if (sign.logo === 'seven-eleven') { drawSevenElevenLogo(ctx, x, y, cellW, cellH, false); return; }
       const img = images && images[sign.logo];
       if (img) { drawLogoImage(ctx, x, y, cellW, cellH, img, false, logoPlateBg(sign.logo)); return; }
     }
-    if (sign.logo === 'seven-eleven') { drawSevenElevenLogo(ctx, x, y, cellW, cellH, false); return; }
     if (sign.logo === 'familymart') { drawFamilyMartLogo(ctx, x, y, cellW, cellH, false); return; }
     ctx.globalAlpha = 1;
     ctx.fillStyle = sign.bg;
