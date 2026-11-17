@@ -1180,9 +1180,16 @@ const SIGN_BAND_PLATES = 113.0;
 // every load), and the plate UV spans exactly the panel zone the
 // glyph bars used to occupy (cellUV x 0.035–0.965, y 0.775–0.995),
 // inset a touch inside the atlas cell against mip bleeding.
+// Issue #378: the lot's brand (aBandPlate, set by createFacadeBoxes
+// from the lot's sign plates — see js/buildings.js pickLotSignPlates)
+// wins over the per-bay hash pick when present (≥ 0), so a shop's
+// surface band shows the same brand as its blade. -1 (no plate —
+// Manhattan, the gallery, any box without one) keeps the hash pick.
 const bandPlateColor = (cellUV, cellId, boxSeed, atlasTex) => {
   const hp = hash2D(vec2(cellId.x.mul(5.13), boxSeed.mul(9.31)));
-  const plate = floor(hp.mul(SIGN_BAND_PLATES));
+  let plate = floor(hp.mul(SIGN_BAND_PLATES));
+  const bandPlateAttr = attribute('aBandPlate', 'float');
+  plate = mix(plate, bandPlateAttr, step(0.0, bandPlateAttr));
   const colI = mod(plate, SIGN_BAND_COLS);
   const rowB = floor(plate.div(SIGN_BAND_COLS));
   const inset = float(0.03);
@@ -1770,6 +1777,12 @@ function createFacadeBoxes(material, boxes) {
   const faces = new THREE.InstancedBufferAttribute(new Float32Array(boxes.length * 4), 4);
   geometry.setAttribute('box', box);
   geometry.setAttribute('faces', faces);
+  // Issue #378: the lot's band plate, one brand per shop lot (see
+  // js/buildings.js pickLotSignPlates) — read by the shophouse
+  // material's bandPlateColor. -1 keeps the per-bay hash pick for
+  // boxes without a plate.
+  const bandPlate = new THREE.InstancedBufferAttribute(new Float32Array(boxes.length), 1);
+  geometry.setAttribute('aBandPlate', bandPlate);
 
   const mesh = new THREE.InstancedMesh(geometry, material, boxes.length);
   const matrix = new THREE.Matrix4();
@@ -1782,6 +1795,7 @@ function createFacadeBoxes(material, boxes) {
     else mesh.setMatrixAt(i, matrix.makeScale(b.w, b.h, b.d).setPosition(b.x, b.y, b.z));
     box.setXYZW(i, b.w, b.h, b.d, ((i * 29) % 1000) + 0.1 + 0.8 * (b.tone ?? 0.5));
     if (b.faces) faces.setXYZW(i, b.faces[0], b.faces[1], b.faces[2], b.faces[3]);
+    bandPlate.setX(i, b.bandPlate ?? -1);
   });
   return mesh;
 }

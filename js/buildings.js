@@ -72,6 +72,104 @@ function mulberry32(seed) {
   };
 }
 
+// Issue #375: the plate shape fits the logo — square plates for
+// square logos (7-Eleven), round disc plates for round logos
+// (the BFC roundel, Starbucks, MOS), portrait boxes for wide
+// wordmarks and text plates. One char per blade plate (pool order):
+// 'p' portrait (default), 's' square, 'r' round, 'w' wide (box stays
+// portrait; the lockup rotates). Attribute codes: 0 portrait,
+// 1 square, 2 round. The renderer cannot import js/taipei-signs.js
+// (buildings.js is preloaded), so the shape string is a literal
+// mirrored from BLADE_PLATE_SHAPES — the suite pins it against the
+// pool-derived string, so adding a logo's shape is a deliberate
+// change in both files. These live at module level (not inside
+// buildCityBlocks) because populatePlannedLot needs them before the
+// blade material is set up — a const declared inside buildCityBlocks
+// after the populate call would throw a TDZ error there.
+const SIGN_BLADE_SHAPES = 'psppppppppppppppppppppppppwswpppppppppppppsswspppppprpwssppwppspspppswpwwwsswrrsrssswwwwsrswwwrppwwswwswswsrsswwrwppwppp';
+const SIGN_BLADE_SHAPE_PORTRAIT = 0;
+const SIGN_BLADE_SHAPE_SQUARE = 1;
+const SIGN_BLADE_SHAPE_ROUND = 2;
+// The weighted plate bands from the blade shader (see vSignPlateColor
+// in buildCityBlocks): hp is the first hash, hp2 the second hash.
+const SIGN_BLADE_PLATE_BANDS = [
+  [0.0, 0.08, 1], [0.08, 0.12, 26], [0.12, 0.17, 52], [0.17, 0.21, 53],
+  [0.21, 0.24, 51], [0.24, 0.27, 68], [0.27, 0.30, 71], [0.30, 0.32, 64],
+];
+// Issue #354: the commonest shops are picked by weight, not
+// uniformly — a real Taipei street has a 7-ELEVEN or FamilyMart on
+// most commercial corners, and 八方雲集 / 鍋貼 / 東一排骨 are this
+// issue's named cases. Plate indices mirror js/taipei-signs.js
+// (blade pool order — band plate i is blade plate i); the node
+// suite source-pins them against the pool. Shares: 7-ELEVEN 8%,
+// FamilyMart 4%, 八方雲集 5%, 鍋貼 4%, 東一排骨 3%, 燦坤 3%,
+// 全聯 3%, NET 2%; the rest share the remaining 68% uniformly
+// (each plate also keeps its ~1.3% uniform share, so a brand plate
+// can still appear twice).
+// Issue #354 (genre broadening): the new genre brands get their
+// own weight bands — 燦坤 (Tsannkuen, the 3C anchor), 全聯 (PX
+// Mart, the market anchor), NET (the clothes anchor).
+const SIGN_BLADE_BRAND_711 = 1.0;
+const SIGN_BLADE_BRAND_FAMILY = 26.0;
+const SIGN_BLADE_BRAND_BAFANG = 52.0;
+const SIGN_BLADE_BRAND_GUOTIE = 53.0;
+const SIGN_BLADE_BRAND_DONGYI = 51.0;
+const SIGN_BLADE_BRAND_TSANNKUEN = 68.0;
+const SIGN_BLADE_BRAND_PX = 71.0;
+const SIGN_BLADE_BRAND_NET = 64.0;
+
+// Issue #378: one brand per signed shop lot — the band plate and the
+// blade plate agree. The band hash (hash2D, a sin-hash in the facade
+// shader) cannot be reproduced bit-identically in JS, and the facade
+// box seed is bucket-index-derived, not lot-derived, so the lot's
+// brand is computed ONCE here, from the lot's coordinates, and
+// carried to both shaders as per-instance attributes (aBandPlate on
+// the facade boxes, aBladePlate on the blades). The pick uses the
+// same Weyl hash + weighted bands as the blade shader, so the
+// street's common-shop character is preserved and every plate still
+// appears. lotSignSeed mirrors the planner's lotPolicySeed
+// (js/taipei-buildings.js) — the node suite pins the two against
+// each other over a lot sweep.
+const SIGN_LOT_PLATE_SALT = 0x3785;
+const SIGN_BAND_PLATES = 113; // band pool size (js/taipei-signs.js TAIPEI_BAND_SIGNS)
+function lotSignSeed(lot, salt) {
+  return (Math.imul(Math.round(lot.x0 * 10), 73856093)
+    ^ Math.imul(Math.round(lot.z0 * 10), 19349663)
+    ^ Math.imul(Math.round(lot.x1 * 10), 83492791)
+    ^ salt) >>> 0;
+}
+// Returns { blade, band }: the blade plate (0..119) and the band
+// plate (0..112) for one lot, from its seed. They agree whenever the
+// blade plate is a band plate; the two full-name extras map to their
+// brand's band plate (全家便利商店 → 全家 26, 全聯福利中心 → 全聯 71);
+// the five text-only extras have no band plate (too wide for a band —
+// that is why they are blade-only), so the band takes a second
+// deterministic pick from the same seed instead. Pure JS, no GPU to
+// agree with, so plain float64 math is enough — determinism is all
+// that is needed, and the node suite brute-forces the distribution.
+function pickLotSignPlates(seed) {
+  const frac = (x) => x - Math.floor(x);
+  const h1 = frac(seed * 0.6180339887);
+  const h2 = frac(seed * 0.7548776662);
+  let blade = Math.floor(h2 * SIGN_BLADE_SHAPES.length);
+  for (const [lo, hi, p] of SIGN_BLADE_PLATE_BANDS) {
+    if (h1 >= lo && h1 < hi) { blade = p; break; }
+  }
+  let band;
+  if (blade < SIGN_BAND_PLATES) band = blade;
+  else if (blade === 113) band = SIGN_BLADE_BRAND_FAMILY; // 全家便利商店 → 全家
+  else if (blade === 116) band = SIGN_BLADE_BRAND_PX; // 全聯福利中心 → 全聯
+  else band = Math.floor(frac(seed * 0.3819660113) * SIGN_BAND_PLATES);
+  return { blade, band };
+}
+// The shape code for a known plate (the fill loop's #378 path): the
+// box takes the plate's shape — 'w' wide counts as portrait, the box
+// stays tall while only the lockup rotates.
+function bladeShapeCode(plate) {
+  const ch = SIGN_BLADE_SHAPES[plate];
+  return ch === 's' ? SIGN_BLADE_SHAPE_SQUARE : ch === 'r' ? SIGN_BLADE_SHAPE_ROUND : SIGN_BLADE_SHAPE_PORTRAIT;
+}
+
 /**
  * Spatial 2D Quadtree partitioning all of Manhattan Island (Harlem 125th St to Battery Park)
  * for fast O(log N) range queries around the active player/camera position.
@@ -874,7 +972,10 @@ function buildCityBlocks(scene, opts = null) {
       const h = p.y1 - p.y0;
       // A part may pin all four faces to one wall kind via p.walls
       // (issue #55: arcade columns are blank tile-clad piers all round).
-      const box = { x: p.x0 + w * 0.5, y: p.y0 + h * 0.5, z: p.z0 + d * 0.5, w, h, d, faces: p.walls != null ? [p.walls, p.walls, p.walls, p.walls] : wallKinds(b, p, shops, o), tone };
+      // Issue #378: bandPlate is the lot's band plate (-1 when the
+      // building carries none — the Manhattan path — so the facade
+      // shader keeps its per-bay hash pick there).
+      const box = { x: p.x0 + w * 0.5, y: p.y0 + h * 0.5, z: p.z0 + d * 0.5, w, h, d, faces: p.walls != null ? [p.walls, p.walls, p.walls, p.walls] : wallKinds(b, p, shops, o), tone, bandPlate: b.signPlates ? b.signPlates.band : -1 };
       buckets[mat].push(box);
       blk.facadeBoxes.push(box);
       blk.footprints.push({ x0: p.x0, x1: p.x1, z0: p.z0, z1: p.z1, h: p.y1, tone });
@@ -2142,6 +2243,12 @@ function buildCityBlocks(scene, opts = null) {
     // lots never touch xf, so their output is unchanged.
     const framed = !!lot.rotY;
     if (framed) xf = { th: lot.rotY, cs: Math.cos(lot.rotY), sn: Math.sin(lot.rotY), px: cx, pz: cz };
+    // Issue #378: the lot's brand — one plate for its band(s) and its
+    // blade(s), computed once here from the lot's coordinates (see
+    // pickLotSignPlates). The signs below are annotated COPIES so the
+    // plan's descriptors are never mutated, and the plates ride on
+    // the building object for commit().
+    const signPlates = pickLotSignPlates(lotSignSeed(lot, SIGN_LOT_PLATE_SALT));
     const blockDetail = {
       id: `taipei_${Math.round(cx)}_${Math.round(cz)}`,
       cx,
@@ -2165,7 +2272,12 @@ function buildCityBlocks(scene, opts = null) {
       voidLots: [],
       // Issue #56: vertical sign panels (from the lot, planner policy)
       // and 鐵皮屋 rooftop additions (from the gear clamp below).
-      signs: Array.isArray(lot.signs) ? lot.signs : [],
+      // Issue #378: annotated copies carrying the lot's plates (see
+      // above) — placeInFrame writes s.x/s.z onto these for turned
+      // lots, and the blade fill loop reads s.bladePlate from them.
+      signs: Array.isArray(lot.signs)
+        ? lot.signs.map((s) => ({ ...s, bladePlate: signPlates.blade, bandPlate: signPlates.band }))
+        : [],
       // Issue #153: rooftop billboard signs (from the lot, planner
       // policy) — world position + yaw on the descriptor, so the
       // renderer places them directly.
@@ -2175,6 +2287,9 @@ function buildCityBlocks(scene, opts = null) {
     rand = mulberry32((Math.imul(Math.round(minX * 4), 73856093) ^ Math.imul(Math.round(minZ * 4), 19349663) ^ 10019) >>> 0);
     const mat = lot.mat;
     const b = building(blockDetail, mat, rect(minX, maxX, minZ, maxZ));
+    // Issue #378: the lot's brand rides on the building object so
+    // commit() can stamp it onto every facade box (see aBandPlate).
+    b.signPlates = signPlates;
     const floors = Math.max(1, Math.round(lot.h / storeys[mat]));
     if (lot.arcade && floors >= 2) {
       // Issue #55 — the F7 騎樓 as real massing (parts computed by
@@ -2948,24 +3063,10 @@ function buildCityBlocks(scene, opts = null) {
   // by reproducing the shader's plate hash below (Weyl sequence,
   // float32 at every op — the same hash js/taipei-signs.js
   // predictBladePlate() computes, and the node suite pins the two
-  // against each other over a faceCoord sweep). The renderer cannot
-  // import js/taipei-signs.js (buildings.js is preloaded), so the
-  // shape string is a literal mirrored from BLADE_PLATE_SHAPES —
-  // the suite pins it against the pool-derived string, so adding a
-  // logo's shape is a deliberate change in both files.
-  // One char per blade plate (pool order): 'p' portrait (default),
-  // 's' square, 'r' round, 'w' wide (box stays portrait; the
-  // lockup rotates). Attribute codes: 0 portrait, 1 square, 2 round.
-  const SIGN_BLADE_SHAPES = 'psppppppppppppppppppppppppwswpppppppppppppsswspppppprpwssppwppspspppswpwwwsswrrsrssswwwwsrswwwrppwwswwswswsrsswwrwppwppp';
-  const SIGN_BLADE_SHAPE_PORTRAIT = 0;
-  const SIGN_BLADE_SHAPE_SQUARE = 1;
-  const SIGN_BLADE_SHAPE_ROUND = 2;
-  // The weighted plate bands from the shader (see vSignPlateColor
-  // below): hp is the face-coordinate hash, hp2 the second hash.
-  const SIGN_BLADE_PLATE_BANDS = [
-    [0.0, 0.08, 1], [0.08, 0.12, 26], [0.12, 0.17, 52], [0.17, 0.21, 53],
-    [0.21, 0.24, 51], [0.24, 0.27, 68], [0.27, 0.30, 71], [0.30, 0.32, 64],
-  ];
+  // against each other over a faceCoord sweep). The shape string,
+  // shape codes, weighted bands and brand pins live at module level
+  // (see the #378 note there) because populatePlannedLot needs them
+  // before the blade material is set up.
   function predictBladePlate(faceCoord) {
     const q = Math.floor(Math.fround(faceCoord) * 0.5);
     const hashU = (k) => {
@@ -3080,31 +3181,20 @@ function buildCityBlocks(scene, opts = null) {
   const SIGN_BLADE_ROWS = 7.0;
   const SIGN_BLADE_PLATES = 120.0;
   // Issue #354: the commonest shops are picked by weight, not
-  // uniformly — a real Taipei street has a 7-ELEVEN or FamilyMart on
-  // most commercial corners, and 八方雲集 / 鍋貼 / 東一排骨 are this
-  // issue's named cases. Plate indices mirror js/taipei-signs.js
-  // (blade pool order — band plate i is blade plate i); the node
-  // suite source-pins them against the pool. Shares: 7-ELEVEN 8%,
-  // FamilyMart 4%, 八方雲集 5%, 鍋貼 4%, 東一排骨 3%, 燦坤 3%,
-  // 全聯 3%, NET 2%; the rest share the remaining 68% uniformly
-  // (each plate also keeps its ~1.3% uniform share, so a brand plate
-  // can still appear twice).
-  const SIGN_BLADE_BRAND_711 = 1.0;
-  const SIGN_BLADE_BRAND_FAMILY = 26.0;
-  const SIGN_BLADE_BRAND_BAFANG = 52.0;
-  const SIGN_BLADE_BRAND_GUOTIE = 53.0;
-  const SIGN_BLADE_BRAND_DONGYI = 51.0;
-  // Issue #354 (genre broadening): the new genre brands get their
-  // own weight bands — 燦坤 (Tsannkuen, the 3C anchor), 全聯 (PX
-  // Mart, the market anchor), NET (the clothes anchor).
-  const SIGN_BLADE_BRAND_TSANNKUEN = 68.0;
-  const SIGN_BLADE_BRAND_PX = 71.0;
-  const SIGN_BLADE_BRAND_NET = 64.0;
+  // uniformly — the weight bands and brand pins live at module level
+  // (see the #378 note there); the node suite source-pins them
+  // against the pool.
   const bladeAtlasTex = getTaipeiSignAtlases().blade;
   // Issue #375: the per-instance plate shape (aBladeShape on the
   // blade geometry — 0 portrait, 1 square, 2 round; set by the fill
   // loop from the mirrored plate hash above).
   const vSignShape = attribute('aBladeShape', 'float');
+  // Issue #378: the per-instance plate (aBladePlate on the blade
+  // geometry — the lot's brand, set by the fill loop from
+  // pickLotSignPlates). When present (≥ 0) it wins over the
+  // face-coordinate hash below, so both faces of one blade show the
+  // lot's brand; -1 keeps the hash path.
+  const vSignPlateAttr = attribute('aBladePlate', 'float');
   const vSignPlateColor = () => {
     const uvN = uv();
     const nW = normalWorldGeometry;
@@ -3136,6 +3226,8 @@ function buildCityBlocks(scene, opts = null) {
     plate = mix(plate, SIGN_BLADE_BRAND_TSANNKUEN, band(0.24, 0.27));
     plate = mix(plate, SIGN_BLADE_BRAND_PX, band(0.27, 0.30));
     plate = mix(plate, SIGN_BLADE_BRAND_NET, band(0.30, 0.32));
+    // Issue #378: the lot's brand wins when the fill loop set it.
+    plate = mix(plate, vSignPlateAttr, step(0.0, vSignPlateAttr));
     const colI = mod(plate, SIGN_BLADE_COLS);
     const rowB = floor(plate.div(SIGN_BLADE_COLS));
     const inset = float(0.03);
@@ -3207,6 +3299,10 @@ function buildCityBlocks(scene, opts = null) {
   // 2 round) — the shader reads it above. Unused entries stay 0.
   const vSignGeo = unitBox.clone();
   vSignGeo.setAttribute('aBladeShape', new THREE.InstancedBufferAttribute(new Float32Array(MAX_VSIGNS), 1));
+  // Issue #378: the per-instance plate (aBladePlate: the lot's brand,
+  // set by the fill loop from pickLotSignPlates). Filled -1 so unset
+  // entries keep the face-coordinate hash path in vSignPlateColor.
+  vSignGeo.setAttribute('aBladePlate', new THREE.InstancedBufferAttribute(new Float32Array(MAX_VSIGNS).fill(-1), 1));
   const vSignInst = new THREE.InstancedMesh(vSignGeo, vSignMat, MAX_VSIGNS);
   vSignInst.name = 'TaipeiVerticalSigns'; // Issue #354: the evidence
   // stage reads the live blade count (vSignInst.count) by name.
@@ -3508,11 +3604,24 @@ function buildCityBlocks(scene, opts = null) {
         // pz ± thick/2 for east/west). Turned blocks, quantum-
         // boundary faces and split faces all fall back to portrait
         // (see bladePlateShapeForBlade) — no regression vs today.
+        // Issue #378: the lot's brand — both faces show this plate.
+        // s.bladePlate comes from populatePlannedLot (annotated sign
+        // copies); without it, fall back to the face-coordinate hash
+        // path (bladePlateShapeForBlade) as before. The shape follows
+        // the lot plate (turned blocks stay portrait — their faces are
+        // blanked by the shader's fwidth edge test, so the shape is
+        // moot there).
         let shape = SIGN_BLADE_SHAPE_PORTRAIT;
         let h = s.h;
         const faceA = (s.side === 's' || s.side === 'n') ? px - s.thick * 0.5 : pz - s.thick * 0.5;
         const faceB = (s.side === 's' || s.side === 'n') ? px + s.thick * 0.5 : pz + s.thick * 0.5;
-        shape = bladePlateShapeForBlade(faceA, faceB, !!blk.ry);
+        if (s.bladePlate !== undefined) {
+          shape = blk.ry ? SIGN_BLADE_SHAPE_PORTRAIT : bladeShapeCode(s.bladePlate);
+          vSignGeo.attributes.aBladePlate.setX(vSignCount, s.bladePlate);
+        } else {
+          shape = bladePlateShapeForBlade(faceA, faceB, !!blk.ry);
+          vSignGeo.attributes.aBladePlate.setX(vSignCount, -1);
+        }
         if (shape !== SIGN_BLADE_SHAPE_PORTRAIT) h = s.out;
         const cy = s.y0 + h * 0.5;
         dummy.position.set(px, cy, pz);
@@ -3792,6 +3901,8 @@ function buildCityBlocks(scene, opts = null) {
     // in the same loop — flag its active prefix for upload, like
     // the instance matrix above.
     flagRange(vSignGeo.attributes.aBladeShape, vSignCount);
+    // Issue #378: the per-instance plate attribute, same treatment.
+    flagRange(vSignGeo.attributes.aBladePlate, vSignCount);
 
     for (let p = 0; p < roofBoardInsts.length; p++) {
       roofBoardInsts[p].count = roofBoardCounts[p];
