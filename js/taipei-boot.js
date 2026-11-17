@@ -5,6 +5,7 @@ import { SPECIAL_LOD_FAR_M_DEFAULT, clampSpecialLodFarM } from './settings.js'; 
 import { buildSidewalkBands, planStreetTrees, planParkTrees, planStreetLamps, LAMP_HEAD_H, LAMP_POOL_RX, LAMP_POOL_RZ } from './taipei-streetscape.js';
 import { planParkAmenities } from './taipei-park-amenities.js';
 import { planStreetAmenities } from './taipei-street-amenities.js';
+import { planCafeScenes, drawCafeMenuBoard, MENU_BOARD, SCOOTER_VARIANTS } from './taipei-cafe-scenes.js'; // issue #377: sidewalk café / plaza scenes
 import { AvatarFigure } from './avatar-figure.js';
 import { buildPaintedBands } from './taipei-painted.js';
 import { buildAirfieldPaint, buildRoadTunnelPortals, roadTrenchSlots } from './taipei-airfield.js';
@@ -1040,6 +1041,120 @@ function buildStreetAmenityMeshes(streetPlan, yAt = null) {
   add(instancedFromGeometry(binGeometry(), it.bin, 'TaipeiStreetBins', 0.045, {}, seat));
   add(instancedFromGeometry(busStopSignGeometry(), it.busStop, 'TaipeiStreetBusStops', 0.045, {}, seat));
   add(instancedFromGeometry(bushGeometry(), it.bush, 'TaipeiStreetBushes', 0.045, {}, seat));
+  return meshes;
+}
+
+// ---------------------------------------------------------------------
+// Café / plaza kit (issue #377): the sidewalk terrace in front of a
+// shophouse — a round café table, a parked scooter, and the wooden
+// A-frame chalkboard menu board. Tables, chairs, benches and trees
+// reuse the street kit geometries above (same look, separate
+// InstancedMeshes so the two layers stay distinct). Fronts face
+// local +Z; the planner's rot already aims each item (tables and
+// chairs face the road, scooters and the menu board face along the
+// sidewalk so passers-by read the board). The menu board's broad
+// faces are instanced planes carrying one painted chalk menu —
+// the board frame is the vertex-coloured kit, the faces are a
+// standard material with a canvas map (see buildCafeSceneMeshes).
+function cafeTableGeometry() {
+  return mergeColouredParts((addPart) => {
+    addPart(new THREE.CylinderGeometry(0.45, 0.45, 0.05, 12), 0x8a6844, { p: [0, 0.72, 0] }); // wooden top
+    addPart(new THREE.CylinderGeometry(0.05, 0.05, 0.68, 6), 0x33373b, { p: [0, 0.36, 0] }); // pedestal
+    addPart(new THREE.CylinderGeometry(0.28, 0.3, 0.04, 12), 0x33373b, { p: [0, 0.02, 0] }); // base
+  });
+}
+
+// A parked scooter, long axis local Z, front (+Z) at the shield.
+// One geometry per body colour (the planner's variant split, the
+// park-trees pattern) so the row reads as different scooters.
+function scooterGeometry(color) {
+  return mergeColouredParts((addPart) => {
+    for (const wz of [0.62, -0.62]) {
+      addPart(new THREE.CylinderGeometry(0.26, 0.26, 0.08, 10), 0x1a1a1c, { p: [0, 0.26, wz], r: [0, 0, Math.PI / 2] }); // wheels
+    }
+    addPart(new THREE.BoxGeometry(0.5, 0.45, 1.35), color, { p: [0, 0.62, -0.05] }); // body
+    addPart(new THREE.BoxGeometry(0.46, 0.09, 0.62), 0x222226, { p: [0, 0.88, -0.28] }); // seat
+    addPart(new THREE.BoxGeometry(0.4, 0.06, 0.5), 0x2f3338, { p: [0, 0.32, 0.15] }); // floorboard
+    addPart(new THREE.BoxGeometry(0.48, 0.62, 0.07), color, { p: [0, 0.85, 0.58], r: [-0.25, 0, 0] }); // front shield, raked back
+    addPart(new THREE.CylinderGeometry(0.03, 0.03, 0.55, 6), 0x2f3338, { p: [0, 1.08, 0.52], r: [0, 0, Math.PI / 2] }); // handlebar
+    addPart(new THREE.BoxGeometry(0.2, 0.12, 0.04), 0xf2f2e8, { p: [0, 0.95, 0.63] }); // headlight
+  });
+}
+
+// The wooden A-frame: two dark slate slabs leaning 12° from
+// vertical, their centres MENU_BOARD.slabOffset either side of the
+// board centre, joined by a top rail and bordered by wooden stiles
+// and bottom rails. Dimensions from MENU_BOARD (js/taipei-cafe-scenes.js)
+// — the planner places the menu faces from the same numbers.
+function menuBoardFrameGeometry() {
+  const lean = MENU_BOARD.lean, off = MENU_BOARD.slabOffset;
+  return mergeColouredParts((addPart) => {
+    addPart(new THREE.BoxGeometry(MENU_BOARD.w, MENU_BOARD.h, 0.04), 0x2a2e33, { p: [0, MENU_BOARD.centreY, off], r: [-lean, 0, 0] }); // front slab
+    addPart(new THREE.BoxGeometry(MENU_BOARD.w, MENU_BOARD.h, 0.04), 0x2a2e33, { p: [0, MENU_BOARD.centreY, -off], r: [lean, 0, 0] }); // back slab
+    addPart(new THREE.BoxGeometry(0.7, 0.06, 0.06), 0x8a6844, { p: [0, 1.02, 0] }); // apex rail
+    for (const sx of [-1, 1]) {
+      addPart(new THREE.BoxGeometry(0.05, 1.0, 0.05), 0x8a6844, { p: [sx * 0.33, MENU_BOARD.centreY, 0.12], r: [-lean, 0, 0] }); // front stiles
+      addPart(new THREE.BoxGeometry(0.05, 1.0, 0.05), 0x8a6844, { p: [sx * 0.33, MENU_BOARD.centreY, -0.12], r: [lean, 0, 0] }); // back stiles
+    }
+    addPart(new THREE.BoxGeometry(0.7, 0.06, 0.05), 0x8a6844, { p: [0, 0.08, 0.20], r: [-lean, 0, 0] }); // front bottom rail
+    addPart(new THREE.BoxGeometry(0.7, 0.06, 0.05), 0x8a6844, { p: [0, 0.08, -0.20], r: [lean, 0, 0] }); // back bottom rail
+  });
+}
+
+// One menu face: a plane tilted with the front slab, its centre at
+// the slab height — the planner's face instances carry the 0.12 m
+// surface offset, so the geometry sits at the local origin.
+function menuBoardFaceGeometry() {
+  const geo = new THREE.PlaneGeometry(MENU_BOARD.faceW, MENU_BOARD.faceH);
+  geo.rotateX(-MENU_BOARD.lean);
+  geo.translate(0, MENU_BOARD.centreY, 0);
+  return geo;
+}
+
+function buildCafeSceneMeshes(cafePlan, yAt = null) {
+  const it = cafePlan.items;
+  const meshes = [];
+  const add = (mesh) => { if (mesh) meshes.push(mesh); };
+  // Sidewalk surface (0.045) PLUS the drape — the same seat rule
+  // the street furniture uses, one InstancedMesh per kit class.
+  const seat = yAt ? (x, z) => 0.045 + yAt(x, z) : null;
+  add(instancedFromGeometry(cafeTableGeometry(), it.table, 'TaipeiCafeTables', 0.045, {}, seat));
+  add(instancedFromGeometry(chairGeometry(), it.chair, 'TaipeiCafeChairs', 0.045, {}, seat));
+  add(instancedFromGeometry(benchGeometry(), it.bench, 'TaipeiCafeBenches', 0.045, {}, seat));
+  add(instancedFromGeometry(streetTreeGeometry(), it.tree, 'TaipeiCafeTrees', 0.045, {}, seat));
+  for (let v = 0; v < SCOOTER_VARIANTS.length; v++) {
+    const list = it.scooter.filter((s) => s.variant === v);
+    add(instancedFromGeometry(scooterGeometry(SCOOTER_VARIANTS[v]), list, `TaipeiCafeScooters${v}`, 0.045, {}, seat));
+  }
+  add(instancedFromGeometry(menuBoardFrameGeometry(), it.menuBoard, 'TaipeiCafeMenuBoards', 0.045, {}, seat));
+  // The chalk menu faces: one canvas texture, painted once by
+  // drawCafeMenuBoard, on instanced tilted planes — a standard
+  // material with a map, not the vertex-coloured kit material.
+  if (it.menuFace.length) {
+    const c = document.createElement('canvas');
+    c.width = 256;
+    c.height = 384;
+    drawCafeMenuBoard(c.getContext('2d'), 256, 384);
+    const tex = new THREE.CanvasTexture(c);
+    tex.colorSpace = THREE.SRGBColorSpace;
+    tex.anisotropy = 4;
+    const mesh = new THREE.InstancedMesh(
+      menuBoardFaceGeometry(),
+      new THREE.MeshStandardNodeMaterial({ map: tex, roughness: 0.9, metalness: 0.0 }),
+      it.menuFace.length,
+    );
+    mesh.name = 'TaipeiCafeMenuFaces';
+    const dummy = new THREE.Object3D();
+    it.menuFace.forEach((t, i) => {
+      dummy.position.set(t.x, seat ? seat(t.x, t.z) : 0.045, t.z);
+      dummy.rotation.set(0, t.rot || 0, 0);
+      dummy.scale.setScalar(1);
+      dummy.updateMatrix();
+      mesh.setMatrixAt(i, dummy.matrix);
+    });
+    mesh.instanceMatrix.needsUpdate = true;
+    meshes.push(mesh);
+  }
   return meshes;
 }
 
@@ -2332,9 +2447,26 @@ export async function buildTaipeiGround(scene, tile, deps = {}) {
     });
     for (const mesh of buildStreetAmenityMeshes(streetAmenityPlan, drapeHeight)) meshes.push(mesh);
     console.info(`[taipei-street-amenities] ${streetAmenityPlan.stats.total} street amenity items (${Object.entries(streetAmenityPlan.items).map(([k, v]) => `${k} ${v.length}`).join(', ')}) planned in ${Math.round(performance.now() - streetAmenityStart)}ms`);
+    // Issue #377: sidewalk café / plaza scenes — outdoor tables +
+    // chairs, a bench, a street tree, a chalkboard menu board and a
+    // line-up of parked scooters in the sidewalk strip in front of a
+    // shophouse. Planned AFTER the street amenities so their items
+    // are passed as avoid points — a café table never lands on a
+    // bench, a bin or a bus-stop sign. Same exclusions as the lamps.
+    const cafeSceneStart = performance.now();
+    const cafeScenePlan = planCafeScenes(geo, forPlan, {
+      exclusions: treeExclusions,
+      avoid: [
+        ...lampPlan.lamps.map((l) => ({ x: l.x, z: l.z, r: 0.4 })),
+        ...street.trees.map((t) => ({ x: t.x, z: t.z, r: 0.5 })),
+        ...Object.values(streetAmenityPlan.items).flat().map((it) => ({ x: it.x, z: it.z, r: 0.5 })),
+      ],
+    });
+    for (const mesh of buildCafeSceneMeshes(cafeScenePlan, drapeHeight)) meshes.push(mesh);
+    console.info(`[taipei-cafe-scenes] ${cafeScenePlan.stats.total} café scenes (${Object.entries(cafeScenePlan.items).map(([k, v]) => `${k} ${v.length}`).join(', ')}) planned in ${Math.round(performance.now() - cafeSceneStart)}ms`);
     const amenityTotal = Object.values(amenityPlan.items).reduce((s, v) => s + v.length, 0);
     console.info(`[taipei-parks] ${amenityTotal} amenity items (${Object.entries(amenityPlan.items).map(([k, v]) => `${k} ${v.length}`).join(', ')}) in ${amenityPlan.stats.parksDressed} parks (${amenityPlan.stats.parksPathless} pathless parks get trees only) planned in ${Math.round(performance.now() - amenityStart)}ms`);
-    return { street, park, amenityPlan, amenityTotal, parkByVariant, meshes, lamps: lampPlan, streetAmenities: streetAmenityPlan };
+    return { street, park, amenityPlan, amenityTotal, parkByVariant, meshes, lamps: lampPlan, streetAmenities: streetAmenityPlan, cafeScenes: cafeScenePlan };
   };
   let trees = buildTrees(plan);
   for (const mesh of trees.meshes) group.add(mesh);
