@@ -12,6 +12,7 @@ import {
   normalWorldGeometry,
   normalGeometry,
   abs,
+  attribute,
   floor,
   fract,
   mod,

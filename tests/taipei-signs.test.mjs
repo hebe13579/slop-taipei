@@ -464,6 +464,7 @@ assert.ok(buildings.includes('0.6180339887'), 'renderer mirrors the first Weyl c
 assert.ok(buildings.includes('0.7548776662'), 'renderer mirrors the second Weyl constant');
 assert.ok(buildings.includes('SIGN_BLADE_PLATE_BANDS'), 'renderer mirrors the weighted plate bands');
 assert.ok(buildings.includes("attribute('aBladeShape', 'float')"), 'renderer reads the per-instance shape attribute');
+assert.ok(buildings.includes('  attribute,\n'), 'renderer imports attribute from three/tsl (the shape attribute node needs it)');
 assert.ok(buildings.includes('vSignGeo.setAttribute'), 'blade geometry carries the shape attribute (unitBox is shared)');
 assert.ok(buildings.includes('vSignGeo.attributes.aBladeShape.setX(vSignCount, shape)'), 'fill loop sets the shape per blade');
 assert.ok(buildings.includes('flagRange(vSignGeo.attributes.aBladeShape, vSignCount)'), 'fill loop flags the shape attribute for upload');
