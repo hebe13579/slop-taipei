@@ -950,7 +950,9 @@ function buildCityBlocks(scene, opts = null) {
    * under every masonry roof line, rooftop bulkhead & water tower, fire escapes and avenue storefront awnings.
    * o: { cornice, corniceH, roof: 'mech' | 'prewar' | 'walkup' | 'none', wtP, hvacH, fireEscapes, rearFireEscapes,
    *      awnings, shops: 'all' | 'avenue' | 'none' | probability of 'all' (street fronts with storefronts on the
-   *      ground floor, the others get a residential entrance), freestanding, walls (see wallKinds) }
+   *      ground floor, the others get a residential entrance), shopFaces: { w, e, n, s } road-facing faces from the
+   *      Taipei adapter (issue #379 — when present, the storefront goes on those faces only), freestanding, walls
+   *      (see wallKinds) }
    */
   function commit(blk, b, o = {}) {
     const parts = b.parts;
@@ -964,7 +966,15 @@ function buildCityBlocks(scene, opts = null) {
     const tone = rand();
     let shopsOn = o.shops ?? 'all';
     if (typeof shopsOn === 'number') shopsOn = tone < shopsOn ? 'all' : 'none';
-    const shops = { w: shopsOn !== 'none', e: shopsOn !== 'none', n: shopsOn === 'all', s: shopsOn === 'all' };
+    // Issue #379: when the lot carries its road-facing faces (the
+    // Taipei adapter's shopFaces), the ground-floor storefront goes on
+    // those faces only — a corner lot gets both. The intersection with
+    // the 'all' / 'avenue' rule keeps Manhattan (no shopFaces) and the
+    // 'none' outcome exactly as before.
+    const baseShops = { w: shopsOn !== 'none', e: shopsOn !== 'none', n: shopsOn === 'all', s: shopsOn === 'all' };
+    const shops = o.shopFaces
+      ? { w: baseShops.w && !!o.shopFaces.w, e: baseShops.e && !!o.shopFaces.e, n: baseShops.n && !!o.shopFaces.n, s: baseShops.s && !!o.shopFaces.s }
+      : baseShops;
     let top = parts[0];
     for (const p of parts) {
       const w = p.x1 - p.x0;
@@ -2365,10 +2375,10 @@ function buildCityBlocks(scene, opts = null) {
       // (100% shopfronts on every face); the high-rise lobby tower (12)
       // takes the lowest share like 11, and the strip-tile mid-rise (13)
       // takes the mid-rise housing-led share like 9/10.
-      ? { cornice: false, roof: 'prewar', wtP: 0, shops: lot.shops ?? [0.85, 0.9, 0.45, 0.35, 0.35, 0.3, 0.3, 0.35][mat - 6], awnings: false }
+      ? { cornice: false, roof: 'prewar', wtP: 0, shops: lot.shops ?? [0.85, 0.9, 0.45, 0.35, 0.35, 0.3, 0.3, 0.35][mat - 6], awnings: false, shopFaces: lot.shopFaces }
       : mat >= 3
-        ? { cornice: false, roof: 'mech', shops: lot.shops ?? 0.3, awnings: false }
-        : { roof: 'prewar', wtP: 0.35, shops: lot.shops ?? 0.3, awnings: false });
+        ? { cornice: false, roof: 'mech', shops: lot.shops ?? 0.3, awnings: false, shopFaces: lot.shopFaces }
+        : { roof: 'prewar', wtP: 0.35, shops: lot.shops ?? 0.3, awnings: false, shopFaces: lot.shopFaces });
     // Issue #207: the base collider populateBlock emits for every
     // Manhattan block (the lot's mass up to BLOCK_COLLIDER_TOP;
     // commit above already emitted colliders for parts taller
