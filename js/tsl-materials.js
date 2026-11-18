@@ -1185,10 +1185,31 @@ const SIGN_BAND_PLATES = 113.0;
 // wins over the per-bay hash pick when present (≥ 0), so a shop's
 // surface band shows the same brand as its blade. -1 (no plate —
 // Manhattan, the gallery, any box without one) keeps the hash pick.
-const bandPlateColor = (cellUV, cellId, boxSeed, atlasTex) => {
+// Issue #380: upper-floor shop floors for the tile shophouse material.
+// A facade box may carry upper shop floors (aUpperShops: 0, 1 or 2,
+// set by createFacadeBoxes from the lot's upper-shop pick — see
+// js/buildings.js upperShopPick) with one band plate per floor
+// (aBandPlate2 for floor 1, the second floor; aBandPlate3 for floor
+// 2, the third). gridV is the floor index, so floor 1 is gridV in
+// [1,2) and floor 2 gridV in [2,3). Returns the shop-floor mask (the
+// ground floor OR an upper shop floor — the storefront glass, the
+// shop interior and the sign band paint on those cells) and the
+// effective band-plate attribute for this fragment's floor. Boxes
+// without the attributes (Manhattan, the gallery — createFacadeBoxes
+// fills -1/0) keep the old ground-floor-only behaviour.
+function upperShopFloor(cell) {
+  const upperShops = attribute('aUpperShops', 'float');
+  const floor1 = step(1.0, cell.gridV).mul(float(1.0).sub(step(2.0, cell.gridV)));
+  const floor2 = step(2.0, cell.gridV).mul(float(1.0).sub(step(3.0, cell.gridV)));
+  const isUpper = floor1.mul(step(0.5, upperShops)).add(floor2.mul(step(1.5, upperShops)));
+  const isShopFloor = clamp(cell.isGroundFloor.add(isUpper), 0.0, 1.0);
+  const upperPlate = mix(attribute('aBandPlate2', 'float'), attribute('aBandPlate3', 'float'), floor2);
+  const plateAttr = mix(attribute('aBandPlate', 'float'), upperPlate, isUpper);
+  return { isShopFloor, plateAttr };
+}
+const bandPlateColor = (cellUV, cellId, boxSeed, atlasTex, bandPlateAttr = attribute('aBandPlate', 'float')) => {
   const hp = hash2D(vec2(cellId.x.mul(5.13), boxSeed.mul(9.31)));
   let plate = floor(hp.mul(SIGN_BAND_PLATES));
-  const bandPlateAttr = attribute('aBandPlate', 'float');
   plate = mix(plate, bandPlateAttr, step(0.0, bandPlateAttr));
   const colI = mod(plate, SIGN_BAND_COLS);
   const rowB = floor(plate.div(SIGN_BAND_COLS));
@@ -1374,7 +1395,11 @@ function createTileShophouseMaterial(opts = {}) {
     const fw = cell.fw;
     const tone = cell.tone;
     const boxSeed = cell.boxSeed;
-    const isGroundFloor = cell.isGroundFloor;
+    // Issue #380: a shop floor is the ground floor OR an upper shop
+    // floor (see upperShopFloor) — the storefront glass, the shop
+    // interior and the sign band paint on those cells, with the
+    // floor's own band plate.
+    const { isShopFloor, plateAttr: bandPlateAttr } = upperShopFloor(cell);
     const back = cell.back;
 
     const cTileA = color(tilePalette[0]);
@@ -1447,14 +1472,14 @@ function createTileShophouseMaterial(opts = {}) {
     // before the window mix, so glass and balconies overlay it.
     if (floorBandColor) {
       const bandMask = filteredPulse(cellUV.y, 0.0, float(floorBandTop), fw.y)
-        .mul(isGroundFloor.oneMinus()).mul(back.oneMinus()).mul(cell.solid.oneMinus());
+        .mul(isShopFloor.oneMinus()).mul(back.oneMinus()).mul(cell.solid.oneMinus());
       col = mix(col, cFloorBand, bandMask.mul(0.85));
     }
 
     // --- Windows: aluminium grid. Ground-floor shopfronts span nearly the
     // whole bay, exactly like the prewar family's wide shop glass.
-    const effHalfX = mix(float(0.5).sub(uRatioX.mul(0.5)), float(0.11), isGroundFloor);
-    const effHalfY = mix(float(0.5).sub(uRatioY.mul(0.5)), float(0.10), isGroundFloor);
+    const effHalfX = mix(float(0.5).sub(uRatioX.mul(0.5)), float(0.11), isShopFloor);
+    const effHalfY = mix(float(0.5).sub(uRatioY.mul(0.5)), float(0.10), isShopFloor);
     const inX = filteredPulse(cellUV.x, effHalfX, float(1.0).sub(effHalfX), fw.x);
     const inY = filteredPulse(cellUV.y, float(0.5).sub(effHalfY), float(0.5).add(effHalfY), fw.y);
     const inWindow = inX.mul(inY).mul(cell.solid.oneMinus());
@@ -1486,13 +1511,13 @@ function createTileShophouseMaterial(opts = {}) {
     glassCol = mix(cAlu, glassCol, sashMask);
     const railH = lineAA(abs(cellUV.y.sub(0.5)), 0.011);
     const railV = lineAA(abs(cellUV.x.sub(0.5)), 0.009);
-    glassCol = mix(glassCol, cAlu, max(railH, railV).mul(inWindow).mul(isGroundFloor.oneMinus()));
+    glassCol = mix(glassCol, cAlu, max(railH, railV).mul(inWindow).mul(isShopFloor.oneMinus()));
 
     // Window security grilles （鐵窗）: dark metal bars across the glass —
     // a speckle on the tile shophouse, a signature texture on the walk-up
     // slab (grilleProb per style). Painted inside the sash, under the AC.
     const grilleRand = hash2D(cellId.add(vec2(47.9, 3.3)).add(boxSeed));
-    const hasGrille = step(grilleRand, float(grilleProb)).mul(isGroundFloor.oneMinus());
+    const hasGrille = step(grilleRand, float(grilleProb)).mul(isShopFloor.oneMinus());
     const grilleBars = max(
       step(0.80, fract(winUV.x.mul(6.0))),
       step(0.86, fract(winUV.y.mul(3.0)))
@@ -1503,7 +1528,7 @@ function createTileShophouseMaterial(opts = {}) {
     // shophouse runs ~30%, Taipei density; the prewar family uses ~12%):
     // box + fan grille + shadow on the glass.
     const acRand = hash2D(cellId.add(vec2(31.7, 17.3)).add(boxSeed));
-    const hasAC = step(acThreshold, acRand).mul(isGroundFloor.oneMinus());
+    const hasAC = step(acThreshold, acRand).mul(isShopFloor.oneMinus());
     const inACBox = filteredPulse(cellUV.x, 0.31, 0.69, fw.x)
       .mul(filteredPulse(cellUV.y, float(0.5).sub(effHalfY), float(0.5).sub(effHalfY).add(0.22), fw.y))
       .mul(hasAC).mul(cell.solid.oneMinus());
@@ -1521,7 +1546,7 @@ function createTileShophouseMaterial(opts = {}) {
     const bulbCol = mix(color(0xff9a3c), color(0xffe8b0), hash2D(cellId.add(boxSeed.mul(5.0))));
     const shopInterior = bulbCol.mul(shopInteriorRaw)
       .mul(float(1.0).sub(smoothstep(0.66, 0.775, cellUV.y).mul(float(recess))));
-    glassCol = mix(glassCol, shopInterior, isGroundFloor);
+    glassCol = mix(glassCol, shopInterior, isShopFloor);
 
     col = mix(col, glassCol, inWindow);
 
@@ -1534,7 +1559,7 @@ function createTileShophouseMaterial(opts = {}) {
         : float(1.0);
       const latHash = hash2D(cellId.add(vec2(13.7, 5.9)).add(boxSeed));
       const latOn = step(latHash, float(latticeProb)).mul(latColMask)
-        .mul(isGroundFloor.oneMinus()).mul(back.oneMinus());
+        .mul(isShopFloor.oneMinus()).mul(back.oneMinus());
       const diag = max(
         step(0.72, fract(cellUV.x.mul(5.0).add(cellUV.y.mul(5.0)))),
         step(0.72, fract(cellUV.x.mul(5.0).sub(cellUV.y.mul(5.0))))
@@ -1551,7 +1576,7 @@ function createTileShophouseMaterial(opts = {}) {
     // solid top rail), 2 = none. Both motifs get a rim highlight and a
     // soft shadow on the wall underneath.
     const balcHash = hash2D(vec2(floor(cellId.x), boxSeed.mul(7.31)));
-    const hasBalc = step(balconyThreshold, balcHash).mul(back.oneMinus()).mul(isGroundFloor.oneMinus());
+    const hasBalc = step(balconyThreshold, balcHash).mul(back.oneMinus()).mul(isShopFloor.oneMinus());
     const cBalc = mix(color(balconyPalette[0]), color(balconyPalette[1]), step(0.5, fract(tone.mul(3.7))));
     if (balconyStyle === 0) {
       const bEx = cellUV.x.sub(0.5).div(0.38);
@@ -1590,7 +1615,7 @@ function createTileShophouseMaterial(opts = {}) {
     const panelOn = step(signBayHash, float(signRate));
     const bandMask = filteredPulse(cellUV.x, 0.035, 0.965, fw.x)
       .mul(filteredPulse(cellUV.y, 0.775, 0.995, fw.y))
-      .mul(isGroundFloor).mul(back.oneMinus());
+      .mul(isShopFloor).mul(back.oneMinus());
     const panelMask = bandMask.mul(panelOn);
     col = mix(col, cTrim.mul(0.92), bandMask.mul(panelOn.oneMinus()));
     const glyph = signGlyphMask(cellUV, cellId, boxSeed, fw);
@@ -1603,13 +1628,13 @@ function createTileShophouseMaterial(opts = {}) {
     // so sample the plate through the wall-corrected coordinate
     // (cell.flip, from facadeCell) — the same shop, un-mirrored.
     const bandUV = vec2(mix(cellUV.x, float(1.0).sub(cellUV.x), cell.flip), cellUV.y);
-    const plateCol = bandPlateColor(bandUV, cellId, boxSeed, bandAtlasTex);
+    const plateCol = bandPlateColor(bandUV, cellId, boxSeed, bandAtlasTex, bandPlateAttr);
     const signCol = mix(glyphCol, plateCol, uSignText);
     col = mix(col, signCol, panelMask);
     // Thin darker outline under the panel so it reads as a mounted board.
     const signUnder = filteredPulse(cellUV.x, 0.035, 0.965, fw.x)
       .mul(filteredPulse(cellUV.y, 0.755, 0.775, fw.y))
-      .mul(isGroundFloor).mul(back.oneMinus());
+      .mul(isShopFloor).mul(back.oneMinus());
     col = mix(col, col.mul(0.55), signUnder.mul(0.6));
 
     // --- Entrance doors (entry walls): dark painted metal + stone step.
@@ -1639,16 +1664,17 @@ function createTileShophouseMaterial(opts = {}) {
 
   mat.roughnessNode = Fn(() => {
     const cell = facadeCell(uWindowWidth, uFloorHeight, boxLocal, cornerPier);
+    const { isShopFloor } = upperShopFloor(cell); // Issue #380
     const cellUV = cell.cellUV;
-    const effHalfX = mix(float(0.5).sub(uRatioX.mul(0.5)), float(0.11), cell.isGroundFloor);
-    const effHalfY = mix(float(0.5).sub(uRatioY.mul(0.5)), float(0.10), cell.isGroundFloor);
+    const effHalfX = mix(float(0.5).sub(uRatioX.mul(0.5)), float(0.11), isShopFloor);
+    const effHalfY = mix(float(0.5).sub(uRatioY.mul(0.5)), float(0.10), isShopFloor);
     const inWindow = filteredPulse(cellUV.x, effHalfX, float(1.0).sub(effHalfX), cell.fw.x)
       .mul(filteredPulse(cellUV.y, float(0.5).sub(effHalfY), float(0.5).add(effHalfY), cell.fw.y))
       .mul(cell.solid.oneMinus());
     const signBayHashR = hash2D(vec2(cell.cellId.x.mul(3.1), cell.boxSeed.mul(7.7)));
     const panelMask = filteredPulse(cellUV.x, 0.035, 0.965, cell.fw.x)
       .mul(filteredPulse(cellUV.y, 0.775, 0.995, cell.fw.y))
-      .mul(cell.isGroundFloor).mul(cell.back.oneMinus())
+      .mul(isShopFloor).mul(cell.back.oneMinus())
       .mul(step(signBayHashR, float(signRate)));
     let rough = mix(float(wallRoughness), float(0.82), cell.back); // cladding vs plaster
     rough = mix(rough, float(0.92), cell.isRoof);
@@ -1659,6 +1685,7 @@ function createTileShophouseMaterial(opts = {}) {
 
   mat.normalNode = Fn(() => {
     const cell = facadeCell(uWindowWidth, uFloorHeight, boxLocal, cornerPier);
+    const { isShopFloor } = upperShopFloor(cell); // Issue #380
     const uCoord = cell.uCoord;
     const vCoord = cell.vCoord;
     const cellUV = cell.cellUV;
@@ -1670,8 +1697,8 @@ function createTileShophouseMaterial(opts = {}) {
     const tileFade = float(1.0).sub(smoothstep(0.05, 0.55, fwidth(uCoord).add(fwidth(vCoord))));
     const groutH = max(gridLine(uCoord, tileModule, 0.012), gridLine(vCoord, tileModuleY, 0.012)).mul(tileFade).mul(cell.back.oneMinus()).mul(float(1.0 - pebble));
 
-    const effHalfX = mix(float(0.5).sub(uRatioX.mul(0.5)), float(0.11), cell.isGroundFloor);
-    const effHalfY = mix(float(0.5).sub(uRatioY.mul(0.5)), float(0.10), cell.isGroundFloor);
+    const effHalfX = mix(float(0.5).sub(uRatioX.mul(0.5)), float(0.11), isShopFloor);
+    const effHalfY = mix(float(0.5).sub(uRatioY.mul(0.5)), float(0.10), isShopFloor);
     const winBottom = float(0.5).sub(effHalfY);
     const winTop = float(0.5).add(effHalfY);
     const sashInX = filteredPulse(cellUV.x, effHalfX.add(0.035), float(1.0).sub(effHalfX).sub(0.035), fw.x);
@@ -1680,7 +1707,7 @@ function createTileShophouseMaterial(opts = {}) {
     const sillLine = lineAA(abs(cellUV.y.sub(winBottom)), 0.012).mul(cell.solid.oneMinus());
 
     const acRand = hash2D(cellId.add(vec2(31.7, 17.3)).add(cell.boxSeed));
-    const hasAC = step(acThreshold, acRand).mul(cell.isGroundFloor.oneMinus());
+    const hasAC = step(acThreshold, acRand).mul(isShopFloor.oneMinus());
     const inACBox = filteredPulse(cellUV.x, 0.31, 0.69, fw.x)
       .mul(filteredPulse(cellUV.y, winBottom, winBottom.add(0.22), fw.y))
       .mul(hasAC).mul(cell.solid.oneMinus());
@@ -1689,7 +1716,7 @@ function createTileShophouseMaterial(opts = {}) {
     // Balcony rim catches a small relief step so the painted balcony reads
     // in raking light (arc edge for style 0, rail + slab lines for style 1).
     const balcHash = hash2D(vec2(floor(cellId.x), cell.boxSeed.mul(7.31)));
-    const hasBalc = step(balconyThreshold, balcHash).mul(cell.back.oneMinus()).mul(cell.isGroundFloor.oneMinus());
+    const hasBalc = step(balconyThreshold, balcHash).mul(cell.back.oneMinus()).mul(isShopFloor.oneMinus());
     let balcRim = float(0.0);
     if (balconyStyle === 0) {
       const bDist = length(vec2(cellUV.x.sub(0.5).div(0.38), cellUV.y.sub(0.30).div(0.135)));
@@ -1716,10 +1743,12 @@ function createTileShophouseMaterial(opts = {}) {
     const cellId = cell.cellId;
     const fw = cell.fw;
     const boxSeed = cell.boxSeed;
-    const isGroundFloor = cell.isGroundFloor;
+    // Issue #380: see the color node — the shop glow and the band
+    // paint on shop floors (ground or upper), with the floor's plate.
+    const { isShopFloor, plateAttr: bandPlateAttr } = upperShopFloor(cell);
 
-    const effHalfX = mix(float(0.5).sub(uRatioX.mul(0.5)), float(0.11), isGroundFloor);
-    const effHalfY = mix(float(0.5).sub(uRatioY.mul(0.5)), float(0.10), isGroundFloor);
+    const effHalfX = mix(float(0.5).sub(uRatioX.mul(0.5)), float(0.11), isShopFloor);
+    const effHalfY = mix(float(0.5).sub(uRatioY.mul(0.5)), float(0.10), isShopFloor);
     const inX = filteredPulse(cellUV.x, effHalfX, float(1.0).sub(effHalfX), fw.x);
     const inY = filteredPulse(cellUV.y, float(0.5).sub(effHalfY), float(0.5).add(effHalfY), fw.y);
     const inWindow = inX.mul(inY).mul(cell.solid.oneMinus());
@@ -1730,10 +1759,10 @@ function createTileShophouseMaterial(opts = {}) {
       cellUV.y.sub(sillH).div(winTop.sub(sillH))
     );
     const aptRoom = evaluateApartmentInterior(uCoord, vCoord, winUV, cellId, cell.bayWidth, uFloorHeight, uBoxSeed, uWarmth, uLitProb, fw);
-    const winEmit = aptRoom.rgb.mul(aptRoom.a).mul(inWindow).mul(cityUniforms.uInteriorGlow).mul(isGroundFloor.oneMinus());
+    const winEmit = aptRoom.rgb.mul(aptRoom.a).mul(inWindow).mul(cityUniforms.uInteriorGlow).mul(isShopFloor.oneMinus());
 
     const bulbCol = mix(color(0xff9a3c), color(0xffe8b0), hash2D(cellId.add(boxSeed.mul(5.0))));
-    const shopGlow = bulbCol.mul(inWindow).mul(isGroundFloor).mul(cityUniforms.uInteriorGlow).mul(0.55);
+    const shopGlow = bulbCol.mul(inWindow).mul(isShopFloor).mul(cityUniforms.uInteriorGlow).mul(0.55);
 
     // Sign panels glow softly at night; glyph bars stay darker than the
     // panel, like unlit lettering on a lit board.
@@ -1741,7 +1770,7 @@ function createTileShophouseMaterial(opts = {}) {
     const signBayHashE = hash2D(vec2(cellId.x.mul(3.1), boxSeed.mul(7.7)));
     const panelMask = filteredPulse(cellUV.x, 0.035, 0.965, fw.x)
       .mul(filteredPulse(cellUV.y, 0.775, 0.995, fw.y))
-      .mul(isGroundFloor).mul(cell.back.oneMinus())
+      .mul(isShopFloor).mul(cell.back.oneMinus())
       .mul(step(signBayHashE, float(signRate)));
     const glyph = signGlyphMask(cellUV, cellId, boxSeed, fw);
     const glyphEmit = sign.bg.mul(panelMask).mul(cityUniforms.uInteriorGlow)
@@ -1751,7 +1780,7 @@ function createTileShophouseMaterial(opts = {}) {
     // through the wall-corrected coordinate (see the colour node) so
     // the glowing plate reads un-mirrored on every wall.
     const bandUV = vec2(mix(cellUV.x, float(1.0).sub(cellUV.x), cell.flip), cellUV.y);
-    const plateEmit = bandPlateColor(bandUV, cellId, boxSeed, bandAtlasTex)
+    const plateEmit = bandPlateColor(bandUV, cellId, boxSeed, bandAtlasTex, bandPlateAttr)
       .mul(panelMask).mul(cityUniforms.uInteriorGlow).mul(0.38);
     const signEmit = mix(glyphEmit, plateEmit, uSignText);
 
@@ -1783,6 +1812,17 @@ function createFacadeBoxes(material, boxes) {
   // boxes without a plate.
   const bandPlate = new THREE.InstancedBufferAttribute(new Float32Array(boxes.length), 1);
   geometry.setAttribute('aBandPlate', bandPlate);
+  // Issue #380: upper-floor shops — how many upper shop floors the
+  // box carries (0/1/2) and one band plate per upper floor
+  // (aBandPlate2 = floor 1, the second floor; aBandPlate3 = floor 2,
+  // the third). Read by the shophouse material's upperShopFloor.
+  // Defaults (0 / -1 / -1) keep the old ground-floor-only behaviour.
+  const upperShops = new THREE.InstancedBufferAttribute(new Float32Array(boxes.length), 1);
+  geometry.setAttribute('aUpperShops', upperShops);
+  const bandPlate2 = new THREE.InstancedBufferAttribute(new Float32Array(boxes.length).fill(-1), 1);
+  geometry.setAttribute('aBandPlate2', bandPlate2);
+  const bandPlate3 = new THREE.InstancedBufferAttribute(new Float32Array(boxes.length).fill(-1), 1);
+  geometry.setAttribute('aBandPlate3', bandPlate3);
 
   const mesh = new THREE.InstancedMesh(geometry, material, boxes.length);
   const matrix = new THREE.Matrix4();
@@ -1796,6 +1836,9 @@ function createFacadeBoxes(material, boxes) {
     box.setXYZW(i, b.w, b.h, b.d, ((i * 29) % 1000) + 0.1 + 0.8 * (b.tone ?? 0.5));
     if (b.faces) faces.setXYZW(i, b.faces[0], b.faces[1], b.faces[2], b.faces[3]);
     bandPlate.setX(i, b.bandPlate ?? -1);
+    upperShops.setX(i, b.upperShops ?? 0);
+    bandPlate2.setX(i, b.bandPlate2 ?? -1);
+    bandPlate3.setX(i, b.bandPlate3 ?? -1);
   });
   return mesh;
 }
