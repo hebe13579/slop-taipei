@@ -494,6 +494,12 @@ function facadeCell(windowWidth, floorHeight, boxLocal, cornerPier = 0) {
   // One entrance per residential front, in a bay picked by the building's tone
   const isEntry = step(WALL_KINDS.entry - 0.5, kind).mul(float(1.0).sub(step(WALL_KINDS.entry + 0.5, kind)));
   const door = floor0.mul(isEntry).mul(wall).mul(step(abs(bayIdx.sub(min(floor(tone.mul(bays)), bays.sub(1.0)))), 0.5));
+  // Issue #390: the shop door bay — the same tone-picked bay as the
+  // residential door, on ground-floor shop fronts: one bay per shop
+  // face paints as a glass door (see createTileShophouseMaterial).
+  // isGroundFloor already carries the shop-kind gate (kind == shop),
+  // so the bay paints only where the face is a storefront.
+  const shopDoor = floor0.mul(isGroundFloor).mul(wall).mul(step(abs(bayIdx.sub(min(floor(tone.mul(bays)), bays.sub(1.0)))), 0.5));
   // A box that isn't a whole number of storeys (landmark tiers) ends in a solid parapet instead of slicing a row of
   // windows, and starts with one above the roof it stands on; every wall is capped by a coping at its top
   let partial = float(0.0);
@@ -507,7 +513,7 @@ function facadeCell(windowWidth, floorHeight, boxLocal, cornerPier = 0) {
   }
   const solid = max(max(inPier.mul(float(1.0).sub(isGroundFloor)), blank), partial);
   return {
-    isRoof, uCoord, vCoord, gridV, cellId, cellUV, fw, bayWidth, isGroundFloor, solid, floor0, back, blank, door, tone,
+    isRoof, uCoord, vCoord, gridV, cellId, cellUV, fw, bayWidth, isGroundFloor, solid, floor0, back, blank, door, shopDoor, tone,
     wallS, wallW, wallH, fromTop, boxSeed, partial, coping, flip
   };
 }
@@ -1547,6 +1553,23 @@ function createTileShophouseMaterial(opts = {}) {
     const shopInterior = bulbCol.mul(shopInteriorRaw)
       .mul(float(1.0).sub(smoothstep(0.66, 0.775, cellUV.y).mul(float(recess))));
     glassCol = mix(glassCol, shopInterior, isShopFloor);
+
+    // Issue #390: the 3D storefront's glass — mullions + transom frame
+    // the shop glass into 落地窗 panels (the tile material used to paint
+    // the shop interior with no frame at all), and the shop door bay
+    // (cell.shopDoor — the same tone-picked bay as the residential
+    // door) paints as a glass door: darker glass with a handle, its
+    // mullion skipped so it reads as one door panel. The transom stays
+    // on the door bay (the door's top light).
+    const storeTransom = lineAA(cellUV.y.sub(0.70), 0.015).mul(isShopFloor);
+    const storeMullion = lineAA(fract(cellUV.x.mul(2.0)).sub(0.5), 0.018)
+      .mul(isShopFloor).mul(float(1.0).sub(cell.shopDoor));
+    glassCol = mix(glassCol, cAlu, max(storeTransom, storeMullion).mul(inWindow));
+    const shopDoorGlass = mix(cGlass.mul(0.45), color(0x1e2428), 0.5);
+    const doorHandle = filteredPulse(cellUV.x, 0.80, 0.86, fw.x)
+      .mul(filteredPulse(cellUV.y, 0.40, 0.60, fw.y));
+    glassCol = mix(glassCol, shopDoorGlass, cell.shopDoor.mul(isShopFloor));
+    glassCol = mix(glassCol, color(0xd8d2c4), doorHandle.mul(cell.shopDoor).mul(isShopFloor));
 
     col = mix(col, glassCol, inWindow);
 
