@@ -10121,11 +10121,24 @@ export function taipeiFrontageLookup(geodata) {
       { x: cx + (d / 2 + 7) * s, z: cz + (d / 2 + 7) * c, nx: s, nz: c },
       { x: cx - (d / 2 + 7) * s, z: cz - (d / 2 + 7) * c, nx: -s, nz: -c },
     ];
+    // Issue #379: the per-face ranks, in the same order as the faces
+    // array — +x ('e'), -x ('w'), +z ('s'), -z ('n') in the lot's
+    // local frame (the same order as facesOf in taipei-cafe-scenes.js
+    // and the `faces` attribute order in the renderer). 0 when no road
+    // is within reach of that face. Carried on the best frontage so
+    // the adapter can pass the road-facing faces to the renderer;
+    // `best` itself (rank/d/angle/nx/nz) is unchanged.
+    const faceKeys = ['e', 'w', 's', 'n'];
+    const faceRanks = { e: 0, w: 0, s: 0, n: 0 };
     let best = null;
-    for (const f of faces) {
+    faces.forEach((f, i) => {
       const r = at(f.x, f.z, 16, f.nx, f.nz);
-      if (r && (!best || r.rank > best.rank || (r.rank === best.rank && r.d < best.d))) best = r;
-    }
+      if (r) {
+        faceRanks[faceKeys[i]] = r.rank;
+        if (!best || r.rank > best.rank || (r.rank === best.rank && r.d < best.d)) best = r;
+      }
+    });
+    if (best) best.faces = faceRanks;
     return best;
   };
 }
@@ -10228,6 +10241,19 @@ export function taipeiCityBlocksOptions(geodata, plan = planTaipeiBuildings(geod
       // exactly as before.
       const front = frontageFor(r);
       if (!front || front.rank < SHOP_FRONTAGE_MIN_RANK) r.shops = 0;
+      // Issue #379: the faces that front a road (rank >= 2) — the
+      // ground-floor storefront goes on those faces only (a corner lot
+      // gets both). The renderer reads it via commit's shopFaces;
+      // lots with r.shops = 0 never reach the storefront path, and
+      // the field is absent when the lot fronts no road at all.
+      if (front?.faces) {
+        r.shopFaces = {
+          w: front.faces.w >= SHOP_FRONTAGE_MIN_RANK,
+          e: front.faces.e >= SHOP_FRONTAGE_MIN_RANK,
+          n: front.faces.n >= SHOP_FRONTAGE_MIN_RANK,
+          s: front.faces.s >= SHOP_FRONTAGE_MIN_RANK,
+        };
+      }
       // Issue #56: vertical signs on a hashed subset of Taiwan-type lots.
       // Issue #354: the frontage lookup (computed once per lot above)
       // feeds the sign policy, so arterial frontages sign denser; the
