@@ -90,6 +90,16 @@ const SIGN_BLADE_SHAPES = 'psppppppppppppppppppppppppwswpppppppppppppsswsppppppr
 const SIGN_BLADE_SHAPE_PORTRAIT = 0;
 const SIGN_BLADE_SHAPE_SQUARE = 1;
 const SIGN_BLADE_SHAPE_ROUND = 2;
+// Issue #382: the thin-axis flag for a blade side — 0 when the
+// blade's thin axis is the unit box's local x (a north/south blade,
+// whose instance scale is (thick, h, out)), 1 when it is local z
+// (an east/west blade, scale (out, h, thick)). The fill loop stamps
+// it per blade as aBladeThin; the shader reads it with the box-local
+// normal to find the thin edge faces. The node suite pins the
+// mapping and the fill loop's use of it.
+function bladeThinFlag(side) {
+  return (side === 's' || side === 'n') ? 0 : 1;
+}
 // The weighted plate bands from the blade shader (see vSignPlateColor
 // in buildCityBlocks): hp is the first hash, hp2 the second hash.
 const SIGN_BLADE_PLATE_BANDS = [
@@ -3282,6 +3292,39 @@ function buildCityBlocks(scene, opts = null) {
   // face-coordinate hash below, so both faces of one blade show the
   // lot's brand; -1 keeps the hash path.
   const vSignPlateAttr = attribute('aBladePlate', 'float');
+  // Issue #382: the per-instance thin axis (aBladeThin on the blade
+  // geometry — 0 when the blade's thin axis is the unit box's local
+  // x, 1 when it is local z; set by the fill loop from s.side via
+  // bladeThinFlag). The edge test below reads it with the box-local
+  // normal to find the thin edge faces.
+  const vSignThin = attribute('aBladeThin', 'float');
+  // Issue #382: which fragments are a blade's thin edge (or top /
+  // bottom) face, and must take the plate's background instead of
+  // its lettering. The old rule — a nonzero fwidth(faceCoord) —
+  // only fires on turned blades (their face coordinate varies
+  // across the face) and never on axis-aligned blades (the
+  // coordinate is constant on every face), so the squished 花店 on
+  // the thin edge survived. The box-local normal is exact on every
+  // face regardless of the turn (the roof-board precedent in
+  // makeRoofBoardMaterial): the edge faces are the unit box's faces
+  // perpendicular to the blade's BROAD (out) axis — the faces at
+  // +/-out/2, thin strips of thick x h — NOT the faces perpendicular
+  // to the thin axis (those are the broad faces, h x out). So for a
+  // north/south blade (thin axis local x, vSignThin 0) the edge
+  // faces are the +/-z faces, and for an east/west blade (thin axis
+  // local z, vSignThin 1) they are the +/-x faces. The fwidth term
+  // stays: it blanks turned blades whole, whose face-coordinate
+  // plate hash would stripe across a diagonal broad face — their
+  // broad faces are unchanged by this fix. Shared by the colour and
+  // the opacity nodes below, so the rim stays solid exactly where
+  // the colour goes solid.
+  const vSignEdge = () => {
+    const nW = normalWorldGeometry;
+    const nG = normalGeometry;
+    const faceCoord = mix(positionWorld.z, positionWorld.x, step(abs(nW.z), abs(nW.x)));
+    const localEdge = mix(step(0.5, abs(nG.z)), step(0.5, abs(nG.x)), vSignThin);
+    return localEdge.add(step(0.001, fwidth(faceCoord))).add(step(0.5, abs(nW.y))).clamp(0.0, 1.0);
+  };
   const vSignPlateColor = () => {
     const uvN = uv();
     const nW = normalWorldGeometry;
@@ -3339,11 +3382,10 @@ function buildCityBlocks(scene, opts = null) {
     const texCol = texture(bladeAtlasTex, tuv).rgb;
     // Thin edges and the top/bottom faces have no room for lettering:
     // they take the plate's own background (sampled from the cell's
-    // bottom margin). A broad face's face coordinate is constant, so
-    // a nonzero derivative marks an edge face.
+    // bottom margin). See vSignEdge above for the rule.
     const bgUV = vec2(colI.add(0.5).div(SIGN_BLADE_COLS), rowB.add(0.02).div(SIGN_BLADE_ROWS));
     const bgCol = texture(bladeAtlasTex, bgUV).rgb;
-    const edge = step(0.001, fwidth(faceCoord)).add(step(0.5, abs(nW.y))).clamp(0.0, 1.0);
+    const edge = vSignEdge();
     return mix(texCol, bgCol, edge);
   };
   vSignMat.colorNode = Fn(() => {
@@ -3361,18 +3403,19 @@ function buildCityBlocks(scene, opts = null) {
   })();
   // Issue #375: a round blade is a disc, not a box — discard the
   // fragments outside the inscribed circle on the broad faces. The
-  // edge test (a nonzero face-coordinate derivative, or a horizontal
-  // normal) keeps the thin rim and the top/bottom faces solid, so
-  // the disc keeps its plate-coloured edge. The alphaTest +
+  // edge test (vSignEdge above: the box-local thin-axis faces, the
+  // turned-blade derivative term, or a horizontal normal) keeps the
+  // thin rim and the top/bottom faces solid, so the disc keeps its
+  // plate-coloured edge. The alphaTest +
   // opacityNode pattern is the Taipei marking material's
   // (createTaipeiMarkingMaterial) and the maskShadowNode pattern is
   // the tree material's, so the shadow follows the disc.
   vSignMat.alphaTest = 0.5;
   vSignMat.opacityNode = Fn(() => {
     const uvN = uv();
-    const nW = normalWorldGeometry;
-    const faceCoord = mix(positionWorld.z, positionWorld.x, step(abs(nW.z), abs(nW.x)));
-    const edge = step(0.001, fwidth(faceCoord)).add(step(0.5, abs(nW.y))).clamp(0.0, 1.0);
+    // Issue #382: the same edge rule as the colour node (vSignEdge
+    // above) — the disc cutout must not eat the solid rim.
+    const edge = vSignEdge();
     const isRound = step(1.5, vSignShape);
     const d = uvN.sub(vec2(0.5, 0.5));
     const r2 = d.x.mul(d.x).add(d.y.mul(d.y));
@@ -3390,6 +3433,11 @@ function buildCityBlocks(scene, opts = null) {
   // set by the fill loop from pickLotSignPlates). Filled -1 so unset
   // entries keep the face-coordinate hash path in vSignPlateColor.
   vSignGeo.setAttribute('aBladePlate', new THREE.InstancedBufferAttribute(new Float32Array(MAX_VSIGNS).fill(-1), 1));
+  // Issue #382: the per-instance thin axis (aBladeThin: 0 = the
+  // blade's thin axis is the unit box's local x, 1 = local z — set
+  // by the fill loop from s.side via bladeThinFlag). Unused entries
+  // stay 0.
+  vSignGeo.setAttribute('aBladeThin', new THREE.InstancedBufferAttribute(new Float32Array(MAX_VSIGNS), 1));
   const vSignInst = new THREE.InstancedMesh(vSignGeo, vSignMat, MAX_VSIGNS);
   vSignInst.name = 'TaipeiVerticalSigns'; // Issue #354: the evidence
   // stage reads the live blade count (vSignInst.count) by name.
@@ -3723,6 +3771,8 @@ function buildCityBlocks(scene, opts = null) {
         dummy.updateMatrix();
         vSignInst.setMatrixAt(vSignCount, dummy.matrix);
         vSignGeo.attributes.aBladeShape.setX(vSignCount, shape);
+        // Issue #382: the thin axis for the edge test (see vSignEdge).
+        vSignGeo.attributes.aBladeThin.setX(vSignCount, bladeThinFlag(s.side));
         vSignCount++;
       }
 
@@ -3996,6 +4046,8 @@ function buildCityBlocks(scene, opts = null) {
     flagRange(vSignGeo.attributes.aBladeShape, vSignCount);
     // Issue #378: the per-instance plate attribute, same treatment.
     flagRange(vSignGeo.attributes.aBladePlate, vSignCount);
+    // Issue #382: the per-instance thin-axis attribute, same treatment.
+    flagRange(vSignGeo.attributes.aBladeThin, vSignCount);
 
     for (let p = 0; p < roofBoardInsts.length; p++) {
       roofBoardInsts[p].count = roofBoardCounts[p];
