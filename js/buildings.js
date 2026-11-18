@@ -170,6 +170,33 @@ function bladeShapeCode(plate) {
   return ch === 's' ? SIGN_BLADE_SHAPE_SQUARE : ch === 'r' ? SIGN_BLADE_SHAPE_ROUND : SIGN_BLADE_SHAPE_PORTRAIT;
 }
 
+// Issue #380: upper-floor shops — which lots become multi-layer
+// stores, and each upper floor's brand. The want is a pure hash pick
+// (no rand() — commit's `tone` must stay the shops roll, per #379):
+// 1% of candidates take a second upper floor, 6% more take one.
+// Candidates are shop lots in the sign-bearing families [6,7,8,9,13]
+// (the same set as taipeiVerticalSigns) with at least 2 floors; the
+// want is clamped to floors-1. Each upper floor gets its OWN brand
+// pick (a different salt per floor), so floors show different shops —
+// a drink shop below, a clinic or cram school above, like the real
+// stacked shophouses. Returns { want, plates } with plates[0] for
+// floor 1 (the second floor) and plates[1] for floor 2.
+const UPPER_SHOP_WANT_SALT = 0x3800;
+const UPPER_SHOP_FLOOR1_SALT = 0x3801;
+const UPPER_SHOP_FLOOR2_SALT = 0x3802;
+const UPPER_SHOP_MATS = [6, 7, 8, 9, 13];
+function upperShopPick(lot, floors) {
+  if (!UPPER_SHOP_MATS.includes(lot.mat) || floors < 2) return { want: 0, plates: [] };
+  const frac = (x) => x - Math.floor(x);
+  const h = frac(lotSignSeed(lot, UPPER_SHOP_WANT_SALT) * 0.6180339887);
+  let want = h < 0.01 ? 2 : h < 0.07 ? 1 : 0;
+  want = Math.min(want, floors - 1);
+  const plates = [];
+  if (want >= 1) plates.push(pickLotSignPlates(lotSignSeed(lot, UPPER_SHOP_FLOOR1_SALT)));
+  if (want >= 2) plates.push(pickLotSignPlates(lotSignSeed(lot, UPPER_SHOP_FLOOR2_SALT)));
+  return { want, plates };
+}
+
 /**
  * Spatial 2D Quadtree partitioning all of Manhattan Island (Harlem 125th St to Battery Park)
  * for fast O(log N) range queries around the active player/camera position.
@@ -985,7 +1012,15 @@ function buildCityBlocks(scene, opts = null) {
       // Issue #378: bandPlate is the lot's band plate (-1 when the
       // building carries none — the Manhattan path — so the facade
       // shader keeps its per-bay hash pick there).
-      const box = { x: p.x0 + w * 0.5, y: p.y0 + h * 0.5, z: p.z0 + d * 0.5, w, h, d, faces: p.walls != null ? [p.walls, p.walls, p.walls, p.walls] : wallKinds(b, p, shops, o), tone, bandPlate: b.signPlates ? b.signPlates.band : -1 };
+      // Issue #380: upper-floor shops — the lot's upper-shop want
+      // applies only when it actually rolled shops ('all'); a 'none'
+      // lot gets no upper band either. The plates ride on the
+      // building object (see populatePlannedLot) and are stamped onto
+      // every facade box like bandPlate.
+      const upperCount = shopsOn !== 'none' && b.upperShops ? b.upperShops.want : 0;
+      const upperPlate2 = upperCount >= 1 && b.upperShops.plates[0] ? b.upperShops.plates[0].band : -1;
+      const upperPlate3 = upperCount >= 2 && b.upperShops.plates[1] ? b.upperShops.plates[1].band : -1;
+      const box = { x: p.x0 + w * 0.5, y: p.y0 + h * 0.5, z: p.z0 + d * 0.5, w, h, d, faces: p.walls != null ? [p.walls, p.walls, p.walls, p.walls] : wallKinds(b, p, shops, o), tone, bandPlate: b.signPlates ? b.signPlates.band : -1, upperShops: upperCount, bandPlate2: upperPlate2, bandPlate3: upperPlate3 };
       buckets[mat].push(box);
       blk.facadeBoxes.push(box);
       blk.footprints.push({ x0: p.x0, x1: p.x1, z0: p.z0, z1: p.z1, h: p.y1, tone });
@@ -2301,6 +2336,11 @@ function buildCityBlocks(scene, opts = null) {
     // commit() can stamp it onto every facade box (see aBandPlate).
     b.signPlates = signPlates;
     const floors = Math.max(1, Math.round(lot.h / storeys[mat]));
+    // Issue #380: the upper-shop want (floor-clamped here) rides on
+    // the building object like signPlates; commit applies it only when
+    // the lot actually rolled shops ('all'), so a 'none' lot gets no
+    // upper band either. Pure hash — no rand() before commit's tone roll.
+    b.upperShops = upperShopPick(lot, floors);
     if (lot.arcade && floors >= 2) {
       // Issue #55 — the F7 騎樓 as real massing (parts computed by
       // taipeiArcadeParts in js/taipei-buildings.js): the ground storey
