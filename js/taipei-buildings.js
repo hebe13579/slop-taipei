@@ -9576,7 +9576,7 @@ export function taipeiRooftopAdditions(gear, lot, units) {
   // rate, so the tall tile slabs get the stainless-tank roofscape the
   // issue asks for. Skipped on hut lots (issue #100): every spot is
   // under the addition.
-  if (huts.length === 0 && lot.h >= 8 && lot.h <= (lot.mat === 12 ? HIGH_RISE_TAIWAN_MAX_H : 34) && Math.min(w, d) >= 5.5 && hash01(seed ^ 0x7777) < TAIPEI_TANK_RATE) {
+  if (huts.length === 0 && lot.h >= 8 && lot.h <= (lot.mat === 12 ? HIGH_RISE_TAIWAN_MAX_H : 34) && Math.min(w, d) >= 5.5 && (lot.narrowShophouse || hash01(seed ^ 0x7777) < TAIPEI_TANK_RATE)) {
     for (const s of spots) {
       const r = { x0: s.x - TANK_RADIUS, x1: s.x + TANK_RADIUS, z0: s.z - TANK_RADIUS, z1: s.z + TANK_RADIUS };
       if (!fits(r, 0.35)) continue;
@@ -9648,6 +9648,101 @@ export function taipeiArcadeParts(lot) {
     push(lot.x1 - C, lot.z0 + off - C / 2);
   }
   return { depth: D, core, columns };
+}
+
+// --- Issue #390: 3D ground-floor storefronts + narrow 4-floor shophouses ---
+// Pure data, consumed by js/buildings.js's populatePlannedLot like the
+// arcade parts above. The 3D storefront is the ground storey as a real
+// recessed mass (the shop glass sits back from the facade line and the
+// upper floors overhang it, like the arcade core); the shop door is a
+// shader bay (see facadeCell's shopDoor in js/tsl-materials.js), so the
+// adapter carries no door geometry.
+//   - taipeiShopsRoll replicates commit's shops roll exactly: the tone is
+//     the first mulberry32 output after the per-lot re-seed in
+//     populatePlannedLot (seed from the lot's x0/z0), compared against
+//     the same probability table as commit's shops option in
+//     js/buildings.js. The fresh instance consumes no shared rand(), so
+//     commit's tone is untouched. The test pins the table, the seed
+//     formula and the storey heights against buildings.js source.
+//   - taipeiStorefrontParts returns the recessed ground-storey rect (the
+//     lot rect inset STOREFRONT_RECESS_M on each shop face) or null when
+//     the lot gets no 3D storefront: no shop roll, no road-facing shop
+//     face, an arcade lot (family 7 — the arcade core already recesses
+//     the ground floor 3.6 m), a newer-apartment lot (families 10/11 —
+//     the podium massing owns the ground floor), or a pre-war/glass
+//     family (0–5 — the flat treatment, a follow-up if wanted).
+//   - narrowShophouseFor flags the narrow 4-floor shophouse style:
+//     families 6/7, exactly 4 floors, min(w, d) <= 10 m, a shop lot
+//     with at least one road-facing shop face. Those lots get an awning
+//     over each shopfront face (commit step 4b) and a forced rooftop
+//     water tank (the gear clamp); balconies and AC are already
+//     shader-painted on the tile shophouse material.
+export const STOREFRONT_RECESS_M = 0.4;
+export const STOREFRONT_RECESS_MATS = [6, 8, 9, 12, 13];
+export const NARROW_SHOPHOUSE_MATS = [6, 7];
+export const NARROW_SHOPHOUSE_FLOORS = 4;
+export const NARROW_SHOPHOUSE_MAX_NARROW_M = 10;
+// Storey heights mirrored from js/buildings.js facades[6]/[7]
+// (floorHeight 3.35 / 3.45); pinned by tests/taipei-3d-storefront.test.mjs.
+export const NARROW_SHOPHOUSE_STOREYS = { 6: 3.35, 7: 3.45 };
+// Shops probabilities mirrored from populatePlannedLot's commit call in
+// js/buildings.js: the per-family table for mats 6–13 (index mat - 6)
+// and the 0.3 fallback for mats 0–5. Pinned by the same test.
+export const SHOPS_PROBABILITY_TABLE = [0.85, 0.9, 0.45, 0.35, 0.35, 0.3, 0.3, 0.35];
+export const SHOPS_PROBABILITY_OTHER = 0.3;
+// mulberry32, copied verbatim from js/buildings.js (the adapter is
+// three-free and standalone) — the per-lot PRNG commit rolls its tone
+// from. A fresh instance per lot replicates the roll without touching
+// the shared rand().
+function mulberry32(seed) {
+  let a = seed >>> 0;
+  return function () {
+    a |= 0;
+    a = (a + 0x6D2B79F5) | 0;
+    let t = Math.imul(a ^ (a >>> 15), 1 | a);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+export function taipeiShopsRoll(lot) {
+  // The seed formula mirrors populatePlannedLot's per-lot re-seed
+  // exactly (js/buildings.js): the lot's x0/z0, quarter-metre grid.
+  const seed = (Math.imul(Math.round(lot.x0 * 4), 73856093)
+    ^ Math.imul(Math.round(lot.z0 * 4), 19349663) ^ 10019) >>> 0;
+  const tone = mulberry32(seed)();
+  const prob = lot.shops ?? (lot.mat >= 6
+    ? SHOPS_PROBABILITY_TABLE[lot.mat - 6]
+    : SHOPS_PROBABILITY_OTHER);
+  return tone < prob ? 'all' : 'none';
+}
+
+export function taipeiStorefrontParts(lot, shopsOn) {
+  if (shopsOn !== 'all') return null;
+  if (!STOREFRONT_RECESS_MATS.includes(lot.mat)) return null;
+  const faces = lot.shopFaces;
+  if (!faces || !(faces.w || faces.e || faces.n || faces.s)) return null;
+  const R = STOREFRONT_RECESS_M;
+  const recess = {
+    x0: lot.x0 + (faces.w ? R : 0),
+    x1: lot.x1 - (faces.e ? R : 0),
+    z0: lot.z0 + (faces.n ? R : 0),
+    z1: lot.z1 - (faces.s ? R : 0),
+  };
+  // A lot too narrow for the inset on both sides keeps the flat front.
+  if (recess.x1 - recess.x0 < 1 || recess.z1 - recess.z0 < 1) return null;
+  return { recess };
+}
+
+export function narrowShophouseFor(lot, shopsOn) {
+  if (shopsOn !== 'all') return false;
+  if (!NARROW_SHOPHOUSE_MATS.includes(lot.mat)) return false;
+  if (Math.round(lot.h / NARROW_SHOPHOUSE_STOREYS[lot.mat]) !== NARROW_SHOPHOUSE_FLOORS) return false;
+  const w = lot.x1 - lot.x0, d = lot.z1 - lot.z0;
+  if (Math.min(w, d) > NARROW_SHOPHOUSE_MAX_NARROW_M) return false;
+  const faces = lot.shopFaces;
+  if (!faces || !(faces.w || faces.e || faces.n || faces.s)) return false;
+  return true;
 }
 
 // --- Issue #256: newer apartment massing ------------------------------
@@ -10254,6 +10349,13 @@ export function taipeiCityBlocksOptions(geodata, plan = planTaipeiBuildings(geod
           s: front.faces.s >= SHOP_FRONTAGE_MIN_RANK,
         };
       }
+      // Issue #390: the ground-floor 3D storefront (recess + shop door)
+      // and the narrow 4-floor shophouse style — adapter-side only, so
+      // the plan is byte-identical: the shops roll is replicated exactly
+      // (taipeiShopsRoll) and the fields ride only in memory.
+      const shopsOn = taipeiShopsRoll(r);
+      r.storefront = taipeiStorefrontParts(r, shopsOn);
+      r.narrowShophouse = narrowShophouseFor(r, shopsOn);
       // Issue #56: vertical signs on a hashed subset of Taiwan-type lots.
       // Issue #354: the frontage lookup (computed once per lot above)
       // feeds the sign policy, so arterial frontages sign denser; the

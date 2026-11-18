@@ -1119,6 +1119,31 @@ function buildCityBlocks(scene, opts = null) {
         if (blk.maxX - p.x1 < EPS) avenueFront(blk, 'e', p.z0, p.z1, shops.e);
       }
     }
+
+    // 4b. Issue #390: awnings over the narrow-shophouse storefronts —
+    // one per shopfront face, reusing the avenue awning pool. Placed
+    // from the lot rect at the facade line (y 3.8 above the seated
+    // base, protruding 1.2 m), so one awning shades the recessed
+    // shopfront on recessed lots and the arcade opening on F7 lots
+    // alike. noSign skips the Manhattan fascia sign (the Taiwan band
+    // sign is painted in the shader — see the fill loop). The colour
+    // is the lot's tone (no rand(): step 4 is commit's last consumer).
+    if (o.narrowShophouse && shopsOn !== 'none') {
+      const lot = b.lot;
+      const baseY = parts.length ? parts[0].y0 : 0;
+      const colorIdx = Math.min(4, Math.floor(tone * 5));
+      const w = lot.x1 - lot.x0, d = lot.z1 - lot.z0;
+      const pushAwning = (side, x, y, z, aw, ad) => {
+        // The span (the larger dimension) must clear 1.5 m; the 1.2 m
+        // protrusion is the other dimension.
+        if (Math.max(aw, ad) < 1.5) return;
+        blk.awnings.push({ x, y, z, w: aw, d: ad, sideDir: side === 'w' || side === 'n' ? -1 : 1, colorIdx, noSign: true });
+      };
+      if (shops.w) pushAwning('w', lot.x0 - 0.6, baseY + 3.8, (lot.z0 + lot.z1) / 2, 1.2, d - 1.6);
+      if (shops.e) pushAwning('e', lot.x1 + 0.6, baseY + 3.8, (lot.z0 + lot.z1) / 2, 1.2, d - 1.6);
+      if (shops.n) pushAwning('n', (lot.x0 + lot.x1) / 2, baseY + 3.8, lot.z0 - 0.6, w - 1.6, 1.2);
+      if (shops.s) pushAwning('s', (lot.x0 + lot.x1) / 2, baseY + 3.8, lot.z1 + 0.6, w - 1.6, 1.2);
+    }
   }
 
   // Corner treatments for tower shafts: notched (re-entrant corners), stepped (double notches), plus (cruciform),
@@ -2358,6 +2383,18 @@ function buildCityBlocks(scene, opts = null) {
       mass(b, a.columns, 0, 1);
       for (let i = colStart; i < b.parts.length; i++) b.parts[i].walls = WALL_KINDS.blankStone;
     }
+    if (lot.storefront && floors >= 2 && !lot.newer) {
+      // Issue #390 — the 3D storefront: the ground storey is the
+      // recessed rect (computed by taipeiStorefrontParts in
+      // js/taipei-buildings.js), so the shop glass sits back from the
+      // facade line and the upper floors overhang it; the upper part
+      // starts at storey 1 so it grows no second ground floor. The
+      // recessed face still paints shop glass (commit's wall kinds give
+      // ground parts shop fronts) and the band sign stays on the upper
+      // facade plane. The base collider is the full lot rect inset
+      // 0.5 m, so the 0.4 m recess sits inside it.
+      mass(b, [lot.storefront.recess], 0, 1);
+    }
     if (lot.newer && floors >= 6) {
       // Issue #256 — newer apartment massing (parts computed by
       // taipeiNewerApartmentParts in js/taipei-buildings.js, in this
@@ -2378,7 +2415,7 @@ function buildCityBlocks(scene, opts = null) {
       for (const p of solidParts) b.parts.push({ x0: p.x0, x1: p.x1, z0: p.z0, z1: p.z1, y0: p.y0, y1: p.y1 });
       for (let i = solidStart; i < b.parts.length; i++) b.parts[i].walls = WALL_KINDS.blankStone;
     } else {
-      mass(b, [rect(minX, maxX, minZ, maxZ)], lot.arcade && floors >= 2 ? 1 : 0, floors);
+      mass(b, [rect(minX, maxX, minZ, maxZ)], (lot.arcade || lot.storefront) && floors >= 2 ? 1 : 0, floors);
     }
     // Issue #132: a planned lot may carry a seated base (lot.y,
     // from the Taipei drape seating in taipeiCityBlocksOptions) —
@@ -2415,7 +2452,7 @@ function buildCityBlocks(scene, opts = null) {
       // (100% shopfronts on every face); the high-rise lobby tower (12)
       // takes the lowest share like 11, and the strip-tile mid-rise (13)
       // takes the mid-rise housing-led share like 9/10.
-      ? { cornice: false, roof: 'prewar', wtP: 0, shops: lot.shops ?? [0.85, 0.9, 0.45, 0.35, 0.35, 0.3, 0.3, 0.35][mat - 6], awnings: false, shopFaces: lot.shopFaces }
+      ? { cornice: false, roof: 'prewar', wtP: 0, shops: lot.shops ?? [0.85, 0.9, 0.45, 0.35, 0.35, 0.3, 0.3, 0.35][mat - 6], awnings: false, shopFaces: lot.shopFaces, narrowShophouse: lot.narrowShophouse }
       : mat >= 3
         ? { cornice: false, roof: 'mech', shops: lot.shops ?? 0.3, awnings: false, shopFaces: lot.shopFaces }
         : { roof: 'prewar', wtP: 0.35, shops: lot.shops ?? 0.3, awnings: false, shopFaces: lot.shopFaces });
@@ -3600,15 +3637,21 @@ function buildCityBlocks(scene, opts = null) {
         awningInst.setMatrixAt(awningCount, dummy.matrix);
         awningInst.setColorAt(awningCount, awningPalette[a.colorIdx % awningPalette.length]);
 
+        // Issue #390: a noSign awning (the narrow-shophouse awning,
+        // whose Taiwan band sign is painted in the shader) places the
+        // awning geometry but no Manhattan fascia sign and no sign
+        // near-light — the awning itself still counts.
         const themeIdx = awningCount % signInsts.length;
-        if (signCounts[themeIdx] < MAX_SIGNS_PER_THEME) {
-          dummy.position.set(a.x, 4.68, a.z);
-          dummy.scale.set(0.28, 0.86, a.d * 0.92);
-          dummy.updateMatrix();
-          signInsts[themeIdx].setMatrixAt(signCounts[themeIdx]++, dummy.matrix);
-        }
-        if (collectNearLights) {
-          activeAwnings.push({ a, themeIdx, ry: blk.ry || 0 });
+        if (!a.noSign) {
+          if (signCounts[themeIdx] < MAX_SIGNS_PER_THEME) {
+            dummy.position.set(a.x, 4.68, a.z);
+            dummy.scale.set(0.28, 0.86, a.d * 0.92);
+            dummy.updateMatrix();
+            signInsts[themeIdx].setMatrixAt(signCounts[themeIdx]++, dummy.matrix);
+          }
+          if (collectNearLights) {
+            activeAwnings.push({ a, themeIdx, ry: blk.ry || 0 });
+          }
         }
         awningCount++;
       }
