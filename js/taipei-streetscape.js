@@ -468,7 +468,12 @@ export function planStreetTrees(geodata, plan, opts = {}) {
             const x = st.x + st.nx * side * (half + bandW / 2) + st.dx * j;
             const z = st.z + st.nz * side * (half + bandW / 2) + st.dz * j;
             if (tryPlant(x, z, bedIdx)) {
-              out.push({ x, z, kind, scale: 0.85 + hash01(`${key}|scale|${out.length}`) * 0.5, rot: hash01(`${key}|rot|${out.length}`) * Math.PI * 2 });
+              // Issue #385: discrete size classes (see
+              // pickSizeClass) — the old continuous 0.85–1.35 draw
+              // put most trees near the mean. The class band is a
+              // new hash; the jitter reuses the existing scale hash.
+              const picked = pickSizeClass(TREE_SIZE_CLASSES, hash01(`${key}|sizeclass|${out.length}`), hash01(`${key}|scale|${out.length}`));
+              out.push({ x, z, kind, sizeClass: picked.id, scale: picked.scale, rot: hash01(`${key}|rot|${out.length}`) * Math.PI * 2 });
             }
           }
         }
@@ -481,7 +486,10 @@ export function planStreetTrees(geodata, plan, opts = {}) {
           const j = (hash01(`${key}|${kind}|${out.length}`) - 0.5) * 2.4;
           const x = st.x + st.dx * j, z = st.z + st.dz * j;
           if (tryPlant(x, z, bedIdx)) {
-            out.push({ x, z, kind, scale: 0.9 + hash01(`${key}|mscale|${out.length}`) * 0.5, rot: hash01(`${key}|mrot|${out.length}`) * Math.PI * 2 });
+            // Issue #385: discrete size classes (see pickSizeClass),
+            // same treatment as the sidewalk rows.
+            const picked = pickSizeClass(TREE_SIZE_CLASSES, hash01(`${key}|msizeclass|${out.length}`), hash01(`${key}|mscale|${out.length}`));
+            out.push({ x, z, kind, sizeClass: picked.id, scale: picked.scale, rot: hash01(`${key}|mrot|${out.length}`) * Math.PI * 2 });
           }
         }
       }
@@ -506,9 +514,13 @@ export function planStreetTrees(geodata, plan, opts = {}) {
     sidewalk = thin(sidewalk, sideAllowed);
   }
 
+  // Issue #385: size-class mix over the final (possibly thinned)
+  // planting, so the classes are pinned rather than asserted.
+  const bySizeClass = {};
+  for (const t of [...sidewalk, ...median]) bySizeClass[t.sizeClass] = (bySizeClass[t.sizeClass] || 0) + 1;
   return {
     trees: [...sidewalk, ...median],
-    stats: { sidewalk: sidewalk.length, median: median.length, rejected, capped, cap },
+    stats: { sidewalk: sidewalk.length, median: median.length, rejected, capped, cap, bySizeClass },
   };
 }
 
@@ -590,6 +602,38 @@ export function parkTreeVariant(key, ci, nearPath = false) {
 export function parkBlossomTone(key, ci) {
   const r = hash01(`${key}|blossom|${ci}`);
   return r < 0.5 ? 'pink' : r < 0.8 ? 'white' : 'gold';
+}
+
+// Issue #385: distinct size classes for trees and bushes. Until
+// now every scale was one continuous uniform draw (park trees
+// 0.7–1.5, street trees 0.85–1.35, park bushes 0.55–1.40, street
+// bushes 0.5–0.8), so most individuals landed near the mean and
+// the planting read as one size — the user's "too similar" report.
+// Classes are hash bands with a GAP between them, so a sapling
+// (~0.5x) and a large tree (~1.6x) read as different sizes at a
+// glance. pickSizeClass(classes, band, jitter) takes two hash
+// draws — the class band and the within-class jitter — and returns
+// { id, scale }. The planners reuse their existing scale hash as
+// the jitter, so only the class band is a new hash call; positions,
+// counts, variants and caps never move.
+export const TREE_SIZE_CLASSES = [
+  { id: 'sapling', share: 0.12, min: 0.45, max: 0.60 },
+  { id: 'medium', share: 0.63, min: 0.85, max: 1.15 },
+  { id: 'large', share: 0.25, min: 1.45, max: 1.75 },
+];
+export const BUSH_SIZE_CLASSES = [
+  { id: 'small', share: 0.25, min: 0.40, max: 0.60 },
+  { id: 'medium', share: 0.55, min: 0.70, max: 1.10 },
+  { id: 'large', share: 0.20, min: 1.25, max: 1.60 },
+];
+export function pickSizeClass(classes, band, jitter) {
+  let acc = 0;
+  for (const c of classes) {
+    acc += c.share;
+    if (band < acc) return { id: c.id, scale: c.min + jitter * (c.max - c.min) };
+  }
+  const last = classes[classes.length - 1];
+  return { id: last.id, scale: last.min + jitter * (last.max - last.min) };
 }
 
 // A park polygon whose name carries 廣場 is a paved square (#29), the
@@ -806,19 +850,28 @@ export function planParkTrees(geodata, plan, opts = {}) {
           if (d < c.r) p *= d < 0.65 * c.r ? 0.03 : 0.03 + 0.97 * ((d - 0.65 * c.r) / (0.35 * c.r));
         }
         if (hash01(`${key}|roll|${ci}`) >= Math.min(p, 1)) { rejected.probability++; continue; }
-        // Issue #245: size range widened (0.7–1.5, keeping the
-        // small end) and a few per grove are heroes — clearly
-        // bigger trees (1.9–2.4x) at the grove's heart.
-        let scale = 0.7 + hash01(`${key}|scale|${ci}`) * 0.8;
+        // Issue #385: discrete size classes (see pickSizeClass) —
+        // the old continuous 0.7–1.5 draw put most trees near the
+        // mean, so the planting read as one size. The class band is
+        // a new hash; the within-class jitter reuses the existing
+        // scale hash. Heroes (issue #245: 1.9–2.4x at a grove's
+        // heart) are unchanged and keep their own branch.
         let hero = false;
+        let sizeClass = 'medium';
+        let scale;
         if (inGrove && hash01(`${key}|hero|${ci}`) < 0.05) {
           scale = 1.9 + hash01(`${key}|heroscale|${ci}`) * 0.5;
           hero = true;
+          sizeClass = 'hero';
+        } else {
+          const picked = pickSizeClass(TREE_SIZE_CLASSES, hash01(`${key}|sizeclass|${ci}`), hash01(`${key}|scale|${ci}`));
+          sizeClass = picked.id;
+          scale = picked.scale;
         }
         const variant = parkTreeVariant(key, ci, dPath < 7);
         trees.push({
           x, z, kind: 'park', park: park.name || '',
-          scale,
+          scale, sizeClass,
           rot: hash01(`${key}|trot|${ci}`) * Math.PI * 2,
           // Issue #222: seeded canopy variant — the boot renders
           // park trees from per-variant geometries (broad
@@ -875,14 +928,16 @@ export function planParkTrees(geodata, plan, opts = {}) {
 
   // Issue #245 census: grove count, hero count and variant mix, so
   // the clustering is pinned rather than asserted from frames.
+  // Issue #385 adds the size-class mix (same treatment).
   const byVariant = {};
   for (const v of PARK_TREE_VARIANTS) byVariant[v] = 0;
+  const bySizeClass = {};
   let heroes = 0;
-  for (const t of trees) { byVariant[t.variant]++; if (t.hero) heroes++; }
+  for (const t of trees) { byVariant[t.variant]++; if (t.hero) heroes++; bySizeClass[t.sizeClass] = (bySizeClass[t.sizeClass] || 0) + 1; }
 
   return {
     trees,
-    stats: { byClass, topParks, rejected, capped, cap, totalCandidates: Object.values(byClass).reduce((s, c) => s + c.candidates, 0), groves: perPark.reduce((s, p) => s + p.groves, 0), heroes, byVariant },
+    stats: { byClass, topParks, rejected, capped, cap, totalCandidates: Object.values(byClass).reduce((s, c) => s + c.candidates, 0), groves: perPark.reduce((s, p) => s + p.groves, 0), heroes, byVariant, bySizeClass },
   };
 }
 
