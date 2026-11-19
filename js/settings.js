@@ -24,6 +24,12 @@
 //               700 m is the slider's near end. Applied live — the
 //               per-frame LOD update reads it each frame, no
 //               rebuild. Schools keep the 700/600 m swap.
+//   parkTreeDensity — (Taipei; issue #384): how many trees grow
+//               in parks — 1x (today's planting, the default), 5x
+//               or 10x. Applied by re-planning + rebuilding the
+//               trees stage only (js/taipei-boot.js
+//               setParkTreeDensity) — buildings stay, no reload.
+//               Park trees only; street trees are untouched.
 //   drape     — (Taipei; issue #132): the Beitou + Yuanshan
 //               terrain drape — roads and buildings follow the
 //               baked SRTM DEM. Default ON; turning it off restores
@@ -106,6 +112,25 @@ export const SPECIAL_LOD_FAR_M_DEFAULT = 2000;
 export const SPECIAL_LOD_FAR_M_TICKS = Object.freeze([700, 1200, 2000, 3000]);
 // On release the LOD slider snaps to a tick when it lands this close.
 export const SPECIAL_LOD_SLIDER_SNAP_M = 100;
+// Issue #384: park-tree density stops. 1x is today's planting (the
+// default); 5x and 10x plant roughly five / ten times as many trees
+// in parks (tighter grid spacing, raised instance cap — see
+// planParkTrees in js/taipei-streetscape.js), so a park reads as
+// woodland, not empty lawn. A stored or URL value snaps to the
+// nearest stop; ties snap down (to the sparser stop), so a stray
+// value can never silently buy a heavier load than asked for.
+export const PARK_TREE_DENSITY_STOPS = Object.freeze([1, 5, 10]);
+export const PARK_TREE_DENSITY_DEFAULT = 1;
+export const clampParkTreeDensity = (v) => {
+  if (typeof v !== 'number' || !Number.isFinite(v)) return null;
+  let best = PARK_TREE_DENSITY_STOPS[0];
+  let bestGap = Infinity;
+  for (const s of PARK_TREE_DENSITY_STOPS) {
+    const gap = Math.abs(s - v);
+    if (gap < bestGap) { best = s; bestGap = gap; }
+  }
+  return best;
+};
 
 export const DEFAULT_SETTINGS = Object.freeze({
   specials: true,
@@ -113,6 +138,7 @@ export const DEFAULT_SETTINGS = Object.freeze({
   graphics: 'medium',
   farDetail: 'fade',
   specialLodFarM: SPECIAL_LOD_FAR_M_DEFAULT,
+  parkTreeDensity: PARK_TREE_DENSITY_DEFAULT,
   drape: true,
   trafficCars: 0,
   trafficRadiusM: 380,
@@ -225,6 +251,9 @@ export function resolveSettings({ search = '', stored = null, isMobile = false }
     // Issue #393: a stored LOD distance wins over the default.
     const slf = clampSpecialLodFarM(s.specialLodFarM);
     if (slf !== null) out.specialLodFarM = slf;
+    // Issue #384: a stored park-tree density wins over the default.
+    const ptd = clampParkTreeDensity(s.parkTreeDensity);
+    if (ptd !== null) out.parkTreeDensity = ptd;
     // Issue #281: the sliders are numeric now. A stored number wins;
     // otherwise an old stored preset maps onto its count/radius, and
     // a pre-#266 trafficEnabled maps onto Normal (200) / Off (0).
@@ -272,6 +301,9 @@ export function resolveSettings({ search = '', stored = null, isMobile = false }
   // Issue #393: the LOD distance param wins over storage.
   const qslf = clampSpecialLodFarM(numParam(q.get('specialLodFarM')));
   if (qslf !== null) out.specialLodFarM = qslf;
+  // Issue #384: the park-tree density param wins over storage.
+  const qptd = clampParkTreeDensity(numParam(q.get('parkTreeDensity')));
+  if (qptd !== null) out.parkTreeDensity = qptd;
   // Issue #281: the numeric slider params win; the old preset params
   // map onto the sliders, and trafficEnabled maps onto them only when
   // no trafficCars / trafficDensity param is given.
@@ -319,6 +351,7 @@ export function persistSettings(storage, settings) {
       graphics: settings.graphics,
       farDetail: settings.farDetail,
       specialLodFarM: settings.specialLodFarM,
+      parkTreeDensity: settings.parkTreeDensity,
       trafficCars: settings.trafficCars,
       trafficRadiusM: settings.trafficRadiusM,
       drape: settings.drape,
@@ -400,6 +433,9 @@ export function initSettingsPanel({ settings, taipeiSettings = null, onGraphics 
   const trafficRadiusValue = d.getElementById('set-traffic-radius-value');
   const specialLodSlider = d.getElementById('set-special-lod-far');
   const specialLodValue = d.getElementById('set-special-lod-far-value');
+  const parkTreeDensitySlider = d.getElementById('set-park-tree-density');
+  const parkTreeDensityValue = d.getElementById('set-park-tree-density-value');
+  const parkTreeDensityStatus = d.getElementById('set-park-tree-density-status');
 
   const reflect = () => {
     for (const b of densityBtns) b.classList.toggle('active', b.dataset.settingDensity === settings.density);
@@ -407,6 +443,8 @@ export function initSettingsPanel({ settings, taipeiSettings = null, onGraphics 
     for (const b of farDetailBtns) b.classList.toggle('active', b.dataset.settingFardetail === settings.farDetail);
     if (specialLodSlider) specialLodSlider.value = String(settings.specialLodFarM);
     if (specialLodValue) specialLodValue.textContent = `${settings.specialLodFarM.toLocaleString('en-US')} m`;
+    if (parkTreeDensitySlider) parkTreeDensitySlider.value = String(settings.parkTreeDensity);
+    if (parkTreeDensityValue) parkTreeDensityValue.textContent = `${settings.parkTreeDensity}×`;
     if (trafficCarsSlider) trafficCarsSlider.value = String(settings.trafficCars);
     if (trafficCarsValue) trafficCarsValue.textContent = settings.trafficCars === 0 ? 'Off' : `${settings.trafficCars} cars`;
     if (trafficRadiusSlider) trafficRadiusSlider.value = String(settings.trafficRadiusM);
@@ -434,7 +472,7 @@ export function initSettingsPanel({ settings, taipeiSettings = null, onGraphics 
       b.disabled = true;
       b.title = 'Taipei mode only';
     }
-    for (const s of [trafficCarsSlider, trafficRadiusSlider, specialLodSlider].filter(Boolean)) {
+    for (const s of [trafficCarsSlider, trafficRadiusSlider, specialLodSlider, parkTreeDensitySlider].filter(Boolean)) {
       s.disabled = true;
       s.title = 'Taipei mode only';
     }
@@ -545,6 +583,67 @@ export function initSettingsPanel({ settings, taipeiSettings = null, onGraphics 
         if (taipeiSettings.setSpecialLodFarM) taipeiSettings.setSpecialLodFarM(settings.specialLodFarM);
         if (persist) persist();
         reflect();
+      });
+    }
+    // Issue #384: the park-tree density slider (1x / 5x / 10x).
+    // Like traffic, the apply rebuilds the world — here the trees
+    // stage only, via taipeiSettings.setParkTreeDensity — so a
+    // drag commits every value but applies once at the settled
+    // value: debounced while dragging, at once on release, and
+    // snapped to a stop on release. On failure the last good
+    // density is restored in the world first, so the gear and the
+    // parks never disagree.
+    if (parkTreeDensitySlider) {
+      let parkTreeApplied = settings.parkTreeDensity;
+      let parkTreeDebounce = null;
+      let parkTreeApplyQueued = false;
+      const scheduleParkTreeApply = () => {
+        if (parkTreeApplyQueued) return;
+        parkTreeApplyQueued = true;
+        if (parkTreeDensityStatus) parkTreeDensityStatus.textContent = 'rebuilding…';
+        const run = () => {
+          parkTreeApplyQueued = false;
+          const apply = (v) => {
+            try {
+              if (!taipeiSettings.setParkTreeDensity) return false;
+              const res = taipeiSettings.setParkTreeDensity(v);
+              return !!res;
+            } catch (err) { console.error('[settings] park tree density change failed', err); return false; }
+          };
+          if (apply(settings.parkTreeDensity)) {
+            parkTreeApplied = settings.parkTreeDensity;
+            if (parkTreeDensityStatus) parkTreeDensityStatus.textContent = '';
+          } else {
+            const lastGood = parkTreeApplied;
+            if (apply(lastGood)) settings.parkTreeDensity = lastGood;
+            else settings.parkTreeDensity = PARK_TREE_DENSITY_DEFAULT;
+            if (parkTreeDensityStatus) parkTreeDensityStatus.textContent = 'change failed — kept previous density';
+          }
+          if (persist) persist();
+          reflect();
+        };
+        if (typeof requestAnimationFrame === 'function') requestAnimationFrame(() => setTimeout(run, 0));
+        else setTimeout(run, 0);
+      };
+      const scheduleDebouncedParkTreeApply = () => {
+        if (parkTreeDebounce !== null) clearTimeout(parkTreeDebounce);
+        parkTreeDebounce = setTimeout(() => { parkTreeDebounce = null; scheduleParkTreeApply(); }, TRAFFIC_SLIDER_DEBOUNCE_MS);
+      };
+      const releaseParkTreeApply = () => {
+        if (parkTreeDebounce !== null) { clearTimeout(parkTreeDebounce); parkTreeDebounce = null; }
+        if (settings.parkTreeDensity !== parkTreeApplied) scheduleParkTreeApply();
+      };
+      parkTreeDensitySlider.addEventListener('input', () => {
+        const v = clampParkTreeDensity(Number(parkTreeDensitySlider.value)) ?? PARK_TREE_DENSITY_DEFAULT;
+        if (v === settings.parkTreeDensity) return;
+        settings.parkTreeDensity = v;
+        reflect();
+        scheduleDebouncedParkTreeApply();
+      });
+      parkTreeDensitySlider.addEventListener('change', () => {
+        settings.parkTreeDensity = clampParkTreeDensity(settings.parkTreeDensity) ?? PARK_TREE_DENSITY_DEFAULT;
+        reflect();
+        releaseParkTreeApply();
       });
     }
   }
