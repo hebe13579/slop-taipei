@@ -24,6 +24,7 @@
 
 import {
   hash01, distToSegment, buildSegmentGrid, buildExclusionIndex, pointInRing, sidewalkBandWidth,
+  pickSizeClass, BUSH_SIZE_CLASSES,
 } from './taipei-streetscape.js';
 
 // Sidewalk rows only on these highways (the street-tree sidewalk
@@ -300,10 +301,15 @@ export function planStreetAmenities(geodata, plan, opts = {}) {
         const z = st.z + st.nz * side * (half + bandW / 2);
         const why = checkOK(x, z, 0.75, bedIdx);
         if (why) { rejected[why]++; continue; }
+        // Issue #385: discrete size classes (see pickSizeClass
+        // in taipei-streetscape.js) — the old 0.5–0.8 draw was the
+        // narrowest range of all four populations. The class band
+        // is a new hash; the jitter reuses the existing scale hash.
+        const pickedBush = pickSizeClass(BUSH_SIZE_CLASSES, hash01(`${key}|bush|sizeclass|${st.x.toFixed(1)},${st.z.toFixed(1)}`), hash01(`${key}|bush|scale|${st.x.toFixed(1)},${st.z.toFixed(1)}`));
         put('bush', {
           x, z,
           rot: hash01(`${key}|bush|rot|${st.x.toFixed(1)},${st.z.toFixed(1)}`) * Math.PI * 2,
-          scale: 0.5 + hash01(`${key}|bush|scale|${st.x.toFixed(1)},${st.z.toFixed(1)}`) * 0.3,
+          scale: pickedBush.scale, sizeClass: pickedBush.id,
           highway: bed.highway,
         }, 0.75);
         stats.byHighway[bed.highway].bush++;

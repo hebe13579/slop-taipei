@@ -46,6 +46,7 @@
 
 import {
   hash01, distToSegment, buildSegmentGrid, buildExclusionIndex, pointInRing, ringArea, parkSizeClass,
+  pickSizeClass, BUSH_SIZE_CLASSES,
 } from './taipei-streetscape.js';
 
 const NON_CARRIAGEWAY = new Set(['footway', 'path', 'steps', 'pedestrian', 'cycleway', 'corridor', 'elevator', 'crossing', 'platform', 'traffic_island']);
@@ -722,10 +723,15 @@ export function planParkAmenities(geodata, plan, opts = {}) {
       if (bad) continue;
       for (const s of pathGrid.near(x, z)) if (distToSegment(x, z, s.ax, s.az, s.bx, s.bz) < s.half + 0.55) { bad = true; break; }
       if (bad) continue;
+      // Issue #385: discrete size classes (see pickSizeClass in
+      // taipei-streetscape.js) — the old continuous 0.55–1.40 draw
+      // put most bushes near the mean. The class band is a new
+      // hash; the jitter reuses the existing scale hash.
+      const pickedBush = pickSizeClass(BUSH_SIZE_CLASSES, hash01(`${key}|bush|sizeclass|${st.x.toFixed(1)},${st.z.toFixed(1)}`), hash01(`${key}|bush|scale|${st.x.toFixed(1)},${st.z.toFixed(1)}`));
       put('bush', {
         x, z,
         rot: hash01(`${key}|bush|rot|${st.x.toFixed(1)},${st.z.toFixed(1)}`) * Math.PI * 2,
-        scale: 0.55 + hash01(`${key}|bush|scale|${st.x.toFixed(1)},${st.z.toFixed(1)}`) * 0.85,
+        scale: pickedBush.scale, sizeClass: pickedBush.id,
         park: park.name || '',
       }, 0.75);
     }
