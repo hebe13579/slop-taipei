@@ -140,16 +140,16 @@ function setupSceneCulling(scene, roots, shadow = null) {
   const chunkable = [];
   for (const root of roots) {
     root.traverse((o) => {
-      if (!o.isInstancedMesh || !isStaticMesh(o) || o.count < 64 || o.count !== o.instanceMatrix.count) return;
+      if (!o.isInstancedMesh || !isStaticMesh(o) || o.count < 32 || o.count !== o.instanceMatrix.count) return;
       // Issue #245: a mesh carrying an explicit cullDistance cap must
       // be chunked (and so distance-culled) even when it is too small
       // for the triangle gate — the small blossom-tone meshes (white
-      // 223, gold 119 instances) fell below 40k tris, stayed whole,
-      // and rendered at any distance: the probe caught 2 whole-tile
-      // blossom meshes visible with their near edge >1200 m away.
-      if (o.count * triangleCount(o.geometry) < 40000 && o.userData.cullDistance == null) return;
+      // 223, gold 119 instances) fell below the then-40k triangle gate,
+      // stayed whole, and rendered at any distance: the probe caught 2
+      // whole-tile blossom meshes visible with their near edge >1200 m away.
+      if (o.count * triangleCount(o.geometry) < 8000 && o.userData.cullDistance == null) return;
       if (!o.boundingSphere) o.computeBoundingSphere();
-      if (o.boundingSphere.radius < 1500) return;
+      if (o.boundingSphere.radius < 800) return;
       chunkable.push(o);
     });
   }
@@ -217,7 +217,7 @@ function setupSceneCulling(scene, roots, shadow = null) {
         if (!o.castShadow || !isStaticMesh(o) || !proxyableMaterial(o.material)) return;
         if (o.isInstancedMesh && o.count !== o.instanceMatrix.count) return;
         const tris = triangleCount(o.geometry) * (o.isInstancedMesh ? o.count : 1);
-        if (tris < 20000) return;
+        if (tris < 8000) return;
         let radius;
         if (o.isInstancedMesh) {
           if (!o.boundingSphere) o.computeBoundingSphere();
@@ -226,7 +226,7 @@ function setupSceneCulling(scene, roots, shadow = null) {
           if (!o.geometry.boundingSphere) o.geometry.computeBoundingSphere();
           radius = o.geometry.boundingSphere.radius * o.matrixWorld.getMaxScaleOnAxis();
         }
-        if (radius > 600) sources.push(o);
+        if (radius > 350) sources.push(o);
       });
     }
 
