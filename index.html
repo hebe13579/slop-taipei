@@ -243,6 +243,17 @@
         <option value="600" label="Far"></option>
       </datalist>
     </label>
+    <div class="pop-title">Park trees <span id="set-park-tree-density-status" class="set-status"></span></div>
+    <label class="pop-slider" for="set-park-tree-density">
+      <span class="pop-name">Park tree density <span class="set-state" id="set-park-tree-density-value">1×</span></span>
+      <span class="pop-sub">How many trees grow in parks · 1× is today · 5× and 10× plant much more, so parks read as woodland · applies when you let go</span>
+      <input id="set-park-tree-density" type="range" min="1" max="10" step="1" value="1" list="set-park-tree-density-ticks" aria-label="Park tree density multiplier">
+      <datalist id="set-park-tree-density-ticks">
+        <option value="1" label="1×"></option>
+        <option value="5" label="5×"></option>
+        <option value="10" label="10×"></option>
+      </datalist>
+    </label>
     <div class="pop-title">Galleries</div>
     <a class="pop-item tp-btn" href="buildings.html"><span class="pop-name">Building gallery</span><span class="pop-sub">The building styles and landmarks, up close</span></a>
     <a class="pop-item tp-btn" href="signs.html"><span class="pop-name">Sign gallery</span><span class="pop-sub">Street signs: blades, bands and logos</span></a>

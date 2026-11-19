@@ -1,7 +1,7 @@
 import * as THREE from 'three/webgpu';
 
 import { planTaipeiBuildings, taipeiCityBlocksOptions, createTaipei101, createTaipeiLandmarkTowers, updateSchoolLodGroup, updateSpecialLodGroup, updateDespawnGroup, lodNearM, SCHOOL_LOD_FAR_M, SCHOOL_LOD_NEAR_M } from './taipei-buildings.js';
-import { SPECIAL_LOD_FAR_M_DEFAULT, clampSpecialLodFarM } from './settings.js'; // issue #393: the adjustable special-LOD distance
+import { SPECIAL_LOD_FAR_M_DEFAULT, clampSpecialLodFarM, PARK_TREE_DENSITY_DEFAULT, clampParkTreeDensity } from './settings.js'; // issue #393: the adjustable special-LOD distance; issue #384: park-tree density
 import { buildSidewalkBands, planStreetTrees, planParkTrees, planStreetLamps, LAMP_HEAD_H, LAMP_POOL_RX, LAMP_POOL_RZ } from './taipei-streetscape.js';
 import { planParkAmenities } from './taipei-park-amenities.js';
 import { planStreetAmenities } from './taipei-street-amenities.js';
@@ -2268,10 +2268,14 @@ export async function buildTaipeiGround(scene, tile, deps = {}) {
   // Issue #393: the special-LOD swap distance (default 2,000 m) —
   // the per-frame update below reads it live, so the settings
   // slider applies without a rebuild.
+  // Issue #384: the park-tree density multiplier (1 | 5 | 10,
+  // default 1x) — buildTrees reads it on every plan, so a density
+  // switch re-plants the parks at the new density.
   const bootSettings = {
     density: deps.settings?.density === 'coarse' || deps.settings?.density === 'dense' ? deps.settings.density : 'fine',
     specials: deps.settings?.specials !== false,
     specialLodFarM: clampSpecialLodFarM(deps.settings?.specialLodFarM) ?? SPECIAL_LOD_FAR_M_DEFAULT,
+    parkTreeDensity: clampParkTreeDensity(deps.settings?.parkTreeDensity) ?? PARK_TREE_DENSITY_DEFAULT,
   };
   const buildingsStart = performance.now();
   // Sandbox (?sandbox=): the box bounds the registry/site structures
@@ -2394,7 +2398,7 @@ export async function buildTaipeiGround(scene, tile, deps = {}) {
     const treeOnlyExclusions = [...treeExclusions, ...(geo.airfield?.site || []).map((s) => s.ring)];
     const treeAndPadExclusions = [...treeOnlyExclusions, ...padExclusions];
     const street = planStreetTrees(geo, forPlan, { exclusions: treeOnlyExclusions });
-    const park = planParkTrees(geo, forPlan, { exclusions: treeAndPadExclusions });
+    const park = planParkTrees(geo, forPlan, { exclusions: treeAndPadExclusions, density: bootSettings.parkTreeDensity });
     const meshes = [];
     const streetMesh = buildStreetTreeMesh(street.trees, drapeHeight);
     if (streetMesh) meshes.push(streetMesh);
@@ -2514,10 +2518,26 @@ export async function buildTaipeiGround(scene, tile, deps = {}) {
     if (!obj) return;
     obj.traverse((o) => { if (o.geometry) o.geometry.dispose(); });
   };
+  // Issue #245: chunk-aware teardown of the trees stage, shared
+  // by the density switch and the park-tree density switch below.
+  // setupSceneCulling replaces a chunked mesh in the group with
+  // its chunks (same name, shared geometry); removing only the
+  // recorded mesh would leak the chunks and leave stale trees
+  // standing after a switch. Remove every group child carrying a
+  // torn-down mesh's name — the trees stage is the only producer
+  // of those names — then dispose the recorded meshes themselves.
+  const teardownTrees = () => {
+    const tornDown = new Set(trees.meshes.map((m) => m.name));
+    for (const child of [...group.children]) {
+      if (tornDown.has(child.name)) { group.remove(child); disposeBuilt(child); }
+    }
+    for (const mesh of trees.meshes) { group.remove(mesh); disposeBuilt(mesh); }
+  };
   const taipeiSettings = {
     get density() { return bootSettings.density; },
     get specials() { return bootSettings.specials; },
     get specialLodFarM() { return bootSettings.specialLodFarM; },
+    get parkTreeDensity() { return bootSettings.parkTreeDensity; },
     // Issue #393: the special-LOD swap distance, live — the
     // settings slider calls this on every input; the per-frame
     // update above reads bootSettings each frame, so the swap
@@ -2538,18 +2558,7 @@ export async function buildTaipeiGround(scene, tile, deps = {}) {
       if (preset !== 'coarse' && preset !== 'fine' && preset !== 'dense') return null;
       if (preset === bootSettings.density) return { density: preset, lots: plan.lots.length, ms: 0 };
       const t0 = performance.now();
-      // Issue #245: chunk-aware teardown. setupSceneCulling replaces
-      // a chunked mesh in the group with its chunks (same name,
-      // shared geometry); removing only the recorded mesh would leak
-      // the chunks and leave stale trees standing after a switch.
-      // Remove every group child carrying a torn-down mesh's name —
-      // the trees stage is the only producer of those names — then
-      // dispose the recorded meshes themselves.
-      const tornDown = new Set(trees.meshes.map((m) => m.name));
-      for (const child of [...group.children]) {
-        if (tornDown.has(child.name)) { group.remove(child); disposeBuilt(child); }
-      }
-      for (const mesh of trees.meshes) { group.remove(mesh); disposeBuilt(mesh); }
+      teardownTrees();
       if (cityBlocks) { scene.remove(cityBlocks.group); disposeBuilt(cityBlocks.group); }
       bootSettings.density = preset;
       plan = planTaipeiBuildings(geo, { density: preset, groundAt: drapeHeight, bounds: SANDBOX_BOX || undefined });
@@ -2563,6 +2572,28 @@ export async function buildTaipeiGround(scene, tile, deps = {}) {
       const ms = Math.round(performance.now() - t0);
       console.info(`[taipei-settings] density -> ${preset}: ${plan.lots.length} buildings replanned and rebuilt in ${ms}ms`);
       return { density: preset, lots: plan.lots.length, ms };
+    },
+    // Issue #384: park-tree density — re-plan + rebuild the trees
+    // stage only, in place, no reload. The building plan is
+    // unchanged, so only the tree meshes are torn down and rebuilt
+    // (the same chunk-aware teardown as the density switch above);
+    // street trees, lamps, amenities and café scenes re-plan
+    // deterministically to the same result. Synchronous (the plan
+    // is CPU-bound); the panel yields a frame before calling so
+    // its busy state paints. Returns the new census + wall-clock
+    // cost. Trees carry no colliders, so no controller refresh is
+    // needed after the switch.
+    setParkTreeDensity(d) {
+      const next = clampParkTreeDensity(d) ?? PARK_TREE_DENSITY_DEFAULT;
+      if (next === bootSettings.parkTreeDensity) return { density: next, trees: trees.park.trees.length, ms: 0 };
+      const t0 = performance.now();
+      teardownTrees();
+      bootSettings.parkTreeDensity = next;
+      trees = buildTrees(plan);
+      for (const mesh of trees.meshes) group.add(mesh);
+      const ms = Math.round(performance.now() - t0);
+      console.info(`[taipei-settings] park trees -> ${next}x: ${trees.park.trees.length} park trees replanned and rebuilt in ${ms}ms`);
+      return { density: next, trees: trees.park.trees.length, ms };
     },
     setSpecialsVisible(visible) {
       bootSettings.specials = !!visible;

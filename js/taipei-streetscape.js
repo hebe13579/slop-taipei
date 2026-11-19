@@ -599,7 +599,17 @@ export function parkBlossomTone(key, ci) {
 const isPlazaName = (name) => (name || '').includes('廣場') && name !== '松壽廣場';
 
 export function planParkTrees(geodata, plan, opts = {}) {
-  const cap = opts.cap ?? PARK_TREE_CAP;
+  // Issue #384: density multiplier (1 | 5 | 10; 1 = today's
+  // planting). Density tightens the grid spacing by 1/sqrt(d) so
+  // the candidate count — and, with the accept field untouched,
+  // the tree count — scales ~d, and raises the instance cap by
+  // the same factor. Accept, clearings, groves and the edge zone
+  // are unchanged, so a denser park keeps its woodland-with-
+  // clearings structure; only the grid is finer. At density 1
+  // the spacing and cap are exactly today's values, so the 1x
+  // plan is byte-identical to the pre-#384 plan.
+  const density = typeof opts.density === 'number' && Number.isFinite(opts.density) && opts.density >= 1 ? opts.density : 1;
+  const cap = opts.cap ?? PARK_TREE_CAP * density;
   const parks = geodata.parks || [];
   const beds = geodata.roadbeds || [];
   const paths = (geodata.roads || []).filter((r) => NON_CARRIAGEWAY.has(r.highway));
@@ -735,11 +745,14 @@ export function planParkTrees(geodata, plan, opts = {}) {
       }
     }
     // Jittered grid in a hash-rotated frame: no axis-aligned orchard.
+    // Issue #384: the grid step is the class spacing tightened by
+    // the density factor (1/sqrt(d)), so the candidate count scales
+    // ~d; at density 1 this is exactly cls.spacing.
     const ang = hash01(`${key}|rot`) * (Math.PI / 6);
     const cos = Math.cos(ang), sin = Math.sin(ang);
     const cxm = (minX + maxX) / 2, czm = (minZ + maxZ) / 2;
     const diag = Math.hypot(maxX - minX, maxZ - minZ) / 2 + cls.spacing;
-    const step = cls.spacing;
+    const step = cls.spacing / Math.sqrt(density);
     let candIdx = 0;
     for (let gy = -diag; gy <= diag; gy += step) {
       for (let gx = -diag; gx <= diag; gx += step) {

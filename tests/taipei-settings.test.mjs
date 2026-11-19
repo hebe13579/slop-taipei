@@ -23,6 +23,9 @@ import {
   SPECIAL_LOD_FAR_M_DEFAULT,
   SPECIAL_LOD_FAR_M_MIN,
   SPECIAL_LOD_FAR_M_MAX,
+  PARK_TREE_DENSITY_DEFAULT,
+  PARK_TREE_DENSITY_STOPS,
+  clampParkTreeDensity,
 } from '../js/settings.js';
 
 // Issue #218 — the settings gear: resolution rules, graphics
@@ -49,21 +52,21 @@ function fingerprint(plan) {
 }
 
 test('settings resolution: defaults are the pre-#218 behaviour', () => {
-  assert.deepEqual(resolveSettings(), { specials: true, density: 'fine', graphics: 'medium', farDetail: 'fade', specialLodFarM: 2000, drape: true, trafficCars: 0, trafficRadiusM: 380, ghostMode: false });
+  assert.deepEqual(resolveSettings(), { specials: true, density: 'fine', graphics: 'medium', farDetail: 'fade', specialLodFarM: 2000, parkTreeDensity: 1, drape: true, trafficCars: 0, trafficRadiusM: 380, ghostMode: false });
   assert.deepEqual(resolveSettings({ search: '', stored: null }), DEFAULT_SETTINGS);
 });
 
 test('settings resolution: storage beats defaults, URL beats storage, per field', () => {
   const stored = JSON.stringify({ specials: false, density: 'dense', graphics: 'low' });
-  assert.deepEqual(resolveSettings({ stored }), { specials: false, density: 'dense', graphics: 'low', farDetail: 'fade', specialLodFarM: 2000, drape: true, trafficCars: 0, trafficRadiusM: 380, ghostMode: false });
+  assert.deepEqual(resolveSettings({ stored }), { specials: false, density: 'dense', graphics: 'low', farDetail: 'fade', specialLodFarM: 2000, parkTreeDensity: 1, drape: true, trafficCars: 0, trafficRadiusM: 380, ghostMode: false });
   // URL overrides only the fields it names.
   assert.deepEqual(
     resolveSettings({ stored, search: '?density=coarse' }),
-    { specials: false, density: 'coarse', graphics: 'low', farDetail: 'fade', specialLodFarM: 2000, drape: true, trafficCars: 0, trafficRadiusM: 380, ghostMode: false },
+    { specials: false, density: 'coarse', graphics: 'low', farDetail: 'fade', specialLodFarM: 2000, parkTreeDensity: 1, drape: true, trafficCars: 0, trafficRadiusM: 380, ghostMode: false },
   );
   assert.deepEqual(
     resolveSettings({ stored, search: '?specials=on&graphics=high' }),
-    { specials: true, density: 'dense', graphics: 'high', farDetail: 'fade', specialLodFarM: 2000, drape: true, trafficCars: 0, trafficRadiusM: 380, ghostMode: false },
+    { specials: true, density: 'dense', graphics: 'high', farDetail: 'fade', specialLodFarM: 2000, parkTreeDensity: 1, drape: true, trafficCars: 0, trafficRadiusM: 380, ghostMode: false },
   );
   // Stored value may arrive as an object too.
   assert.equal(resolveSettings({ stored: { density: 'coarse' } }).density, 'coarse');
@@ -72,11 +75,11 @@ test('settings resolution: storage beats defaults, URL beats storage, per field'
 test('settings resolution: invalid values fall back per field, never throw', () => {
   assert.deepEqual(
     resolveSettings({ stored: '{not json', search: '?density=huge&graphics=ultra&specials=maybe' }),
-    { specials: true, density: 'fine', graphics: 'medium', farDetail: 'fade', specialLodFarM: 2000, drape: true, trafficCars: 0, trafficRadiusM: 380, ghostMode: false },
+    { specials: true, density: 'fine', graphics: 'medium', farDetail: 'fade', specialLodFarM: 2000, parkTreeDensity: 1, drape: true, trafficCars: 0, trafficRadiusM: 380, ghostMode: false },
   );
   assert.deepEqual(
     resolveSettings({ stored: JSON.stringify({ density: 'huge', graphics: 7, specials: 'off' }) }),
-    { specials: false, density: 'fine', graphics: 'medium', farDetail: 'fade', specialLodFarM: 2000, drape: true, trafficCars: 0, trafficRadiusM: 380, ghostMode: false },
+    { specials: false, density: 'fine', graphics: 'medium', farDetail: 'fade', specialLodFarM: 2000, parkTreeDensity: 1, drape: true, trafficCars: 0, trafficRadiusM: 380, ghostMode: false },
   );
   // Boolean spellings the URL layer accepts.
   for (const [raw, want] of [['off', false], ['0', false], ['no', false], ['on', true], ['1', true], ['yes', true]]) {
@@ -90,7 +93,7 @@ test('settings persistence: round-trip through storage, failures stay silent', (
     getItem: (k) => (mem.has(k) ? mem.get(k) : null),
     setItem: (k, v) => mem.set(k, String(v)),
   };
-  const s = { specials: false, density: 'dense', graphics: 'high', farDetail: 'full', specialLodFarM: 1200, drape: false, trafficCars: 350, trafficRadiusM: 500, ghostMode: true };
+  const s = { specials: false, density: 'dense', graphics: 'high', farDetail: 'full', specialLodFarM: 1200, parkTreeDensity: 5, drape: false, trafficCars: 350, trafficRadiusM: 500, ghostMode: true };
   assert.equal(persistSettings(storage, s), true);
   assert.deepEqual(resolveSettings({ stored: readStoredSettings(storage) }), s);
   assert.equal(mem.has(SETTINGS_STORAGE_KEY), true);
@@ -220,6 +223,12 @@ test('settings UI: gear button and panel rows in index.html', () => {
   assert.match(indexSource, /id="set-traffic-radius" type="range" min="200" max="600" step="1"/);
   assert.match(indexSource, /id="set-traffic-cars-value"/);
   assert.match(indexSource, /id="set-traffic-radius-value"/);
+  // Issue #384: the park-tree density slider — 1x / 5x / 10x stops,
+  // 1x is today's planting (the default).
+  assert.match(indexSource, /id="set-park-tree-density" type="range" min="1" max="10" step="1" value="1"/);
+  assert.match(indexSource, /id="set-park-tree-density-value"/);
+  assert.match(indexSource, /id="set-park-tree-density-status"/);
+  for (const t of [1, 5, 10]) assert.match(indexSource, new RegExp(`<option value="${t}" label="${t}×">`));
   for (const t of [0, 60, 200, 400, 800]) assert.match(indexSource, new RegExp(`<option value="${t}"`));
   for (const t of [200, 380, 600]) assert.match(indexSource, new RegExp(`<option value="${t}"`));
 });
@@ -270,6 +279,33 @@ test('special LOD resolution: default 2,000 m, storage beats default, URL beats 
   assert.equal(resolveSettings({ stored: JSON.stringify({ specialLodFarM: 50 }) }).specialLodFarM, SPECIAL_LOD_FAR_M_MIN);
   assert.equal(resolveSettings({ search: '?specialLodFarM=abc' }).specialLodFarM, SPECIAL_LOD_FAR_M_DEFAULT);
   assert.equal(resolveSettings({ stored: JSON.stringify({ specialLodFarM: 'far' }) }).specialLodFarM, SPECIAL_LOD_FAR_M_DEFAULT);
+});
+
+test('park tree density resolution: default 1x, storage beats default, URL beats storage (issue #384)', () => {
+  // Park trees: 1x is today's planting (the default); 5x and 10x
+  // plant roughly five / ten times as many. Same per-field
+  // resolution as the other rows: URL param > localStorage >
+  // default. Values snap to the nearest stop; ties snap down.
+  assert.equal(resolveSettings().parkTreeDensity, PARK_TREE_DENSITY_DEFAULT);
+  assert.deepEqual(PARK_TREE_DENSITY_STOPS, [1, 5, 10]);
+  assert.equal(resolveSettings({ stored: JSON.stringify({ parkTreeDensity: 5 }) }).parkTreeDensity, 5);
+  assert.equal(
+    resolveSettings({ stored: JSON.stringify({ parkTreeDensity: 5 }), search: '?parkTreeDensity=10' }).parkTreeDensity,
+    10,
+  );
+  assert.equal(resolveSettings({ search: '?parkTreeDensity=5' }).parkTreeDensity, 5);
+  // Off-stop values snap to the nearest stop; ties snap down.
+  assert.equal(clampParkTreeDensity(2), 1);
+  assert.equal(clampParkTreeDensity(3), 1);
+  assert.equal(clampParkTreeDensity(4), 5);
+  assert.equal(clampParkTreeDensity(7), 5);
+  assert.equal(clampParkTreeDensity(8), 10);
+  assert.equal(clampParkTreeDensity(999), 10);
+  assert.equal(resolveSettings({ search: '?parkTreeDensity=7' }).parkTreeDensity, 5);
+  // Invalid values fall back to the default, never throw.
+  assert.equal(resolveSettings({ search: '?parkTreeDensity=abc' }).parkTreeDensity, PARK_TREE_DENSITY_DEFAULT);
+  assert.equal(resolveSettings({ stored: JSON.stringify({ parkTreeDensity: 'dense' }) }).parkTreeDensity, PARK_TREE_DENSITY_DEFAULT);
+  assert.equal(resolveSettings({ stored: JSON.stringify({ parkTreeDensity: null }) }).parkTreeDensity, PARK_TREE_DENSITY_DEFAULT);
 });
 
 test('traffic resolution: default off, storage beats default, URL beats storage (issues #252/#266/#281)', () => {
@@ -365,13 +401,14 @@ test('settings UI: distant-buildings row in index.html, wired in main.js', () =>
 test('settings wiring: main.js resolves + passes settings, boot exposes the runtime API', () => {
   assert.match(mainSource, /resolveSettings\(\{/);
   assert.match(mainSource, /initSettingsPanel\(\{/);
-  assert.match(mainSource, /settings: \{ density: settings\.density, specials: settings\.specials, drape: settings\.drape, specialLodFarM: settings\.specialLodFarM \}/); // issue #393: the boot deps literal carries the new field
+  assert.match(mainSource, /settings: \{ density: settings\.density, specials: settings\.specials, drape: settings\.drape, specialLodFarM: settings\.specialLodFarM, parkTreeDensity: settings\.parkTreeDensity \}/); // issue #393: the boot deps literal carries the new field; issue #384 adds parkTreeDensity
   // Sandbox (?sandbox=): the boot also passes opts.bounds (the sandbox
   // box; SANDBOX_BOX is null without the param, so the call is the
   // pre-sandbox call exactly — the bounds filter is a no-op then).
   assert.match(bootSource, /planTaipeiBuildings\(geo, \{ density: bootSettings\.density, groundAt: drapeHeight, bounds: SANDBOX_BOX \|\| undefined \}\)/);
   assert.match(bootSource, /setDensity\(preset\)/);
   assert.match(bootSource, /setSpecialsVisible\(visible\)/);
+  assert.match(bootSource, /setParkTreeDensity\(d\)/); // issue #384: the boot exposes the park-tree density switch
   assert.match(bootSource, /taipeiSettings,/);
 });
 
@@ -408,6 +445,9 @@ function stubPanel() {
   const radiusValue = makeEl('set-traffic-radius-value');
   const lodSlider = makeEl('set-special-lod-far');
   const lodValue = makeEl('set-special-lod-far-value');
+  const parkTreeSlider = makeEl('set-park-tree-density');
+  const parkTreeValue = makeEl('set-park-tree-density-value');
+  const parkTreeStatus = makeEl('set-park-tree-density-status');
   const pop = makeEl('settings-popover');
   pop.querySelectorAll = () => [];
   const doc = {
@@ -420,13 +460,16 @@ function stubPanel() {
       'set-traffic-radius-value': radiusValue,
       'set-special-lod-far': lodSlider,
       'set-special-lod-far-value': lodValue,
+      'set-park-tree-density': parkTreeSlider,
+      'set-park-tree-density-value': parkTreeValue,
+      'set-park-tree-density-status': parkTreeStatus,
     }[id] || null),
   };
   // Drive a slider like a user: set the value and fire input for each
   // drag tick; fire change on release (optionally with a final value).
   const drag = (slider, ...values) => { for (const v of values) { slider.value = String(v); slider.fire('input'); } };
   const release = (slider, v) => { if (v !== undefined) { slider.value = String(v); slider.fire('input'); } slider.fire('change'); };
-  return { doc, statusEl, carsSlider, carsValue, radiusSlider, radiusValue, lodSlider, lodValue, drag, release };
+  return { doc, statusEl, carsSlider, carsValue, radiusSlider, radiusValue, lodSlider, lodValue, parkTreeSlider, parkTreeValue, parkTreeStatus, drag, release };
 }
 
 async function flushFrames(rafQueue) {
@@ -551,6 +594,69 @@ test('special LOD slider: a drag applies live at every value, release snaps to a
   assert.equal(settings.specialLodFarM, 1000, '1,000 is not within the snap window of any tick');
   assert.equal(lodValue.textContent, '1,000 m');
   assert.deepEqual(persisted, [2000, 1000]);
+});
+
+test('park tree density slider: a drag commits every stop but applies once at the settled value (issue #384)', async () => {
+  // Like traffic, the apply rebuilds the world (the trees stage
+  // only), so a drag commits live but applies once, debounced,
+  // at the settled value. Unlike the LOD slider there is a real
+  // rebuild, so nothing applies mid-drag.
+  const prevRaf = globalThis.requestAnimationFrame;
+  const rafQueue = [];
+  globalThis.requestAnimationFrame = (cb) => { rafQueue.push(cb); return rafQueue.length; };
+  try {
+    const { doc, parkTreeSlider, parkTreeValue, drag } = stubPanel();
+    const settings = resolveSettings();
+    const applied = [];
+    const taipeiSettings = { setParkTreeDensity: (d) => { applied.push(d); return { density: d, trees: 0, ms: 0 }; } };
+    initSettingsPanel({ settings, taipeiSettings, doc, persist: () => {} });
+    assert.equal(parkTreeValue.textContent, '1×', 'reflect shows the default');
+    drag(parkTreeSlider, 5, 10);
+    assert.equal(settings.parkTreeDensity, 10);
+    assert.equal(parkTreeValue.textContent, '10×');
+    assert.deepEqual(applied, [], 'nothing applies before the drag settles');
+    await flushDebounce(rafQueue);
+    assert.deepEqual(applied, [10], 'one debounced apply for the whole drag');
+  } finally {
+    if (prevRaf === undefined) delete globalThis.requestAnimationFrame;
+    else globalThis.requestAnimationFrame = prevRaf;
+  }
+});
+
+test('park tree density slider: release snaps to a stop; a failed rebuild restores the last good density (issue #384)', async () => {
+  const prevRaf = globalThis.requestAnimationFrame;
+  const rafQueue = [];
+  globalThis.requestAnimationFrame = (cb) => { rafQueue.push(cb); return rafQueue.length; };
+  try {
+    const { doc, parkTreeSlider, parkTreeValue, parkTreeStatus, release } = stubPanel();
+    const settings = resolveSettings();
+    const applied = [];
+    const taipeiSettings = {
+      setParkTreeDensity: (d) => {
+        applied.push(d);
+        if (d === 10) throw new Error('simulated rebuild failure');
+        return { density: d, trees: 0, ms: 0 };
+      },
+    };
+    initSettingsPanel({ settings, taipeiSettings, doc, persist: () => {} });
+    // Release at 4 snaps to the 5x stop and applies at once.
+    release(parkTreeSlider, 4);
+    await flushFrames(rafQueue);
+    assert.deepEqual(applied, [5], 'release applies at once');
+    assert.equal(settings.parkTreeDensity, 5, 'snapped to the 5x stop');
+    assert.equal(parkTreeValue.textContent, '5×');
+    // Release at 10x fails: the last good density (5x) is restored
+    // in the world first, and the gear follows.
+    release(parkTreeSlider, 10);
+    await flushFrames(rafQueue);
+    assert.deepEqual(applied, [5, 10, 5], 'failed 10x is followed by a re-apply of 5x');
+    assert.equal(settings.parkTreeDensity, 5);
+    assert.equal(parkTreeSlider.value, '5', 'the slider jumps back to the last good value');
+    assert.equal(parkTreeStatus.textContent, 'change failed — kept previous density');
+  } finally {
+    if (prevRaf === undefined) delete globalThis.requestAnimationFrame;
+    else globalThis.requestAnimationFrame = prevRaf;
+  }
 });
 
 test('traffic sliders: a failed build restores the last good config, gear and world agree (issue #266)', async () => {
@@ -683,7 +789,7 @@ test('mobile detection: phones count, tablets and desktops do not (issue #268)',
 test('mobile defaults: phones SET Coarse + Low over stored settings, URL still wins (issue #268)', () => {
   assert.deepEqual(
     resolveSettings({ isMobile: true }),
-    { specials: true, density: 'coarse', graphics: 'low', farDetail: 'fade', specialLodFarM: 2000, drape: true, trafficCars: 0, trafficRadiusM: 380, ghostMode: false },
+    { specials: true, density: 'coarse', graphics: 'low', farDetail: 'fade', specialLodFarM: 2000, parkTreeDensity: 1, drape: true, trafficCars: 0, trafficRadiusM: 380, ghostMode: false },
   );
   assert.deepEqual(resolveSettings({ isMobile: false }), resolveSettings(), 'desktop resolution is unchanged');
   // The phone never reads the previous density/graphics: a stored
