@@ -1579,7 +1579,7 @@ function buildCityGrid(scene) {
       group.add(m);
     }
   };
-  mergeInto(curbGeos, curbMat, true);
+  mergeInto(curbGeos, curbMat, false);
   mergeInto(slabGeos, sidewalkMat);
   mergeInto(hedgeGeos, medianHedgeMat, true);
 
@@ -1588,7 +1588,7 @@ function buildCityGrid(scene) {
   const curbInstanced = new THREE.InstancedMesh(unitBox, curbMat, rectSlabs.length);
   swInstanced.receiveShadow = true;
   curbInstanced.receiveShadow = true;
-  curbInstanced.castShadow = true;
+  curbInstanced.castShadow = false;
 
   rectSlabs.forEach((blk, i) => {
     dummy.rotation.set(0, 0, 0);
