@@ -3692,7 +3692,7 @@ function buildCityBlocks(scene, opts = null) {
         const themeIdx = awningCount % signInsts.length;
         if (!a.noSign) {
           if (signCounts[themeIdx] < MAX_SIGNS_PER_THEME) {
-            dummy.position.set(a.x, 4.68, a.z);
+            dummy.position.set(a.x, a.y + 0.88, a.z);
             dummy.scale.set(0.28, 0.86, a.d * 0.92);
             dummy.updateMatrix();
             signInsts[themeIdx].setMatrixAt(signCounts[themeIdx]++, dummy.matrix);
@@ -4087,8 +4087,9 @@ function buildCityBlocks(scene, opts = null) {
       const item = activeAwnings[i];
       const a = item.a;
       const dx = a.x - camX;
+      const dy = a.y - camY;
       const dz = a.z - camZ;
-      const d2 = dx * dx + dz * dz + camY * camY;
+      const d2 = dx * dx + dz * dz + dy * dy;
       if (d2 > STORE_MAX_DIST * STORE_MAX_DIST) continue;
       const d = Math.sqrt(d2);
       const forwardDot = dx * fwdX + dz * fwdZ;
@@ -4112,8 +4113,8 @@ function buildCityBlocks(scene, opts = null) {
         const sideDir = a.sideDir || 1;
         const outX = Math.cos(ry) * sideDir;
         const outZ = -Math.sin(ry) * sideDir;
-        spot.position.set(a.x + outX * 0.45, 4.35, a.z + outZ * 0.45);
-        spot.target.position.set(a.x + outX * 1.85, 0.0, a.z + outZ * 1.85);
+        spot.position.set(a.x + outX * 0.45, a.y + 0.55, a.z + outZ * 0.45);
+        spot.target.position.set(a.x + outX * 1.85, a.y - 3.8, a.z + outZ * 1.85);
         spot.target.updateMatrixWorld();
         spot.color.copy(storeThemeColors[themeIdx % storeThemeColors.length]);
         spot.intensity = spotIntensity * fade;
