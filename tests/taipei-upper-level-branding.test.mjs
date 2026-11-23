@@ -173,15 +173,20 @@ for (const lot of opts.lots) {
 // shop lots 8,962 — the same as pristine main, so the pure-hash pick
 // moved no ground-floor shop; 445 multi-layer lots, 365 with one upper
 // floor and 80 with two).
-assert.equal(shopLots, 8962, 'shop lots unchanged — the tone roll is untouched');
-assert.equal(total, 445, 'multi-layer-store lots');
-assert.equal(w1, 365, 'lots with one upper shop floor');
-assert.equal(w2, 80, 'lots with two upper shop floors');
+// Re-pinned for issue #17 (2026-11-22 slice): the palette rebalance
+// grows the sign-bearing Taiwan population the pick draws from —
+// shop lots 8,962 -> 10,215 (the same census as the 3D-storefront
+// test), multi-layer lots 445 -> 548 (451 one-upper, 97 two-upper),
+// pickedSigned 266 -> 334. The pick's gates and rates are unedited.
+assert.equal(shopLots, 10215, 'shop lots after the #17 palette slice — the tone roll is untouched');
+assert.equal(total, 548, 'multi-layer-store lots');
+assert.equal(w1, 451, 'lots with one upper shop floor');
+assert.equal(w2, 97, 'lots with two upper shop floors');
 assert.deepEqual(byMat, {
-  6: { 1: 128, 2: 24 },
-  7: { 1: 112, 2: 27 },
-  8: { 1: 62, 2: 16 },
-  9: { 1: 38, 2: 6 },
-  13: { 1: 25, 2: 7 },
+  6: { 1: 158, 2: 31 },
+  7: { 1: 139, 2: 33 },
+  8: { 1: 74, 2: 17 },
+  9: { 1: 52, 2: 8 },
+  13: { 1: 28, 2: 8 },
 }, 'multi-layer lots by family');
-assert.equal(pickedSigned, 266, 'upper-shop lots that also carry a blade');
+assert.equal(pickedSigned, 334, 'upper-shop lots that also carry a blade');

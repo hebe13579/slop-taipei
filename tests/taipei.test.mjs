@@ -1147,7 +1147,10 @@ test('buildings options: plan faithfully adapted for the upstream building syste
   // (0-2), and the low residential interiors are mostly the Taiwan
   // types now (issue #17 slice 2: the 6–15 m shophouse rows and
   // walk-ups are tile, not brick — masonry stays only as the ~28%
-  // accent and on the sub-6 m sheds). Issue #136
+  // accent and on the sub-6 m sheds). The 2026-11-22 slice of #17
+  // re-bases both halves: the accent is ~10% in every band and the
+  // sub-6 m lots wear the F6/F7 shophouse types at the same share.
+  // Issue #136
   // sharpens the tall rule: inside the office cores every tall lot is
   // curtain glass (3-5) — the pre-#136 rule, verbatim — while outside
   // them tall lots are residential and wear the Taiwan tile types,
@@ -1176,13 +1179,21 @@ test('buildings options: plan faithfully adapted for the upstream building syste
   // share to 79% — the strip-tile roll adds 605 Taiwan lots in the
   // 9–12 m band on top of the same pool), masonry is the minority
   // accent, and there is no glass below 12 m — real low-rise Taipei
-  // is not curtain wall. The sub-6 m sheds stay masonry.
+  // is not curtain wall. The sub-6 m lots joined the same split in
+  // the 2026-11-22 slice (shophouse types, ~10% masonry accent).
   assert.ok(low.length > 0, 'low residential lots exist');
   const lowTaiwan = low.filter((l) => l.mat >= 6).length;
   assert.ok(lowTaiwan / low.length > 0.55, `low residential lots are mostly Taiwan types (${lowTaiwan}/${low.length})`);
   assert.ok(low.every((l) => l.mat <= 2 || l.mat >= 6), 'no glass on low residential lots');
   const sheds = opts.lots.filter((l) => l.h < 6);
-  assert.ok(sheds.length > 0 && sheds.every((l) => l.mat <= 2), 'sub-6 m lots stay masonry');
+  // Pre-2026-11-22 this asserted sub-6 m lots stay masonry (the
+  // "shed" rule). The #17 palette slice reverses it: a one-storey
+  // lot is a small shop, and the plan's sub-6 m lots now wear the
+  // two shophouse types at the same 90/10 split as every other
+  // band (measured: 2,815 of 3,153 Taiwan, 338 masonry accent).
+  assert.ok(sheds.length > 0 && sheds.every((l) => l.mat <= 2 || l.mat === 6 || l.mat === 7), 'sub-6 m lots wear masonry or the two shophouse types');
+  const shedTaiwan = sheds.filter((l) => l.mat >= 6).length;
+  assert.ok(shedTaiwan / sheds.length > 0.8, `sub-6 m lots are mostly shophouse types (${shedTaiwan}/${sheds.length})`);
 });
 
 // Issue #17: the four Taiwan types (families 6-9) are assigned only inside
@@ -1211,7 +1222,10 @@ test('taiwan types: family zoning, distribution and rooftop clamp', (t) => {
   const opts = taipeiCityBlocksOptions(TAIPEI_GEO, plan);
   const taiwan = opts.lots.filter((l) => l.mat >= 6);
   assert.ok(taiwan.length > 3000, `the Taiwan set is a major presence (${taiwan.length} lots)`);
-  assert.ok(taiwan.every((l) => l.h >= 6), 'Taiwan types only on 6 m+ lots');
+  // The 2026-11-22 slice of #17 plants the two shophouse types
+  // below 6 m too (lowTaiwanPick), so the old "6 m+ only" rule is
+  // re-based: below 6 m ONLY families 6/7 may appear.
+  assert.ok(taiwan.every((l) => l.h >= 6 || l.mat === 6 || l.mat === 7), 'below 6 m only the shophouse types 6/7 appear');
   const tallTaiwan = opts.lots.map((l, i) => [l, i]).filter(([l]) => l.mat >= 6 && l.h >= 40);
   assert.ok(tallTaiwan.length > 1000, `the #136 tall-residential set is planted (${tallTaiwan.length} lots)`);
   // Issue #142: the only tall Taiwan lots inside a core are the
@@ -1227,6 +1241,10 @@ test('taiwan types: family zoning, distribution and rooftop clamp', (t) => {
   // (F8/F9): the 2–3 storey shophouse rows and the 3-storey walk-up
   // low end. Below 6 m only the shophouse types could apply and
   // none does — a one-storey lot is a shed, not a shophouse.
+  // The 2026-11-22 slice of #17 reverses that last sentence: below
+  // 6 m the shophouse types DO apply (lowTaiwanPick, 90% share),
+  // so the F6/F7 floors below drop to the plan's minimum height
+  // (2 m); F8/F9 keep their 9 m floor.
   // Those caps bind taiwanTypeFor's classic bands only: issue #136's
   // tall rule plants 6/8/9 above 40 m outside the office cores, so
   // their bands below carry no ceiling (null); family 7 keeps its
@@ -1239,7 +1257,7 @@ test('taiwan types: family zoning, distribution and rooftop clamp', (t) => {
   // 9–30 m (12% of the Taiwan pool in-band). Both rolls are
   // guard-wrapped, so the plan is byte-identical — the bands below
   // pin the assignment, not the plan.
-  const typeBand = { 6: [6, null], 7: [6, 36], 8: [9, null], 9: [9, null], 12: [40, 75], 13: [9, 30] };
+  const typeBand = { 6: [2, null], 7: [2, 36], 8: [9, null], 9: [9, null], 12: [40, 75], 13: [9, 30] };
   for (const [mat, [lo, hi]] of Object.entries(typeBand)) {
     const lots = opts.lots.filter((l) => l.mat === Number(mat));
     assert.ok(lots.length > 400, `family ${mat} planted in real numbers (${lots.length} lots)`);
@@ -1520,7 +1538,17 @@ test('taiwan types: family zoning, distribution and rooftop clamp', (t) => {
   // its split moves, and brick survives as the accent the issue
   // asks for. The range is re-based to hold the new count with
   // headroom for dataset refreshes.
-  assert.ok(masonry > 15000 && masonry < 22000, `masonry 0-2 reduced but still present (${masonry})`);
+  // The 2026-11-22 slice of #17 re-bases the range again: the
+  // Taiwan share of the masonry pool rises 72-75% -> 90% in every
+  // band and the sub-6 m lots join the split, moving masonry
+  // 20,295 -> 6,630 of 76,253 (26.6% -> 8.7%) on the unchanged
+  // plan — proven by the lot-by-lot family diff (17,890 flips,
+  // all masonry -> Taiwan or within the brick residual; glass
+  // 8,103 unchanged; guard-mode families identical on all
+  // 76,253 lots, plan full-field diff 0). Brick is now the ~10%
+  // accent in every band, sub-6 m included. The range is
+  // re-based to hold the new count with headroom.
+  assert.ok(masonry > 5000 && masonry < 9000, `masonry 0-2 reduced to the brick accent (${masonry})`);
   // (The #186 PR2 branch's stale-base masonry range — 20,896 of
   // 42,142 lots, range 12,000-22,000 — was a duplicate assert on
   // this variable from the same union; removed at the gate
@@ -1660,7 +1688,7 @@ test('arcade parts: recessed core and full-perimeter colonnade', (t) => {
   // Re-pinned for issue #258 (south expansion): F7 10,037 -> 11,231
   // (same count in the newer-apartments test).
   // Issue #282: F7 11,208 -> 11,206 (−2 — the re-faced lots re-roll the family assignment, seeded from lot position/footprint; proven by the facing:false cross-run, which gives the identical 14-family histogram on both trees — facing282-evidence/proof-families.mjs).
-  assert.equal(f7.length, 11175, 'F7 census after #124, composed with #166, #186, #226, #213, #219 and #221 (campus clearing removes 519 F7 lots) and #255 (the 4 registry sites exclude 32 lots, 1 of them F7, and 1 kept lot leaves F7 — lot-by-lot diff on this tree) and #289 (the 4 registry sites exclude 56 lots net, 2 of them F7, no kept lot leaves F7 — lot-by-lot diff on this tree) and #17 slice 2 (the low-band Taiwan roll assigns F7 its share of the 6-15 m masonry pool: +4,515, plan byte-identical) and #108 (the F13 strip-tile roll takes 12% of the Taiwan pool in 9–30 m: F7 −1,160, plan byte-identical) and #278 (the 3 registry sites exclude 158 lots net, 22 of them F7, and 1 kept lot leaves F7 (F7->F3 at (-4345,-6853)) — lot-by-lot diff on this tree)'); // BATCH: measured on the merged tree = #282's 11,206 + #326's +9 (same count in the newer-apartments test) // Issue #313: F7 11,215 -> 11,273 (+58 - 347 F7 lots added, 300 removed, 11 net flip in; same count as the newer-apartments test) // Issue #314: F7 11,273 -> 11,426 (+153 - 265 added, 79 removed, -33 net flips; same count as the newer-apartments test) // Issue #386: F7 11,426 -> 11,175 (-251 - the re-seated lots re-roll the family assignment, seeded from lot position/footprint; same count in the newer-apartments test)
+  assert.equal(f7.length, 15221, 'F7 census after #124, composed with #166, #186, #226, #213, #219 and #221 (campus clearing removes 519 F7 lots) and #255 (the 4 registry sites exclude 32 lots, 1 of them F7, and 1 kept lot leaves F7 — lot-by-lot diff on this tree) and #289 (the 4 registry sites exclude 56 lots net, 2 of them F7, no kept lot leaves F7 — lot-by-lot diff on this tree) and #17 slice 2 (the low-band Taiwan roll assigns F7 its share of the 6-15 m masonry pool: +4,515, plan byte-identical) and #108 (the F13 strip-tile roll takes 12% of the Taiwan pool in 9–30 m: F7 −1,160, plan byte-identical) and #278 (the 3 registry sites exclude 158 lots net, 22 of them F7, and 1 kept lot leaves F7 (F7->F3 at (-4345,-6853)) — lot-by-lot diff on this tree)'); // BATCH: measured on the merged tree = #282's 11,206 + #326's +9 (same count in the newer-apartments test) // Issue #313: F7 11,215 -> 11,273 (+58 - 347 F7 lots added, 300 removed, 11 net flip in; same count as the newer-apartments test) // Issue #314: F7 11,273 -> 11,426 (+153 - 265 added, 79 removed, -33 net flips; same count as the newer-apartments test) // Issue #386: F7 11,426 -> 11,175 (-251 - the re-seated lots re-roll the family assignment, seeded from lot position/footprint; same count in the newer-apartments test) // Issue #17 (2026-11-22 slice): F7 11,175 -> 15,221 (+4,046 - the Taiwan share of the masonry pool rises to 90% and the sub-6 m lots join the split via lowTaiwanPick; lot-by-lot family diff on this tree, plan byte-identical; same count in the newer-apartments test)
   // Issue #326: F7 11,208 -> 11,217 (+9 — the re-seated lots re-roll
   // their families; same count in the newer-apartments test).
   // BATCH (merge of #329 + #332): composed value MEASURED on the merged tree.

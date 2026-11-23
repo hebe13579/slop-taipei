@@ -182,14 +182,14 @@ test('real tile: a modest number of scenes, every kind present', (t) => {
   // lamp/tree/amenity avoid lists are themselves exclusion-filtered
   // (smaller), which frees 6 scenes the test's lists collide with
   // (measured 2026-11-17, probe-live-census.log: 44 - 3 + 6 = 47).
-  assert.equal(cafe.stats.total, 44, 'total café scenes');
-  assert.equal(counts.table, 88, 'table count');
-  assert.equal(counts.chair, 176, 'chair count');
-  assert.equal(counts.bench, 44, 'bench count');
-  assert.equal(counts.tree, 44, 'tree count');
-  assert.equal(counts.scooter, 176, 'scooter count');
-  assert.equal(counts.menuBoard, 44, 'menu-board count');
-  assert.equal(counts.menuFace, 88, 'menu-face count');
+  assert.equal(cafe.stats.total, 67, 'total café scenes'); // Issue #17 (2026-11-22 slice): 44 -> 67 — scenes front mat 6/7 shophouses and the palette rebalance grows that population (measured by census-signs-cafe17.mjs on this tree, replicating this test's planner chain); the scene rules and the cap are unedited
+  assert.equal(counts.table, 134, 'table count');
+  assert.equal(counts.chair, 268, 'chair count');
+  assert.equal(counts.bench, 67, 'bench count');
+  assert.equal(counts.tree, 67, 'tree count');
+  assert.equal(counts.scooter, 268, 'scooter count');
+  assert.equal(counts.menuBoard, 67, 'menu-board count');
+  assert.equal(counts.menuFace, 134, 'menu-face count');
 });
 
 test('real tile: scenes spaced apart, depths in range, only on mat 6/7', () => {

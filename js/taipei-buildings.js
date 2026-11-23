@@ -9099,6 +9099,9 @@ export function officeCoreFor(lot) {
 // shed, not a shophouse. The glass rolls in every band are evaluated
 // first with the exact pre-#17 formulas, so the glass families'
 // counts are untouched; above 40 m nothing changes at all.
+// The 2026-11-22 slice of #17 raises that Taiwan share to 90%
+// (TAIWAN_POOL_SHARE, below) and brings the sub-6 m lots into the
+// same split — the two sentences above are the pre-slice state.
 //
 // Issue #136 re-draws the two tall bands around the office cores (see
 // officeCoreFor): the #128 real-height join put true heights on the
@@ -9181,6 +9184,24 @@ function taiwanPickWithStrip(lot, seed, opts) {
   return base;
 }
 
+// Issue #17 (2026-11-22 slice): the Taiwan share of the masonry
+// pool. Slices 1-2 (PR #54 / PR #296) planted the Taiwan types at
+// 72-75% of the pool, which still left the imported red-brick
+// masonry families on 20,295 of 76,253 lots (26.6%) — one building
+// in four, in every low/mid band, which reads as a default rather
+// than the rare accent the issue asks for. Real Taipei plan-lot
+// brick is a few percent: the stock is concrete and small-tile in
+// white / cream / beige / weathered grey (see the reference photos
+// in taiwanlook17-evidence/refs). The share rises to 90%: brick
+// survives at ~10% of the pool, and the sub-6 m lots — 100%
+// masonry until now — join the same split wearing the two
+// shophouse types (see lowTaiwanPick). Guard mode never consults
+// this share: the guard paths keep the pre-slice expressions
+// verbatim (the ternary thresholds in the 15-40 m bands, the
+// [0,1,2] rolls at and below 15 m), so the pull/facing searches
+// behave exactly as before and the plan stays byte-identical.
+export const TAIWAN_POOL_SHARE = 0.9;
+
 export function facadeMatFor(lot, opts) {
   const seed = (Math.imul(Math.round(lot.x * 10), 73856093) ^ Math.imul(Math.round(lot.z * 10), 19349663) ^ 0x101) | 0;
   const r = hash01(seed);
@@ -9212,21 +9233,24 @@ export function facadeMatFor(lot, opts) {
     if (core) {
       if (r < 0.5) return xinyiGlassOrLight(lot, seed, [3, 4, 5][Math.floor(r * 6) % 3]); // glass half (issue #142 may trade tall Xinyi glass for light)
       const u = (r - 0.5) * 2; // masonry half, rescaled to 0..1
-      if (u < 0.75) return taiwanPickWithStrip(lot, seed, opts);
-      const v = (u - 0.75) * 4;
+      // Guard mode keeps the pre-2026-11-22 share (0.75) verbatim.
+      if (u < (opts?.guard ? 0.75 : TAIWAN_POOL_SHARE)) return taiwanPickWithStrip(lot, seed, opts);
+      const v = opts?.guard ? (u - 0.75) * 4 : (u - TAIWAN_POOL_SHARE) / (1 - TAIWAN_POOL_SHARE);
       return [0, 1][Math.floor(v * 2) % 2];
     }
     if (r < 0.2) { const u = r / 0.2; return [3, 4, 5][Math.floor(u * 6) % 3]; } // glass fifth: district offices/hotels
     const u = (r - 0.2) / 0.8; // remainder, rescaled to 0..1
-    if (u < 0.75) return taiwanPickWithStrip(lot, seed, opts);
-    const v = (u - 0.75) * 4;
+    // Guard mode keeps the pre-2026-11-22 share (0.75) verbatim.
+    if (u < (opts?.guard ? 0.75 : TAIWAN_POOL_SHARE)) return taiwanPickWithStrip(lot, seed, opts);
+    const v = opts?.guard ? (u - 0.75) * 4 : (u - TAIWAN_POOL_SHARE) / (1 - TAIWAN_POOL_SHARE);
     return [0, 1][Math.floor(v * 2) % 2];
   }
   if (lot.h >= 15) {
     if (r < 0.1) return 3; // glass accent, unchanged
     const u = (r - 0.1) / 0.9; // masonry pool, rescaled to 0..1
-    if (u < 0.72) return taiwanPickWithStrip(lot, seed, opts);
-    const v = (u - 0.72) / 0.28;
+    // Guard mode keeps the pre-2026-11-22 share (0.72) verbatim.
+    if (u < (opts?.guard ? 0.72 : TAIWAN_POOL_SHARE)) return taiwanPickWithStrip(lot, seed, opts);
+    const v = opts?.guard ? (u - 0.72) / 0.28 : (u - TAIWAN_POOL_SHARE) / (1 - TAIWAN_POOL_SHARE);
     return [0, 1, 2][Math.floor(v * 3) % 3];
   }
   // Issue #17 slice 2: the low-rise bands join the Taiwan set — the
@@ -9248,17 +9272,25 @@ export function facadeMatFor(lot, opts) {
     if (r < 0.1) return 3; // glass accent, unchanged
     if (opts?.guard) return [0, 1, 2][Math.floor(r * 3) % 3];
     const u = (r - 0.1) / 0.9; // masonry pool, rescaled to 0..1
-    if (u < 0.72) return taiwanPickWithStrip(lot, seed, opts);
-    const v = (u - 0.72) / 0.28;
+    if (u < TAIWAN_POOL_SHARE) return taiwanPickWithStrip(lot, seed, opts);
+    const v = (u - TAIWAN_POOL_SHARE) / (1 - TAIWAN_POOL_SHARE);
     return [0, 1, 2][Math.floor(v * 3) % 3];
   }
   if (lot.h >= 6) {
     if (opts?.guard) return [0, 1, 2][Math.floor(r * 3) % 3];
-    if (r < 0.72) return taiwanPickWithStrip(lot, seed, opts);
-    const v = (r - 0.72) / 0.28;
+    if (r < TAIWAN_POOL_SHARE) return taiwanPickWithStrip(lot, seed, opts);
+    const v = (r - TAIWAN_POOL_SHARE) / (1 - TAIWAN_POOL_SHARE);
     return [0, 1, 2][Math.floor(v * 3) % 3];
   }
-  return [0, 1, 2][Math.floor(r * 3) % 3];
+  // Issue #17 (2026-11-22 slice): the sub-6 m lots join the
+  // rebalance — guard mode keeps the all-masonry roll verbatim
+  // (the searches never probe below 6 m, but the invariant is
+  // kept exact); normal mode wears the shophouse pick at the
+  // same 90% share, brick as the same 10% accent.
+  if (opts?.guard) return [0, 1, 2][Math.floor(r * 3) % 3];
+  if (r < TAIWAN_POOL_SHARE) return lowTaiwanPick(lot, seed);
+  const v = (r - TAIWAN_POOL_SHARE) / (1 - TAIWAN_POOL_SHARE);
+  return [0, 1, 2][Math.floor(v * 3) % 3];
 }
 
 // Issue #142: the user, looking at the #136 result, asked for MORE
@@ -9324,6 +9356,17 @@ function tallTaiwanTypeFor(lot, seed) {
   return 8;
 }
 
+// Issue #17 (2026-11-22 slice): the sub-6 m pick. A one-storey
+// lot is a small shop or workshop, not a walk-up slab: only the
+// two shophouse types apply — the tile shophouse (6) and the
+// arcade shophouse (7, which keeps its flat facade when the lot
+// is under 11 m in either dimension; see taipeiArcadeParts).
+// Same seed hash as taiwanTypeFor, split evenly, so the pick is
+// a position property like every other facade rule.
+function lowTaiwanPick(lot, seed) {
+  return hash01(seed ^ 0x9e3779b9) < 0.5 ? 6 : 7;
+}
+
 // Which Taiwan type a Taiwan-set lot becomes, by height plausibility —
 // a second hash of the same seed picks within the weights, and a type's
 // weight is zero outside its band, which is what caps each type:
@@ -9384,6 +9427,15 @@ function taiwanTypeFor(lot, seed) {
 // capped at 4.2 m across and 3.0 m tall, and dropped when the roof is too
 // small to hold a unit honestly (smaller dimension < 3.6 m, or the shrunk
 // unit would fall under 1.8 m). Pure data — unit-tested.
+// The 2026-11-22 slice of #17 adds the lot-relative cap the flat
+// caps miss: a 4.2 m unit is modest on a 20 m roof but half the
+// building on an 8 m one (the rendered census over the east
+// cluster slice measured units up to 51.8% of their roof's narrow
+// dimension). A unit now also spans at most TAIPEI_GEAR_REL_CAP of
+// the roof's narrow dimension in either direction; the aspect and
+// drop rules then apply as before, so a roof too narrow for an
+// honest unit at that share simply carries none.
+export const TAIPEI_GEAR_REL_CAP = 0.45;
 export function clampTaipeiRooftopGear(gear, lot) {
   const roofW = lot.x1 - lot.x0;
   const roofD = lot.z1 - lot.z0;
@@ -9391,8 +9443,8 @@ export function clampTaipeiRooftopGear(gear, lot) {
   const units = [];
   if (roofMin >= 3.6) {
     for (const u of gear.hvacUnits || []) {
-      let w = Math.min(u.w, roofW - 1.0, 4.2);
-      let d = Math.min(u.d, roofD - 1.0, 4.2);
+      let w = Math.min(u.w, roofW - 1.0, 4.2, roofMin * TAIPEI_GEAR_REL_CAP);
+      let d = Math.min(u.d, roofD - 1.0, 4.2, roofMin * TAIPEI_GEAR_REL_CAP);
       if (w < 1.8 || d < 1.8) continue;
       if (w > d * 1.3) w = d * 1.3;
       if (d > w * 1.3) d = w * 1.3;
