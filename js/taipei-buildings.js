@@ -5938,6 +5938,39 @@ function lotCorners(cx, cz, w, d, cosT, sinT) {
   ];
 }
 
+// Overlap area of two convex quads ([x, z] pairs in loop order):
+// Sutherland–Hodgman clip of a against b's half-planes, then the
+// shoelace area. Issue #217's repair pass uses it to tell a real
+// collision (square metres) from the hairline touches the plan's
+// own rects already exhibit across block boundaries.
+function quadOverlapArea(a, b) {
+  let poly = a;
+  for (let i = 0; i < b.length; i++) {
+    const p = b[i], q = b[(i + 1) % b.length];
+    const inside = (pt) => (q[0] - p[0]) * (pt[1] - p[1]) - (q[1] - p[1]) * (pt[0] - p[0]) <= 1e-9;
+    const inter = (pt, qt) => {
+      const d1 = (q[0] - p[0]) * (pt[1] - p[1]) - (q[1] - p[1]) * (pt[0] - p[0]);
+      const d2 = (q[0] - p[0]) * (qt[1] - p[1]) - (q[1] - p[1]) * (qt[0] - p[0]);
+      const t = d1 / (d1 - d2);
+      return [pt[0] + (qt[0] - pt[0]) * t, pt[1] + (qt[1] - pt[1]) * t];
+    };
+    const out = [];
+    for (let j = 0; j < poly.length; j++) {
+      const cur = poly[j], prev = poly[(j + poly.length - 1) % poly.length];
+      if (inside(cur)) { if (!inside(prev)) out.push(inter(prev, cur)); out.push(cur); }
+      else if (inside(prev)) out.push(inter(prev, cur));
+    }
+    poly = out;
+    if (!poly.length) return 0;
+  }
+  let area = 0;
+  for (let i = 0; i < poly.length; i++) {
+    const [x1, z1] = poly[i], [x2, z2] = poly[(i + 1) % poly.length];
+    area += x1 * z2 - x2 * z1;
+  }
+  return Math.abs(area / 2);
+}
+
 // Separating-axis intersection of two convex quads ([x, z] pairs in
 // loop order): project both onto each quad's two edge normals.
 function quadsIntersect(a, b) {
@@ -6836,7 +6869,7 @@ export function planSchoolCampuses(geodata, landmarkSites, carriageways, originL
 }
 
 export function planTaipeiBuildings(geodata, opts = {}) {
-  const stats = { blocksSeen: 0, blocksFine: 0, lotsFine: 0, blocksSkippedSmall: 0, blocksSkippedParkWater: 0, blocksSkippedGreen: 0, blocksSkippedAirfield: 0, blocksSkippedSchool: 0, blocksSkippedLoop: 0, blocksSkippedNpmSite: 0, blocksSkippedOutsideUnion: 0, lotsDroppedVacancy: 0, lotsDroppedParkWater: 0, lotsDroppedGreen: 0, lotsDroppedRiverside: 0, lotsDroppedAirfield: 0, lotsDroppedSchool: 0, lotsDroppedLoop: 0, lotsDroppedNpmSite: 0, lotsDroppedTowerSite: 0, lotsDroppedRoad: 0, lotsDroppedMedian: 0, lotsDroppedOutsideUnion: 0, lotsDroppedTrackBed: 0, lotsDroppedTrackPierce: 0, lotsDroppedPier: 0, blocksRotated: 0, lotsRotated: 0, lotsPackedFrontage: 0, lotsTallFrontage: 0, heightsPermit: 0, heightsOsmHeight: 0, heightsOsmLevels: 0, heightsDoor: 0, heightsField: 0, heightsProc: 0, heightsGuardParcel: 0, heightsGuardExtreme: 0, heightsSteppedGroups: 0, heightsSteppedLots: 0, lotsFrontagePulled: 0, lotsFrontageFlush: 0, lotsFrontageHeldNoBed: 0, lotsFrontageHeldBlocked: 0, frontagePullMetres: 0, lotsFacingTurned: 0, lotsFacingHeld: 0, lotsFacingHeldNoFace: 0, lotsFacingHeldSmallTurn: 0, lotsFacingHeldFacade: 0, lotsFacingHeldClear: 0, lotsFacingHeldAlignedMain: 0, lotsFacingTurnedFull: 0, lotsFacingTurnedPartial: 0 };
+  const stats = { blocksSeen: 0, blocksFine: 0, lotsFine: 0, blocksSkippedSmall: 0, blocksSkippedParkWater: 0, blocksSkippedGreen: 0, blocksSkippedAirfield: 0, blocksSkippedSchool: 0, blocksSkippedLoop: 0, blocksSkippedNpmSite: 0, blocksSkippedOutsideUnion: 0, lotsDroppedVacancy: 0, lotsDroppedParkWater: 0, lotsDroppedGreen: 0, lotsDroppedRiverside: 0, lotsDroppedAirfield: 0, lotsDroppedSchool: 0, lotsDroppedLoop: 0, lotsDroppedNpmSite: 0, lotsDroppedTowerSite: 0, lotsDroppedRoad: 0, lotsDroppedMedian: 0, lotsDroppedOutsideUnion: 0, lotsDroppedTrackBed: 0, lotsDroppedTrackPierce: 0, lotsDroppedPier: 0, blocksRotated: 0, lotsRotated: 0, lotsPackedFrontage: 0, lotsTallFrontage: 0, heightsPermit: 0, heightsOsmHeight: 0, heightsOsmLevels: 0, heightsDoor: 0, heightsField: 0, heightsProc: 0, heightsGuardParcel: 0, heightsGuardExtreme: 0, heightsSteppedGroups: 0, heightsSteppedLots: 0, lotsFrontagePulled: 0, lotsFrontageFlush: 0, lotsFrontageHeldNoBed: 0, lotsFrontageHeldBlocked: 0, frontagePullMetres: 0, lotsFacingTurned: 0, lotsFacingHeld: 0, lotsFacingHeldNoFace: 0, lotsFacingHeldSmallTurn: 0, lotsFacingHeldFacade: 0, lotsFacingHeldClear: 0, lotsFacingHeldAlignedMain: 0, lotsFacingTurnedFull: 0, lotsFacingTurnedPartial: 0, shapeCellsRoad: 0, shapeCellsFilled: 0, shapeBands: 0, shapeBandsWedge: 0, shapeBandsStep: 0, shapeLots: 0, shapeLotsWrap: 0, shapeAreaM2: 0, shapeBandsDroppedRepair: 0 };
   // Issue #218: building-density presets (settings gear). 'fine'
   // is the shipped default: every constant it selects below is the
   // literal this code used before the option existed, so the
@@ -7615,6 +7648,117 @@ export function planTaipeiBuildings(geodata, opts = {}) {
   // qualifying face on that axis; c/s are the block frame's cos/sin.
   const FRONTAGE_PULL_MIN_RANK = 3; // secondary or better, #106 face ranks
   const lotFront = [];
+  // Issue #217: non-rectangular footprints. A lot keeps its planned
+  // rectangle; where the road verdicts killed a neighbouring grid
+  // cell (a corner remainder, a diagonal street's triangular bite, an
+  // irregular leftover), the surviving lot beside the dead cell may
+  // grow ONE rectangular band into it — the union of rectangle +
+  // bands is the L / wedge / stepped footprint, carried as polygon
+  // data (lot.shape: centre-relative [u0, v0, u1, v1] rects in the
+  // lot's own frame) through the adapter into the renderer's
+  // union-of-rects massing. A band is admitted only through the full
+  // lot gauntlet below (the same verdicts the lot loop runs, in the
+  // same order), only inside its dead cell plus the party-wall gap up
+  // to the receiver's rect edge, and it is re-validated after the
+  // frontage pull and the facing pass have had their say (the repair
+  // pass at the end of this function) — a band that no longer abuts
+  // its lot, or no longer clears, is dropped there. Vacancy, median,
+  // park/green, site and track cells are never filled: only cells the
+  // ROAD verdicts dropped are remainders a building may claim.
+  const SHAPE_MIN_DEPTH_M = 2.0;  // a band must reach this deep past the dead cell's edge
+  const SHAPE_MIN_SPAN_M = 4.0;   // ... and span at least this along the shared edge
+  const SHAPE_MARCH_STEP_M = 0.5; // depth-search precision / shrink-retry grid into the dead cell
+  const SHAPE_SHRINK_M = 0.08;    // stored bands pull this far in on their outer sides
+  const SHAPE_LOT_OVERLAP_MAX_M2 = 1.0; // repair: a band dies to another lot only past this overlap area
+  // The band gauntlet: mirrors the lot loop's verdict sequence for a
+  // candidate rect (world centre cx/cz, size sw x sd in the frame
+  // (cT, sT), building height h). `box` is the block's inset bbox
+  // [minX, maxX, minZ, maxZ] during in-loop shaping, or null in the
+  // repair pass (a pulled lot may legitimately leave the inset box).
+  const bandClear = (cx, cz, sw, sd, cT, sT, h, box) => {
+    const turned = Math.abs(sT) > 1e-9;
+    const corners = lotCorners(cx, cz, sw, sd, cT, sT);
+    if (box) {
+      for (const [px, pz] of corners) {
+        if (px < box[0] - 1e-9 || px > box[1] + 1e-9 || pz < box[2] - 1e-9 || pz > box[3] + 1e-9) return false;
+      }
+    }
+    if (inPoly(cx, cz) || inGreen(cx, cz) || inAirfield(cx, cz) || inNpmSite(cx, cz) || inLoop(cx, cz) || inSchool(cx, cz)) return false;
+    if (tamsuiRings.length && nearTamsui(cx, cz)) return false;
+    for (const [px, pz] of corners) {
+      if (nearPoly(px, pz) || nearGreen(px, pz) || nearSchool(px, pz)) return false;
+      if (turned && (inPoly(px, pz) || inGreen(px, pz) || nearAirfield(px, pz) || nearNpmSite(px, pz) || nearLoop(px, pz))) return false;
+      if (turned && tamsuiRings.length && nearTamsui(px, pz)) return false;
+    }
+    if (!inUnion(cx, cz)) return false;
+    for (const [ox, oz] of [[-1, -1], [-1, 1], [1, -1], [1, 1]]) {
+      if (!inUnion(cx + (ox * sw) / 2, cz + (oz * sd) / 2)) return false;
+    }
+    if (turned && corners.some(([px, pz]) => !inUnion(px, pz))) return false;
+    for (const s of exclusionSites) {
+      if (cx + sw / 2 > s.minX && cx - sw / 2 < s.maxX && cz + sd / 2 > s.minZ && cz - sd / 2 < s.maxZ) return false;
+    }
+    if (depotHit(cx, cz, sw / 2, sd / 2)) return false;
+    let aabb = null;
+    if (turned) {
+      aabb = { minX: Infinity, maxX: -Infinity, minZ: Infinity, maxZ: -Infinity };
+      for (const [px, pz] of corners) {
+        if (px < aabb.minX) aabb.minX = px;
+        if (px > aabb.maxX) aabb.maxX = px;
+        if (pz < aabb.minZ) aabb.minZ = pz;
+        if (pz > aabb.maxZ) aabb.maxZ = pz;
+      }
+      for (const s of exclusionSites) {
+        if (aabb.maxX < s.minX || aabb.minX > s.maxX || aabb.maxZ < s.minZ || aabb.minZ > s.maxZ) continue;
+        if (quadsIntersect(corners, [[s.minX, s.minZ], [s.maxX, s.minZ], [s.maxX, s.maxZ], [s.minX, s.maxZ]])) return false;
+      }
+      if (depotHit(cx, cz, (aabb.maxX - aabb.minX) / 2, (aabb.maxZ - aabb.minZ) / 2)) return false;
+    }
+    if (ribbonVerdict(cx, cz, sw, sd)) return false;
+    if (turned) {
+      if (rotatedRoadHit(cx, cz, sw, sd, cT, sT)) return false;
+      if (ribbonVerdict(cx, cz, aabb.maxX - aabb.minX, aabb.maxZ - aabb.minZ) === 'median') return false;
+    }
+    const tg = lotCorners(cx, cz, sw + 2 * TRACK_MARGIN_M, sd + 2 * TRACK_MARGIN_M, cT, sT);
+    let tgMinX = Infinity, tgMaxX = -Infinity, tgMinZ = Infinity, tgMaxZ = -Infinity;
+    for (const [px, pz] of tg) {
+      if (px < tgMinX) tgMinX = px;
+      if (px > tgMaxX) tgMaxX = px;
+      if (pz < tgMinZ) tgMinZ = pz;
+      if (pz > tgMaxZ) tgMaxZ = pz;
+    }
+    const track = trackVerdict(cx, cz, tg, tgMinX, tgMaxX, tgMinZ, tgMaxZ);
+    if (track.bed) return false;
+    if (track.under < Infinity && h > track.under - TRACK_CLEARANCE_M) return false;
+    if (pierHit(cx, cz, sw, sd, cT, sT)) return false;
+    return true;
+  };
+  // Issue #217: the road-only half of the gauntlet (the verdicts
+  // that killed the cell). The shaping march binary-searches depth
+  // on these cheap probes, then verifies the winning depth against
+  // the full bandClear — the accepted band always passes the whole
+  // gauntlet at its final size; the probes only save time.
+  const roadClear = (cx, cz, sw, sd, cT, sT) => {
+    if (ribbonVerdict(cx, cz, sw, sd)) return false;
+    if (Math.abs(sT) > 1e-9) {
+      if (rotatedRoadHit(cx, cz, sw, sd, cT, sT)) return false;
+      const corners = lotCorners(cx, cz, sw, sd, cT, sT);
+      let minX = Infinity, maxX = -Infinity, minZ = Infinity, maxZ = -Infinity;
+      for (const [px, pz] of corners) {
+        if (px < minX) minX = px;
+        if (px > maxX) maxX = px;
+        if (pz < minZ) minZ = pz;
+        if (pz > maxZ) maxZ = pz;
+      }
+      if (ribbonVerdict(cx, cz, maxX - minX, maxZ - minZ) === 'median') return false;
+    }
+    return true;
+  };
+  // Issue #217: per-block shaping records, reset for each block —
+  // cellLotIdx maps a grid cell (col * 8192 + row) to its emitted
+  // lot's index; roadCells lists the cells the road verdicts dropped.
+  let cellLotIdx = new Map();
+  let roadCells = [];
   const blocks = geodata.blocks || [];
   for (let bi = 0; bi < blocks.length; bi++) {
     const block = blocks[bi];
@@ -7669,6 +7813,8 @@ export function planTaipeiBuildings(geodata, opts = {}) {
       cellD = innerD / rows;
     }
     const ocx = (minX + maxX) / 2, ocz = (minZ + maxZ) / 2;
+    cellLotIdx = new Map();
+    roadCells = [];
     // Issue #106: classify the block's four faces by the road that
     // fronts each — three samples per face, pushed 7 m out from the
     // inset edge (past the block's own bbox edge, into the street
@@ -7833,7 +7979,7 @@ export function planTaipeiBuildings(geodata, opts = {}) {
           if (siteHit) { stats.lotsDroppedTowerSite++; continue; }
         }
         const verdict = ribbonVerdict(cx, cz, w, d);
-        if (verdict === 'road') { stats.lotsDroppedRoad++; continue; }
+        if (verdict === 'road') { stats.lotsDroppedRoad++; roadCells.push({ col, row }); continue; }
         if (verdict === 'median') { stats.lotsDroppedMedian++; continue; }
         if (theta) {
           // Issue #62: the axis verdict guarantees what the #65
@@ -7846,7 +7992,7 @@ export function planTaipeiBuildings(geodata, opts = {}) {
           // own 'road' result is not used: the span is a superset
           // shape and intersection is judged on the two exact
           // footprints only.)
-          if (rotatedRoadHit(cx, cz, w, d, cosT, sinT)) { stats.lotsDroppedRoad++; continue; }
+          if (rotatedRoadHit(cx, cz, w, d, cosT, sinT)) { stats.lotsDroppedRoad++; roadCells.push({ col, row }); continue; }
           if (ribbonVerdict(cx, cz, cornersAabb.maxX - cornersAabb.minX, cornersAabb.maxZ - cornersAabb.minZ) === 'median') { stats.lotsDroppedMedian++; continue; }
         }
         // Issue #139: the MRT track corridor. The bed half runs
@@ -7932,6 +8078,7 @@ export function planTaipeiBuildings(geodata, opts = {}) {
         if (tallFrontage) stats.lotsTallFrontage++;
         if (fine) stats.lotsFine++;
         lots.push(lot);
+        cellLotIdx.set(col * 8192 + row, lots.length - 1);
         lotProcH.push(procH);
         lotFp.push(fpIdx);
         // Issue #185: this lot's grid position and the block's four
@@ -7952,6 +8099,145 @@ export function planTaipeiBuildings(geodata, opts = {}) {
         if (col === cols - 1 && edgeRankUHigh >= FRONTAGE_PULL_MIN_RANK) uF.push([1, edgeRankUHigh]);
         lotFront.push({ c: cosT, s: sinT, bi, row, col, vF, uF, rVL: edgeRankVLow, rVH: edgeRankVHigh, rUL: edgeRankULow, rUH: edgeRankUHigh });
       }
+    }
+    // Issue #217 shaping pass: grow footprint bands from this block's
+    // surviving lots into its road-dropped cells. All geometry here
+    // is in the block frame, where every lot rect is axis-aligned
+    // inside its own cell — so a band spanning its dead cell (plus
+    // the party-wall gap up to the receiver's rect edge) cannot
+    // touch any other lot, and the frame-rect overlap guard below is
+    // exact (the frame map is a rigid rotation).
+    if (roadCells.length && cellLotIdx.size) {
+      stats.shapeCellsRoad += roadCells.length;
+      const roadSet = new Set(roadCells.map((c) => c.col * 8192 + c.row));
+      const accepted = []; // { li, fu0, fv0, fu1, fv1 } frame rects, this block
+      const lotAxes = new Map(); // lot index -> { u, v, corner } for the wrap census
+      const rectsOverlap = (a, b) => Math.min(a.fu1, b.fu1) - Math.max(a.fu0, b.fu0) > 0.01 && Math.min(a.fv1, b.fv1) - Math.max(a.fv0, b.fv0) > 0.01;
+      for (const cell of roadCells) {
+        const cu0 = cell.col * cellW - halfU, cu1 = cu0 + cellW;
+        const cv0 = cell.row * cellD - halfV, cv1 = cv0 + cellD;
+        let best = null;
+        for (const [dc, dr] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+          const li = cellLotIdx.get((cell.col + dc) * 8192 + (cell.row + dr));
+          if (li === undefined) continue;
+          const lot = lots[li];
+          const fuL = (cell.col + dc + 0.5) * cellW - halfU;
+          const fvL = (cell.row + dr + 0.5) * cellD - halfV;
+          const alongU = dc !== 0;
+          // March interval: from the receiver's rect edge (m0) to
+          // the dead cell's far edge (m1), in frame coords. The
+          // dead cell stands at receiver - (dc, dr): for dc > 0 it
+          // is on the receiver's u-low side, so the march starts at
+          // the rect's u-low edge and runs to the cell's far (u-low)
+          // edge; the other three sides mirror.
+          let m0, m1;
+          if (alongU) { m0 = dc > 0 ? fuL - lot.w / 2 : fuL + lot.w / 2; m1 = dc > 0 ? cu0 : cu1; }
+          else { m0 = dr > 0 ? fvL - lot.d / 2 : fvL + lot.d / 2; m1 = dr > 0 ? cv0 : cv1; }
+          const dir = Math.sign(m1 - m0);
+          const total = Math.abs(m1 - m0);
+          if (total < SHAPE_MIN_DEPTH_M + SHAPE_SHRINK_M) continue;
+          // Two spans: the dead cell's full cross extent (the wide
+          // wedge / step), then the receiver's own cross extent (a
+          // straight extension of its rect).
+          const spans = alongU ? [[cv0, cv1], [fvL - lot.d / 2, fvL + lot.d / 2]] : [[cu0, cu1], [fuL - lot.w / 2, fuL + lot.w / 2]];
+          for (const span of spans) {
+            let [s0, s1] = span;
+            // A band already accepted for THIS lot on the cross axis
+            // owns the corner square past the lot's far cross edge:
+            // trim this span to that arm's near edge so the two arms
+            // meet instead of overlapping (the L wrap).
+            const candFull = alongU
+              ? { fu0: Math.min(m0, m1), fu1: Math.max(m0, m1), fv0: s0, fv1: s1 }
+              : { fu0: s0, fu1: s1, fv0: Math.min(m0, m1), fv1: Math.max(m0, m1) };
+            for (const acc of accepted) {
+              if (acc.li !== li || !rectsOverlap(candFull, acc)) continue;
+              const crossLo = alongU ? acc.fv0 : acc.fu0, crossHi = alongU ? acc.fv1 : acc.fu1;
+              const cMid = alongU ? fvL : fuL;
+              if (cMid <= crossLo) s1 = Math.min(s1, crossLo);
+              else if (cMid >= crossHi) s0 = Math.max(s0, crossHi);
+              else { s0 = 0; s1 = 0; }
+            }
+            if (s1 - s0 < SHAPE_MIN_SPAN_M) continue;
+            // March into the cell: binary-search the depth on the
+            // road-only probes (clearance is monotone in depth —
+            // the candidate rects are nested), then verify the
+            // winning depth against the FULL gauntlet, shrinking in
+            // quarter steps until it passes. The accepted depth
+            // always passes bandClear at its final size.
+            const probe = (dep) => {
+              const a = Math.min(m0, m0 + dir * dep), b = Math.max(m0, m0 + dir * dep);
+              const fu = alongU ? (a + b) / 2 : (s0 + s1) / 2;
+              const fv = alongU ? (s0 + s1) / 2 : (a + b) / 2;
+              const sw = alongU ? b - a : s1 - s0;
+              const sd = alongU ? s1 - s0 : b - a;
+              return [ocx + fu * cosT - fv * sinT, ocz + fu * sinT + fv * cosT, sw, sd];
+            };
+            let keep = 0;
+            {
+              const [fx, fz, fsw, fsd] = probe(total);
+              if (roadClear(fx, fz, fsw, fsd, cosT, sinT)) {
+                keep = total;
+              } else {
+                let lo = 0, hi = total;
+                while (hi - lo > SHAPE_MARCH_STEP_M) {
+                  const mid = (lo + hi) / 2;
+                  const [mx, mz, msw, msd] = probe(mid);
+                  if (roadClear(mx, mz, msw, msd, cosT, sinT)) lo = mid; else hi = mid;
+                }
+                keep = lo;
+              }
+              while (keep >= SHAPE_MIN_DEPTH_M + SHAPE_SHRINK_M) {
+                const [vx, vz, vsw, vsd] = probe(keep);
+                if (bandClear(vx, vz, vsw, vsd, cosT, sinT, lot.h, [minX, maxX, minZ, maxZ])) break;
+                keep = Math.floor((keep * 0.75) / SHAPE_MARCH_STEP_M) * SHAPE_MARCH_STEP_M;
+              }
+              if (keep < SHAPE_MIN_DEPTH_M + SHAPE_SHRINK_M) keep = 0;
+            }
+            if (!keep) continue;
+            const area = keep * (s1 - s0);
+            if (!best || area > best.area) best = { li, fuL, fvL, alongU, m0, dir, keep, s0, s1, area, rcol: cell.col + dc, rrow: cell.row + dr };
+          }
+        }
+        if (!best) continue;
+        const a = Math.min(best.m0, best.m0 + best.dir * best.keep), b = Math.max(best.m0, best.m0 + best.dir * best.keep);
+        const rect = best.alongU
+          ? { li: best.li, fu0: a, fu1: b, fv0: best.s0, fv1: best.s1 }
+          : { li: best.li, fu0: best.s0, fu1: best.s1, fv0: a, fv1: b };
+        // Exact guard: no overlap with any band already accepted in
+        // this block (another lot's arm, or this lot's untrimmable arm).
+        if (accepted.some((acc) => rectsOverlap(rect, acc))) continue;
+        accepted.push(rect);
+        const lot = lots[best.li];
+        // Store centre-relative in the lot's frame (0.05 m grid),
+        // pulled in SHAPE_SHRINK_M on the three outer sides; the
+        // abutting side keeps the receiver's exact rect edge (the
+        // emitted lot.w / lot.d are already 0.1-rounded, so the
+        // union stays seamless and the repair pass can re-derive it).
+        const r05 = (v) => Math.round(v * 20) / 20;
+        let u0 = rect.fu0 - best.fuL, u1 = rect.fu1 - best.fuL;
+        let v0 = rect.fv0 - best.fvL, v1 = rect.fv1 - best.fvL;
+        if (best.alongU) {
+          if (best.dir > 0) u1 -= SHAPE_SHRINK_M; else u0 += SHAPE_SHRINK_M;
+          v0 += SHAPE_SHRINK_M; v1 -= SHAPE_SHRINK_M;
+        } else {
+          if (best.dir > 0) v1 -= SHAPE_SHRINK_M; else v0 += SHAPE_SHRINK_M;
+          u0 += SHAPE_SHRINK_M; u1 -= SHAPE_SHRINK_M;
+        }
+        (lot.shape ||= []).push([r05(u0), r05(v0), r05(u1), r05(v1)]);
+        stats.shapeCellsFilled++;
+        stats.shapeBands++;
+        stats.shapeAreaM2 += Math.round(best.area);
+        // Wedge census: the dead cell touches another road-dropped
+        // cell diagonally — the road edge runs diagonally through
+        // the cell cluster and the band fills its triangular bite.
+        const wedge = [[1, 1], [1, -1], [-1, 1], [-1, -1]].some(([dc, dr]) => roadSet.has((cell.col + dc) * 8192 + (cell.row + dr)));
+        if (wedge) stats.shapeBandsWedge++; else stats.shapeBandsStep++;
+        const axes = lotAxes.get(best.li) || { u: false, v: false, corner: false };
+        if (best.alongU) axes.u = true; else axes.v = true;
+        if ((best.rcol === 0 || best.rcol === cols - 1) && (best.rrow === 0 || best.rrow === rows - 1)) axes.corner = true;
+        lotAxes.set(best.li, axes);
+      }
+      for (const axes of lotAxes.values()) if (axes.u && axes.v && axes.corner) stats.shapeLotsWrap++;
     }
   }
 
@@ -9052,6 +9338,122 @@ export function planTaipeiBuildings(geodata, opts = {}) {
       }
     }
     tower = { x: tx, z: tz, podium, podiumParts, ornaments, tiers, top, spire: { y0: top.y0 + top.h, h: 508 - (top.y0 + top.h), w: 2.4 }, totalHeight: 508 };
+  }
+  // Issue #217 repair pass: the frontage pull (#185) and the facing
+  // pass (#386) move and re-cut lot rects without knowing about
+  // shape bands. Re-derive every band's world quad from its lot's
+  // FINAL rect and keep it only if it still abuts that rect, still
+  // passes the band gauntlet, collides with no other lot rect (the
+  // area rule below) and overlaps no other surviving band. Anything
+  // else is dropped here — the plan that leaves this function never
+  // carries a floating, piercing or colliding band.
+  {
+    const shrinkQuad = (quad, cx, cz, k) => quad.map(([px, pz]) => [cx + (px - cx) * k, cz + (pz - cz) * k]);
+    const grid = new Map();
+    const gkey = (gx, gz) => gx * 100003 + gz;
+    lots.forEach((lot, li) => {
+      const reach = 48; // a band reaches at most one cell past its lot
+      const gx0 = Math.floor((lot.x - lot.w / 2 - reach) / GRID_CELL), gx1 = Math.floor((lot.x + lot.w / 2 + reach) / GRID_CELL);
+      const gz0 = Math.floor((lot.z - lot.d / 2 - reach) / GRID_CELL), gz1 = Math.floor((lot.z + lot.d / 2 + reach) / GRID_CELL);
+      for (let gx = gx0; gx <= gx1; gx++) for (let gz = gz0; gz <= gz1; gz++) {
+        const k = gkey(gx, gz);
+        let bucket = grid.get(k);
+        if (!bucket) grid.set(k, bucket = []);
+        bucket.push(li);
+      }
+    });
+    const keptBands = []; // { quad, cx, cz, sw, sd } world geometry of surviving bands
+    const bandGrid = new Map(); // grid cell -> keptBands indices, by quad AABB
+    const bandCells = (quad) => {
+      let minX = Infinity, maxX = -Infinity, minZ = Infinity, maxZ = -Infinity;
+      for (const [px, pz] of quad) {
+        if (px < minX) minX = px;
+        if (px > maxX) maxX = px;
+        if (pz < minZ) minZ = pz;
+        if (pz > maxZ) maxZ = pz;
+      }
+      const cells = [];
+      for (let gx = Math.floor(minX / GRID_CELL); gx <= Math.floor(maxX / GRID_CELL); gx++)
+        for (let gz = Math.floor(minZ / GRID_CELL); gz <= Math.floor(maxZ / GRID_CELL); gz++) cells.push(gkey(gx, gz));
+      return cells;
+    };
+    for (let li = 0; li < lots.length; li++) {
+      const lot = lots[li];
+      if (!Array.isArray(lot.shape) || !lot.shape.length) continue;
+      const rot = lot.rot || 0, cR = Math.cos(rot), sR = Math.sin(rot);
+      const ownQuad = lotCorners(lot.x, lot.z, lot.w, lot.d, cR, sR);
+      const kept = [];
+      for (const [u0, v0, u1, v1] of lot.shape) {
+        const ou = (u0 + u1) / 2, ov = (v0 + v1) / 2, sw = u1 - u0, sd = v1 - v0;
+        const cx = lot.x + ou * cR - ov * sR, cz = lot.z + ou * sR + ov * cR;
+        const quad = lotCorners(cx, cz, sw, sd, cR, sR);
+        let ok = bandClear(cx, cz, sw, sd, cR, sR, lot.h, null);
+        // Abuts its own rect: no interior overlap at 0.06 shrink,
+        // but contact at 0.06 grow.
+        if (ok && quadsIntersect(shrinkQuad(quad, cx, cz, Math.max(0.1, (Math.min(sw, sd) - 0.12) / Math.min(sw, sd))), ownQuad)) ok = false;
+        if (ok && !quadsIntersect(shrinkQuad(quad, cx, cz, (Math.min(sw, sd) + 0.12) / Math.min(sw, sd)), ownQuad)) ok = false;
+        if (ok) {
+          const seen = new Set();
+          let qMinX = Infinity, qMaxX = -Infinity, qMinZ = Infinity, qMaxZ = -Infinity;
+          for (const [px, pz] of quad) {
+            if (px < qMinX) qMinX = px;
+            if (px > qMaxX) qMaxX = px;
+            if (pz < qMinZ) qMinZ = pz;
+            if (pz > qMaxZ) qMaxZ = pz;
+          }
+          const gx0 = Math.floor((qMinX - 2) / GRID_CELL), gx1 = Math.floor((qMaxX + 2) / GRID_CELL);
+          const gz0 = Math.floor((qMinZ - 2) / GRID_CELL), gz1 = Math.floor((qMaxZ + 2) / GRID_CELL);
+          // Lot collision: an AREA rule, not a touch rule. Blocks
+          // are planned independently over their inset bboxes, so
+          // the shipped plan's own rects already overlap across
+          // block boundaries (measured up to ~189 m2 in one Xinyi
+          // sandbox district on the pristine plan); a zero-tolerance
+          // rule would strip most diagonal-district bands for
+          // hairline touches the base fabric exhibits at 100x the
+          // scale. Roads keep zero tolerance (the gauntlet above);
+          // a band dies to another lot only on a real collision.
+          outer: for (let gx = gx0; gx <= gx1; gx++) for (let gz = gz0; gz <= gz1; gz++) {
+            const bucket = grid.get(gkey(gx, gz));
+            if (!bucket) continue;
+            for (const oi of bucket) {
+              if (oi === li || seen.has(oi)) continue;
+              seen.add(oi);
+              const o = lots[oi];
+              const oQuad = lotCorners(o.x, o.z, o.w, o.d, Math.cos(o.rot || 0), Math.sin(o.rot || 0));
+              if (quadOverlapArea(quad, oQuad) > SHAPE_LOT_OVERLAP_MAX_M2) { ok = false; break outer; }
+            }
+          }
+        }
+        if (ok) {
+          const seenB = new Set();
+          for (const k of bandCells(quad)) {
+            const bucket = bandGrid.get(k);
+            if (!bucket) continue;
+            for (const bi2 of bucket) {
+              if (seenB.has(bi2)) continue;
+              seenB.add(bi2);
+              if (quadsIntersect(shrinkQuad(quad, cx, cz, Math.max(0.1, (Math.min(sw, sd) - 0.04) / Math.min(sw, sd))), keptBands[bi2].quad)) { ok = false; break; }
+            }
+            if (!ok) break;
+          }
+        }
+        if (ok) {
+          kept.push([u0, v0, u1, v1]);
+          keptBands.push({ quad, cx, cz, sw, sd });
+          const idx = keptBands.length - 1;
+          for (const k of bandCells(quad)) {
+            let bucket = bandGrid.get(k);
+            if (!bucket) bandGrid.set(k, bucket = []);
+            bucket.push(idx);
+          }
+        } else {
+          stats.shapeBandsDroppedRepair++;
+        }
+      }
+      if (kept.length) lot.shape = kept;
+      else delete lot.shape;
+    }
+    stats.shapeLots = lots.reduce((n, l) => n + (Array.isArray(l.shape) && l.shape.length ? 1 : 0), 0);
   }
   return { lots, tower, landmarkTowers, siteStructures, stats, schools: schoolPlan.report };
 }
@@ -10421,6 +10823,18 @@ export function taipeiCityBlocksOptions(geodata, plan = planTaipeiBuildings(geod
           if (g < minG) minG = g;
           if (g > maxG) maxG = g;
         }
+        // Issue #217: band corners join the seating sample, so a
+        // shaped lot's plinth seats the whole union footprint (the
+        // bands use the planner frame: local (u, -v) per corner).
+        if (Array.isArray(lot.shape) && r.mat !== 10 && r.mat !== 11) {
+          for (const [u0, v0, u1, v1] of lot.shape) {
+            for (const [lx, lz] of [[u0, -v0], [u1, -v0], [u1, -v1], [u0, -v1]]) {
+              const g = groundAt(lot.x + lx * c + lz * s, lot.z - lx * s + lz * c);
+              if (g < minG) minG = g;
+              if (g > maxG) maxG = g;
+            }
+          }
+        }
         const centreG = groundAt(lot.x, lot.z);
         if (centreG < minG) minG = centreG;
         if (centreG > maxG) maxG = centreG;
@@ -10436,6 +10850,20 @@ export function taipeiCityBlocksOptions(geodata, plan = planTaipeiBuildings(geod
       // below are computed from the same local rect, so they turn
       // with the building.
       if (lot.rot) r.rotY = lot.rot;
+      // Issue #217: footprint bands, converted from the plan's
+      // centre-relative frame offsets to local rects. The renderer's
+      // local frame runs v opposite to the planner's frame (the
+      // seating sampler above maps local (lx, lz) to world
+      // (x + lx*c + lz*s, z - lx*s + lz*c)), so the band's v interval
+      // flips: local z0 comes from the band's v1. Newer-apartment
+      // lots (mat 10/11) mass their own podium/tower parts and drop
+      // the bands — a disclosed scope cut (counted in the evidence).
+      if (Array.isArray(lot.shape) && lot.shape.length && r.mat !== 10 && r.mat !== 11) {
+        r.shape = lot.shape.map(([u0, v0, u1, v1]) => [
+          Math.round((lot.x + u0) * 20) / 20, Math.round((lot.z - v1) * 20) / 20,
+          Math.round((lot.x + u1) * 20) / 20, Math.round((lot.z - v0) * 20) / 20,
+        ]);
+      }
       // Issue #55: F7 arcade lots carry their recessed-ground-floor
       // massing (null on lots too small for the inset core).
       if (r.mat === 7) r.arcade = taipeiArcadeParts(r);

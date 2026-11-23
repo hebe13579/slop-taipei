@@ -2371,6 +2371,22 @@ function buildCityBlocks(scene, opts = null) {
     // commit() can stamp it onto every facade box (see aBandPlate).
     b.signPlates = signPlates;
     const floors = Math.max(1, Math.round(lot.h / storeys[mat]));
+    // Issue #217: footprint bands (adapter rects in this lot's local
+    // frame, [x0, z0, x1, z1]) mass with the lot at its full height —
+    // the union of the main rect and the bands is the building's
+    // non-rectangular footprint, through the same union-of-rects
+    // massing the NYC carve/cornerHoles plans use. Plain lots add
+    // them to the single mass call below; the arcade and storefront
+    // paths mass them as full-height parts of their own (their
+    // ground storeys are special-cased), so a band beside a recessed
+    // storefront or an arcade core still rises the full height.
+    // commit() paints their walls by the same per-part wall kinds,
+    // hides the faces flush against the main rect, and emits their
+    // footprints and tall-part colliders like any other part.
+    const additions = Array.isArray(lot.shape) && lot.shape.length
+      ? lot.shape.map(([sx0, sz0, sx1, sz1]) => rect(sx0, sx1, sz0, sz1))
+      : null;
+    let additionsMassed = false;
     // Issue #380: the upper-shop want (floor-clamped here) rides on
     // the building object like signPlates; commit applies it only when
     // the lot actually rolled shops ('all'), so a 'none' lot gets no
@@ -2392,6 +2408,7 @@ function buildCityBlocks(scene, opts = null) {
       const colStart = b.parts.length;
       mass(b, a.columns, 0, 1);
       for (let i = colStart; i < b.parts.length; i++) b.parts[i].walls = WALL_KINDS.blankStone;
+      if (additions) { mass(b, additions, 0, floors); additionsMassed = true; }
     }
     if (lot.storefront && floors >= 2 && !lot.newer) {
       // Issue #390 — the 3D storefront: the ground storey is the
@@ -2404,6 +2421,7 @@ function buildCityBlocks(scene, opts = null) {
       // facade plane. The base collider is the full lot rect inset
       // 0.5 m, so the 0.4 m recess sits inside it.
       mass(b, [lot.storefront.recess], 0, 1);
+      if (additions) { mass(b, additions, 0, floors); additionsMassed = true; }
     }
     if (lot.newer && floors >= 6) {
       // Issue #256 — newer apartment massing (parts computed by
@@ -2425,7 +2443,7 @@ function buildCityBlocks(scene, opts = null) {
       for (const p of solidParts) b.parts.push({ x0: p.x0, x1: p.x1, z0: p.z0, z1: p.z1, y0: p.y0, y1: p.y1 });
       for (let i = solidStart; i < b.parts.length; i++) b.parts[i].walls = WALL_KINDS.blankStone;
     } else {
-      mass(b, [rect(minX, maxX, minZ, maxZ)], (lot.arcade || lot.storefront) && floors >= 2 ? 1 : 0, floors);
+      mass(b, [rect(minX, maxX, minZ, maxZ), ...(additions && !additionsMassed ? additions : [])], (lot.arcade || lot.storefront) && floors >= 2 ? 1 : 0, floors);
     }
     // Issue #132: a planned lot may carry a seated base (lot.y,
     // from the Taipei drape seating in taipeiCityBlocksOptions) —
@@ -2475,6 +2493,13 @@ function buildCityBlocks(scene, opts = null) {
     // turned lot gets the oriented collider its geometry wears.
     if (blockDetail.maxH > 0) {
       pushCollider(minX + 0.5, maxX - 0.5, minZ + 0.5, maxZ - 0.5, Math.min(BLOCK_COLLIDER_TOP, blockDetail.maxH));
+      // Issue #217: each footprint band gets the same base collider
+      // treatment as the main rect (commit covers its tall parts).
+      if (additions) {
+        for (const a of additions) {
+          if (a.x1 - a.x0 > 1 && a.z1 - a.z0 > 1) pushCollider(a.x0 + 0.5, a.x1 - 0.5, a.z0 + 0.5, a.z1 - 0.5, Math.min(BLOCK_COLLIDER_TOP, blockDetail.maxH));
+        }
+      }
     }
     // Issue #17 rooftop-gear clamp: when the caller supplies a gear policy
     // (Taipei does, via taipeiCityBlocksOptions), it rewrites the committed
