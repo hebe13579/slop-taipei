@@ -66,6 +66,12 @@
 //               stay: the car still follows the ground / deck
 //               surface; ghost is about collision, not flight.
 //               Applied live, no reload (see initSettingsPanel).
+//   pedestrians — (Taipei; issue #262): people walking the
+//               sidewalks and lanes (js/taipei-pedestrians.js).
+//               Default OFF, like traffic. Applied live — the
+//               caller builds/destroys the pedestrian layer, no
+//               reload. The vehicle system's own pedestrians
+//               stay off; this is a separate layer.
 export const SETTINGS_STORAGE_KEY = 'slop-settings';
 
 export const DENSITY_PRESETS = ['coarse', 'fine', 'dense'];
@@ -143,6 +149,7 @@ export const DEFAULT_SETTINGS = Object.freeze({
   trafficCars: 0,
   trafficRadiusM: 380,
   ghostMode: false,
+  pedestrians: false,
 });
 
 // Issue #268: is this a phone? Pure and unit-tested — main.js passes
@@ -278,6 +285,8 @@ export function resolveSettings({ search = '', stored = null, isMobile = false }
     if (dr !== null) out.drape = dr;
     const gm = parseBool(s.ghostMode);
     if (gm !== null) out.ghostMode = gm;
+    const pd = parseBool(s.pedestrians);
+    if (pd !== null) out.pedestrians = pd;
   }
   // Issue #268 (corrected 2026-10-29): phones SET Coarse + Low
   // instead of reading the previous density/graphics — storage is
@@ -331,6 +340,10 @@ export function resolveSettings({ search = '', stored = null, isMobile = false }
     const gm = parseBool(q.get('ghostMode'));
     if (gm !== null) out.ghostMode = gm;
   }
+  if (q.has('pedestrians')) {
+    const pd = parseBool(q.get('pedestrians'));
+    if (pd !== null) out.pedestrians = pd;
+  }
   return out;
 }
 
@@ -356,6 +369,7 @@ export function persistSettings(storage, settings) {
       trafficRadiusM: settings.trafficRadiusM,
       drape: settings.drape,
       ghostMode: settings.ghostMode,
+      pedestrians: settings.pedestrians,
     }));
     return true;
   } catch {
@@ -408,9 +422,12 @@ export function applyGraphicsSettings(renderer, sunLight, preset, devicePixelRat
 //   onGhostMode    — called with the boolean when the ghost-mode
 //                    toggle changes (the caller flips the
 //                    controller live: no reload, no rebuild)
+//   onPedestrians  — called with the boolean when the pedestrians
+//                    toggle changes (the caller builds/destroys
+//                    the pedestrian layer live: no reload)
 //   persist        — called after any change (storage write)
 //   doc            — document (injectable for tests)
-export function initSettingsPanel({ settings, taipeiSettings = null, onGraphics = null, onFarDetail = null, onTraffic = null, onDrape = null, onDensity = null, onGhostMode = null, persist = null, doc = null } = {}) {
+export function initSettingsPanel({ settings, taipeiSettings = null, onGraphics = null, onFarDetail = null, onTraffic = null, onDrape = null, onDensity = null, onGhostMode = null, onPedestrians = null, persist = null, doc = null } = {}) {
   const d = doc || (typeof document !== 'undefined' ? document : null);
   if (!d) return null;
   const pop = d.getElementById('settings-popover');
@@ -422,6 +439,8 @@ export function initSettingsPanel({ settings, taipeiSettings = null, onGraphics 
   const drapeState = drapeBtn ? drapeBtn.querySelector('.set-state') : null;
   const ghostBtn = d.getElementById('set-ghost');
   const ghostState = ghostBtn ? ghostBtn.querySelector('.set-state') : null;
+  const pedsBtn = d.getElementById('set-peds');
+  const pedsState = pedsBtn ? pedsBtn.querySelector('.set-state') : null;
   const densityStatus = d.getElementById('set-density-status');
   const densityBtns = [...pop.querySelectorAll('[data-setting-density]')];
   const graphicsBtns = [...pop.querySelectorAll('[data-setting-graphics]')];
@@ -465,10 +484,14 @@ export function initSettingsPanel({ settings, taipeiSettings = null, onGraphics 
       ghostBtn.setAttribute('aria-pressed', settings.ghostMode ? 'true' : 'false');
       if (ghostState) ghostState.textContent = settings.ghostMode ? 'On' : 'Off';
     }
+    if (pedsBtn) {
+      pedsBtn.setAttribute('aria-pressed', settings.pedestrians ? 'true' : 'false');
+      if (pedsState) pedsState.textContent = settings.pedestrians ? 'On' : 'Off';
+    }
   };
 
   if (!taipeiSettings) {
-    for (const b of [...densityBtns, ...farDetailBtns, specialsBtn, drapeBtn, ghostBtn].filter(Boolean)) {
+    for (const b of [...densityBtns, ...farDetailBtns, specialsBtn, drapeBtn, ghostBtn, pedsBtn].filter(Boolean)) {
       b.disabled = true;
       b.title = 'Taipei mode only';
     }
@@ -680,6 +703,19 @@ export function initSettingsPanel({ settings, taipeiSettings = null, onGraphics 
       settings.ghostMode = next;
       if (persist) persist();
       if (onGhostMode) onGhostMode(next);
+      reflect();
+    });
+  }
+
+  // Issue #262: pedestrians — a live setting like ghost mode. The
+  // caller builds or destroys the pedestrian layer at once; the
+  // toggle persists like the other settings.
+  if (pedsBtn && taipeiSettings) {
+    pedsBtn.addEventListener('click', () => {
+      const next = !settings.pedestrians;
+      settings.pedestrians = next;
+      if (persist) persist();
+      if (onPedestrians) onPedestrians(next);
       reflect();
     });
   }

@@ -177,7 +177,7 @@ async function initApp() {
   // buildCityBlocks on the tile's planned lots (issue #11). Pedestrians stay
   // stubbed; traffic stays stubbed too unless the ?traffic= experiment flag
   // is set (issue #210, hooked up below after the colliders exist).
-  let cityGrid, boroughs, cityBlocks, streetDetails, trafficSystem, highwayTraffic;
+  let cityGrid, boroughs, cityBlocks, streetDetails, trafficSystem, highwayTraffic, pedestrianSystem;
   let landmarkColliders = [];
   let tileBoot = null;
   if (isTaipei) {
@@ -264,6 +264,29 @@ async function initApp() {
     markInit('traffic');
   };
 
+  // Issue #262: pedestrians — a separate runtime layer from the
+  // vehicle system (whose own pedestrians stay off: it is fed by
+  // NYC block data). Same lifecycle shape as traffic: built and
+  // destroyed live from the gear, default off. The module import
+  // is hoisted like taipei-traffic's; the walking network itself
+  // is built lazily inside the module on first creation.
+  // window.__taipeiPeds is the measurement handle, set only while
+  // a system exists.
+  let taipeiPedestrians = null;
+  if (isTaipei) taipeiPedestrians = await import('./taipei-pedestrians.js');
+  const destroyPedestrians = () => {
+    if (pedestrianSystem) pedestrianSystem.dispose();
+    pedestrianSystem = null;
+    if (typeof window !== 'undefined') delete window.__taipeiPeds;
+  };
+  const applyPedestrians = (on) => {
+    destroyPedestrians();
+    if (!on || !taipeiPedestrians) return;
+    pedestrianSystem = taipeiPedestrians.createTaipeiPedestrians(scene);
+    window.__taipeiPeds = pedestrianSystem;
+    markInit('pedestrians');
+  };
+
   // The gear must show the EFFECTIVE initial state: the legacy
   // ?traffic= flag wins over the stored setting, so map its count
   // directly onto the heaviness slider and sync the in-memory field
@@ -303,6 +326,9 @@ async function initApp() {
     // (see the animation loop below). Same deferred reference as
     // onDensity: the callback only runs on a user click, after boot.
     onGhostMode: (on) => controllerManager.setGhostMode(on),
+    // Issue #262: pedestrians toggle live — build or destroy the
+    // layer at once (no reload, no rebuild of anything else).
+    onPedestrians: (on) => applyPedestrians(on),
     persist: () => persistSettings(window.localStorage, settings),
   });
 
@@ -322,6 +348,8 @@ async function initApp() {
     // Initial traffic state: the effective config computed before the
     // gear was wired (resolved settings, legacy ?traffic= flag winning).
     if (initialTraffic.enabled) applyTrafficConfig(initialTraffic);
+    // Issue #262: initial pedestrian state from the resolved settings.
+    if (settings.pedestrians) applyPedestrians(true);
   }
 
   // 4. Initialize Third-Person Controllers (Person, Car, Cyclist, Helicopter) & Multi-Camera System
@@ -988,6 +1016,8 @@ async function initApp() {
       controllerManager.activeMode,
       cameraSystem.camera
     );
+    // Issue #262: pedestrians walk around the camera focus.
+    if (pedestrianSystem) pedestrianSystem.update(dt, cameraSystem.currentPos.x, cameraSystem.currentPos.z);
     highwayTraffic.update(dt, cameraSystem.camera, trafficPlayer, controllerManager.activeMode);
     if (!document.hidden && now >= nextPlayerSave) {
       savePlayerState();
