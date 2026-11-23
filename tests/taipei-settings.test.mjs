@@ -52,21 +52,21 @@ function fingerprint(plan) {
 }
 
 test('settings resolution: defaults are the pre-#218 behaviour', () => {
-  assert.deepEqual(resolveSettings(), { specials: true, density: 'fine', graphics: 'medium', farDetail: 'fade', specialLodFarM: 2000, parkTreeDensity: 1, drape: true, trafficCars: 0, trafficRadiusM: 380, ghostMode: false });
+  assert.deepEqual(resolveSettings(), { specials: true, density: 'fine', graphics: 'medium', farDetail: 'fade', specialLodFarM: 2000, parkTreeDensity: 1, drape: true, trafficCars: 0, trafficRadiusM: 380, ghostMode: false, pedestrians: false });
   assert.deepEqual(resolveSettings({ search: '', stored: null }), DEFAULT_SETTINGS);
 });
 
 test('settings resolution: storage beats defaults, URL beats storage, per field', () => {
   const stored = JSON.stringify({ specials: false, density: 'dense', graphics: 'low' });
-  assert.deepEqual(resolveSettings({ stored }), { specials: false, density: 'dense', graphics: 'low', farDetail: 'fade', specialLodFarM: 2000, parkTreeDensity: 1, drape: true, trafficCars: 0, trafficRadiusM: 380, ghostMode: false });
+  assert.deepEqual(resolveSettings({ stored }), { specials: false, density: 'dense', graphics: 'low', farDetail: 'fade', specialLodFarM: 2000, parkTreeDensity: 1, drape: true, trafficCars: 0, trafficRadiusM: 380, ghostMode: false, pedestrians: false });
   // URL overrides only the fields it names.
   assert.deepEqual(
     resolveSettings({ stored, search: '?density=coarse' }),
-    { specials: false, density: 'coarse', graphics: 'low', farDetail: 'fade', specialLodFarM: 2000, parkTreeDensity: 1, drape: true, trafficCars: 0, trafficRadiusM: 380, ghostMode: false },
+    { specials: false, density: 'coarse', graphics: 'low', farDetail: 'fade', specialLodFarM: 2000, parkTreeDensity: 1, drape: true, trafficCars: 0, trafficRadiusM: 380, ghostMode: false, pedestrians: false },
   );
   assert.deepEqual(
     resolveSettings({ stored, search: '?specials=on&graphics=high' }),
-    { specials: true, density: 'dense', graphics: 'high', farDetail: 'fade', specialLodFarM: 2000, parkTreeDensity: 1, drape: true, trafficCars: 0, trafficRadiusM: 380, ghostMode: false },
+    { specials: true, density: 'dense', graphics: 'high', farDetail: 'fade', specialLodFarM: 2000, parkTreeDensity: 1, drape: true, trafficCars: 0, trafficRadiusM: 380, ghostMode: false, pedestrians: false },
   );
   // Stored value may arrive as an object too.
   assert.equal(resolveSettings({ stored: { density: 'coarse' } }).density, 'coarse');
@@ -75,11 +75,11 @@ test('settings resolution: storage beats defaults, URL beats storage, per field'
 test('settings resolution: invalid values fall back per field, never throw', () => {
   assert.deepEqual(
     resolveSettings({ stored: '{not json', search: '?density=huge&graphics=ultra&specials=maybe' }),
-    { specials: true, density: 'fine', graphics: 'medium', farDetail: 'fade', specialLodFarM: 2000, parkTreeDensity: 1, drape: true, trafficCars: 0, trafficRadiusM: 380, ghostMode: false },
+    { specials: true, density: 'fine', graphics: 'medium', farDetail: 'fade', specialLodFarM: 2000, parkTreeDensity: 1, drape: true, trafficCars: 0, trafficRadiusM: 380, ghostMode: false, pedestrians: false },
   );
   assert.deepEqual(
     resolveSettings({ stored: JSON.stringify({ density: 'huge', graphics: 7, specials: 'off' }) }),
-    { specials: false, density: 'fine', graphics: 'medium', farDetail: 'fade', specialLodFarM: 2000, parkTreeDensity: 1, drape: true, trafficCars: 0, trafficRadiusM: 380, ghostMode: false },
+    { specials: false, density: 'fine', graphics: 'medium', farDetail: 'fade', specialLodFarM: 2000, parkTreeDensity: 1, drape: true, trafficCars: 0, trafficRadiusM: 380, ghostMode: false, pedestrians: false },
   );
   // Boolean spellings the URL layer accepts.
   for (const [raw, want] of [['off', false], ['0', false], ['no', false], ['on', true], ['1', true], ['yes', true]]) {
@@ -93,7 +93,7 @@ test('settings persistence: round-trip through storage, failures stay silent', (
     getItem: (k) => (mem.has(k) ? mem.get(k) : null),
     setItem: (k, v) => mem.set(k, String(v)),
   };
-  const s = { specials: false, density: 'dense', graphics: 'high', farDetail: 'full', specialLodFarM: 1200, parkTreeDensity: 5, drape: false, trafficCars: 350, trafficRadiusM: 500, ghostMode: true };
+  const s = { specials: false, density: 'dense', graphics: 'high', farDetail: 'full', specialLodFarM: 1200, parkTreeDensity: 5, drape: false, trafficCars: 350, trafficRadiusM: 500, ghostMode: true, pedestrians: true };
   assert.equal(persistSettings(storage, s), true);
   assert.deepEqual(resolveSettings({ stored: readStoredSettings(storage) }), s);
   assert.equal(mem.has(SETTINGS_STORAGE_KEY), true);
@@ -228,6 +228,8 @@ test('settings UI: gear button and panel rows in index.html', () => {
   assert.match(indexSource, /id="set-park-tree-density" type="range" min="1" max="10" step="1" value="1"/);
   assert.match(indexSource, /id="set-park-tree-density-value"/);
   assert.match(indexSource, /id="set-park-tree-density-status"/);
+  // Issue #262: the pedestrians toggle row.
+  assert.match(indexSource, /id="set-peds"/);
   for (const t of [1, 5, 10]) assert.match(indexSource, new RegExp(`<option value="${t}" label="${t}×">`));
   for (const t of [0, 60, 200, 400, 800]) assert.match(indexSource, new RegExp(`<option value="${t}"`));
   for (const t of [200, 380, 600]) assert.match(indexSource, new RegExp(`<option value="${t}"`));
@@ -260,6 +262,29 @@ test('ghost mode resolution: default off, storage beats default, URL beats stora
   // Invalid values fall back to the default, never throw.
   assert.equal(resolveSettings({ search: '?ghostMode=maybe' }).ghostMode, false);
   assert.equal(resolveSettings({ stored: JSON.stringify({ ghostMode: 7 }) }).ghostMode, false);
+});
+
+test('pedestrians resolution: default off, storage beats default, URL beats storage (issue #262)', () => {
+  assert.equal(resolveSettings().pedestrians, false);
+  assert.equal(resolveSettings({ stored: JSON.stringify({ pedestrians: true }) }).pedestrians, true);
+  assert.equal(
+    resolveSettings({ stored: JSON.stringify({ pedestrians: true }), search: '?pedestrians=off' }).pedestrians,
+    false,
+  );
+  assert.equal(resolveSettings({ search: '?pedestrians=on' }).pedestrians, true);
+  // Invalid values fall back to the default, never throw.
+  assert.equal(resolveSettings({ search: '?pedestrians=maybe' }).pedestrians, false);
+  assert.equal(resolveSettings({ stored: JSON.stringify({ pedestrians: 7 }) }).pedestrians, false);
+});
+
+test('pedestrians wiring: main.js builds the layer from the gear and at boot (issue #262)', () => {
+  assert.match(mainSource, /await import\('\.\/taipei-pedestrians\.js'\)/);
+  assert.match(mainSource, /onPedestrians: \(on\) => applyPedestrians\(on\)/);
+  assert.match(mainSource, /if \(settings\.pedestrians\) applyPedestrians\(true\);/);
+  assert.match(mainSource, /pedestrianSystem\.update\(dt, cameraSystem\.currentPos\.x, cameraSystem\.currentPos\.z\)/);
+  // The vehicle env keeps its own pedestrians off — the layer is separate.
+  const trafficSource = readFileSync(new URL('../js/taipei-traffic.js', import.meta.url), 'utf8');
+  assert.match(trafficSource, /pedestrians: false/);
 });
 
 test('special LOD resolution: default 2,000 m, storage beats default, URL beats storage (issue #393)', () => {
@@ -789,7 +814,7 @@ test('mobile detection: phones count, tablets and desktops do not (issue #268)',
 test('mobile defaults: phones SET Coarse + Low over stored settings, URL still wins (issue #268)', () => {
   assert.deepEqual(
     resolveSettings({ isMobile: true }),
-    { specials: true, density: 'coarse', graphics: 'low', farDetail: 'fade', specialLodFarM: 2000, parkTreeDensity: 1, drape: true, trafficCars: 0, trafficRadiusM: 380, ghostMode: false },
+    { specials: true, density: 'coarse', graphics: 'low', farDetail: 'fade', specialLodFarM: 2000, parkTreeDensity: 1, drape: true, trafficCars: 0, trafficRadiusM: 380, ghostMode: false, pedestrians: false },
   );
   assert.deepEqual(resolveSettings({ isMobile: false }), resolveSettings(), 'desktop resolution is unchanged');
   // The phone never reads the previous density/graphics: a stored
