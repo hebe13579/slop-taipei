@@ -1238,6 +1238,10 @@ const SIGN_BAND_PLATES = 113.0;
 // every load), and the plate UV spans exactly the panel zone the
 // glyph bars used to occupy (cellUV x 0.035–0.965, y 0.775–0.995),
 // inset a touch inside the atlas cell against mip bleeding.
+// Issue #423: the tile material's ground-floor call sites pass the
+// shop unit's width in bays as unitSize — the art then keeps its
+// natural 1-bay width, centred in the unit's panel zone, instead of
+// stretching across the unit (see the remap inside).
 // Issue #378: the lot's brand (aBandPlate, set by createFacadeBoxes
 // from the lot's sign plates — see js/buildings.js pickLotSignPlates)
 // wins over the per-bay hash pick when present (≥ 0), so a shop's
@@ -1265,14 +1269,24 @@ function upperShopFloor(cell) {
   const plateAttr = mix(attribute('aBandPlate', 'float'), upperPlate, isUpper);
   return { isShopFloor, plateAttr };
 }
-const bandPlateColor = (cellUV, cellId, boxSeed, atlasTex, bandPlateAttr = attribute('aBandPlate', 'float')) => {
+const bandPlateColor = (cellUV, cellId, boxSeed, atlasTex, bandPlateAttr = attribute('aBandPlate', 'float'), unitSize = float(1.0)) => {
   const hp = hash2D(vec2(cellId.x.mul(5.13), boxSeed.mul(9.31)));
   let plate = floor(hp.mul(SIGN_BAND_PLATES));
   plate = mix(plate, bandPlateAttr, step(0.0, bandPlateAttr));
   const colI = mod(plate, SIGN_BAND_COLS);
   const rowB = floor(plate.div(SIGN_BAND_COLS));
   const inset = float(0.03);
-  const bu = clamp(cellUV.x.sub(0.035).div(0.93), 0.0, 1.0);
+  // Issue #423 rework: a multi-bay shop unit passes its width in
+  // bays as unitSize (> 1) with cellUV.x spanning the whole unit —
+  // sampling the plate across that full span stretched the art
+  // sideways (a logo plate smeared ~4x on a 4-bay unit). The art
+  // keeps the width it has on a 1-bay unit — 1/unitSize of the
+  // unit's panel zone — centred in the zone; past that span bu
+  // clamps to the plate's edge, so the plate's own background (its
+  // edge texels) fills the rest of the band. unitSize 1 (the
+  // default) leaves the sampling exactly as it was.
+  const buSpan = clamp(cellUV.x.sub(0.035).div(0.93), 0.0, 1.0);
+  const bu = clamp(buSpan.sub(0.5).mul(unitSize).add(0.5), 0.0, 1.0);
   const bv = clamp(cellUV.y.sub(0.775).div(0.22), 0.0, 1.0);
   const auv = vec2(
     colI.add(inset).add(bu.mul(float(1.0).sub(inset.mul(2.0)))).div(SIGN_BAND_COLS),
@@ -1692,7 +1706,9 @@ function createTileShophouseMaterial(opts = {}) {
     // keyed by the unit (cell.unitId), so a wide unit carries one broad
     // sign and a narrow unit one small one. The plate still comes from
     // the lot's bandPlateAttr, so band ↔ blade keep the same brand per
-    // lot (#378); the plate now stretches across the unit it sits over.
+    // lot (#378); the panel spans the unit, but the plate art keeps
+    // its natural 1-bay width, centred in the band — the plate's
+    // background fills the rest of the span (see bandPlateColor).
     const unitCellId = vec2(cell.unitId, cellId.y);
     const unitFw = fwidth(cell.unitU);
     const sign = signColorsFor(unitCellId, boxSeed);
@@ -1713,9 +1729,11 @@ function createTileShophouseMaterial(opts = {}) {
     // so sample the plate through the wall-corrected coordinate
     // (cell.flip, from facadeCell) — the same shop, un-mirrored.
     // Issue #423: the plate's u is the unit coordinate, so the sign
-    // spans its unit on every wall.
+    // spans its unit on every wall; the unit's width in bays goes
+    // along so the art stays at its natural width (see
+    // bandPlateColor).
     const bandUV = vec2(mix(cell.unitU, float(1.0).sub(cell.unitU), cell.flip), cellUV.y);
-    const plateCol = bandPlateColor(bandUV, unitCellId, boxSeed, bandAtlasTex, bandPlateAttr);
+    const plateCol = bandPlateColor(bandUV, unitCellId, boxSeed, bandAtlasTex, bandPlateAttr, cell.unitSize);
     const signCol = mix(glyphCol, plateCol, uSignText);
     col = mix(col, signCol, panelMask);
     // Thin darker outline under the panel so it reads as a mounted board.
@@ -1880,9 +1898,10 @@ function createTileShophouseMaterial(opts = {}) {
     // is — the whole plate, lettering included. Issue #354: sample
     // through the wall-corrected coordinate (see the colour node) so
     // the glowing plate reads un-mirrored on every wall. Issue #423:
-    // the plate's u is the unit coordinate, spanning its unit.
+    // the plate's u is the unit coordinate, spanning its unit, with
+    // the art at its natural width as in the colour node.
     const bandUV = vec2(mix(cell.unitU, float(1.0).sub(cell.unitU), cell.flip), cellUV.y);
-    const plateEmit = bandPlateColor(bandUV, unitCellId, boxSeed, bandAtlasTex, bandPlateAttr)
+    const plateEmit = bandPlateColor(bandUV, unitCellId, boxSeed, bandAtlasTex, bandPlateAttr, cell.unitSize)
       .mul(panelMask).mul(cityUniforms.uInteriorGlow).mul(0.38);
     const signEmit = mix(glyphEmit, plateEmit, uSignText);
 
