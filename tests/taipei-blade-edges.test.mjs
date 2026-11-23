@@ -91,6 +91,11 @@ assert.ok(
 // local z) 4,746 — near 50/50, so the thin-axis attribute is required;
 // framed (lot.rotY != 0) 6,015, all at arbitrary angles, none a
 // multiple of 90° — the fwidth term still blanks those whole.)
+// Re-pinned for issue #17 (2026-11-22 slice, measured by
+// census-blades17.mjs on this tree): blades are planned on signed
+// Taiwan lots, and the palette rebalance grows that population —
+// 9,566 -> 11,750 planned blades, sides and framed counts scaled
+// with it; the blade rules and the thickness range are unedited.
 const plan = planTaipeiBuildings(TAIPEI_GEO);
 const opts = taipeiCityBlocksOptions(TAIPEI_GEO, plan);
 let total = 0;
@@ -108,10 +113,10 @@ for (const lot of opts.lots) {
     if (s.thick > thickMax) thickMax = s.thick;
   }
 }
-assert.equal(total, 9566, 'planned blades');
-assert.deepEqual(sides, { e: 2391, w: 2355, n: 2427, s: 2393 }, 'blades by side');
-assert.equal(framed, 6015, 'blades on turned (framed) blocks');
-assert.equal(total - framed, 3551, 'blades on unturned blocks');
+assert.equal(total, 11750, 'planned blades');
+assert.deepEqual(sides, { e: 2943, w: 2899, n: 2986, s: 2922 }, 'blades by side');
+assert.equal(framed, 7375, 'blades on turned (framed) blocks');
+assert.equal(total - framed, 4375, 'blades on unturned blocks');
 assert.ok(thickMin >= 0.18 && thickMax <= 0.55, `blade thickness in 0.18–0.55 m (got ${thickMin}–${thickMax})`);
 
 console.log('taipei-blade-edges.test.mjs: all assertions passed');

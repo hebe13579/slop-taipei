@@ -152,14 +152,22 @@ for (const r of opts.lots) {
 // unchanged by the recess. The narrow count is the exact <= 10 m count:
 // measure390's 576 was the floor-bucket sum, which over-counted the
 // [10,11) bucket.)
-assert.equal(shopLots, 8962, 'shop lots');
-assert.equal(shopFaces, 16672, 'shopfront faces');
-assert.equal(recessTotal, 4539, 'recess lots');
-assert.deepEqual(recessByMat, { 6: 2341, 8: 1103, 9: 652, 12: 99, 13: 344 }, 'recess lots by mat');
-assert.equal(recessFaces, 8368, 'recessed shopfront faces');
-assert.equal(narrowTotal, 406, 'narrow shophouse lots');
-assert.deepEqual(narrowByMat, { 6: 187, 7: 219 }, 'narrow lots by mat');
-assert.equal(awningFaces, 749, 'awning faces');
+// Re-pinned for issue #17 (2026-11-22 slice, measured by
+// census-storefront17.mjs on this tree): the palette rebalance moves
+// 13,665 lots from the masonry families to the Taiwan types, and the
+// shops roll sees the new family mix — shop lots 8,962 -> 10,215,
+// faces 16,672 -> 19,132, recess lots 4,539 -> 5,871 (all of the
+// delta in F6/F8/F9/F13; F12's 99 is unchanged, as the >= 40 m band
+// is untouched), narrow shophouses 406 -> 512. The storefront rules
+// themselves are unedited; the plan is byte-identical.
+assert.equal(shopLots, 10215, 'shop lots');
+assert.equal(shopFaces, 19132, 'shopfront faces');
+assert.equal(recessTotal, 5871, 'recess lots');
+assert.deepEqual(recessByMat, { 6: 3219, 8: 1315, 9: 797, 12: 99, 13: 441 }, 'recess lots by mat');
+assert.equal(recessFaces, 10970, 'recessed shopfront faces');
+assert.equal(narrowTotal, 512, 'narrow shophouse lots');
+assert.deepEqual(narrowByMat, { 6: 240, 7: 272 }, 'narrow lots by mat');
+assert.equal(awningFaces, 939, 'awning faces');
 
 // --- The wiring, pinned by source -------------------------------------
 // populatePlannedLot masses the recessed ground storey + the full rect

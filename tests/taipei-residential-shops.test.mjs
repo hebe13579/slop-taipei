@@ -79,16 +79,16 @@ assert.deepEqual(
 // Issue #354: signed lots 5,267 -> 6,589 (+1,322 — the frontage-aware
 // policy signs arterial (rank >= 3) lots at 0.85 instead of 0.55; the
 // residential gate is unchanged, rank 0–1 still carries no sign).
-assert.equal(signedLots, 6534, 'signed lots after the residential gate'); // Issue #386: signed lots 6,589 -> 6,534 (-55 - the re-seated plan re-rolls which lots carry signs; same count in the taipei test)
+assert.equal(signedLots, 8038, 'signed lots after the residential gate'); // Issue #386: signed lots 6,589 -> 6,534 (-55 - the re-seated plan re-rolls which lots carry signs; same count in the taipei test) // Issue #17 (2026-11-22 slice): signed lots 6,534 -> 8,038 (+1,504 - signs are a Taiwan-lot treatment and the palette rebalance grows that population; measured by census-signs-cafe17.mjs on this tree, plan byte-identical; same count in the taipei test)
 // Issue #354: panels 7,238 -> 9,665 (+2,427 — arterial lots sign
 // denser and more of them carry two panels, same mechanism as above).
-assert.equal(panels, 9566, 'sign panels after the residential gate'); // Issue #386: panels 9,665 -> 9,566 (-99 - same re-roll as signed lots; same count in the taipei test)
+assert.equal(panels, 11750, 'sign panels after the residential gate'); // Issue #386: panels 9,665 -> 9,566 (-99 - same re-roll as signed lots; same count in the taipei test) // Issue #17 (2026-11-22 slice): panels 9,566 -> 11,750 (+2,184 - same mechanism as signed lots; equals the planned-blades census in the blade-edges test)
 // Issue #355: 59,760 lots (the rank 0–1 set, 76.8% of the city)
 // carry the shop gate.
 assert.equal(shops0, 58370, 'shop-gated lots after the residential gate'); // Issue #386: shops0 59,760 -> 58,370 (-1,390 - the re-laid grids re-draw frontages, so fewer lots sit on rank 0-1 only; the plan drops 1,555)
 // Roof boards are already rank-gated (#153) and untouched by #355.
 assert.equal(
-  opts.lots.filter((l) => l.roofBoards?.length).length, 747, 'roof-board lots unchanged'); // Issue #386: roof-board lots 757 -> 747 (-10 - the re-seated lots re-roll the rank-gated roof-board rule)
+  opts.lots.filter((l) => l.roofBoards?.length).length, 889, 'roof-board lots after the #17 palette slice'); // Issue #386: roof-board lots 757 -> 747 (-10 - the re-seated lots re-roll the rank-gated roof-board rule) // Issue #17 (2026-11-22 slice): 747 -> 889 (+142 - roof boards are planned on Taiwan lots and the palette rebalance grows that population; the #153 rank gate itself is unedited)
 // The plan itself is untouched by #355 (render-only: the adapter
 // output changes, the lot rects do not).
 assert.equal(plan.lots.length, 76253, 'plan lots unchanged'); // Issue #386: 77,808 -> 76,253 (-1,555 - part 2 re-lays 454 more blocks on rotated grids; a rotated grid's corner lots fall outside the inset bbox)

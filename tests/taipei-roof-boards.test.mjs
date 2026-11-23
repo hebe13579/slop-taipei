@@ -90,7 +90,11 @@ test('roof boards: adapter census by kind, plate and district', (t) => {
   // Ranges so a later plan re-cut moves the numbers without breaking
   // the policy; the shape (hundreds of roof boards, dozens of tower
   // signs, a dense station district) is what is pinned.
-  assert.ok(roof >= 500 && roof <= 750, `roof boards number in the hundreds (${roof})`);
+  // Issue #17 (2026-11-22 slice): measured 853 roof + 36 tower =
+  // 889, station 39 — boards sit on Taiwan commercial lots and the
+  // palette rebalance grows that population; the roof range is
+  // re-based with the same headroom, tower/station ranges hold.
+  assert.ok(roof >= 700 && roof <= 1050, `roof boards number in the hundreds (${roof})`);
   assert.ok(tower >= 15 && tower <= 60, `tower signs are occasional (${tower})`);
   assert.ok(station >= 25 && station <= 55, `station district is the densest (${station})`);
   assert.equal(plates.size, TAIPEI_ROOF_SIGNS.length, 'every brand plate is used somewhere');
