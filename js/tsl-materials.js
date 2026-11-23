@@ -439,6 +439,21 @@ function facadeCell(windowWidth, floorHeight, boxLocal, cornerPier = 0) {
   // and the band plates only render on box-local shophouses anyway).
   let flip = float(0.0);
 
+  // Issue #423: shop units — consecutive bays grouped into one
+  // shopfront of varied width, so a shop face reads as a mix of
+  // narrow / standard / wide shops instead of one identical unit
+  // repeated. Computed in the box-local block below (bay space, no
+  // floor gate — createTileShophouseMaterial applies the fields on
+  // its shop floors via isShopFloor): `unitU` is the 0..1 coordinate
+  // across the unit containing this bay, `unitDoor` marks the unit's
+  // door bay(s), `unitEdge` its first bay, `unitId` a per-wall unit
+  // counter for per-unit hashes, `unitSize` its width in bays.
+  let unitU = float(0.0);
+  let unitDoor = float(0.0);
+  let unitEdge = float(0.0);
+  let unitId = float(0.0);
+  let unitSize = float(1.0);
+
   if (boxLocal) {
     const box = attribute('box', 'vec4'); // width, height, depth, seed (+ the building's tone in its fraction)
     const faces = attribute('faces', 'vec4'); // WALL_KINDS of the -x, +x, -z & +z walls
@@ -477,6 +492,41 @@ function facadeCell(windowWidth, floorHeight, boxLocal, cornerPier = 0) {
       gridU = along.mul(bays).add(wallSeed);
     }
     uCoord = gridU.mul(bayWidth);
+
+    // Issue #423 (see the declarations above): the unit pattern is
+    // [2, 3, 1, 4, 2] bays per unit over a 12-bay period — unit starts
+    // at phases 0, 2, 5, 6, 10 and doors at phases 1, 3, 5, 7, 8, 11
+    // (the 4-bay unit gets the double door 7+8) — rotated per building
+    // by the tone so neighbouring buildings run different rhythms.
+    // Walls of 1–2 bays are a single unit with a centre door.
+    // js/taipei-buildings.js's storefrontUnitLayout mirrors this math
+    // for the census test.
+    const frac = fract(gridU);
+    const inRange = step(0.0, bayIdx).mul(step(bayIdx, bays.sub(1.0)));
+    const rot = floor(tone.mul(12.0));
+    const phase = mod(bayIdx.add(rot), 12.0);
+    const ge2 = step(2.0, phase);
+    const ge5 = step(5.0, phase);
+    const ge6 = step(6.0, phase);
+    const ge10 = step(10.0, phase);
+    const startPhase = ge2.mul(2.0).add(ge5.mul(3.0)).add(ge6).add(ge10.mul(4.0));
+    const patSize = float(2.0).add(ge2).sub(ge5.mul(2.0)).add(ge6.mul(3.0)).sub(ge10.mul(2.0));
+    const patStart = bayIdx.sub(phase.sub(startPhase));
+    const doorPhase = step(abs(phase.sub(1.0)), 0.5)
+      .add(step(abs(phase.sub(3.0)), 0.5))
+      .add(step(abs(phase.sub(5.0)), 0.5))
+      .add(step(abs(phase.sub(7.0)), 0.5))
+      .add(step(abs(phase.sub(8.0)), 0.5))
+      .add(step(abs(phase.sub(11.0)), 0.5));
+    const small = step(bays, 2.5);
+    const uStart = mix(patStart, float(0.0), small);
+    const uSize = mix(patSize, bays, small);
+    const uDoor = mix(doorPhase, step(abs(bayIdx.sub(floor(bays.mul(0.5)))), 0.5), small);
+    unitU = clamp(bayIdx.sub(uStart).add(frac).div(uSize), 0.0, 1.0);
+    unitDoor = uDoor.mul(inRange);
+    unitEdge = step(abs(bayIdx.sub(uStart)), 0.5).mul(inRange);
+    unitId = wallSeed.add(uStart);
+    unitSize = uSize;
   }
 
   const vCoord = positionWorld.y;
@@ -515,7 +565,8 @@ function facadeCell(windowWidth, floorHeight, boxLocal, cornerPier = 0) {
   const solid = max(max(inPier.mul(float(1.0).sub(isGroundFloor)), blank), partial);
   return {
     isRoof, uCoord, vCoord, gridV, cellId, cellUV, fw, bayWidth, isGroundFloor, solid, floor0, back, blank, door, shopDoor, tone,
-    wallS, wallW, wallH, fromTop, boxSeed, partial, coping, flip
+    wallS, wallW, wallH, fromTop, boxSeed, partial, coping, flip,
+    unitU, unitDoor, unitEdge, unitId, unitSize
   };
 }
 
@@ -1558,19 +1609,21 @@ function createTileShophouseMaterial(opts = {}) {
     // Issue #390: the 3D storefront's glass — mullions + transom frame
     // the shop glass into 落地窗 panels (the tile material used to paint
     // the shop interior with no frame at all), and the shop door bay
-    // (cell.shopDoor — the same tone-picked bay as the residential
-    // door) paints as a glass door: darker glass with a handle, its
+    // paints as a glass door: darker glass with a handle, its
     // mullion skipped so it reads as one door panel. The transom stays
     // on the door bay (the door's top light).
+    // Issue #423: the door bay is now the unit's door (cell.unitDoor —
+    // one per shop unit, a double door on the wide 4-bay units)
+    // instead of the single tone-picked bay per face.
     const storeTransom = lineAA(cellUV.y.sub(0.70), 0.015).mul(isShopFloor);
     const storeMullion = lineAA(fract(cellUV.x.mul(2.0)).sub(0.5), 0.018)
-      .mul(isShopFloor).mul(float(1.0).sub(cell.shopDoor));
+      .mul(isShopFloor).mul(float(1.0).sub(cell.unitDoor));
     glassCol = mix(glassCol, cAlu, max(storeTransom, storeMullion).mul(inWindow));
     const shopDoorGlass = mix(cGlass.mul(0.45), color(0x1e2428), 0.5);
     const doorHandle = filteredPulse(cellUV.x, 0.80, 0.86, fw.x)
       .mul(filteredPulse(cellUV.y, 0.40, 0.60, fw.y));
-    glassCol = mix(glassCol, shopDoorGlass, cell.shopDoor.mul(isShopFloor));
-    glassCol = mix(glassCol, color(0xd8d2c4), doorHandle.mul(cell.shopDoor).mul(isShopFloor));
+    glassCol = mix(glassCol, shopDoorGlass, cell.unitDoor.mul(isShopFloor));
+    glassCol = mix(glassCol, color(0xd8d2c4), doorHandle.mul(cell.unitDoor).mul(isShopFloor));
 
     col = mix(col, glassCol, inWindow);
 
@@ -1630,19 +1683,27 @@ function createTileShophouseMaterial(opts = {}) {
       col = mix(col, railCol, railBody.mul(clamp(inWindow.mul(1.6), 0.0, 1.0)));
     }
 
-    // --- Ground floor signage band: one coloured panel per shop bay with
-    // abstract glyph bars, painted over the top of the storefront. Bays
-    // past the style's signRate keep a plain fascia board instead (the
-    // plainer types sign only some of their shops).
-    const sign = signColorsFor(cellId, boxSeed);
-    const signBayHash = hash2D(vec2(cellId.x.mul(3.1), boxSeed.mul(7.7)));
+    // --- Ground floor signage band: one coloured panel per shop unit
+    // with abstract glyph bars, painted over the top of the storefront.
+    // Units past the style's signRate keep a plain fascia board instead
+    // (the plainer types sign only some of their shops).
+    // Issue #423: the panel spans the shop unit (cell.unitU), one panel
+    // per unit — the colours, the on/off hash and the plate are all
+    // keyed by the unit (cell.unitId), so a wide unit carries one broad
+    // sign and a narrow unit one small one. The plate still comes from
+    // the lot's bandPlateAttr, so band ↔ blade keep the same brand per
+    // lot (#378); the plate now stretches across the unit it sits over.
+    const unitCellId = vec2(cell.unitId, cellId.y);
+    const unitFw = fwidth(cell.unitU);
+    const sign = signColorsFor(unitCellId, boxSeed);
+    const signBayHash = hash2D(vec2(cell.unitId.mul(3.1), boxSeed.mul(7.7)));
     const panelOn = step(signBayHash, float(signRate));
-    const bandMask = filteredPulse(cellUV.x, 0.035, 0.965, fw.x)
+    const bandMask = filteredPulse(cell.unitU, 0.035, 0.965, unitFw)
       .mul(filteredPulse(cellUV.y, 0.775, 0.995, fw.y))
       .mul(isShopFloor).mul(back.oneMinus());
     const panelMask = bandMask.mul(panelOn);
     col = mix(col, cTrim.mul(0.92), bandMask.mul(panelOn.oneMinus()));
-    const glyph = signGlyphMask(cellUV, cellId, boxSeed, fw);
+    const glyph = signGlyphMask(vec2(cell.unitU, cellUV.y), unitCellId, boxSeed, vec2(unitFw, fw.y));
     const glyphCol = mix(sign.bg, sign.ink, glyph.mul(panelMask));
     // Issue #105: with the atlas injected, the panel is one real shop
     // sign — canvas-painted name plate instead of glyph bars.
@@ -1651,15 +1712,25 @@ function createTileShophouseMaterial(opts = {}) {
     // box-local `along`, which runs backwards on the -z and +x walls,
     // so sample the plate through the wall-corrected coordinate
     // (cell.flip, from facadeCell) — the same shop, un-mirrored.
-    const bandUV = vec2(mix(cellUV.x, float(1.0).sub(cellUV.x), cell.flip), cellUV.y);
-    const plateCol = bandPlateColor(bandUV, cellId, boxSeed, bandAtlasTex, bandPlateAttr);
+    // Issue #423: the plate's u is the unit coordinate, so the sign
+    // spans its unit on every wall.
+    const bandUV = vec2(mix(cell.unitU, float(1.0).sub(cell.unitU), cell.flip), cellUV.y);
+    const plateCol = bandPlateColor(bandUV, unitCellId, boxSeed, bandAtlasTex, bandPlateAttr);
     const signCol = mix(glyphCol, plateCol, uSignText);
     col = mix(col, signCol, panelMask);
     // Thin darker outline under the panel so it reads as a mounted board.
-    const signUnder = filteredPulse(cellUV.x, 0.035, 0.965, fw.x)
+    const signUnder = filteredPulse(cell.unitU, 0.035, 0.965, unitFw)
       .mul(filteredPulse(cellUV.y, 0.755, 0.775, fw.y))
       .mul(isShopFloor).mul(back.oneMinus());
     col = mix(col, col.mul(0.55), signUnder.mul(0.6));
+
+    // Issue #423: a trim post at each unit's left edge, full shop-floor
+    // height, so the unit boundary reads at street level — the band
+    // above spans the unit, the post closes its frame at the ground.
+    const unitPost = cell.unitEdge
+      .mul(filteredPulse(cellUV.x, 0.0, 0.14, fw.x))
+      .mul(isShopFloor).mul(back.oneMinus());
+    col = mix(col, cTrim.mul(0.82), unitPost.mul(0.9));
 
     // --- Entrance doors (entry walls): dark painted metal + stone step.
     const doorFrame = cell.door.mul(filteredPulse(cellUV.x, 0.335, 0.665, fw.x)).mul(filteredPulse(cellUV.y, 0.0, 0.83, fw.y));
@@ -1695,8 +1766,10 @@ function createTileShophouseMaterial(opts = {}) {
     const inWindow = filteredPulse(cellUV.x, effHalfX, float(1.0).sub(effHalfX), cell.fw.x)
       .mul(filteredPulse(cellUV.y, float(0.5).sub(effHalfY), float(0.5).add(effHalfY), cell.fw.y))
       .mul(cell.solid.oneMinus());
-    const signBayHashR = hash2D(vec2(cell.cellId.x.mul(3.1), cell.boxSeed.mul(7.7)));
-    const panelMask = filteredPulse(cellUV.x, 0.035, 0.965, cell.fw.x)
+    // Issue #423: the roughness panel follows the colour node's
+    // per-unit band (see there) — same unit hash, same unit span.
+    const signBayHashR = hash2D(vec2(cell.unitId.mul(3.1), cell.boxSeed.mul(7.7)));
+    const panelMask = filteredPulse(cell.unitU, 0.035, 0.965, fwidth(cell.unitU))
       .mul(filteredPulse(cellUV.y, 0.775, 0.995, cell.fw.y))
       .mul(isShopFloor).mul(cell.back.oneMinus())
       .mul(step(signBayHashR, float(signRate)));
@@ -1790,21 +1863,26 @@ function createTileShophouseMaterial(opts = {}) {
 
     // Sign panels glow softly at night; glyph bars stay darker than the
     // panel, like unlit lettering on a lit board.
-    const sign = signColorsFor(cellId, boxSeed);
-    const signBayHashE = hash2D(vec2(cellId.x.mul(3.1), boxSeed.mul(7.7)));
-    const panelMask = filteredPulse(cellUV.x, 0.035, 0.965, fw.x)
+    // Issue #423: per-unit band, as in the colour node — the unit's
+    // panel glows as one board.
+    const unitCellId = vec2(cell.unitId, cellId.y);
+    const unitFw = fwidth(cell.unitU);
+    const sign = signColorsFor(unitCellId, boxSeed);
+    const signBayHashE = hash2D(vec2(cell.unitId.mul(3.1), boxSeed.mul(7.7)));
+    const panelMask = filteredPulse(cell.unitU, 0.035, 0.965, unitFw)
       .mul(filteredPulse(cellUV.y, 0.775, 0.995, fw.y))
       .mul(isShopFloor).mul(cell.back.oneMinus())
       .mul(step(signBayHashE, float(signRate)));
-    const glyph = signGlyphMask(cellUV, cellId, boxSeed, fw);
+    const glyph = signGlyphMask(vec2(cell.unitU, cellUV.y), unitCellId, boxSeed, vec2(unitFw, fw.y));
     const glyphEmit = sign.bg.mul(panelMask).mul(cityUniforms.uInteriorGlow)
       .mul(float(0.42).sub(glyph.mul(0.22)));
     // Issue #105: a real-text plate glows like the lightbox sign it
     // is — the whole plate, lettering included. Issue #354: sample
     // through the wall-corrected coordinate (see the colour node) so
-    // the glowing plate reads un-mirrored on every wall.
-    const bandUV = vec2(mix(cellUV.x, float(1.0).sub(cellUV.x), cell.flip), cellUV.y);
-    const plateEmit = bandPlateColor(bandUV, cellId, boxSeed, bandAtlasTex, bandPlateAttr)
+    // the glowing plate reads un-mirrored on every wall. Issue #423:
+    // the plate's u is the unit coordinate, spanning its unit.
+    const bandUV = vec2(mix(cell.unitU, float(1.0).sub(cell.unitU), cell.flip), cellUV.y);
+    const plateEmit = bandPlateColor(bandUV, unitCellId, boxSeed, bandAtlasTex, bandPlateAttr)
       .mul(panelMask).mul(cityUniforms.uInteriorGlow).mul(0.38);
     const signEmit = mix(glyphEmit, plateEmit, uSignText);
 

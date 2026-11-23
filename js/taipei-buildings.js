@@ -9757,12 +9757,19 @@ function mulberry32(seed) {
   };
 }
 
-export function taipeiShopsRoll(lot) {
-  // The seed formula mirrors populatePlannedLot's per-lot re-seed
-  // exactly (js/buildings.js): the lot's x0/z0, quarter-metre grid.
+export function taipeiLotTone(lot) {
+  // The lot's tone — the first mulberry32 output after
+  // populatePlannedLot's per-lot re-seed (js/buildings.js), the same
+  // value commit() stamps onto the building's facade boxes, where
+  // facadeCell reads it back as `tone`. taipeiShopsRoll rolls against
+  // it; the #423 shop-unit layout rotates by it.
   const seed = (Math.imul(Math.round(lot.x0 * 4), 73856093)
     ^ Math.imul(Math.round(lot.z0 * 4), 19349663) ^ 10019) >>> 0;
-  const tone = mulberry32(seed)();
+  return mulberry32(seed)();
+}
+
+export function taipeiShopsRoll(lot) {
+  const tone = taipeiLotTone(lot);
   const prob = lot.shops ?? (lot.mat >= 6
     ? SHOPS_PROBABILITY_TABLE[lot.mat - 6]
     : SHOPS_PROBABILITY_OTHER);
@@ -9784,6 +9791,75 @@ export function taipeiStorefrontParts(lot, shopsOn) {
   // A lot too narrow for the inset on both sides keeps the flat front.
   if (recess.x1 - recess.x0 < 1 || recess.z1 - recess.z0 < 1) return null;
   return { recess };
+}
+
+// --- Issue #423: shop-unit layout -------------------------------------
+// Mirror of the unit math in facadeCell (js/tsl-materials.js): a shop
+// face's bays are grouped into units of [2, 3, 1, 4, 2] bays over a
+// 12-bay period — unit starts at phases 0, 2, 5, 6, 10 and doors at
+// phases 1, 3, 5, 7, 8, 11 (the 4-bay unit gets a double door) —
+// rotated by floor(tone * 12) per building. Walls of 1–2 bays are a
+// single unit with a centre door. The facade table mirrors
+// js/buildings.js's facades entries for families 6–13 (family 6 takes
+// createTileShophouseMaterial's default cornerPier, 0.55); the census
+// test pins the table and the pattern against the sources. Pure data —
+// nothing here feeds the plan, so the plan stays byte-identical.
+export const STOREFRONT_UNIT_PATTERN = [2, 3, 1, 4, 2];
+export const STOREFRONT_UNIT_STARTS = [0, 2, 5, 6, 10];
+export const STOREFRONT_UNIT_DOORS = [[1], [3], [5], [7, 8], [11]];
+export const STOREFRONT_UNIT_PERIOD = 12;
+export const STOREFRONT_UNIT_FACADES = {
+  6: { windowWidth: 2.55, cornerPier: 0.55 },
+  7: { windowWidth: 2.7, cornerPier: 0.85 },
+  8: { windowWidth: 2.05, cornerPier: 0.4 },
+  9: { windowWidth: 3.6, cornerPier: 0.5 },
+  10: { windowWidth: 2.4, cornerPier: 0.55 },
+  11: { windowWidth: 2.6, cornerPier: 0.7 },
+  12: { windowWidth: 2.2, cornerPier: 0.5 },
+  13: { windowWidth: 2.4, cornerPier: 0.5 },
+};
+
+// facadeCell's bay fit for one wall of the given length (metres):
+// whole bays between the corner piers, at least one bay.
+export function storefrontBaysFor(faceLen, mat) {
+  const f = STOREFRONT_UNIT_FACADES[mat];
+  if (!f) return null;
+  if (f.cornerPier > 0) {
+    const pier = Math.min(f.cornerPier, faceLen * 0.2);
+    const inner = faceLen - pier * 2;
+    const bays = Math.max(Math.floor(inner / f.windowWidth + 0.5), 1);
+    return { bays, bayWidth: inner / bays };
+  }
+  const bays = Math.max(Math.floor(faceLen / f.windowWidth + 0.5), 1);
+  return { bays, bayWidth: faceLen / bays };
+}
+
+// The units along one shop face, in bay space: [{ start, size, doors }].
+// The first/last units may run past the wall's ends (start < 0 or
+// start + size > bays) — they are the partial units at the corners;
+// doors lists only the door bays inside the wall.
+export function storefrontUnitLayout(faceLen, mat, tone) {
+  const fit = storefrontBaysFor(faceLen, mat);
+  if (!fit) return null;
+  const { bays } = fit;
+  if (bays <= 2) return [{ start: 0, size: bays, doors: [Math.floor(bays / 2)] }];
+  const rot = Math.floor(tone * STOREFRONT_UNIT_PERIOD);
+  const phase0 = ((rot % STOREFRONT_UNIT_PERIOD) + STOREFRONT_UNIT_PERIOD) % STOREFRONT_UNIT_PERIOD;
+  let ui = STOREFRONT_UNIT_STARTS.findIndex(
+    (s, i) => phase0 >= s && phase0 < s + STOREFRONT_UNIT_PATTERN[i]
+  );
+  let start = -(phase0 - STOREFRONT_UNIT_STARTS[ui]) + 0; // + 0: no -0
+  const units = [];
+  while (start < bays) {
+    const size = STOREFRONT_UNIT_PATTERN[ui];
+    const doors = STOREFRONT_UNIT_DOORS[ui]
+      .map((p) => start + (p - STOREFRONT_UNIT_STARTS[ui]))
+      .filter((b) => b >= 0 && b < bays);
+    units.push({ start, size, doors });
+    start += size;
+    ui = (ui + 1) % STOREFRONT_UNIT_PATTERN.length;
+  }
+  return units;
 }
 
 export function narrowShophouseFor(lot, shopsOn) {
