@@ -1,11 +1,14 @@
 // tools/taipei/rebuild-roadgraph.mjs — recompute ONLY the `roadGraph`
 // section of js/taipei-geodata.js from the merged inputs
 // (tools/taipei/data/osm_roads.json + tools/taipei/tile-boxes.json),
-// with issue #252 level tags. The helpers below are copied verbatim
+// with issue #252 level tags and issue #389 `way` tags (the source OSM
+// way id on every edge, so junction arms map to roadbeds exactly via
+// bed.sourceWayIds). The helpers below are copied verbatim
 // from tools/taipei/build-taipei-geodata.mjs so a recompute of the
 // shipped bake can be PROVEN identical before the level-tagged
 // section is spliced in: run with --strip-level and diff the parsed
-// output against the current section — it must match exactly.
+// output against the current section — it must match exactly apart
+// from the `way` field (strip `way` from both sides for the proof).
 // The runtime filter (non-ground levels excluded from the ground
 // traffic graph) lives in js/taipei-traffic.js, not in this data:
 // every edge carries its level here so the deck-traffic work
@@ -129,7 +132,7 @@ for (const el of roadsElements) {
       graphSequences.push({
         name: el.tags.name || el.tags['name:en'] || '', highway: el.tags.highway, width, level,
         oneway: ['yes', 'true', '1', '-1'].includes(onewayRaw), reverse: onewayRaw === '-1',
-        pedestrianLayout: layout, records,
+        pedestrianLayout: layout, records, way: el.id, // Issue #389: the OSM way id, so junction arms map to roadbeds exactly (bed.sourceWayIds).
       });
     }
   }
@@ -192,6 +195,7 @@ function buildRoadGraph(sequences) {
         edges.push({
           a, b, name: s.name, highway: s.highway, oneway: s.oneway, width: s.width,
           pedestrianLayout: s.pedestrianLayout, length: Math.round(length * 10) / 10, level: s.level,
+          way: s.way, // Issue #389: the source OSM way id.
         });
       }
     }

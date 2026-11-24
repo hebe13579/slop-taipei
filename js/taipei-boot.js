@@ -11,6 +11,7 @@ import { buildPaintedBands } from './taipei-painted.js';
 import { buildAirfieldPaint, buildRoadTunnelPortals, roadTrenchSlots } from './taipei-airfield.js';
 import { SURFACE_TONES, surfaceClass, buildMedianStrips, isPlazaPark, isPodiumBlock, podiumCentresOf, memorialPaving, MEMORIAL_GRID_TONE } from './taipei-surfaces.js';
 import { buildRoadMarkings, detectJunctions, DASH_LEN, DASH_GAP, STRIPE_W, STRIPE_PITCH } from './taipei-markings.js';
+import { trimBedsAtPolys } from './taipei-bedtrim.js'; // issue #389: carriageway ribbons are trimmed against junction caps so they tile with them
 import { planJunctionCaps, planRoundabouts, ringPoints, capSurfacePolys, capClipPolys, capWaterPolys, CAP_Y, ISLAND_Y } from './taipei-junctions.js';
 import { buildDeckGeometry, groundContactPolys, portalTrenchSlots, diveAdjustedPiers, PIER_W, PIER_D } from './taipei-viaduct.js';
 import { buildDriveModel, taipeiExtraColliders } from './taipei-drive.js';
@@ -1951,6 +1952,33 @@ export async function buildTaipeiGround(scene, tile, deps = {}) {
   const carriageways = Array.isArray(geo.roadbeds) && geo.roadbeds.length
     ? geo.roadbeds
     : geo.roads.filter((r) => !NON_CARRIAGEWAY.has(r.highway));
+  // Junctions are detected ONCE here and shared with the markings
+  // builder (which used to detect its own copy). Graph-first
+  // (issue #389): the geodata's roadGraph (ways split at shared OSM
+  // nodes, edges carrying their source way id) supplies the exact
+  // junction nodes — geo.roadGraph is the raw graph (sandbox-
+  // filtered to the box in a sandbox, like the beds), and it
+  // carries `way` on every edge. (roadGraphNative lives only on
+  // the ADAPTED geo; the raw geodata here has no such field, so
+  // passing it silently fell back to exact-endpoint detection.)
+  const junctions = detectJunctions(carriageways, geo.roadGraph);
+  const roundabouts = planRoundabouts(carriageways, junctions);
+  // #214 ship: G1 + G2 + R1 are ON by default. R1 (waterClip)
+  // ships with the sole-crossing guard (js/taipei-junctions.js):
+  // a cap that is the only paving over a creek — no ribbon
+  // covers its water overlap — is kept whole (ji1079 + ji2121
+  // and the other narrow crossings). cornerClamp seats diagonal
+  // hull corners on the kerb (G2), divided feeds the G1 zebra
+  // POC in buildRoadMarkings. deps.poc can still turn any of them
+  // off (divided: false / cornerClamp: false / waterClip: false)
+  // for debugging.
+  const poc = deps.poc || {};
+  const caps = planJunctionCaps(carriageways, junctions, roundabouts, capClipPolys(geo),
+    poc.waterClip !== false ? capWaterPolys(geo) : null, { cornerClamp: poc.cornerClamp !== false });
+  const capPolys = [
+    ...caps.flatMap((c) => capSurfacePolys(c)),
+    ...roundabouts.flatMap((s) => [s.disc, ...s.aprons]).map((c) => ringPoints(c.ring)),
+  ];
   // Issue #173: continuation-joint frames over the whole carriageway
   // set, shared by the band layer and the per-class layers below.
   const carriagewayJoints = jointFramesFor(carriageways);
@@ -1983,8 +2011,16 @@ export async function buildTaipeiGround(scene, tile, deps = {}) {
   // they stay in `carriageways` for every ground planner (junction
   // caps, medians, markings, signals), so the ground picture under a
   // deck is exactly what it was when the deck was a boulevard.
+  // Issue #389: the carriageway ribbons are trimmed against the
+  // cap polygons, so the ribbons tile with the junction caps instead
+  // of running underneath them. The joints are still the full-bed
+  // ones (jointFramesFor is keyed by endpoint coordinates — a
+  // trimmed end simply finds no joint and butts the ring, which is
+  // the correct frame there). Sidewalk bands keep the full beds
+  // (they trim themselves against crossing sections).
+  const ribbonBeds = trimBedsAtPolys(carriageways, capPolys);
   const byClass = { deck: [], arterial: [], collector: [], lane: [] };
-  for (const r of carriageways) if (!r.deck) byClass[surfaceClass(r)].push(r);
+  for (const r of ribbonBeds) if (!r.deck) byClass[surfaceClass(r)].push(r);
   addLayer(ribbons(byClass.deck, 0.06, carriagewayJoints), mat(SURFACE_TONES.deck, 0.9), 'TaipeiRoadsDeck');
   addLayer(ribbons(byClass.arterial, 0.06, carriagewayJoints), mat(SURFACE_TONES.arterial, 0.9), 'TaipeiRoads');
   addLayer(ribbons(byClass.collector, 0.06, carriagewayJoints), mat(SURFACE_TONES.collector, 0.9), 'TaipeiRoadsCollector');
@@ -2007,26 +2043,6 @@ export async function buildTaipeiGround(scene, tile, deps = {}) {
   // stop lines are junction furniture and stay — the mouth
   // segments keep them on the cap's asphalt or the arm's ribbon;
   // see js/taipei-junctions.js.)
-  // Junctions are detected ONCE here and shared with the markings
-  // builder (which used to detect its own copy).
-  const junctions = detectJunctions(carriageways);
-  const roundabouts = planRoundabouts(carriageways, junctions);
-  // #214 ship: G1 + G2 + R1 are ON by default. R1 (waterClip)
-  // ships with the sole-crossing guard (js/taipei-junctions.js):
-  // a cap that is the only paving over a creek — no ribbon
-  // covers its water overlap — is kept whole (ji1079 + ji2121
-  // and the other narrow crossings). cornerClamp seats diagonal
-  // hull corners on the kerb (G2), divided feeds the G1 zebra
-  // POC in buildRoadMarkings. deps.poc can still turn any of them
-  // off (divided: false / cornerClamp: false / waterClip: false)
-  // for debugging.
-  const poc = deps.poc || {};
-  const caps = planJunctionCaps(carriageways, junctions, roundabouts, capClipPolys(geo),
-    poc.waterClip !== false ? capWaterPolys(geo) : null, { cornerClamp: poc.cornerClamp !== false });
-  const capPolys = [
-    ...caps.flatMap((c) => capSurfacePolys(c)),
-    ...roundabouts.flatMap((s) => [s.disc, ...s.aprons]).map((c) => ringPoints(c.ring)),
-  ];
   const capMaterial = new THREE.MeshStandardNodeMaterial({ vertexColors: true, roughness: 0.9, metalness: 0.0 });
   // Issue #171: a cap whose ring was cut by the green clip
   // renders its remaining ring pieces in the same fan layer.

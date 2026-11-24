@@ -862,15 +862,18 @@ const cachedGraphs = new Map();
 // process from the same roadbeds the markings are planned from, so
 // the network's signal table and the rendered heads describe the
 // same junctions. Junctions with no drivable network node nearby
-// (highway interchanges, tunnel mouths, the mountain trail —
-// measured 43 of 480 at the 20 m match radius) simply match no
-// node and stay unmarked; no AI car can reach them.
+// (highway interchanges, tunnel mouths, the mountain trail) simply
+// match no node and stay unmarked; no AI car can reach them.
+// Issue #389 (graph-first junctions): every signalized junction is
+// a graph node now (or a twin centroid within 12 m of one), so
+// all 825 match a node within the 20 m radius — the old "43 of
+// 480 unmatched" were cluster centroids with no node behind them.
 // The sandbox wrapper filters the geodata, so a sandbox slice sees
 // only its own junctions — the same slice the markings show.
 let cachedSignalJunctions = null;
 export function taipeiSignalJunctions() {
   if (!cachedSignalJunctions) {
-    cachedSignalJunctions = detectJunctions(TAIPEI_GEO.roadbeds)
+    cachedSignalJunctions = detectJunctions(TAIPEI_GEO.roadbeds, TAIPEI_GEO.roadGraph)
       .filter((j) => j.signalized)
       .map((j) => {
         const groups = junctionPhaseGroups(j);

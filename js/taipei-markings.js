@@ -31,23 +31,26 @@
 // roads) so the tile's short inter-junction bed segments still show
 // dashes; stated as a simplification.
 //
-// JUNCTIONS. There is no junction object in the geodata: beds end at
-// (or near) the centre of every crossing road, so junctions are
-// recovered by clustering bed endpoints — union-find over endpoints
-// within 22 m, then a second pass merging candidate centroids within
-// 40 m (divided boulevards end their carriageways at twin nodes up
-// to ~40 m apart; that is one signalized junction, not two). Arms
-// are the clustered bed ends, deduplicated by (name, direction
-// within 25°), keeping the widest bed per approach — on an unmerged
-// divided road the approach width is therefore the widest single
-// bed, not the full pair (stated limit). An arm's direction walks
-// its own bed, so curved approaches keep their real heading. The
-// junction centre is the centroid of the kept arms' endpoints (a
-// merged-in fragment cluster's centroid can sit metres off the
-// true crossing, and every furniture set-back measures from the
-// centre — measured on the acceptance junction: cluster centroid
-// (343, 21) vs arm-endpoint centroid (339.5, 19.4), worth ~4 m of
-// crosswalk placement on the west approach).
+// JUNCTIONS (issue #389, C5 graph-first). There is no junction object
+// in the geodata, but there IS a street graph: roadGraph splits ways
+// at shared OSM nodes, and every edge carries its source OSM way id.
+// Junctions are derived from it — a graph node of degree >= 3 with
+// >= 3 incident beds ending near it (bed.sourceWayIds maps arms to
+// beds exactly, no name/geometry tolerance). The graph supplies the
+// exact centre, the junction existence and the arm set; each arm's
+// direction walks its own bed. Twin nodes (divided-boulevard
+// carriageway crossings) share the identical ending-bed set and are
+// one junction, centred on their centroid. Through beds contribute
+// arms but not junction-hood (an alley T's through bed already paves
+// the crossing in one tone). Retired: endpoint clustering (22 m
+// union-find + 40 m centroid merge), arm dedup by name/25° and
+// width/15°, recentring — the cluster centroid could sit metres off
+// the true crossing (measured ~4 m on the acceptance junction), and
+// every furniture set-back measures from the centre. Without a graph
+// (synthetic tests) the fallback is exact-endpoint coincidence only.
+// An arm's direction walks its own bed, so curved approaches keep
+// their real heading. On an unmerged divided road the approach width
+// is the widest single bed, not the full pair (stated limit).
 //
 // SIGNALIZED RULE. A junction is signalized when arms of class
 // tertiary-or-above from at least two differently-named roads cross
@@ -166,6 +169,7 @@
 // stop lines).
 
 import { ribbonPoly, pointInPoly, buildPolyGrid, pointInAnyPoly } from './taipei-painted.js';
+import { trimBedsAtPolys } from './taipei-bedtrim.js'; // issue #389: beds are trimmed against junction caps before paint planning
 import { medianKind, medianStripWidth, buildMedianStrips } from './taipei-surfaces.js';
 import { planJunctionCaps, planRoundabouts, ringPoints, capSurfacePolys, roundaboutDashOccluders, isMajorJunction } from './taipei-junctions.js';
 
@@ -199,8 +203,9 @@ export const STOP_LINE_W = 0.4;          // stop line thickness along the road
 export const STOP_LINE_GAP = 0.9;        // between crosswalk band and stop line
 export const CROSSWALK_MIN_ARM_W = 7;    // narrower mouths get no zebra
 
-export const JUNCTION_CLUSTER_M = 22;    // endpoint clustering radius
-export const JUNCTION_MERGE_M = 40;      // candidate-centroid merge radius
+export const JUNCTION_END_M = 22;        // a bed ends at a graph node when an endpoint is within this (issue #389; the old cluster radius — the generation map dilates merged beds 14 m and simplifies at 1.5 m, which bounds the slop)
+export const JUNCTION_ARM_MIN_M = 8;      // a bed must extend this far from the centre to count as an approach (a stub ending just past the centre is not one)
+export const JUNCTION_ARM_DIR_M = 12;     // arm direction is the chord from the centre to a point this far along the bed
 
 // Signal placement (issue #64, user rule 2026-10-24): a unit stands
 // at the SIDE of the road — the far right-hand corner of its
@@ -355,13 +360,15 @@ export const bedLength = (bed) => {
 // Lane dividers.
 
 // Shared paint occluders for the divider builder and the centre-
-// line builder (issue #249): cap polygons, crosswalk furniture
-// polygons, median-strip polygons and foreign-bed ribbons. Factored
-// verbatim out of buildLaneDividers so both builders judge occlusion
-// identically; the divider body below is unchanged apart from this call.
-function buildPaintOccluders(roadbeds, medianStrips, capPolys, furnPolys) {
-    const capGrid = capPolys ? buildPolyGrid(capPolys) : null;
-    const capBlocked = (p) => pointInAnyPoly(capGrid, capPolys, p);
+// line builder (issue #249): crosswalk furniture polygons,
+// median-strip polygons and foreign-bed ribbons. Factored verbatim
+// out of buildLaneDividers so both builders judge occlusion
+// identically. Cap polygons are NOT occluders here any more
+// (issue #389): the beds are trimmed against the caps before
+// planning, so no dash is planned inside a junction at all —
+// the capBlocked point test is retired with the occlusion it
+// implemented.
+function buildPaintOccluders(roadbeds, medianStrips, furnPolys) {
     const furnGrid = furnPolys ? buildPolyGrid(furnPolys, FURN_GRID_M) : null;
     // Candidate furniture polys for a query bbox (grid cells the
     // bbox touches) — the pair tests below stay local.
@@ -482,19 +489,21 @@ function buildPaintOccluders(roadbeds, medianStrips, capPolys, furnPolys) {
       return false;
     };
 
-  return { capGrid, capBlocked, furnGrid, furnOverlap, segCrossesFurn, inMedianStrip, foreignBlocked };
+  return { furnGrid, furnOverlap, segCrossesFurn, inMedianStrip, foreignBlocked };
 }
 
 // buildLaneDividers(roadbeds, suppress, medianStrips?, capPolys?)
 // -> { dashes, dashStrips, stats }
-// suppress: Map `${bedIndex}:${end}` -> arc metres from that bed end
-// where dashes stay off (the stop-line zone at signalized junctions,
-// passed in by buildRoadMarkings). medianStrips: an optional
-// buildMedianStrips() result to clip dashes against (the boot passes
-// the strips it already built for its own layers; standalone callers
-// get them built here). capPolys (issue #66): junction-cap polygons
-// as point arrays — a dash sample inside any cap is blocked, so no
-// lane line crosses a junction core. dashes are quads [x1,z1,…] in
+// suppress: Map bedIndex -> [[fromArc, toArc], ...], arc intervals
+// along the FULL bed where dashes stay off (the stop-line zone at
+// signalized junctions, passed in by buildRoadMarkings — issue #389).
+// medianStrips: an optional buildMedianStrips() result to clip
+// dashes against (the boot passes the strips it already built for
+// its own layers; standalone callers get them built here).
+// capPolys (issue #389): junction-cap polygons as point arrays —
+// the beds are TRIMMED against them here (trimBedsAtPolys), so no
+// lane line is planned inside a junction at all; the old
+// capBlocked point test is retired. dashes are quads [x1,z1,…] in
 // the strip order taipei-painted's quadsGeometry consumes.
 // dashStrips (issue #90) are the shader render form of the same
 // plan: per divider line, the maximal runs of consecutive
@@ -514,17 +523,30 @@ function buildPaintOccluders(roadbeds, medianStrips, capPolys, furnPolys) {
 // centreline crosses one. Callers that pass no furnPolys (the
 // synthetic unit beds) get neither rule — byte-identical.
 export function buildLaneDividers(roadbeds, suppress = new Map(), medianStrips = null, capPolys = null, furnPolys = null) {
+  // Issue #389: trim the beds against the cap polygons first, so
+  // the planner never sees a junction core. The suppress intervals
+  // are keyed by full-bed index and mapped onto the trimmed beds
+  // through their provenance (trimParent/trimStartArc).
+  const beds = capPolys ? trimBedsAtPolys(roadbeds, capPolys) : roadbeds;
+  // Issue #389: the trim cuts the bed CENTRELINE at the caps, but a
+  // dash quad's centre is laterally offset from the centreline (the
+  // lane boundary offset, up to ~half the bed width) — near a cap's
+  // diagonal hull edge that offset can carry the centre inside the
+  // cap even though the centreline point is outside. So the emitted
+  // quads and the shader strips get a final centre guard (the
+  // per-sample capBlocked test stays retired — this is one point
+  // test per emitted quad / strip segment, not a threaded occluder).
+  const capGrid = capPolys ? buildPolyGrid(capPolys) : null;
+  const { furnGrid, furnOverlap, segCrossesFurn, inMedianStrip, foreignBlocked } =
+    buildPaintOccluders(beds, medianStrips, furnPolys);
 
-  const { capGrid, capBlocked, furnGrid, furnOverlap, segCrossesFurn, inMedianStrip, foreignBlocked } =
-    buildPaintOccluders(roadbeds, medianStrips, capPolys, furnPolys);
-
-  const stats = { beds: 0, dashQuads: 0, dividerKm: 0, medianBlockedSamples: 0, deckBedsSkipped: 0, crossPairs: 0, crossBlockedSamples: 0, stripSegmentsClipped: 0, furnBlockedQuads: 0, furnStripSegmentsClipped: 0 };
+  const stats = { beds: 0, dashQuads: 0, dividerKm: 0, medianBlockedSamples: 0, deckBedsSkipped: 0, crossPairs: 0, crossBlockedSamples: 0, stripSegmentsClipped: 0, furnBlockedQuads: 0, furnStripSegmentsClipped: 0, capBlockedQuads: 0 };
 
   // Pass 1: per divider bed, the densified frames and the base
   // occlusion flags per boundary offset (everything the pre-#173
   // inline loop computed, unchanged).
   const planned = [];
-  roadbeds.forEach((bed, selfIdx) => {
+  beds.forEach((bed, selfIdx) => {
     if (!dividersFor(bed)) {
       // Census only (issue #162): a deck-flagged bed that passes
       // the class + lane gates is counted, so the tile-wide count
@@ -539,14 +561,17 @@ export function buildLaneDividers(roadbeds, suppress = new Map(), medianStrips =
     // Arc distance of every sample from both bed ends.
     const arc = [0];
     for (let i = 1; i < pts.length; i++) arc.push(arc[i - 1] + Math.hypot(pts[i][0] - pts[i - 1][0], pts[i][1] - pts[i - 1][1]));
-    const totalLen = arc[arc.length - 1];
-    const supStart = suppress.get(`${selfIdx}:0`) || 0;
-    const supEnd = suppress.get(`${selfIdx}:1`) || 0;
+    // Suppress intervals for this bed, mapped from the full bed's
+    // arc coordinates onto this (possibly trimmed) bed: a sample's
+    // parent arc is its own arc plus the trim offset.
+    const intervals = suppress.get(bed.trimParent ?? selfIdx) || [];
+    const startArc = bed.trimStartArc || 0;
     const frames = pts.map((p, i) => {
       const a = pts[Math.max(0, i - 1)], c = pts[Math.min(pts.length - 1, i + 1)];
       let dx = c[0] - a[0], dz = c[1] - a[1];
       const n = Math.hypot(dx, dz) || 1; dx /= n; dz /= n;
-      return { p, nx: -dz, nz: dx, arc: arc[i], vertex: densified.vertex[i], suppressed: arc[i] < supStart || totalLen - arc[i] < supEnd };
+      const parentArc = startArc + arc[i];
+      return { p, nx: -dz, nz: dx, arc: arc[i], vertex: densified.vertex[i], suppressed: intervals.some(([a, b]) => parentArc >= a && parentArc <= b) };
     });
     stats.beds++;
     const flagsByOff = boundaries.map((off) => {
@@ -556,7 +581,6 @@ export function buildLaneDividers(roadbeds, suppress = new Map(), medianStrips =
         const pl = [f.p[0] + f.nx * lo, f.p[1] + f.nz * lo];
         const ph = [f.p[0] + f.nx * hi, f.p[1] + f.nz * hi];
         if (inMedianStrip(pc) || inMedianStrip(pl) || inMedianStrip(ph)) { stats.medianBlockedSamples++; return true; }
-        if (capBlocked(pc)) return true;
         return f.suppressed || foreignBlocked(pc, selfIdx, selfWays) || foreignBlocked(pl, selfIdx, selfWays) || foreignBlocked(ph, selfIdx, selfWays);
       };
       return { off, lo, hi, flags: frames.map(blockedAt) };
@@ -638,7 +662,11 @@ export function buildLaneDividers(roadbeds, suppress = new Map(), medianStrips =
         if (midArc % (DASH_LEN + DASH_GAP) >= DASH_LEN) continue; // in the gap
         const mid = [(f0.p[0] + f1.p[0]) / 2 + ((f0.nx + f1.nx) / 2) * off,
                      (f0.p[1] + f1.p[1]) / 2 + ((f0.nz + f1.nz) / 2) * off];
-        if (foreignBlocked(mid, selfIdx, selfWays) || inMedianStrip(mid) || capBlocked(mid)) continue;
+        if (foreignBlocked(mid, selfIdx, selfWays) || inMedianStrip(mid)) continue;
+        // Issue #389: the trim cuts the centreline, but this quad's
+        // centre (mid) is laterally offset from it — drop the quad
+        // when the offset centre falls inside a cap (see capGrid).
+        if (capGrid && pointInAnyPoly(capGrid, capPolys, mid)) { stats.capBlockedQuads++; continue; }
         const quad = [
           f0.p[0] + f0.nx * hi, f0.p[1] + f0.nz * hi,
           f1.p[0] + f1.nx * hi, f1.p[1] + f1.nz * hi,
@@ -703,30 +731,36 @@ export function buildLaneDividers(roadbeds, suppress = new Map(), medianStrips =
   // probes — lies inside an occluder polygon, dropping that
   // segment; pieces keep the remaining sections verbatim (dash
   // phase is per-section `along`, so a split cannot shift paint).
-  // Only runs when capPolys were passed: standalone divider calls
-  // (the #173 X-cull synthetics) stay byte-identical.
-  // Issue #182: the same split clips at the crosswalk furniture.
-  // A segment is dropped when its centreline — the same section-
-  // centre line the sweep's strip census samples — crosses a
-  // band or stripe polygon. The midpoint test cannot be reused
-  // here: the furniture sits off-cap on the arm, so a segment
-  // can paint straight across a zebra with its midpoint on
-  // clean asphalt on either side. Both counters are kept
-  // separate so the #178 cap census stays exactly comparable.
-  if (capGrid || furnGrid) {
+  // Only runs when furniture polys were passed: standalone divider
+  // calls (the #173 X-cull synthetics) stay byte-identical.
+  // Issue #182: the split clips at the crosswalk furniture. A
+  // segment is dropped when its centreline — the same section-
+  // centre line the sweep's strip census samples — crosses a band
+  // or stripe polygon. The midpoint test cannot be reused here:
+  // the furniture sits off-cap on the arm, so a segment can paint
+  // straight across a zebra with its midpoint on clean asphalt on
+  // either side. The cap half of this split was retired with issue
+  // #389 on the assumption that trimming the beds keeps every
+  // strip segment out of the caps — that assumption is false for
+  // the same lateral-offset reason as the quad guard above (the
+  // trim cuts the centreline, the strip sections sit at the lane
+  // offset), so the cap half is restored: a segment whose midpoint
+  // lies inside a cap polygon is dropped and the strip split
+  // there (stripSegmentsClipped counts those).
+  if (furnGrid || capGrid) {
     const splitStrips = [];
     for (const strip of dashStrips) {
       let piece = [strip[0]];
       for (let k = 0; k + 1 < strip.length; k++) {
         const a = strip[k], b = strip[k + 1];
-        const mid = [(a.hx + a.lx + b.hx + b.lx) / 4, (a.hz + a.lz + b.hz + b.lz) / 4];
-        const capHit = capGrid ? capBlocked(mid) : false;
-        const furnHit = furnGrid
-          ? segCrossesFurn((a.hx + a.lx) / 2, (a.hz + a.lz) / 2, (b.hx + b.lx) / 2, (b.hz + b.lz) / 2)
-          : false;
-        if (capHit || furnHit) {
-          if (capHit) stats.stripSegmentsClipped++;
+        const furnHit = furnGrid && segCrossesFurn((a.hx + a.lx) / 2, (a.hz + a.lz) / 2, (b.hx + b.lx) / 2, (b.hz + b.lz) / 2);
+        const capHit = capGrid && pointInAnyPoly(capGrid, capPolys, [
+          ((a.hx + a.lx) / 2 + (b.hx + b.lx) / 2) / 2,
+          ((a.hz + a.lz) / 2 + (b.hz + b.lz) / 2) / 2,
+        ]);
+        if (furnHit || capHit) {
           if (furnHit) stats.furnStripSegmentsClipped++;
+          if (capHit) stats.stripSegmentsClipped++;
           if (piece.length >= 2) splitStrips.push(piece);
           piece = [b];
         } else piece.push(b);
@@ -740,17 +774,29 @@ export function buildLaneDividers(roadbeds, suppress = new Map(), medianStrips =
 }
 
 export function buildCenterLines(roadbeds, suppress = new Map(), medianStrips = null, capPolys = null, furnPolys = null) {
-  const { capBlocked, furnGrid, furnOverlap, inMedianStrip, foreignBlocked } =
-    buildPaintOccluders(roadbeds, medianStrips, capPolys, furnPolys);
+  // Issue #389: trim the beds against the cap polygons first (as
+  // buildLaneDividers does) — the capBlocked point test is retired.
+  const beds = capPolys ? trimBedsAtPolys(roadbeds, capPolys) : roadbeds;
+  // Issue #389: beds lying wholly inside a cap produce no
+  // sub-bed, so they are counted nowhere below — track them so
+  // the tile-wide census still accounts for every roadbed.
+  let fullyTrimmedBeds = 0;
+  if (capPolys) {
+    const parents = new Set(beds.map((b) => b.trimParent));
+    fullyTrimmedBeds = roadbeds.length - parents.size;
+  }
+  const { furnGrid, furnOverlap, inMedianStrip, foreignBlocked } =
+    buildPaintOccluders(beds, medianStrips, furnPolys);
   const stats = {
     beds: 0, doubleBeds: 0, dashBeds: 0,
     doubleKm: 0, dashKm: 0, doubleQuads: 0, dashQuads: 0,
     medianBlockedSamples: 0, furnBlockedQuads: 0,
     deckBedsSkipped: 0, onewayBedsSkipped: 0, mergedBedsSkipped: 0,
     narrowBedsSkipped: 0, excludedBedsSkipped: 0,
+    fullyTrimmedBeds, trimmedBeds: beds.length,
   };
   const quads = [];
-  roadbeds.forEach((bed, selfIdx) => {
+  beds.forEach((bed, selfIdx) => {
     if (!centerLinesFor(bed)) {
       // Census only, mirroring the divider builder's deck census:
       // each skipped bed is counted under its first failing gate
@@ -768,14 +814,17 @@ export function buildCenterLines(roadbeds, suppress = new Map(), medianStrips = 
     const pts = densified.pts;
     const arc = [0];
     for (let i = 1; i < pts.length; i++) arc.push(arc[i - 1] + Math.hypot(pts[i][0] - pts[i - 1][0], pts[i][1] - pts[i - 1][1]));
-    const totalLen = arc[arc.length - 1];
-    const supStart = suppress.get(`${selfIdx}:0`) || 0;
-    const supEnd = suppress.get(`${selfIdx}:1`) || 0;
+    // Suppress intervals for this bed (issue #389): arc intervals
+    // along the full bed, mapped onto this trimmed bed through its
+    // provenance (trimParent/trimStartArc).
+    const intervals = suppress.get(bed.trimParent ?? selfIdx) || [];
+    const startArc = bed.trimStartArc || 0;
     const frames = pts.map((p, i) => {
       const a = pts[Math.max(0, i - 1)], c = pts[Math.min(pts.length - 1, i + 1)];
       let dx = c[0] - a[0], dz = c[1] - a[1];
       const n = Math.hypot(dx, dz) || 1; dx /= n; dz /= n;
-      return { p, nx: -dz, nz: dx, arc: arc[i], suppressed: arc[i] < supStart || totalLen - arc[i] < supEnd };
+      const parentArc = startArc + arc[i];
+      return { p, nx: -dz, nz: dx, arc: arc[i], suppressed: intervals.some(([a, b]) => parentArc >= a && parentArc <= b) };
     });
     const isDouble = (bed.width || 0) >= CENTER_DOUBLE_MIN_W;
     const offsets = isDouble ? [-CENTER_DOUBLE_HALF, CENTER_DOUBLE_HALF] : [0];
@@ -789,7 +838,6 @@ export function buildCenterLines(roadbeds, suppress = new Map(), medianStrips = 
         const pl = [f.p[0] + f.nx * lo, f.p[1] + f.nz * lo];
         const ph = [f.p[0] + f.nx * hi, f.p[1] + f.nz * hi];
         if (inMedianStrip(pc) || inMedianStrip(pl) || inMedianStrip(ph)) { stats.medianBlockedSamples++; return true; }
-        if (capBlocked(pc)) return true;
         return f.suppressed || foreignBlocked(pc, selfIdx, selfWays) || foreignBlocked(pl, selfIdx, selfWays) || foreignBlocked(ph, selfIdx, selfWays);
       });
       for (let i = 0; i + 1 < frames.length; i++) {
@@ -801,7 +849,7 @@ export function buildCenterLines(roadbeds, suppress = new Map(), medianStrips = 
         }
         const mid = [(f0.p[0] + f1.p[0]) / 2 + ((f0.nx + f1.nx) / 2) * off,
                      (f0.p[1] + f1.p[1]) / 2 + ((f0.nz + f1.nz) / 2) * off];
-        if (foreignBlocked(mid, selfIdx, selfWays) || inMedianStrip(mid) || capBlocked(mid)) continue;
+        if (foreignBlocked(mid, selfIdx, selfWays) || inMedianStrip(mid)) continue;
         const quad = [
           f0.p[0] + f0.nx * hi, f0.p[1] + f0.nz * hi,
           f1.p[0] + f1.nx * hi, f1.p[1] + f1.nz * hi,
@@ -825,119 +873,368 @@ export function buildCenterLines(roadbeds, suppress = new Map(), medianStrips = 
 // ---------------------------------------------------------------------
 // Junction detection.
 
-// detectJunctions(roadbeds) -> [{ x, z, signalized, arms }]
-// arm: { bed, end, name, highway, rank, width, dirX, dirZ, endX, endZ,
-//        crossHalf } — dir points away from the junction along the
-// arm's own bed; crossHalf is the junction box's extent along this
-// arm (the widest crossing arm's half width).
-export function detectJunctions(roadbeds) {
-  const ends = [];
+// detectJunctions(roadbeds, graph = null) -> [{ x, z, signalized, arms }]
+// arm: { bed, end, farEnd, name, highway, rank, width, dirX, dirZ,
+//        endX, endZ, crossHalf, through, centreArc } — dir points away
+//        from the junction along the arm's own bed; crossHalf is the
+//        junction box's extent along this arm (the widest crossing
+//        arm's half width). `end` is the bed end AT the junction (the
+//        old semantics — the ring builder and the #163 strips read
+//        endX/endZ as the arm's root); for a through bed there is no
+//        such end, so `end` is the end the arm points toward and
+//        endX/endZ is the bed point nearest the centre. `farEnd` is
+//        the bed end the arm points toward (the furniture's suppress
+//        interval extends from the centre in that direction).
+//        `centreArc` is the centre's arc along the bed.
+//
+// GRAPH-FIRST (issue #389, C5). With the road graph (geodata
+// roadGraph: nodes flat [x,z,...], edges {a, b, way, ...} — ways split
+// at shared OSM nodes, each edge carrying its source OSM way id), a
+// junction is a graph node of degree >= 3 with >= 3 incident beds
+// ENDING near it (a bed endpoint within JUNCTION_END_M of the node —
+// the generation map dilates merged beds 14 m and simplifies at
+// 1.5 m, which bounds the slop). The graph supplies the exact centre,
+// the junction existence, and the arm set; the bed supplies each
+// arm's direction. Through beds contribute arms but not
+// junction-hood: most topological junctions are alley Ts whose
+// through bed already paves the crossing in one tone, and a cap
+// exists to give one surface where ribbons of different classes
+// overlap or butt — so the ending-bed rule preserves the shipped
+// cap set's shape while making its geometry exact. Twin nodes
+// (divided-boulevard carriageway crossings) share the identical
+// ending-bed set and are one junction, centred on their centroid.
+// Retired with the clustering: the 22 m union-find, the 40 m
+// centroid merge, arm dedup by name/25° and width/15°, recentring.
+// Measured on main 82cb0642: 3,478 clustered junctions -> ~4,156
+// graph junctions (853 endpoint-cluster phantoms dropped, merged
+// alley clusters split into exact nodes, 57 genuinely missed
+// junctions added, e.g. 文林路×福國路).
+//
+// WITHOUT a graph (synthetic tests, old callers) the fallback is
+// exact-endpoint coincidence only: beds sharing an exact endpoint
+// coordinate form a junction. No radius, no merge, no dedup — the
+// graph algorithm applied to the beds themselves.
+export function detectJunctions(roadbeds, graph = null) {
+  if (graph && graph.nodes && graph.edges) return junctionsFromGraph(roadbeds, graph);
+  return junctionsFromEndpoints(roadbeds);
+}
+
+// Nearest point on a bed's centreline to (x, z): { x, z, arc, dx, dz }
+// (arc = distance along the bed from its start; dx/dz = the local
+// tangent, pointing along increasing arc). Used by the furniture's
+// centre-based walks and by the POC band placement.
+export function bedNearestPoint(bed, x, z) {
+  const pts = ptsOf(bed);
+  let best = null, bestD2 = Infinity, acc = 0;
+  for (let i = 0; i + 1 < pts.length; i++) {
+    const [ax, az] = pts[i], [bx, bz] = pts[i + 1];
+    const dx = bx - ax, dz = bz - az;
+    const l2 = dx * dx + dz * dz;
+    let t = l2 > 0 ? ((x - ax) * dx + (z - az) * dz) / l2 : 0;
+    t = Math.max(0, Math.min(1, t));
+    const px = ax + dx * t, pz = az + dz * t;
+    const d2 = (px - x) * (px - x) + (pz - z) * (pz - z);
+    if (d2 < bestD2) {
+      const n = Math.hypot(dx, dz) || 1;
+      bestD2 = d2;
+      best = { x: px, z: pz, arc: acc + Math.hypot(px - ax, pz - az), dx: dx / n, dz: dz / n };
+    }
+    acc += Math.hypot(dx, dz);
+  }
+  return best;
+}
+
+// Walk a bed from the point nearest (x, z), in the (dirX, dirZ)
+// direction, for s metres: { x, z, dx, dz } at that point (dx/dz =
+// the local tangent in the walking direction). Returns null when the
+// bed does not reach that far in that direction. The furniture's
+// crosswalk / stop-line / signal set-backs are measured from the
+// junction centre this way, so a through bed's arm (which has no
+// bed end at the junction) works exactly like an ending bed's.
+export function pointAlongBedFrom(bed, x, z, dirX, dirZ, s) {
+  const near = bedNearestPoint(bed, x, z);
+  if (!near) return null;
+  const pts = ptsOf(bed);
+  // The nearest point lies on some segment; walk from it in the
+  // direction whose tangent agrees with (dirX, dirZ).
+  const forward = near.dx * dirX + near.dz * dirZ >= 0;
+  const seq = [];
+  // Rebuild the walk as an ordered list of (point, tangent) steps
+  // starting at the nearest point.
+  const idx = nearestSegmentIndex(pts, near);
+  if (forward) {
+    seq.push([near.x, near.z, near.dx, near.dz]);
+    for (let i = idx + 1; i < pts.length; i++) {
+      const [ax, az] = pts[i - 1], [bx, bz] = pts[i];
+      const n = Math.hypot(bx - ax, bz - az) || 1;
+      seq.push([bx, bz, (bx - ax) / n, (bz - az) / n]);
+    }
+  } else {
+    seq.push([near.x, near.z, -near.dx, -near.dz]);
+    for (let i = idx; i >= 0; i--) {
+      const [ax, az] = pts[i + 1], [bx, bz] = pts[i];
+      const n = Math.hypot(bx - ax, bz - az) || 1;
+      seq.push([bx, bz, (bx - ax) / n, (bz - az) / n]);
+    }
+  }
+  let acc = 0;
+  for (let i = 0; i + 1 < seq.length; i++) {
+    const [ax, az] = seq[i];
+    const [bx, bz] = seq[i + 1];
+    const len = Math.hypot(bx - ax, bz - az);
+    const n = len || 1;
+    const hx = (bx - ax) / n, hz = (bz - az) / n; // this segment's heading
+    if (acc + len >= s) {
+      const t = len > 0 ? Math.min(1, Math.max(0, (s - acc) / len)) : 0;
+      return { x: ax + (bx - ax) * t, z: az + (bz - az) * t, dx: hx, dz: hz };
+    }
+    acc += len;
+    if (i + 2 === seq.length) {
+      // Past the far end the walk extrapolates along the last
+      // segment's heading (as pointAlongBed does) — fragment beds
+      // are often shorter than the set-back they must carry, and
+      // their approaches run straight. The #170 discipline pass
+      // culls any crossing this lands off the asphalt.
+      const over = s - acc;
+      return { x: bx + hx * over, z: bz + hz * over, dx: hx, dz: hz };
+    }
+  }
+  return null;
+}
+
+// Segment index whose span contains the nearest point (re-found by
+// the same distance rule bedNearestPoint uses, so the walk starts on
+// the right segment).
+function nearestSegmentIndex(pts, near) {
+  let best = 0, bestD2 = Infinity;
+  for (let i = 0; i + 1 < pts.length; i++) {
+    const [ax, az] = pts[i], [bx, bz] = pts[i + 1];
+    const dx = bx - ax, dz = bz - az;
+    const l2 = dx * dx + dz * dz;
+    let t = l2 > 0 ? ((near.x - ax) * dx + (near.z - az) * dz) / l2 : 0;
+    t = Math.max(0, Math.min(1, t));
+    const px = ax + dx * t, pz = az + dz * t;
+    const d2 = (px - near.x) * (px - near.x) + (pz - near.z) * (pz - near.z);
+    if (d2 < bestD2) { bestD2 = d2; best = i; }
+  }
+  return best;
+}
+
+// Build the arm list for one junction group: one arm per incident
+// bed per side the bed extends from the centre. `incident` is
+// [{ bed, ends }] where ends is true when the bed ends near a member
+// node. An arm exists in a direction when the bed extends at least
+// JUNCTION_ARM_MIN_M from the centre that way — a stub ending just
+// past the centre is not an approach. The arm direction is the chord
+// from the centre to a point JUNCTION_ARM_DIR_M along the bed (the
+// old code's "well along the arm" rule), so a curved approach keeps
+// its real heading instead of its endpoint tangent.
+function armsForGroup(roadbeds, cx, cz, incident) {
+  const arms = [];
+  for (const { bed: bi, ends } of incident) {
+    const bed = roadbeds[bi];
+    const pts = ptsOf(bed);
+    if (pts.length < 2) continue;
+    const near = bedNearestPoint(bed, cx, cz);
+    if (!near) continue;
+    const totalLen = bedLength(bed);
+    // Extension of the bed from the centre in each direction.
+    const extForward = totalLen - near.arc; // toward end 1
+    const extBack = near.arc;               // toward end 0
+    // The arm's ROOT (endX/endZ): the bed end at the junction for
+    // an ending bed (the endpoint nearer the centre), the bed's
+    // nearest point to the centre for a through bed (there is no
+    // bed end at the junction). The ring builder, the #163 strips
+    // and the tests all read the root as "where the arm meets the
+    // junction" — the old arm.end semantics. `end` is that root's
+    // bed end (for a through bed, the end the arm points toward —
+    // bedChordDir is never called for through beds, because
+    // armExtension returns null before it: a through bed's root
+    // sits at the centre, inside the box). `farEnd` is the end the
+    // arm points toward (the furniture's suppress interval extends
+    // from the centre in that direction).
+    const nearEnd = !ends ? -1
+      : Math.hypot(pts[0][0] - cx, pts[0][1] - cz) <= Math.hypot(pts[pts.length - 1][0] - cx, pts[pts.length - 1][1] - cz) ? 0 : 1;
+    const root = nearEnd === -1 ? [near.x, near.z] : pts[nearEnd === 0 ? 0 : pts.length - 1];
+    const rootX = root[0], rootZ = root[1];
+    const armDir = (dirX, dirZ) => {
+      const probe = pointAlongBedFrom(bed, cx, cz, dirX, dirZ, JUNCTION_ARM_DIR_M);
+      if (probe) {
+        const dx = probe.x - cx, dz = probe.z - cz;
+        const n = Math.hypot(dx, dz);
+        if (n > 1e-6) return [dx / n, dz / n];
+      }
+      return [dirX, dirZ];
+    };
+    const mkArm = (dirX, dirZ, farEnd) => {
+      const [ax, az] = armDir(dirX, dirZ);
+      return {
+        bed: bi, end: nearEnd === -1 ? farEnd : nearEnd, farEnd,
+        name: bed.name || '', highway: bed.highway,
+        rank: classRank(bed.highway), width: bed.width || 3,
+        dirX: ax, dirZ: az,
+        endX: rootX, endZ: rootZ,
+        crossHalf: 0, through: false, centreArc: near.arc,
+      };
+    };
+    if (extForward >= JUNCTION_ARM_MIN_M) {
+      const a = mkArm(near.dx, near.dz, 1);
+      a.through = extBack >= JUNCTION_ARM_MIN_M;
+      arms.push(a);
+    }
+    if (extBack >= JUNCTION_ARM_MIN_M) {
+      const a = mkArm(-near.dx, -near.dz, 0);
+      a.through = extForward >= JUNCTION_ARM_MIN_M;
+      arms.push(a);
+    }
+  }
+  // Fragment collapse: the generation map splits one road into
+  // several beds (raw OSM ways end at every side street), so one
+  // approach can arrive as two beds of the same name in nearly the
+  // same direction — keep the widest, as the old clusterer did.
+  // This is NOT detection (the graph already fixed the arms); it
+  // only stops one approach drawing two crosswalks and two signal
+  // units at the same corner. A much narrower arm (under half the
+  // width) pointing the same way (within 15°) as a kept arm is a
+  // slip/fragment of that approach whatever its name — ramps and
+  // frontage stubs ending at the same corner — and folds into it
+  // too. Genuine forks (> 25° apart) are untouched.
+  arms.sort((a, b) => b.width - a.width);
+  const kept = [];
+  for (const a of arms) {
+    const dot = (k) => k.dirX * a.dirX + k.dirZ * a.dirZ;
+    if (kept.some((k) => k.name === a.name && dot(k) > Math.cos((25 * Math.PI) / 180))) continue;
+    if (kept.some((k) => dot(k) > Math.cos((15 * Math.PI) / 180) && k.width >= a.width * 2.2)) continue;
+    kept.push(a);
+  }
+  arms.length = 0;
+  arms.push(...kept);
+  // crossHalf per arm: the junction box's extent along this arm is
+  // the widest crossing arm's half width (unchanged arithmetic).
+  for (const a of arms) {
+    let cross = 0;
+    for (const b of arms) {
+      if (b === a) continue;
+      const ang = Math.acos(Math.max(-1, Math.min(1, a.dirX * b.dirX + a.dirZ * b.dirZ))) * 180 / Math.PI;
+      if (ang >= 35 && ang <= 145) cross = Math.max(cross, b.width / 2);
+    }
+    a.crossHalf = cross || Math.max(...arms.filter((b) => b !== a).map((b) => b.width / 2), 0);
+  }
+  return arms;
+}
+
+function signalizedOf(arms) {
+  const sig = arms.filter((a) => a.rank >= 1);
+  for (const a of sig) for (const b of sig) {
+    if (a.name === b.name) continue;
+    const ang = Math.acos(Math.max(-1, Math.min(1, a.dirX * b.dirX + a.dirZ * b.dirZ))) * 180 / Math.PI;
+    if (ang >= 35 && ang <= 145) return true;
+  }
+  return false;
+}
+
+// Graph-first detection (see detectJunctions).
+function junctionsFromGraph(roadbeds, graph) {
+  const nodeCount = graph.nodes.length / 2;
+  const nodeXY = (i) => [graph.nodes[i * 2], graph.nodes[i * 2 + 1]];
+  // way -> bed indices (a bed carries every source way it was built from).
+  const bedsByWay = new Map();
+  roadbeds.forEach((bed, bi) => {
+    for (const w of bed.sourceWayIds || []) {
+      if (!bedsByWay.has(w)) bedsByWay.set(w, []);
+      bedsByWay.get(w).push(bi);
+    }
+  });
+  // Degree per node, and the incident edges per node.
+  const degree = new Array(nodeCount).fill(0);
+  const incidentEdges = Array.from({ length: nodeCount }, () => []);
+  for (const e of graph.edges) {
+    degree[e.a]++; degree[e.b]++;
+    incidentEdges[e.a].push(e); incidentEdges[e.b].push(e);
+  }
+  // Candidate nodes: degree >= 3 with >= 3 incident beds ending near them.
+  const candidates = []; // { node, x, z, ending: Set<bed>, incident: [{bed, ends}] }
+  for (let ni = 0; ni < nodeCount; ni++) {
+    if (degree[ni] < 3) continue;
+    const [nx, nz] = nodeXY(ni);
+    const incident = new Map(); // bed -> ends?
+    for (const e of incidentEdges[ni]) {
+      for (const bi of bedsByWay.get(e.way) || []) {
+        if (!incident.has(bi)) incident.set(bi, false);
+      }
+    }
+    if (!incident.size) continue;
+    // A way can produce several beds (the generation map splits a
+    // long way into runs), so sharing a way id is not enough: the
+    // bed itself must pass near the node, or a distant fragment of
+    // the same way (measured: a 12 m fragment 170 m from its node)
+    // would count as an approach. The nearest-point test is the
+    // guard; the endpoint test below is the ending test.
+    for (const bi of [...incident.keys()]) {
+      const near = bedNearestPoint(roadbeds[bi], nx, nz);
+      if (!near || Math.hypot(near.x - nx, near.z - nz) > JUNCTION_END_M) incident.delete(bi);
+    }
+    if (!incident.size) continue;
+    const ending = new Set();
+    for (const bi of incident.keys()) {
+      const pts = ptsOf(roadbeds[bi]);
+      if (pts.length < 2) continue;
+      const d0 = Math.hypot(pts[0][0] - nx, pts[0][1] - nz);
+      const d1 = Math.hypot(pts[pts.length - 1][0] - nx, pts[pts.length - 1][1] - nz);
+      if (Math.min(d0, d1) <= JUNCTION_END_M) {
+        ending.add(bi);
+        incident.set(bi, true);
+      }
+    }
+    if (ending.size < 3) continue;
+    candidates.push({ node: ni, x: nx, z: nz, ending, incident: [...incident.entries()].map(([bed, ends]) => ({ bed, ends })) });
+  }
+  // Twin grouping: candidates sharing the identical ending-bed set
+  // are one junction (divided-boulevard carriageway crossings).
+  const groups = new Map();
+  for (const c of candidates) {
+    const key = [...c.ending].sort((a, b) => a - b).join(',');
+    if (!groups.has(key)) groups.set(key, []);
+    groups.get(key).push(c);
+  }
+  const junctions = [];
+  for (const members of groups.values()) {
+    const cx = members.reduce((s, m) => s + m.x, 0) / members.length;
+    const cz = members.reduce((s, m) => s + m.z, 0) / members.length;
+    const incident = new Map();
+    for (const m of members) for (const inc of m.incident) {
+      if (!incident.has(inc.bed)) incident.set(inc.bed, inc);
+      else if (inc.ends) incident.get(inc.bed).ends = true;
+    }
+    const arms = armsForGroup(roadbeds, cx, cz, [...incident.values()]);
+    junctions.push({ x: cx, z: cz, arms, signalized: signalizedOf(arms) });
+  }
+  return junctions;
+}
+
+// Exact-endpoint fallback (see detectJunctions): beds sharing an
+// exact endpoint coordinate form a junction; arms are the beds
+// meeting there (one per bed per side, as in armsForGroup).
+function junctionsFromEndpoints(roadbeds) {
+  const byKey = new Map();
   roadbeds.forEach((bed, bi) => {
     const pts = ptsOf(bed);
     if (pts.length < 2) return;
-    ends.push({ bed: bi, end: 0, x: pts[0][0], z: pts[0][1] });
-    ends.push({ bed: bi, end: 1, x: pts[pts.length - 1][0], z: pts[pts.length - 1][1] });
+    for (const end of [0, 1]) {
+      const p = end === 0 ? pts[0] : pts[pts.length - 1];
+      const k = `${p[0]},${p[1]}`;
+      if (!byKey.has(k)) byKey.set(k, []);
+      byKey.get(k).push(bi);
+    }
   });
-  const cluster = (items, radius, keyOf) => {
-    const parent = items.map((_, i) => i);
-    const find = (i) => { while (parent[i] !== i) { parent[i] = parent[parent[i]]; i = parent[i]; } return i; };
-    const grid = new Map();
-    items.forEach((it, i) => {
-      const [x, z] = keyOf(it);
-      const gx = Math.floor(x / radius), gz = Math.floor(z / radius);
-      for (let ax = gx - 1; ax <= gx + 1; ax++) for (let az = gz - 1; az <= gz + 1; az++)
-        for (const j of grid.get(`${ax},${az}`) || []) {
-          const [ox, oz] = keyOf(items[j]);
-          if (Math.hypot(ox - x, oz - z) <= radius) { const ri = find(i), rj = find(j); if (ri !== rj) parent[ri] = rj; }
-        }
-      const k = `${gx},${gz}`;
-      if (!grid.has(k)) grid.set(k, []);
-      grid.get(k).push(i);
-    });
-    const groups = new Map();
-    items.forEach((it, i) => { const r = find(i); if (!groups.has(r)) groups.set(r, []); groups.get(r).push(it); });
-    return [...groups.values()];
-  };
-
-  // Pass 1: endpoint clusters. Pass 2: merge candidate centroids —
-  // divided roads end at twin nodes one junction apart, not two.
-  let candidates = cluster(ends, JUNCTION_CLUSTER_M, (e) => [e.x, e.z])
-    .filter((g) => g.length >= 3)
-    .map((g) => ({
-      x: g.reduce((s, e) => s + e.x, 0) / g.length,
-      z: g.reduce((s, e) => s + e.z, 0) / g.length,
-      ends: g,
-    }));
-  candidates = cluster(candidates, JUNCTION_MERGE_M, (c) => [c.x, c.z]).map((g) => ({
-    x: g.reduce((s, c) => s + c.x * c.ends.length, 0) / g.reduce((s, c) => s + c.ends.length, 0),
-    z: g.reduce((s, c) => s + c.z * c.ends.length, 0) / g.reduce((s, c) => s + c.ends.length, 0),
-    ends: g.flatMap((c) => c.ends),
-  }));
-
   const junctions = [];
-  for (const cand of candidates) {
-    // Arm direction: from a centre estimate through a point well
-    // along the arm's own bed (past the endpoint scatter, onto the
-    // road itself).
-    const armDir = (cx, cz, e) => {
-      const along = Math.max(12, Math.hypot(e.x - cx, e.z - cz) + 10);
-      const p = pointAlongBed(roadbeds[e.bed], e.end, along);
-      let dx = p.x - cx, dz = p.z - cz;
-      const n = Math.hypot(dx, dz) || 1;
-      return [dx / n, dz / n];
-    };
-    let arms = cand.ends.map((e) => {
-      const bed = roadbeds[e.bed];
-      const [dx, dz] = armDir(cand.x, cand.z, e);
-      return {
-        bed: e.bed, end: e.end, name: bed.name || '', highway: bed.highway,
-        rank: classRank(bed.highway), width: bed.width || 3,
-        dirX: dx, dirZ: dz, endX: e.x, endZ: e.z, crossHalf: 0,
-      };
-    });
-    // Deduplicate approaches: same road, same heading (within 25°)
-    // — fragment beds of one approach collapse to the widest bed.
-    // A much narrower arm (under half the width) pointing the same
-    // way (within 15°) as a kept arm is a slip/fragment of that
-    // approach whatever its name — ramps and frontage stubs ending
-    // at the same corner — and folds into it too.
-    arms.sort((a, b) => b.width - a.width);
-    const kept = [];
-    for (const a of arms) {
-      const dot = (k) => k.dirX * a.dirX + k.dirZ * a.dirZ;
-      if (kept.some((k) => k.name === a.name && dot(k) > Math.cos((25 * Math.PI) / 180))) continue;
-      if (kept.some((k) => dot(k) > Math.cos((15 * Math.PI) / 180) && k.width >= a.width * 2.2)) continue;
-      kept.push(a);
-    }
-    arms = kept;
-    // Recentring: the merged-cluster centroid can sit metres off
-    // the true crossing (a merged-in fragment cluster drags it), and
-    // every set-back measures from the centre — so the junction
-    // centre is the centroid of the KEPT arms' own endpoints, and
-    // the arm directions are recomputed against it.
-    cand.x = arms.reduce((s, a) => s + a.endX, 0) / arms.length;
-    cand.z = arms.reduce((s, a) => s + a.endZ, 0) / arms.length;
-    for (const a of arms) {
-      const [dx, dz] = armDir(cand.x, cand.z, { bed: a.bed, end: a.end, x: a.endX, z: a.endZ });
-      a.dirX = dx; a.dirZ = dz;
-    }
-    for (const a of arms) {
-      let cross = 0;
-      for (const b of arms) {
-        if (b === a) continue;
-        const ang = Math.acos(Math.max(-1, Math.min(1, a.dirX * b.dirX + a.dirZ * b.dirZ))) * 180 / Math.PI;
-        if (ang >= 35 && ang <= 145) cross = Math.max(cross, b.width / 2);
-      }
-      a.crossHalf = cross || Math.max(...arms.filter((b) => b !== a).map((b) => b.width / 2), 0);
-    }
-    const sig = arms.filter((a) => a.rank >= 1);
-    let signalized = false;
-    outer: for (const a of sig) for (const b of sig) {
-      if (a.name === b.name) continue;
-      const ang = Math.acos(Math.max(-1, Math.min(1, a.dirX * b.dirX + a.dirZ * b.dirZ))) * 180 / Math.PI;
-      if (ang >= 35 && ang <= 145) { signalized = true; break outer; }
-    }
-    junctions.push({ x: cand.x, z: cand.z, arms, signalized });
+  for (const [key, beds] of byKey) {
+    const uniq = [...new Set(beds)];
+    if (uniq.length < 3) continue;
+    const [x, z] = key.split(',').map(Number);
+    const incident = uniq.map((bed) => ({ bed, ends: true }));
+    const arms = armsForGroup(roadbeds, x, z, incident);
+    junctions.push({ x, z, arms, signalized: signalizedOf(arms) });
   }
   return junctions;
 }
@@ -1088,7 +1385,11 @@ export function dividedAvenueInfo(j, roadbeds) {
 // — a unit never stands on a carriageway. kind is 'mast' (T-shape
 // mast arm over the approach) on divided approaches only, 'pole'
 // (plain corner pole) elsewhere; armLen is the mast arm's reach.
-// suppress feeds buildLaneDividers' stop-line zones.
+// suppress feeds buildLaneDividers' / buildCenterLines' stop-line
+// zones (issue #389): Map bedIndex -> [[fromArc, toArc], ...], arc
+// intervals along the FULL bed from the junction centre out past the
+// stop line, one per arm. The builders map them onto their trimmed
+// beds through the trim provenance (trimParent/trimStartArc).
 export function buildJunctionFurniture(roadbeds, junctions, capsIn = null, opts = {}) {
   let stripes = [], stopLines = [], signals = [];
   // Provenance (issue #75 audit/tests): the junction index that
@@ -1309,15 +1610,17 @@ export function buildJunctionFurniture(roadbeds, junctions, capsIn = null, opts 
       if (bed.deck) { stats.deckArmsSkipped++; continue; }
       const half = arm.width / 2;
       // Arc position along the arm's own bed, measured from the
-      // junction centre: the bed end sits at signed distance sd from
-      // the centre along the arm direction, so the crosswalk centre
-      // (crossHalf + gap + half depth out from the centre) is at arc
-      // crossHalf + CROSSWALK_GAP + DEPTH/2 − sd from the bed end.
-      const sd = (arm.endX - j.x) * arm.dirX + (arm.endZ - j.z) * arm.dirZ;
-      const sCross = arm.crossHalf + CROSSWALK_GAP + CROSSWALK_DEPTH / 2 - sd;
+      // junction centre (issue #389): the crosswalk centre sits
+      // crossHalf + gap + half depth out from the centre, walked
+      // from the bed point nearest the centre in the arm direction
+      // — so a through bed's arm (no bed end at the junction) works
+      // exactly like an ending bed's. The old formula measured from
+      // the bed end (sCross = target − sd); the centre is a graph
+      // node now, so the walk starts there.
+      const sCross = arm.crossHalf + CROSSWALK_GAP + CROSSWALK_DEPTH / 2;
       if (arm.width >= CROSSWALK_MIN_ARM_W) {
-        if (sCross > 0.5) {
-          const c = pointAlongBed(bed, arm.end, sCross);
+        const c = pointAlongBedFrom(bed, j.x, j.z, arm.dirX, arm.dirZ, sCross);
+        if (c) {
           const ux = c.dx, uz = c.dz, vx = -uz, vz = ux; // v = left of travel away from junction
           const d = CROSSWALK_DEPTH / 2;
           const gStart = stripes.length;
@@ -1360,7 +1663,9 @@ export function buildJunctionFurniture(roadbeds, junctions, capsIn = null, opts 
         // so the line spans [−half + margin, −inner] in v offsets.
         const sStop = sCross + CROSSWALK_DEPTH / 2 + STOP_LINE_GAP + STOP_LINE_W / 2;
         {
-          const c = pointAlongBed(bed, arm.end, sStop);
+          // Centre-based walk (issue #389), as the crosswalk above.
+          const c = pointAlongBedFrom(bed, j.x, j.z, arm.dirX, arm.dirZ, sStop);
+          if (!c) { /* the bed does not reach the stop line */ } else {
           const ux = c.dx, uz = c.dz, vx = -uz, vz = ux;
           const { medianHalf } = laneLayout(bed);
           const oHi = -half + 0.25, oLo = -(medianHalf ? medianHalf + 0.15 : 0.2);
@@ -1375,18 +1680,32 @@ export function buildJunctionFurniture(roadbeds, junctions, capsIn = null, opts 
             stopLineJunction.push(ji);
             stats.stopLines++;
           }
+          }
         }
-        // Keep dashes out of the stop-line zone on this approach.
-        const key = `${arm.bed}:${arm.end}`;
-        suppress.set(key, Math.max(suppress.get(key) || 0, sStop + STOP_LINE_W / 2 + 0.6));
+        // Keep dashes out of the stop-line zone on this approach
+        // (issue #389): an ARC INTERVAL along the bed, from the
+        // centre out past the stop line — not a distance from a bed
+        // end, because a through bed's arm has no bed end at the
+        // junction. The divider/centreline builders map the interval
+        // onto their trimmed beds through the trim provenance
+        // (trimParent/trimStartArc). arm.centreArc is the centre's
+        // arc along this bed; the interval extends in the arm's
+        // direction (toward end 1 when arm.farEnd is 1, else toward
+        // end 0).
+        const iv = arm.farEnd === 1
+          ? [arm.centreArc, arm.centreArc + sStop + STOP_LINE_W / 2 + 0.6]
+          : [arm.centreArc - sStop - STOP_LINE_W / 2 - 0.6, arm.centreArc];
+        if (!suppress.has(arm.bed)) suppress.set(arm.bed, []);
+        suppress.get(arm.bed).push(iv);
         // Signal unit at the far right-hand CORNER of the approach
         // (issue #64). Driver travels −dir; their right normal is
         // (dirZ, −dirX) of the arm dir. The corner is anchored on
-        // the approach's OWN centreline — walked from the arm's bed
-        // end, not measured from the junction centroid: bed ends
-        // scatter metres off the centroid, and the old
-        // centroid-relative formula put 59% of units inside a
-        // carriageway (audit, issue #64). The box extent along
+        // the approach's OWN centreline, measured from the junction
+        // centre (issue #389): the centre is a graph node now, so
+        // the bed-end walk the old formula used is unnecessary —
+        // and the old centroid-relative formula put 59% of units
+        // inside a carriageway (audit, issue #64) precisely because
+        // the centroid was not the crossing. The box extent along
         // this arm is angle-corrected: a crossing ribbon of half
         // width w met at angle θ ends (w / sinθ) from the centre
         // along this axis, not w.
@@ -1398,9 +1717,8 @@ export function buildJunctionFurniture(roadbeds, junctions, capsIn = null, opts 
           const ang = (Math.acos(dot) * 180) / Math.PI;
           if (ang >= 35 && ang <= 145) tBox = Math.max(tBox, b.width / 2 / Math.sin((ang * Math.PI) / 180));
         }
-        const sdEnd = (arm.endX - j.x) * arm.dirX + (arm.endZ - j.z) * arm.dirZ;
-        let px = arm.endX - arm.dirX * (sdEnd + tBox + SIGNAL_BOX_MARGIN) + rx * (half + SIGNAL_SIDE_MARGIN);
-        let pz = arm.endZ - arm.dirZ * (sdEnd + tBox + SIGNAL_BOX_MARGIN) + rz * (half + SIGNAL_SIDE_MARGIN);
+        let px = j.x - arm.dirX * (tBox + SIGNAL_BOX_MARGIN) + rx * (half + SIGNAL_SIDE_MARGIN);
+        let pz = j.z - arm.dirZ * (tBox + SIGNAL_BOX_MARGIN) + rz * (half + SIGNAL_SIDE_MARGIN);
         // Clearance solver: the formula owns the simple crossings;
         // the corner is then verified against EVERY roadbed ribbon
         // and moved until it stands on no carriageway. Real corners
@@ -1521,9 +1839,16 @@ export function buildJunctionFurniture(roadbeds, junctions, capsIn = null, opts 
         if (c.name === axisName) continue;
         if (roadbeds[c.bed].deck) continue;
         if (!crossAngleOk(info.axisArm, c)) continue;
-        const sStar = (c.endX - j.x) * ux + (c.endZ - j.z) * uz;
+        // Band centre from the bed's own geometry (issue #389):
+        // the point on the minor bed nearest the centre, projected
+        // onto the avenue frame — the old code projected the bed
+        // END, which is meaningless for a through bed (its end is
+        // far away on the far side).
+        const nc = bedNearestPoint(roadbeds[c.bed], j.x, j.z);
+        const sStar = nc ? (nc.x - j.x) * ux + (nc.z - j.z) * uz : 0;
         if (info.mode === 'merged') {
-          const oAxis = (info.axisArm.endX - j.x) * vx + (info.axisArm.endZ - j.z) * vz;
+          const na = bedNearestPoint(roadbeds[info.axisArm.bed], j.x, j.z);
+          const oAxis = na ? (na.x - j.x) * vx + (na.z - j.z) * vz : 0;
           for (const [lo, hi] of [[info.medianHalf, info.half], [-info.half, -info.medianHalf]]) {
             if (hi - lo < CROSSWALK_MIN_ARM_W) continue;
             const oMid = oAxis + (lo + hi) / 2;
@@ -1533,7 +1858,8 @@ export function buildJunctionFurniture(roadbeds, junctions, capsIn = null, opts 
         } else {
           for (const t of info.twins) {
             if (t.width < CROSSWALK_MIN_ARM_W) continue;
-            const oT = (t.endX - j.x) * vx + (t.endZ - j.z) * vz;
+            const nt = bedNearestPoint(roadbeds[t.bed], j.x, j.z);
+            const oT = nt ? (nt.x - j.x) * vx + (nt.z - j.z) * vz : 0;
             placePocBand(j.x + ux * sStar + vx * oT, j.z + uz * sStar + vz * oT,
               ux, uz, vx, vz, t.width / 2, ji, c.rank || 0, t.width);
           }
@@ -1918,7 +2244,7 @@ export function buildJunctionFurniture(roadbeds, junctions, capsIn = null, opts 
 // furniture at all (see buildJunctionFurniture): the crossings
 // stand on the ring entries only.
 export function buildRoadMarkings(roadbeds, medianStrips = null, caps = null, junctionsIn = null, greenPolys = [], opts = {}) {
-  const junctions = junctionsIn || detectJunctions(roadbeds);
+  const junctions = junctionsIn || detectJunctions(roadbeds, opts.graph || null);
   if (!caps) caps = planJunctionCaps(roadbeds, junctions);
   // Issue #163: dashes clip against the caps' full paved
   // surface (ring + arm extension strips), not the ring alone.
@@ -1970,6 +2296,8 @@ export function buildRoadMarkings(roadbeds, medianStrips = null, caps = null, ju
       centerMergedBedsSkipped: center.stats.mergedBedsSkipped,
       centerNarrowBedsSkipped: center.stats.narrowBedsSkipped,
       centerExcludedBedsSkipped: center.stats.excludedBedsSkipped,
+      centerFullyTrimmedBeds: center.stats.fullyTrimmedBeds,
+      centerTrimmedBeds: center.stats.trimmedBeds,
       crossPairs: dividers.stats.crossPairs,
       crossBlockedSamples: dividers.stats.crossBlockedSamples,
       furnBlockedQuads: dividers.stats.furnBlockedQuads,
