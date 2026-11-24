@@ -255,7 +255,7 @@ for (const el of roadsElements) {
       graphSequences.push({
         name: el.tags.name || el.tags['name:en'] || '', highway: el.tags.highway, width, level,
         oneway: ['yes', 'true', '1', '-1'].includes(onewayRaw), reverse: onewayRaw === '-1',
-        pedestrianLayout: layout, records,
+        pedestrianLayout: layout, records, way: el.id, // Issue #389: the OSM way id, so junction arms map to roadbeds exactly (bed.sourceWayIds).
       });
     }
   }
@@ -326,6 +326,7 @@ function buildRoadGraph(sequences) {
         edges.push({
           a, b, name: s.name, highway: s.highway, oneway: s.oneway, width: s.width,
           pedestrianLayout: s.pedestrianLayout, length: Math.round(length * 10) / 10, level: s.level,
+          way: s.way, // Issue #389: the source OSM way id.
         });
       }
     }

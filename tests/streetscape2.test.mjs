@@ -325,7 +325,7 @@ test('issue #81: with boot-style exclusions, no tree stands on junction asphalt'
   const geo = TAIPEI_GEO;
   const plan = planTaipeiBuildings(geo);
   const beds = geo.roadbeds;
-  const junctions = detectJunctions(beds);
+  const junctions = detectJunctions(beds, TAIPEI_GEO.roadGraph);
   const sites = planRoundabouts(beds, junctions);
   const caps = planJunctionCaps(beds, junctions, sites);
   const exclusions = [
@@ -366,7 +366,7 @@ test('issue #173: with the MRT ground-contact exclusions, no tree stands on the 
   const geo = TAIPEI_GEO;
   const plan = planTaipeiBuildings(geo);
   const beds = geo.roadbeds;
-  const junctions = detectJunctions(beds);
+  const junctions = detectJunctions(beds, TAIPEI_GEO.roadGraph);
   const sites = planRoundabouts(beds, junctions);
   const caps = planJunctionCaps(beds, junctions, sites);
   const baseExclusions = [
@@ -439,7 +439,7 @@ test('issue #178: with boot-exact exclusions (full cap surface), no tree stands 
   const geo = TAIPEI_GEO;
   const plan = planTaipeiBuildings(geo);
   const beds = geo.roadbeds;
-  const junctions = detectJunctions(beds);
+  const junctions = detectJunctions(beds, TAIPEI_GEO.roadGraph);
   const sites = planRoundabouts(beds, junctions);
   const caps = planJunctionCaps(beds, junctions, sites, capClipPolys(geo));
   const surfPolys = caps.flatMap((c) => capSurfacePolys(c));
@@ -451,7 +451,7 @@ test('issue #178: with boot-exact exclusions (full cap surface), no tree stands 
   ];
   const before = [...planStreetTrees(geo, plan, { exclusions: oldExclusions }).trees,
     ...planParkTrees(geo, plan, { exclusions: oldExclusions }).trees];
-  assert.equal(before.filter((t) => pointInAnyPoly(surfGrid, surfPolys, [t.x, t.z])).length, 2, // Issue #386: counterfactual 1 -> 2 (the re-seated lots re-roll the street-tree candidates; the boot-exact invariant below still measures 0)
+  assert.equal(before.filter((t) => pointInAnyPoly(surfGrid, surfPolys, [t.x, t.z])).length, 1, // Issue #389: counterfactual 2 -> 1 (the graph-first caps reshape the cap surface and re-roll the tree candidates; the boot-exact invariant below still measures 0)
     'trees on the full surface under the old ring+extras exclusions (counterfactual — the old wiring\'s luck; the boot-exact invariant below still measures 0)');
   const exclusions = [
     ...caps.flatMap((c) => capSurfacePolys(c).map((p) => p.flatMap((pt) => pt))),
@@ -508,7 +508,7 @@ test('issue #272: with the airfield site-ring exclusion, no tree stands on Songs
   const geo = TAIPEI_GEO;
   const plan = planTaipeiBuildings(geo);
   const beds = geo.roadbeds;
-  const junctions = detectJunctions(beds);
+  const junctions = detectJunctions(beds, TAIPEI_GEO.roadGraph);
   const sites = planRoundabouts(beds, junctions);
   const caps = planJunctionCaps(beds, junctions, sites);
   const baseExclusions = [
@@ -556,7 +556,7 @@ test('issue #273: with the Expo Dome registry site, no tree stands inside the bo
   const rect = dome.sites[0];
   const inRect = (t) => t.x > rect.minX && t.x < rect.maxX && t.z > rect.minZ && t.z < rect.maxZ;
   const beds = geo.roadbeds;
-  const junctions = detectJunctions(beds);
+  const junctions = detectJunctions(beds, TAIPEI_GEO.roadGraph);
   const sites = planRoundabouts(beds, junctions);
   const caps = planJunctionCaps(beds, junctions, sites);
   const baseExclusions = [
@@ -598,7 +598,7 @@ test('issue #278: the three new registry sites carry no park trees and no tree i
   const geo = TAIPEI_GEO;
   const plan = planTaipeiBuildings(geo);
   const beds = geo.roadbeds;
-  const junctions = detectJunctions(beds);
+  const junctions = detectJunctions(beds, TAIPEI_GEO.roadGraph);
   const sites = planRoundabouts(beds, junctions);
   const caps = planJunctionCaps(beds, junctions, sites);
   const baseExclusions = [

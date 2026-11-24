@@ -21,6 +21,8 @@
 // main-road class, so no band is ever born on a trunk/primary/secondary
 // carriageway in the first place.
 
+import { trimBedsAtPolys } from './taipei-bedtrim.js'; // issue #389: beds are trimmed against junction caps before band planning
+
 export const PAINTED_BAND_W = 1.35;     // §c.3 band width 1.1–1.8 m
 export const PAINTED_LINE_W = 0.10;     // §c.3 white border lines 0.10–0.15 m
 export const PAINTED_EDGE_INSET = 0.05; // outer white line sits just inside the carriageway edge
@@ -111,9 +113,12 @@ function densify(pts) {
 // arrays — a band sample inside any cap is blocked, so no band leaks
 // into a junction corner the bed ribbons themselves don't cover.
 export function buildPaintedBands(roadbeds, capPolys = null) {
-  const capGrid = capPolys ? buildPolyGrid(capPolys) : null;
-  const capBlocked = (p) => pointInAnyPoly(capGrid, capPolys, p);
-  const polys = roadbeds.map(ribbonPoly);
+  // Issue #389: trim the beds against the cap polygons first, so no
+  // band is planned inside a junction at all — the capBlocked point
+  // test is retired (the bands used to be occluded per-sample; the
+  // trim is the mechanism now).
+  const beds = capPolys ? trimBedsAtPolys(roadbeds, capPolys) : roadbeds;
+  const polys = beds.map(ribbonPoly);
   const grid = new Map();
   polys.forEach((poly, i) => {
     const xs = poly.map((p) => p[0]), zs = poly.map((p) => p[1]);
@@ -128,14 +133,14 @@ export function buildPaintedBands(roadbeds, capPolys = null) {
     const cand = grid.get(`${Math.floor(p[0] / GRID_M)},${Math.floor(p[1] / GRID_M)}`) || [];
     for (const ci of cand) {
       if (ci === selfIdx) continue;
-      if (roadbeds[ci].sourceWayIds.some((w) => selfWays.has(w))) continue;
+      if (beds[ci].sourceWayIds.some((w) => selfWays.has(w))) continue;
       if (pointInPoly(p, polys[ci])) return true;
     }
     return false;
   };
 
   const band = [], edges = [];
-  roadbeds.forEach((r, selfIdx) => {
+  beds.forEach((r, selfIdx) => {
     if (r.pedestrianLayout !== 'painted') return;
     const half = Math.max((r.width || 3) / 2, 0.75);
     // Band + both lines must fit on one side without crossing the centre.
@@ -157,10 +162,7 @@ export function buildPaintedBands(roadbeds, capPolys = null) {
       const blocked =
         foreignBlocked([p[0] + nx * midOff, p[1] + nz * midOff], selfIdx, selfWays) ||
         foreignBlocked([p[0] + nx * outer2, p[1] + nz * outer2], selfIdx, selfWays) ||
-        foreignBlocked([p[0] + nx * inner1, p[1] + nz * inner1], selfIdx, selfWays) ||
-        capBlocked([p[0] + nx * midOff, p[1] + nz * midOff]) ||
-        capBlocked([p[0] + nx * outer2, p[1] + nz * outer2]) ||
-        capBlocked([p[0] + nx * inner1, p[1] + nz * inner1]);
+        foreignBlocked([p[0] + nx * inner1, p[1] + nz * inner1], selfIdx, selfWays);
       return { p, nx, nz, blocked };
     });
     const quad = (f0, f1, o1, o2, sink) => {
@@ -180,12 +182,25 @@ export function buildPaintedBands(roadbeds, capPolys = null) {
       const midAt = (off) => [(f0.p[0] + f1.p[0]) / 2 + ((f0.nx + f1.nx) / 2) * off,
                               (f0.p[1] + f1.p[1]) / 2 + ((f0.nz + f1.nz) / 2) * off];
       const mid = midAt(midOff);
-      if (foreignBlocked(mid, selfIdx, selfWays) || capBlocked(mid) ||
-          capBlocked(midAt((outer1 + outer2) / 2)) || capBlocked(midAt((inner1 + inner2) / 2))) continue;
+      if (foreignBlocked(mid, selfIdx, selfWays)) continue;
       quad(f0, f1, outer2, inner1, band);
       quad(f0, f1, outer1, outer2, edges);
       quad(f0, f1, inner1, inner2, edges);
     }
   });
+  // Issue #389: the trim cuts the bed CENTRELINE at the caps, but
+  // a band/edge quad's centre is laterally offset from the
+  // centreline (midOff, up to ~half the bed width) — near a cap's
+  // diagonal hull edge that offset can carry the centre inside the
+  // cap even though the centreline point is outside. So the emitted
+  // quads get a final centre guard (the per-sample capBlocked test
+  // stays retired — this is one point test per emitted quad, not a
+  // threaded occluder).
+  if (capPolys) {
+    const capGrid = buildPolyGrid(capPolys);
+    const centre = (q) => [(q[0] + q[2] + q[4] + q[6]) / 4, (q[1] + q[3] + q[5] + q[7]) / 4];
+    const outside = (q) => !pointInAnyPoly(capGrid, capPolys, centre(q));
+    return { band: band.filter(outside), edges: edges.filter(outside) };
+  }
   return { band, edges };
 }

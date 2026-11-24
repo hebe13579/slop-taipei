@@ -400,7 +400,8 @@ test('medtip (issue #173): boot-path census — median overlap of junction surfa
   const { detectJunctions } = await import('../js/taipei-markings.js');
   const { planJunctionCaps, planRoundabouts, ringPoints, capSurfacePolys, capClipPolys } = await import('../js/taipei-junctions.js');
   const beds = TAIPEI_GEO.roadbeds;
-  const junctions = detectJunctions(beds);
+  // Issue #389: the detection runs through the road graph now.
+  const junctions = detectJunctions(beds, TAIPEI_GEO.roadGraph);
   const sites = planRoundabouts(beds, junctions);
   const caps = planJunctionCaps(beds, junctions, sites, capClipPolys(TAIPEI_GEO));
   const capPolys = [...caps.flatMap((c) => capSurfacePolys(c)), ...sites.flatMap((s) => [s.disc, ...s.aprons]).map((c) => ringPoints(c.ring))];
@@ -428,10 +429,19 @@ test('medtip (issue #173): boot-path census — median overlap of junction surfa
   // Re-pinned for issue #258 (south expansion, probe-round4.mjs):
   // the south's planted medians take the boot-path lengths planted
   // 29.29 -> 34.18 km and plain 70.50 -> 81.23 km.
-  assert.ok(stats.plantedKm > 34 && stats.plantedKm < 35, `planted ${stats.plantedKm} km on the boot path`);
+  // Re-pinned for issue #389 (graph-first junctions): planted
+  // 34.18 -> 32.77 km and plain 81.23 -> 79.62 km — the exact
+  // centres move the caps onto the true crossings (where the
+  // medians run), and the restored edge-parity cap test plus the
+  // centreline trim stop the strips there; the corner discipline
+  // above is unchanged (0 corners inside a surface, asserted
+  // tile-wide).
+  assert.ok(stats.plantedKm > 32 && stats.plantedKm < 33, `planted ${stats.plantedKm} km on the boot path`);
   // (Previous value: plain 81.512 -> 81.045 for issue #178 — the
   // T18 through-crossing breaks removed 1.216 km at minor lanes
   // crossing a divided road outright, and its under-deck guard
   // restored 0.749 km where a deck crosses overhead.)
-  assert.ok(stats.plainKm > 81 && stats.plainKm < 82, `plain ${stats.plainKm} km on the boot path`);
+  // Issue #389: plain 81.23 -> 79.62 km (same cause as planted
+  // above).
+  assert.ok(stats.plainKm > 79 && stats.plainKm < 80, `plain ${stats.plainKm} km on the boot path`);
 });

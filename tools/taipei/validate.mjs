@@ -89,6 +89,9 @@ if (graph) {
   }
   check(badIndex === 0 && badLength === 0, 'graph edges reference valid nodes with positive lengths', `${graph.edges.length} edges`);
   check(badLayout === 0, 'every graph edge carries a pedestrianLayout (sidewalk|arcade|painted|shared)');
+  // Issue #389: every graph edge carries its source OSM way id — the
+  // junction arms map to roadbeds exactly through bed.sourceWayIds.
+  check(graph.edges.every((e) => Number.isInteger(e.way)), 'every graph edge carries a numeric way (OSM way id)');
   check(graph.edges.length > 3000, 'carriageway graph edges > 3000', `${graph.edges.length} edges, ${nodeCount} nodes`);
   const parent = Array.from({ length: nodeCount }, (_, i) => i);
   const find = (x) => { while (parent[x] !== x) { parent[x] = parent[parent[x]]; x = parent[x]; } return x; };

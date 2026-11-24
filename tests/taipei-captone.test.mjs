@@ -90,7 +90,7 @@ test('monochromatic junction: every tone is exactly the one arm tone', () => {
 
 test('tone rule is deterministic and flat across every piece of every junction', () => {
   const beds = TAIPEI_GEO.roadbeds;
-  const junctions = detectJunctions(beds);
+  const junctions = detectJunctions(beds, TAIPEI_GEO.roadGraph);
   const sites = planRoundabouts(beds, junctions);
   // Production path (with the #171 green clip) so the clipped
   // pieces are exercised, not just rings and strips.
@@ -132,7 +132,7 @@ test('tone rule is deterministic and flat across every piece of every junction',
 
 test('real tile: tones align, stay in the tone envelope, origins inside', () => {
   const beds = TAIPEI_GEO.roadbeds;
-  const junctions = detectJunctions(beds);
+  const junctions = detectJunctions(beds, TAIPEI_GEO.roadGraph);
   const sites = planRoundabouts(beds, junctions);
   const caps = planJunctionCaps(beds, junctions, sites);
   const classes = ['deck', 'arterial', 'collector', 'lane'];
@@ -176,6 +176,30 @@ test('real tile: tones align, stay in the tone envelope, origins inside', () => 
           `cap at ${cap.x},${cap.z}: centre is the arm tone or a verified through-road adoption`);
         for (const t of cap.tones.ring) assert.ok(dist(t, cap.tones.centre) < 1e-3, 'adopted cap is flat in the adopted tone');
       }
+    } else if (cap.kind === 'fitted') {
+      // Issue #389: adoptions also land on multi-class fitted
+      // caps (a through tertiary + service lanes — the ji1595
+      // form, now the only adoptions on the tile). A fitted cap
+      // whose centre differs from its ending-arm blend must be
+      // a verified through-road adoption, not a blend error.
+      const blend = capBlendTones(j, pts, null);
+      if (dist(cap.tones.centre, blend.centre) >= 1e-3) {
+        adoptedChecked++;
+        const nearBed = (bed, x, z, r) => {
+          let x0 = 1e18, z0 = 1e18, x1 = -1e18, z1 = -1e18;
+          for (let i = 0; i + 1 < bed.pts.length; i += 2) {
+            x0 = Math.min(x0, bed.pts[i]); x1 = Math.max(x1, bed.pts[i]);
+            z0 = Math.min(z0, bed.pts[i + 1]); z1 = Math.max(z1, bed.pts[i + 1]);
+          }
+          return x1 >= x - r && x0 <= x + r && z1 >= z - r && z0 <= z + r;
+        };
+        const cands = beds.map((bed, bedIdx) => ({ bedIdx, bed, ribbon: bed.deck ? null : ribbonPoly(bed) }))
+          .filter((c) => c.ribbon && nearBed(c.bed, cap.x, cap.z, cap.radius + 40));
+        const adopt = throughRoadTone(j, pts, cands);
+        assert.ok(adopt && dist(adopt, cap.tones.centre) < 1e-3,
+          `cap at ${cap.x},${cap.z}: centre is the arm blend or a verified through-road adoption`);
+        for (const t of cap.tones.ring) assert.ok(dist(t, cap.tones.centre) < 1e-3, 'adopted cap is flat in the adopted tone');
+      }
     }
   }
   assert.ok(box > 0 && fitted > 0, 'both cap kinds carry tones');
@@ -197,7 +221,28 @@ test('issue #178: a minor cluster on a through road adopts the through tone (the
     bed('Lane E', 'service', 9, [6], [4, -1, 60, -1]),
   ];
   const withThrough = [bed('Through Rd', 'tertiary', 19, [1, 2], [-100, 0, 100, 0]), ...lanes];
-  const j1 = detectJunctions(withThrough);
+  // Issue #389: the lane ends do not coincide (they stop 4 m
+  // short of the centre on different offsets), so the
+  // exact-endpoint fallback finds nothing — the junction is
+  // detected through the graph, as on the real tile (node at
+  // the crossing, the through road's two ways + the four lane
+  // ways).
+  const graph = {
+    nodes: [0, 0, -100, 0, 100, 0, 0, -60, 1, 60, -60, 1, 60, -1],
+    edges: [
+      { a: 0, b: 1, way: 1 }, { a: 0, b: 2, way: 2 },
+      { a: 0, b: 3, way: 3 }, { a: 0, b: 4, way: 4 },
+      { a: 0, b: 5, way: 5 }, { a: 0, b: 6, way: 6 },
+    ],
+  };
+  const laneGraph = {
+    nodes: [0, 0, 0, -60, 1, 60, -60, 1, 60, -1],
+    edges: [
+      { a: 0, b: 1, way: 3 }, { a: 0, b: 2, way: 4 },
+      { a: 0, b: 3, way: 5 }, { a: 0, b: 4, way: 6 },
+    ],
+  };
+  const j1 = detectJunctions(withThrough, graph);
   const caps1 = planJunctionCaps(withThrough, j1);
   assert.equal(caps1.length, 1, 'one cap for the lane cluster');
   const coll = rgb(SURFACE_TONES.collector);
@@ -207,7 +252,7 @@ test('issue #178: a minor cluster on a through road adopts the through tone (the
     assert.ok(dist(ex.tones.centre, coll) < 1e-3, 'strips share the adopted tone');
   // Control: without the through road the same cluster keeps
   // its own lanes' tone.
-  const j2 = detectJunctions(lanes);
+  const j2 = detectJunctions(lanes, laneGraph);
   const caps2 = planJunctionCaps(lanes, j2);
   assert.equal(caps2.length, 1);
   const lane = rgb(SURFACE_TONES.lane);
@@ -215,23 +260,32 @@ test('issue #178: a minor cluster on a through road adopts the through tone (the
   // Control: a through road too narrow to contain the whole
   // ring does not adopt (a vertex stands off its carriageway).
   const narrow = [bed('Through Rd', 'tertiary', 7, [1, 2], [-100, 0, 100, 0]), ...lanes];
-  const caps3 = planJunctionCaps(narrow, detectJunctions(narrow));
+  const caps3 = planJunctionCaps(narrow, detectJunctions(narrow, graph));
   assert.equal(caps3.length, 1);
   assert.ok(dist(caps3[0].tones.centre, lane) < 1e-3, 'ring not wholly on the through road: no adoption');
 });
 
 test('issue #178: ji1595 on the real tile wears the collector tone', () => {
+  // Issue #389 (graph-first junctions): the original ji1595
+  // lane cluster (four service lanes ending on 重慶南路一段 at
+  // -5289.8, -425.7) dissolved — its lanes end at separate
+  // graph nodes, no node carries >= 3 ending beds, so no
+  // junction and no cap stands there anymore (the nearest
+  // junction is 68 m away). The ji1595 FORM survives elsewhere:
+  // a through tertiary + service lanes whose cap adopts the
+  // through road's tone. The current specimen is the 北投路一段
+  // cluster at (-6466.5, -10220.9): an 11 m tertiary running
+  // through, three 3 m service lanes ending on it, fitted cap,
+  // collector tone.
   const beds = TAIPEI_GEO.roadbeds;
-  const junctions = detectJunctions(beds);
+  const junctions = detectJunctions(beds, TAIPEI_GEO.roadGraph);
   const sites = planRoundabouts(beds, junctions);
   const caps = planJunctionCaps(beds, junctions, sites, capClipPolys(TAIPEI_GEO));
-  const j = junctions.reduce((best, jj) => {
-    const d = Math.hypot(jj.x + 5289.8, jj.z + 425.7);
-    return d < best.d ? { jj, d } : best;
-  }, { jj: null, d: Infinity }).jj;
+  const j = junctions.find((jj) => jj.x === -6466.5 && jj.z === -10220.9);
+  assert.ok(j, 'the Beitou specimen junction exists');
   const cap = caps.find((c) => c.x === j.x && c.z === j.z);
-  assert.ok(cap, 'ji1595 keeps its cap (it stands on the avenue)');
+  assert.ok(cap, 'the Beitou specimen keeps its cap (it stands on the avenue)');
   const coll = rgb(SURFACE_TONES.collector);
   assert.ok(dist(cap.tones.centre, coll) < 1e-3,
-    `ji1595 centre tone is the collector tone of 重慶南路一段, got ${cap.tones.centre}`);
+    `Beitou specimen centre tone is the collector tone of 北投路一段, got ${cap.tones.centre}`);
 });

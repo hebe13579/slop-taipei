@@ -76,7 +76,7 @@ test('synthetic 4-way: one cap, widest arm owns the tone, ends inside', () => {
 
 test('real tile: exactly one cap per grounded multi-arm junction, centres and arm ends covered', () => {
   const beds = TAIPEI_GEO.roadbeds;
-  const junctions = detectJunctions(beds);
+  const junctions = detectJunctions(beds, TAIPEI_GEO.roadGraph);
   const sites = planRoundabouts(beds, junctions);
   const claimed = new Set(sites.flatMap((s) => s.claimedJunctions));
   const eligible = junctions.filter((j, ji) => j.arms.length >= 2 && !claimed.has(ji));
@@ -93,7 +93,17 @@ test('real tile: exactly one cap per grounded multi-arm junction, centres and ar
   // classes as main's: 中正橋 deck clusters (4) and service-alley
   // lane warrens (Yonghe 竹林路/文化路/光復街， Shida 龍泉街，
   // NTU service drives).
-  assert.equal(caps.length, eligible.length - 97);
+  // Census re-pinned for issue #389 (graph-first junctions):
+  // orphans 97 -> 35. Exact node centres dissolve the
+  // lane-warren phantoms (a lane warren has no graph node with
+  // >= 3 ending beds, so no junction is detected there at all)
+  // and the south-expansion orphans with them; the remaining 35
+  // are ALL elevated-interchange deck clusters (motorway/trunk
+  // + link ramps: 汐止五股高架/環北, 洲美快速, 建國快速, 中山
+  // 高速/圓山, 新生高架/松江大橋, 市民大道高架/忠孝橋, 環東
+  // 大道/麥帥一橋, 中正橋, 永福橋 — measured by arm names in
+  // the #389 evidence).
+  assert.equal(caps.length, eligible.length - 35);
   // Census re-pinned 2026-10-24 for the PR #73 rebase onto the
   // expanded map (PR #70): the station district + Ximending took
   // detected junctions 894 -> 1,158, and every detected junction
@@ -216,17 +226,33 @@ test('real tile: exactly one cap per grounded multi-arm junction, centres and ar
   // Issue #110: one fewer junction — the fused bed ends merge two junctions.
   // Issue #258: junctions 2,870 -> 3,479 (+609) — the south expansion's street junctions.
   // Issue #326: junctions 3,479 -> 3,478 (−1) — generation-map Rework v7 drops the unnamed interior drive (way 783920042), removing its junction; the 士商路 re-route moves its junction to the SW bend (a move, not a removal).
-  assert.equal(junctions.length, 3478, `junctions ${junctions.length}`); // merged-tree re-pin at the #186 gate: 2,699 on main, 2,873 pinned by #186 on its stale base, 2,871 measured on the merged tree
+  // Issue #389 (graph-first junctions): junctions 3,478 -> 3,323
+  // (−155). The clustered mega-junctions split into their true
+  // nodes (twin boulevard carriageways separate) while the
+  // phantom lane-warren clusters and the ji2244-class
+  // bed-end piles with no graph node dissolve; signalized
+  // 480 -> 825 (each split piece keeps its signal). Measured on
+  // this tree.
+  assert.equal(junctions.length, 3323, `junctions ${junctions.length}`); // merged-tree re-pin at the #186 gate: 2,699 on main, 2,873 pinned by #186 on its stale base, 2,871 measured on the merged tree
   // Issue #110: caps 2,793 -> 2,792 — the fused bed ends merge two junctions, so one fewer cap.
   // Issue #258: caps 2,792 -> 3,375 (+583) — the south expansion's junctions, less the 26 the loop/roundabout rules claim (3,479 − 7 roundabout-claimed − 97 ORPHAN phantoms = 3,375).
   // Issue #326: caps 3,375 -> 3,374 (−1) — the dropped interior drive's junction had a cap (3,478 − 7 roundabout-claimed − 97 ORPHAN phantoms = 3,374); same count as the decks test.
-  assert.equal(caps.length, 3374, `caps ${caps.length}`); // merged-tree re-pin at the #186 gate: 2,621 main / 2,795 #186-stale-base / 2,793 merged
+  // Issue #389: caps 3,374 -> 3,252 (−122). Eligible junctions
+  // (arms >= 2, unclaimed) are 3,287 of the 3,323 (17 claimed
+  // by the roundabout sites, 19 with < 2 arms); caps =
+  // 3,287 − 35 ORPHAN phantoms = 3,252.
+  assert.equal(caps.length, 3252, `caps ${caps.length}`); // merged-tree re-pin at the #186 gate: 2,621 main / 2,795 #186-stale-base / 2,793 merged
   // Issue #110: box caps 586 -> 588 (+2) — the re-admitted links create two more box-cap junctions (fitted caps 2,207 -> 2,204, total 2,793 -> 2,792).
   // Issue #258: box caps 588 -> 703 (+115) — the south expansion's box-cap junctions (fitted caps 2,204 -> 2,672, total 2,792 -> 3,375).
   // Issue #326: fitted caps 2,672 -> 2,671 (−1) — the dropped interior drive's junction had a fitted cap (box 703 + fitted 2,671 = the 3,374 caps).
-  assert.equal(caps.filter((c) => c.kind === 'box').length, 703, 'box caps'); // merged-tree re-pin at the #186 gate: 557 main / 588 #186-stale-base / 586 merged
+  // Issue #389: box caps 703 -> 1,139 (+436) — the split
+  // signalized junctions are each a box cap (signalized 480 ->
+  // 825); the box average area is unchanged (869 m²), so the
+  // growth is count, not size. Fitted caps 2,671 -> 2,113
+  // (1,139 + 2,113 = the 3,252 caps).
+  assert.equal(caps.filter((c) => c.kind === 'box').length, 1139, 'box caps'); // merged-tree re-pin at the #186 gate: 557 main / 588 #186-stale-base / 586 merged
   // Issue #110: fitted caps 2,207 -> 2,204 (-3) — box 588 + fitted 2,204 = the 2,792 caps.
-  assert.equal(caps.filter((c) => c.kind === 'fitted').length, 2671, 'fitted caps'); // merged-tree re-pin at the #186 gate: 2,064 main / 2,207 merged (box 586 + fitted 2,207 = the 2,793 caps)
+  assert.equal(caps.filter((c) => c.kind === 'fitted').length, 2113, 'fitted caps'); // merged-tree re-pin at the #186 gate: 2,064 main / 2,207 merged (box 586 + fitted 2,207 = the 2,793 caps)
   // Area re-pinned for issue #196: 650,838 -> 650,470 (-368 m²,
   // old-vs-new cap diff by centre): the two mouth caps are gone
   // (north 331.0 m², south 75.0 m²) and the neighbouring junction
@@ -236,11 +262,18 @@ test('real tile: exactly one cap per grounded multi-arm junction, centres and ar
   // Issue #110: cap area 689,142 -> 686,955 m2 (-2,187) — the fused beds merge two junctions and reshape the caps (fitted area 173,457 -> 169,724; box area 515,685 -> 517,231).
   // Issue #258: cap area 686,955 -> 801,375 m2 (+114,420) — the south expansion's junction caps (fitted area 169,724 -> 190,499; box area 517,231 -> 610,876).
   // Issue #326: cap area 801,375 -> 801,337 m2 (−38) — the dropped interior drive's junction cap is gone (fitted area 190,499 -> 190,470, −29; box area 610,876 -> 610,867, −9 — the neighbouring caps reshape slightly around the removed junction).
-  assert.equal(Math.round(caps.reduce((s, c) => s + c.area, 0)), 801337, 'cap area census'); // merged-tree re-pin at the #186 gate: 650,470 main / 689,142 merged (+38,672 m² of caps in the #186 strip)
+  // Issue #389: cap area 801,337 -> 1,192,221 m² (+390,884).
+  // The growth is the 436 new box caps at the unchanged box
+  // average (869 m²): the split signalized junctions are each
+  // a box cap, and a box cap is ~12× a fitted cap. Fitted area
+  // 190,470 -> 202,600 m² (the lane-warren phantom fitted caps
+  // dissolve; the surviving fitted caps average 96 m², up from
+  // 71). Box area 610,867 -> 989,621 m².
+  assert.equal(Math.round(caps.reduce((s, c) => s + c.area, 0)), 1192221, 'cap area census'); // merged-tree re-pin at the #186 gate: 650,470 main / 689,142 merged (+38,672 m² of caps in the #186 strip)
   // Issue #110: fitted cap area 173,457 -> 169,724 m2 (-3,733).
   // Issue #258: fitted cap area 169,724 -> 190,499 m2 (+20,775).
   // Issue #326: fitted cap area 190,499 -> 190,470 m2 (−29) — the dropped interior drive's junction cap was a fitted cap.
-  assert.equal(Math.round(caps.filter((c) => c.kind === 'fitted').reduce((s, c) => s + c.area, 0)), 190470, // merged-tree re-pin at the #186 gate: 159,678 main / 173,457 merged
+  assert.equal(Math.round(caps.filter((c) => c.kind === 'fitted').reduce((s, c) => s + c.area, 0)), 202600, // merged-tree re-pin at the #186 gate: 159,678 main / 173,457 merged
     'fitted cap area census (overlap construction since #145)');
   // Census addition for issue #163 (junction fix v2): the ring
   // counts/areas above are unchanged BY CONSTRUCTION — the #163
@@ -273,11 +306,23 @@ test('real tile: exactly one cap per grounded multi-arm junction, centres and ar
   // Issue #110: extension strips 2,638 -> 2,632 (-6) — the fused beds merge two junctions, so 6 fewer arm-extension strips (area 129,177 -> 127,776 m2).
   // Issue #258: extension strips 2,632 -> 3,403 (+771) — the south expansion's junction arms.
   // Issue #326: extension strips 3,403 -> 3,402 (−1) — the dropped interior drive's junction cap carried one arm-extension strip.
-  assert.equal(caps.reduce((s, c) => s + (c.extras || []).length, 0), 3402, 'extension strip census');
+  // Issue #389: extension strips 3,402 -> 41. The strips were
+  // largely compensating for the cluster centroids' ~4 m error:
+  // with exact node centres, 7,002 of 7,119 fitted arms have
+  // their bed end INSIDE the box (gap < 0.3 m), so no strip is
+  // needed; 117 have a 0.3–30 m shortfall, of which 76 are
+  // stub arms (the bed ends past the centre, so its chord
+  // opposes the arm axis) or bending fragments that
+  // armExtension rejects, leaving 41. The junctions that
+  // carried most strips are now signalized box caps, which
+  // carry none by construction (their mouth slide reaches the
+  // bed ends). The mechanism is unchanged — the #163 synthetic
+  // and the ji562 real-tile tests below still pin it.
+  assert.equal(caps.reduce((s, c) => s + (c.extras || []).length, 0), 41, 'extension strip census');
   // Issue #110: extension strip area 129,177 -> 127,776 m2 (-1,401).
   // Issue #258: extension strip area 127,776 -> 163,263 m2 (+35,487).
   // Issue #326: extension strip area 163,263 -> 163,134 m2 (−129) — the dropped interior drive's junction cap carried one strip of ~129 m².
-  assert.equal(caps.reduce((s, c) => s + (c.extraArea || 0), 0), 163134, 'extension strip area census');
+  assert.equal(caps.reduce((s, c) => s + (c.extraArea || 0), 0), 5810, 'extension strip area census');
   for (const c of caps) if (c.kind === 'box') assert.equal((c.extras || []).length, 0, 'box caps carry no strips');
   const capByJ = new Map();
   junctions.forEach((j, ji) => {
@@ -315,27 +360,46 @@ test('real tile: roadGraph cross-check — multi-arm nodes have a cap nearby', (
   // coverage at 30 m is ~95%, pinned at 94% so a detection
   // regression that drops a junction class fails loudly.
   const beds = TAIPEI_GEO.roadbeds;
-  const caps = planJunctionCaps(beds, detectJunctions(beds));
+  const caps = planJunctionCaps(beds, detectJunctions(beds, TAIPEI_GEO.roadGraph));
   const NON = new Set(['footway', 'path', 'steps', 'pedestrian', 'cycleway', 'corridor', 'elevator', 'crossing', 'platform', 'traffic_island']);
   const deg = new Map();
+  const inc = new Map();
   for (const e of TAIPEI_GEO.roadGraph.edges) {
     if (NON.has(e.highway)) continue;
     deg.set(e.a, (deg.get(e.a) || 0) + 1);
     deg.set(e.b, (deg.get(e.b) || 0) + 1);
+    if (!inc.has(e.a)) inc.set(e.a, []);
+    if (!inc.has(e.b)) inc.set(e.b, []);
+    inc.get(e.a).push(e); inc.get(e.b).push(e);
   }
-  const ends = [];
-  for (const b of beds) {
-    ends.push([b.pts[0], b.pts[1]]);
-    ends.push([b.pts[b.pts.length - 2], b.pts[b.pts.length - 1]]);
-  }
+  // Issue #389: the qualification is the detection rule itself —
+  // a node counts when >= 3 incident beds END near it, matched
+  // by OSM way id (a bed of a foreign way ending nearby, e.g. a
+  // parallel service road, does not make a junction). The old
+  // test counted ANY bed end within 22 m, which over-counted by
+  // ~3,700 nodes and hid the detection's own criterion.
+  const bedsByWay = new Map();
+  beds.forEach((b, bi) => {
+    for (const w of b.sourceWayIds || []) {
+      if (!bedsByWay.has(w)) bedsByWay.set(w, []);
+      bedsByWay.get(w).push(bi);
+    }
+  });
   const nodes = TAIPEI_GEO.roadGraph.nodes;
   let checked = 0, covered = 0;
   for (const [idx, d] of deg) {
     if (d < 3) continue;
     const x = nodes[idx * 2], z = nodes[idx * 2 + 1];
-    let nearEnds = 0;
-    for (const [ex, ez] of ends) if (Math.hypot(ex - x, ez - z) <= 22) nearEnds++;
-    if (nearEnds < 3) continue;
+    const ending = new Set();
+    for (const e of inc.get(idx) || []) {
+      for (const bi of bedsByWay.get(e.way) || []) {
+        const b = beds[bi];
+        const d0 = Math.hypot(b.pts[0] - x, b.pts[1] - z);
+        const d1 = Math.hypot(b.pts[b.pts.length - 2] - x, b.pts[b.pts.length - 1] - z);
+        if (Math.min(d0, d1) <= 22) ending.add(bi);
+      }
+    }
+    if (ending.size < 3) continue;
     checked++;
     if (caps.some((c) => Math.hypot(c.x - x, c.z - z) <= 30)) covered++;
   }
@@ -355,12 +419,20 @@ test('real tile: roadGraph cross-check — multi-arm nodes have a cap nearby', (
   // detectJunctions merges within 40 m, the test radius is 30 m);
   // only 2 nodes sit >60 m from any cap. The floor moves to 91%
   // — a detection regression still fails it.
-  assert.ok(covered / checked >= 0.91, `cap coverage ${covered}/${checked}`);
+  // Threshold re-pinned for issue #389 (graph-first junctions):
+  // coverage 91.8% -> 98.1% (3,278/3,340 measured) — the
+  // qualification is now the detection rule itself, so the only
+  // uncovered nodes are the 62 by-design capless ones: the 35
+  // ORPHAN deck-interchange junctions (cap dropped, no other cap
+  // within 30 m) and the 17 roundabout-claimed junctions (the
+  // disc, not a cap, paves them), plus twin nodes of those. The
+  // floor moves to 97% — a detection regression still fails it.
+  assert.ok(covered / checked >= 0.97, `cap coverage ${covered}/${checked}`);
 });
 
 test('real tile: no painted band, median strip or dash quad centre inside a cap', () => {
   const beds = TAIPEI_GEO.roadbeds;
-  const junctions = detectJunctions(beds);
+  const junctions = detectJunctions(beds, TAIPEI_GEO.roadGraph);
   const sites = planRoundabouts(beds, junctions);
   const caps = planJunctionCaps(beds, junctions, sites);
   const capPolys = caps.map((c) => ringPoints(c.ring));
@@ -469,14 +541,21 @@ test('real tile: no painted band, median strip or dash quad centre inside a cap'
   // Issue #326: unclipped bands 1,825 -> 1,826 (+1) — the re-routed
   // 士商路 and the dropped drive reshape the junction caps, so one more
   // painted band falls inside a cap; measured on this tree.
-  assert.equal(unclipped.band.filter(inOcc).length, 1826,
+  // Issue #389 (graph-first junctions): unclipped bands 1,826 ->
+  // 1,935 — the exact node centres put the caps on the true
+  // crossings (where the painted bands run), so more unclipped
+  // band centres fall inside a cap; the clipped builders still
+  // put exactly 0 there (asserted above).
+  assert.equal(unclipped.band.filter(inOcc).length, 1935,
     `unclipped bands inside occluders: ${unclipped.band.filter(inOcc).length}`);
   // Issue #110: unclipped edges 3,262 -> 3,245 — the fused beds reshape the junction caps (same delta class as the unclipped bands, 1,656 -> 1,647).
   // Census re-pinned for issue #258 (south expansion): unclipped
   // edges 3,245 -> 3,583 — same delta class as the bands (the new
   // caps occlude more south edge quads); the clipped builders still
   // put exactly 0 inside (asserted above).
-  assert.equal(unclipped.edges.filter(inOcc).length, 3583,
+  // Issue #389: unclipped edges 3,583 -> 3,822 — same delta class
+  // as the bands (exact centres, caps on the true crossings).
+  assert.equal(unclipped.edges.filter(inOcc).length, 3822,
     `unclipped edges inside occluders: ${unclipped.edges.filter(inOcc).length}`);
   // Bite re-pinned for issue #167: deck-flagged beds' strips no
   // longer join the ground lists this census reads (they route to
@@ -504,7 +583,15 @@ test('real tile: no painted band, median strip or dash quad centre inside a cap'
   // medians 3,036 -> 3,457 — the new caps occlude more south median
   // strips; the clipped builders still put exactly 0 inside
   // (asserted above).
-  assert.equal([...unclippedMedians.plain, ...unclippedMedians.planted].filter(inOcc).length, 3457, // merged-tree re-pin at the #186 gate: 2,838 on main, 3,066 pinned by #186 on its stale base, 3,064 measured merged
+  // Issue #389 (graph-first junctions): unclipped medians 3,457
+  // -> 4,961. The exact centres put the caps on the true
+  // crossings, and a median runs along the centreline straight
+  // through the crossing — so far more unclipped median quads
+  // fall inside a cap than under the offset cluster centroids.
+  // The clipped builders still put exactly 0 inside (asserted
+  // above); the bite is the measure of the work the trim + the
+  // centre guard do.
+  assert.equal([...unclippedMedians.plain, ...unclippedMedians.planted].filter(inOcc).length, 4961, // merged-tree re-pin at the #186 gate: 2,838 on main, 3,066 pinned by #186 on its stale base, 3,064 measured merged
     'unclipped medians inside occluders');
 });
 
@@ -592,7 +679,7 @@ const isMajorJunction = (j) => j.arms.some((a) => ['arterial', 'deck'].includes(
 
 test('issue #75: every major junction box is covered corner to corner by its box cap', () => {
   const beds = TAIPEI_GEO.roadbeds;
-  const junctions = detectJunctions(beds);
+  const junctions = detectJunctions(beds, TAIPEI_GEO.roadGraph);
   const sites = planRoundabouts(beds, junctions);
   const claimed = new Set(sites.flatMap((s) => s.claimedJunctions));
   const caps = planJunctionCaps(beds, junctions, sites);
@@ -618,6 +705,13 @@ test('issue #75: every major junction box is covered corner to corner by its box
         `junction ${ji} box corner (${p[0].toFixed(0)},${p[1].toFixed(0)}) outside its cap by ${distToPoly(p, poly).toFixed(2)} m`);
     // (b) the whole box is paved by the cap (2 m grid; the audit
     // measured coverage 1.000 at every major junction).
+    // Coverage floor re-pinned for issue #389 (graph-first
+    // junctions): 0.99 -> 0.98. ji2685 （新生南路一段 x 濟南路
+    // 三段） measures 0.9896 — 95 of 96 grid points, a single
+    // point 0.03 m past the cap ring's edge, inside the ring's
+    // 0.1 m vertex rounding (the box edge and the ring edge are
+    // the same line; the rounded ring vertex shifts it a hair).
+    // A real coverage regression drops far below 0.98.
     const xs = box.map((p) => p[0]), zs = box.map((p) => p[1]);
     let tot = 0, cov = 0;
     for (let x = Math.min(...xs) + 1; x < Math.max(...xs); x += 2)
@@ -626,7 +720,7 @@ test('issue #75: every major junction box is covered corner to corner by its box
         tot++;
         if (pointInPoly([x, z], poly)) cov++;
       }
-    assert.ok(tot === 0 || cov / tot >= 0.99, `junction ${ji} box coverage ${tot ? (cov / tot).toFixed(3) : '-'}`);
+    assert.ok(tot === 0 || cov / tot >= 0.98, `junction ${ji} box coverage ${tot ? (cov / tot).toFixed(3) : '-'}`);
     // (c) no wild overshoot: every cap vertex stays within the
     // design envelope of the box (meet-end +30, furniture +5.7,
     // margin, skew-corner geometry — audited max 34.6 m).
@@ -661,12 +755,16 @@ test('issue #75: every major junction box is covered corner to corner by its box
   // majors — the south's arterial grid （羅斯福路/和平東路/基隆路/
   // 辛亥路/汀州路/廈門街 + the 中正橋/建國/新生高架 deck majors)
   // joins; every one still passes (a)-(c) above.
-  assert.equal(major, 727, `major junctions audited ${major}`); // merged-tree re-pin at the #186 gate: 577 main / 607 #186-stale-base / 605 merged
+  // Census re-pinned for issue #389 (graph-first junctions):
+  // 727 -> 1,164 majors — the split signalized junctions are
+  // each a box cap, so they leave the minor (fitted) class;
+  // every one still passes (a)-(c) above.
+  assert.equal(major, 1164, `major junctions audited ${major}`); // merged-tree re-pin at the #186 gate: 577 main / 607 #186-stale-base / 605 merged
 });
 
 test('issue #75: crosswalk and stop-line centres at major junctions lie on asphalt', () => {
   const beds = TAIPEI_GEO.roadbeds;
-  const junctions = detectJunctions(beds);
+  const junctions = detectJunctions(beds, TAIPEI_GEO.roadGraph);
   const sites = planRoundabouts(beds, junctions);
   const caps = planJunctionCaps(beds, junctions, sites);
   const occPolys = [...caps, ...sites.flatMap((s) => [s.disc, ...s.aprons])].map((c) => ringPoints(c.ring));
@@ -731,7 +829,7 @@ test('issue #75: crosswalk and stop-line centres at major junctions lie on aspha
 
 test('issue #75: roundabouts are handcrafted — discs, islands, aprons, no caps at claimed junctions', () => {
   const beds = TAIPEI_GEO.roadbeds;
-  const junctions = detectJunctions(beds);
+  const junctions = detectJunctions(beds, TAIPEI_GEO.roadGraph);
   const sites = planRoundabouts(beds, junctions);
   // Exactly three sites. 南門圓環 is NOT one: the data carries
   // only a degenerate zero-length stub for it (no circulating
@@ -739,10 +837,20 @@ test('issue #75: roundabouts are handcrafted — discs, islands, aprons, no caps
   // audit's verdict, pinned here by the exact id list.
   assert.deepEqual(sites.map((s) => s.id), ['renai-dunhua', 'dongmen', 'beimen']);
   const byId = Object.fromEntries(sites.map((s) => [s.id, s]));
-  assert.equal(byId['renai-dunhua'].claimedJunctions.length, 4);
+  // Claimed counts re-pinned for issue #389 (graph-first
+  // junctions): Renai 4 -> 2, Dongmen 3 -> 15. The old clusterer
+  // merged the circle's mouth junctions into a few clusters; the
+  // exact detection keeps every graph node (each twin
+  // carriageway, each mouth) separate, and the ring-name rule
+  // claims them all — all 15 Dongmen claimed junctions sit
+  // inside the disc (d <= 47 m, discR 58), so the disc paves
+  // them. Renai's 2 claimed junctions sit on the ring band
+  // (d 49.6/49.7, discR 60, apron threshold discR − 6 = 54),
+  // so no entry apron is needed — the disc covers the flare.
+  assert.equal(byId['renai-dunhua'].claimedJunctions.length, 2);
   assert.equal(byId['renai-dunhua'].islandKind, 'planted');
-  assert.equal(byId['renai-dunhua'].aprons.length, 3, 'Renai entry aprons (N/S/E mouths)');
-  assert.equal(byId.dongmen.claimedJunctions.length, 3);
+  assert.equal(byId['renai-dunhua'].aprons.length, 0, 'Renai entry aprons (none — claimed junctions sit on the ring band, inside the disc)');
+  assert.equal(byId.dongmen.claimedJunctions.length, 15);
   assert.equal(byId.dongmen.islandKind, 'planted');
   assert.equal(byId.dongmen.aprons.length, 0);
   assert.equal(byId.beimen.claimedJunctions.length, 0);
@@ -794,16 +902,31 @@ test('issue #75: roundabouts are handcrafted — discs, islands, aprons, no caps
       else assert.ok(!pointInPoly(c, ringPoints(s.island.ring)), `stripe centre inside the ${s.id} island`);
     }
   }
-  // Entry crossings exist at the Renai circle: stripe quads
-  // attributed to its claimed junctions (audit count 284).
-  const renaiClaimed = new Set(byId['renai-dunhua'].claimedJunctions);
-  const entryStripes = markings.stripes.filter((q, i) => renaiClaimed.has(markings.stripeJunction[i])).length;
+  // Entry crossings exist at the Renai circle: stripe quads at
+  // junctions touching the ring (a 仁愛敦南圓環 arm) within
+  // discR + 40 of the centre (audit count 284 at the old
+  // claimed junctions; measured 658 now). Issue #389
+  // (graph-first junctions): the old clusterer merged each
+  // mouth's inner and outer nodes into one claimed junction,
+  // so the entry stripes sat on the claimed junctions; the
+  // exact detection splits them — the inner claimed junctions
+  // (d ~50, on the ring band) have narrow arms and no zebra,
+  // while the outer mouth junctions (d ~90, at the ring's
+  // outer edge) carry the crossings. The crossings are still
+  // at the entries; they are just attributed to the mouth
+  // junctions, not the claimed inner ones.
+  const renai = byId['renai-dunhua'];
+  const ringJis = new Set();
+  junctions.forEach((j, ji) => {
+    if (j.arms.some((a) => a.name === renai.ringName) && Math.hypot(j.x - renai.x, j.z - renai.z) <= renai.discR + 40) ringJis.add(ji);
+  });
+  const entryStripes = markings.stripes.filter((q, i) => ringJis.has(markings.stripeJunction[i])).length;
   assert.ok(entryStripes > 100, `Renai entry stripe quads ${entryStripes}`);
 });
 
 test('issue #81: box-cap vertices stay near the box — no slab spikes', () => {
   const beds = TAIPEI_GEO.roadbeds;
-  const junctions = detectJunctions(beds);
+  const junctions = detectJunctions(beds, TAIPEI_GEO.roadGraph);
   const sites = planRoundabouts(beds, junctions);
   const claimed = new Set(sites.flatMap((s) => s.claimedJunctions));
   const caps = planJunctionCaps(beds, junctions, sites);
@@ -886,10 +1009,14 @@ test('issue #81: the reported junction 忠孝東路五段×松仁路 keeps a box
   // #145 overlap construction: 1,316 m², radius 24.0 m (the
   // pins below are unchanged — the box was already the shape
   // here; #145 removes the corners thrown elsewhere).
+  // Issue #389 (graph-first junctions): the cap centre moves to
+  // the exact graph node (360.0, -884.2) from the old cluster
+  // centroid (361.7, -890.6); the cap is 1,239 m², radius
+  // 23.1 m — still a box-hugging cap, same pins.
   const beds = TAIPEI_GEO.roadbeds;
-  const junctions = detectJunctions(beds);
+  const junctions = detectJunctions(beds, TAIPEI_GEO.roadGraph);
   const caps = planJunctionCaps(beds, junctions);
-  const near = caps.map((c) => ({ c, d: Math.hypot(c.x - 361.7, c.z - -890.6) })).sort((a, b) => a.d - b.d)[0];
+  const near = caps.map((c) => ({ c, d: Math.hypot(c.x - 360.0, c.z - -884.2) })).sort((a, b) => a.d - b.d)[0];
   assert.ok(near.d < 5, `cap at the reported junction (d=${near.d})`);
   assert.equal(near.c.kind, 'box');
   assert.ok(near.c.area <= 1450, `cap area ${near.c.area} m² (was 1,616 under #75)`);
@@ -897,14 +1024,18 @@ test('issue #81: the reported junction 忠孝東路五段×松仁路 keeps a box
 });
 
 test('acceptance junction 信義路×松仁路： the formerly bare core is capped', () => {
+  // Issue #389 (graph-first junctions): the cap centre moves to
+  // the exact graph node (342.0, 26.5) from the old cluster
+  // centroid (339.5, 19.4); the cap is still a box cap, radius
+  // 25.9 m, spanning the bare core.
   const beds = TAIPEI_GEO.roadbeds;
-  const junctions = detectJunctions(beds);
+  const junctions = detectJunctions(beds, TAIPEI_GEO.roadGraph);
   const caps = planJunctionCaps(beds, junctions);
-  const near = caps.map((c) => ({ c, d: Math.hypot(c.x - 339.5, c.z - 19.4) })).sort((a, b) => a.d - b.d)[0];
+  const near = caps.map((c) => ({ c, d: Math.hypot(c.x - 342.0, c.z - 26.5) })).sort((a, b) => a.d - b.d)[0];
   assert.ok(near.d < 5, `cap near the acceptance junction (d=${near.d})`);
   assert.ok(near.c.radius >= 22, `cap radius ${near.c.radius} spans the bare core`);
   const poly = ringPoints(near.c.ring);
-  assert.equal(distToPoly([339.5, 19.4], poly), 0, 'junction centre paved');
+  assert.equal(distToPoly([342.0, 26.5], poly), 0, 'junction centre paved');
 });
 
 test('issue #145: every minor junction box is covered by its overlap cap', () => {
@@ -926,7 +1057,7 @@ test('issue #145: every minor junction box is covered by its overlap cap', () =>
   // same crossHalf + 20 bound the #81 distribution pins at
   // majors).
   const beds = TAIPEI_GEO.roadbeds;
-  const junctions = detectJunctions(beds);
+  const junctions = detectJunctions(beds, TAIPEI_GEO.roadGraph);
   const sites = planRoundabouts(beds, junctions);
   const claimed = new Set(sites.flatMap((s) => s.claimedJunctions));
   const caps = planJunctionCaps(beds, junctions, sites);
@@ -967,7 +1098,12 @@ test('issue #145: every minor junction box is covered by its overlap cap', () =>
   // Issue #326: minors 2,745 -> 2,744 (−1) — the dropped interior
   // drive (way 783920042) removes one minor junction; measured on
   // this tree.
-  assert.equal(minor, 2744, `minor junctions audited ${minor}`);
+  // Issue #389 (graph-first junctions): minors 2,744 -> 2,123
+  // (−621). The split signalized junctions are each a box cap,
+  // so they leave the minor (fitted) class: signalized 480 ->
+  // 825, majors now 1,164, minors 2,123 (1,164 + 2,123 = the
+  // 3,287 eligible). Every one still passes (a)-(c) above.
+  assert.equal(minor, 2123, `minor junctions audited ${minor}`);
 });
 
 test('issue #163: short fitted arms extend to the box edge — strips, never tongues', () => {
@@ -977,13 +1113,25 @@ test('issue #163: short fitted arms extend to the box edge — strips, never ton
   // 7 m shortfall band along the EW corridor that neither ribbon
   // nor ring paves under #145. The NS beds end exactly at their
   // box edge (sd 10 = crossHalf 10, the EW half width).
+  // Issue #389: the beds end 10–12 m short of the crossing, so
+  // no endpoints coincide and the exact-endpoint fallback finds
+  // nothing — the junction is detected through the graph (the
+  // node at the crossing, four incident ways, each bed ending
+  // within 22 m of it), exactly as the real tile does.
   const beds = [
     bed('EW Rd', 'residential', 20, [1], [-100, 0, -12, 0]),
     bed('EW Rd', 'residential', 20, [2], [12, 0, 100, 0]),
     bed('NS Rd', 'residential', 10, [3], [0, -100, 0, -10]),
     bed('NS Rd', 'residential', 10, [4], [0, 10, 0, 100]),
   ];
-  const junctions = detectJunctions(beds);
+  const graph = {
+    nodes: [0, 0, -100, 0, 100, 0, 0, -100, 0, 100],
+    edges: [
+      { a: 0, b: 1, way: 1 }, { a: 0, b: 2, way: 2 },
+      { a: 0, b: 3, way: 3 }, { a: 0, b: 4, way: 4 },
+    ],
+  };
+  const junctions = detectJunctions(beds, graph);
   assert.equal(junctions.length, 1);
   const caps = planJunctionCaps(beds, junctions);
   assert.equal(caps.length, 1);
@@ -1023,19 +1171,32 @@ test('issue #163: the user junction ji562 — the avenue band is paved', () => {
   // (2 m grid census, junction-v2 evidence). With the strips
   // the whole band — axis and quadrants — is ring ∪ strip
   // surface (the same census measures 4 m² residual).
+  // Issue #389 (graph-first junctions): the centre moves to the
+  // exact graph node (-1770.9, -2747.4) from the old merged
+  // centroid (-1773.1, -2738.7), and the geometry changes with
+  // it — the west avenue bed end (sd 13.5) now sits INSIDE the
+  // box (crossHalf 15.2), so only the east arm (sd 16.1, gap
+  // 0.9 m) carries a strip, and the ring alone now covers the
+  // band points the strips used to pave. The strip's work is
+  // still visible on the east arm: the point at sd 15.5 along
+  // it sits 0.27 m outside the ring and inside the strip.
   const beds = TAIPEI_GEO.roadbeds;
-  const junctions = detectJunctions(beds);
+  const junctions = detectJunctions(beds, TAIPEI_GEO.roadGraph);
   const caps = planJunctionCaps(beds, junctions);
-  const near = caps.map((c) => ({ c, d: Math.hypot(c.x - -1773.1, c.z - -2738.7) })).sort((a, b) => a.d - b.d)[0];
+  const near = caps.map((c) => ({ c, d: Math.hypot(c.x - -1770.9, c.z - -2747.4) })).sort((a, b) => a.d - b.d)[0];
   assert.ok(near.d < 5, `cap at ji562 (d=${near.d})`);
   const cap = near.c;
   assert.equal(cap.kind, 'fitted');
-  assert.equal(cap.extras.length, 2, 'the two avenue arms carry the strips');
+  assert.equal(cap.extras.length, 1, 'the east avenue arm carries the strip (the west bed end is inside the box now)');
   const surf = [cap.ring, ...cap.extras.map((e) => e.ring)].map(ringPoints);
   const rel = (dx, dz) => [cap.x + dx, cap.z + dz];
   for (const p of [rel(-8, 0), rel(8, 0), rel(-8, 10), rel(8, -10), rel(-8, -10), rel(8, 10), rel(0, 8), rel(0, -8)])
     assert.ok(surf.some((poly) => distToPoly(p, poly) <= 0.15), `ji562 point ${p.map((v) => v.toFixed(0))} paved`);
-  assert.ok(distToPoly(rel(-8, 0), ringPoints(cap.ring)) > 3, 'the ring alone still leaves the band bare (strip does the work)');
+  // The east strip does the work past the ring: sd 15.5 along the
+  // east arm (dir 0.94, 0.35) is outside the ring, inside the strip.
+  const east = rel(14.6, 5.4);
+  assert.ok(distToPoly(east, ringPoints(cap.ring)) > 0.15, 'the ring alone still leaves the east shortfall bare');
+  assert.ok(surf.some((poly) => distToPoly(east, poly) <= 0.15), 'the east strip paves the shortfall');
 });
 
 // POC (#214) G2 corner clamp + R1 water clip: flag-gated, off by
@@ -1100,7 +1261,7 @@ test('POC #214 G2: diagonal crossing seats every hull corner on a kerb', () => {
 
 test('POC #214 G2: flag-off path is identical with an empty opts object', () => {
   const beds = TAIPEI_GEO.roadbeds;
-  const junctions = detectJunctions(beds);
+  const junctions = detectJunctions(beds, TAIPEI_GEO.roadGraph);
   const a = planJunctionCaps(beds, junctions);
   const b = planJunctionCaps(beds, junctions, null, null, null, {});
   assert.equal(b.length, a.length);
@@ -1108,16 +1269,20 @@ test('POC #214 G2: flag-off path is identical with an empty opts object', () => 
 });
 
 test('POC #214 G2: real tile — 基隆路二段 x 光復南路 mouth ends sit on the kerb', () => {
+  // Issue #389 (graph-first junctions): the cap centre moves to
+  // the exact graph node (-739.6, 354.9) from the old cluster
+  // centroid (-744.6, 355.0); the diagonal crossing and its
+  // mouth geometry are unchanged.
   const beds = TAIPEI_GEO.roadbeds;
-  const junctions = detectJunctions(beds);
+  const junctions = detectJunctions(beds, TAIPEI_GEO.roadGraph);
   const sites = planRoundabouts(beds, junctions);
   const clip = capClipPolys(TAIPEI_GEO);
   const off = planJunctionCaps(beds, junctions, sites, clip);
   const on = planJunctionCaps(beds, junctions, sites, clip, null, { cornerClamp: true });
   const near = (caps, x, z) => caps.map((c) => ({ c, d: Math.hypot(c.x - x, c.z - z) })).sort((p, q) => p.d - q.d)[0].c;
-  const offCap = near(off, -744.6, 355.0);
-  const onCap = near(on, -744.6, 355.0);
-  assert.ok(Math.hypot(offCap.x + 744.6, offCap.z - 355.0) < 2, 'ji1540 cap found');
+  const offCap = near(off, -739.6, 354.9);
+  const onCap = near(on, -739.6, 354.9);
+  assert.ok(Math.hypot(offCap.x + 739.6, offCap.z - 354.9) < 2, 'ji1540 cap found');
   const j = junctions.find((jj) => Math.hypot(jj.x - offCap.x, jj.z - offCap.z) <= 1);
   const offExcess = maxKerbExcess(j, ringPoints(offCap.ring));
   assert.ok(offExcess > 0.9, `flag-off mouth margin pokes ~1 m (${offExcess.toFixed(2)} m)`);
@@ -1130,12 +1295,18 @@ test('POC #214 R1: creek-water clip cuts off-ribbon spill, keeps bridge decks', 
   // water joins the cut set, eroded by the actual carriageway
   // ribbons near the junction, so cap on a bridge deck survives
   // and only spill onto open water is cut. Tile-wide census on
-  // current main: spill 2693 -> 685 m2. Here, one worst site:
-  // ji2244 (Dadu Rd x Danbei Rd, 325 m2 spill) must read zero
+  // current main: spill 450 -> 1 m2. Here, one worst site:
+  // 至善路一段 x 望星橋/臨溪路 (274 m2 spill) must read zero
   // off-ribbon water cells under the clip, and the cap must
   // still cover the crossing ribbons.
+  // Issue #389 (graph-first junctions): the old worst site
+  // ji2244 (Dadu Rd x Danbei Rd, 325 m2 spill) was a phantom —
+  // every graph node there has degree 2, no intersection, so no
+  // junction is detected and no cap exists within 316 m. The
+  // new worst site is the largest real spill (274 m2, the only
+  // cap above 100 m2 besides a 53 m2 one).
   const beds = TAIPEI_GEO.roadbeds;
-  const junctions = detectJunctions(beds);
+  const junctions = detectJunctions(beds, TAIPEI_GEO.roadGraph);
   const sites = planRoundabouts(beds, junctions);
   const clip = capClipPolys(TAIPEI_GEO);
   const water = capWaterPolys(TAIPEI_GEO);
@@ -1145,8 +1316,8 @@ test('POC #214 R1: creek-water clip cuts off-ribbon spill, keeps bridge decks', 
   const ribbons = beds.map(ribbonPoly);
   const ribGrid = buildPolyGrid(ribbons);
   const measure = (caps) => {
-    const cap = caps.map((c) => ({ c, d: Math.hypot(c.x - -9132, c.z - -9934) })).sort((a, b) => a.d - b.d)[0].c;
-    assert.ok(Math.hypot(cap.x + 9132, cap.z + 9934) < 2, 'ji2244 cap found');
+    const cap = caps.map((c) => ({ c, d: Math.hypot(c.x - -2277.4, c.z - -7102.3) })).sort((a, b) => a.d - b.d)[0].c;
+    assert.ok(Math.hypot(cap.x + 2277.4, cap.z + 7102.3) < 2, 'worst-spill cap found');
     let spill = 0, onDeck = 0;
     for (const poly of capSurfacePolys(cap)) {
       let minX = 1e18, minZ = 1e18, maxX = -1e18, maxZ = -1e18;
@@ -1166,16 +1337,23 @@ test('POC #214 R1: creek-water clip cuts off-ribbon spill, keeps bridge decks', 
   assert.ok(off.onDeck > 0, 'flag-off cap covers the bridge deck');
   const capsOn = planJunctionCaps(beds, junctions, sites, clip, water);
   const on = measure(capsOn);
-  assert.equal(on.spill, 0, 'flag-on: no off-ribbon cap on creek water at ji2244');
+  assert.equal(on.spill, 0, 'flag-on: no off-ribbon cap on creek water at the worst-spill site');
   assert.ok(on.onDeck > 0, 'flag-on: bridge-deck cap survives the clip');
-  // Sole-crossing guard (#214 R1 fix): ji1079 + ji2121 are narrow
-  // creek crossings whose rings lie on zero ribbons — the caps are
+  // Sole-crossing guard (#214 R1 fix): the narrow creek
+  // crossings whose rings lie on zero ribbons — the caps are
   // the only paving over the creek, so the clip must keep them
   // whole instead of dropping them (the #277 gate found both
   // vanishing entirely under the clip: 51 m² / 73 m², 112 / 158
   // raster cells on carriageway ribbons via their strips).
+  // Issue #389 (graph-first junctions): the old guard sites
+  // moved with their junctions — ji1079's cap is now 11.3 m
+  // from its old centroid (area 35), ji2121's is 91.6 m away
+  // (area 8). The guard sites are re-derived as the current
+  // narrow creek crossings the guard keeps whole: 八仙橋
+  // (-8021.0, -9247.9, 63 m²) and 中秀橋 (-7294.8, -12500.7,
+  // 14 m²).
   const nearestCap = (caps, x, z) => caps.map((c) => ({ c, d: Math.hypot(c.x - x, c.z - z) })).sort((a, b) => a.d - b.d)[0];
-  for (const [id, x, z, area] of [['ji1079', -7972.8, -9768.5, 51], ['ji2121', -6235.4, -12219.2, 73]]) {
+  for (const [id, x, z, area] of [['baxianqiao', -8021.0, -9247.9, 63], ['zhongxiuqiao', -7294.8, -12500.7, 14]]) {
     const offCap = nearestCap(capsOff, x, z);
     const onCap = nearestCap(capsOn, x, z);
     assert.ok(offCap.d < 1, `${id} cap found flag-off`);

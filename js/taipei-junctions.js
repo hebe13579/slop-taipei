@@ -596,7 +596,14 @@ function overlapRing(j, opts = {}) {
     };
     const diagArm = arms.map((_, i) => {
       const g1 = gapDeg(i), g2 = gapDeg((i + arms.length - 1) % arms.length);
-      return g1 < 75 || g1 > 105 || g2 < 75 || g2 > 105;
+      // Diagonal but not extreme: the 35° floor and 160° ceiling
+      // match collectPair's near-parallel guard (nearly-parallel
+      // arms are one corridor, nearly-opposite arms meet far
+      // away) — an acute Y like ji939 (gaps 3°/169°/172°) has
+      // no diagonal arm, so its mouth ends are never clamped
+      // and the hull stays attached to its ribbons (issue #389).
+      const diag = (g) => (g >= 35 && g < 75) || (g > 105 && g <= 160);
+      return diag(g1) || diag(g2);
     });
     // (1) Kerb corners for pairs whose kept main corner pokes.
     for (let i = 0; i < lines.length; i++) {
@@ -640,6 +647,16 @@ function overlapRing(j, opts = {}) {
       let pair = null;
       for (let a = 0; a < arms.length && !pair; a++) {
         for (let b = a + 1; b < arms.length; b++) {
+          // Issue #389: skip nearly-parallel pairs (the same
+          // 35°/170° floor/ceiling collectPair uses) — their
+          // cross lines meet far away and unstably, so a point
+          // "on both cross lines" there is not a box corner to
+          // clamp; clamping it detaches the hull from its
+          // ribbons and the ORPHAN pass drops the cap (ji939's
+          // acute Y, two ramp arms 3° apart, 169° to the third).
+          const gapAB = Math.abs(Math.atan2(arms[b].dirZ, arms[b].dirX) - Math.atan2(arms[a].dirZ, arms[a].dirX));
+          const gapDegAB = (Math.min(gapAB, Math.PI * 2 - gapAB) * 180) / Math.PI;
+          if (gapDegAB < 35 || gapDegAB > 170) continue;
           const fa = frameOf(arms[a], p), fb = frameOf(arms[b], p);
           if (Math.abs(fa.along - arms[a].crossHalf) < 0.1 && Math.abs(fb.along - arms[b].crossHalf) < 0.1) { pair = [a, b]; break; }
         }
@@ -727,7 +744,22 @@ const toneRGB = (cls) => {
 const round4 = (v) => Math.round(v * 10000) / 10000;
 
 export function capBlendTones(j, ringPts, adoptCentre = null) {
-  const arms = j.arms.map((a) => ({
+  // Issue #389: blend only ENDING arms. A through arm is a road
+  // passing through the junction, not one of its own roads — the
+  // ji1595 through road (a 19 m tertiary spanning the lane
+  // cluster) must not tint the cap's fallback tone; when the cap
+  // is wholly on it the adoption rule lends its tone outright,
+  // and when it is not (the narrow control) the cap wears its
+  // own roads' tone. Most junctions have ending arms; a
+  // through-only junction (a road passing a stub, no road ending
+  // there — e.g. a twin-carriageway node whose beds both run
+  // through) falls back to all its arms so the tone is never
+  // black.
+  let arms = j.arms.filter((a) => !a.through).map((a) => ({
+    width: a.width,
+    rgb: toneRGB(surfaceClass({ highway: a.highway })),
+  }));
+  if (!arms.length) arms = j.arms.map((a) => ({
     width: a.width,
     rgb: toneRGB(surfaceClass({ highway: a.highway })),
   }));
@@ -761,11 +793,40 @@ export function capBlendTones(j, ringPts, adoptCentre = null) {
 // ground ribbons only). candidates: [{ bedIdx, bed, ribbon }]
 // for the beds near the junction, ribbons as point arrays.
 export function throughRoadTone(j, ringPts, candidates) {
-  const armBeds = new Set(j.arms.map((a) => a.bed));
-  const foreign = candidates.filter((c) => c.ribbon && !c.bed.deck && !armBeds.has(c.bedIdx));
+  // Issue #389: a through road is an ARM now (through arms join
+  // the junction's arm list), so it must still count as a
+  // through-road candidate — only ENDING arms are the junction's
+  // own roads. A foreign bed, or a through arm's bed, whose
+  // ribbon contains the centre and every ring point lends its
+  // tone; an ending arm's bed never does (it is the cluster's
+  // own road).
+  const endingArmBeds = new Set(j.arms.filter((a) => !a.through).map((a) => a.bed));
+  const foreign = candidates.filter((c) => c.ribbon && !c.bed.deck && !endingArmBeds.has(c.bedIdx));
+  // A ring point counts as on a ribbon when it lies inside it
+  // or within the ring's own rounding of its edge: the hull's
+  // main corners may stand 0.1 m past a kerb (the ji1595 ring's
+  // north vertex sits 0.1 m past the 19 m tertiary's kerb),
+  // which is still the through road's asphalt for tone
+  // purposes, not a foreign patch. The tolerance is the
+  // rounding only (0.15 m), not the full main-corner tolerance
+  // — a ring a metre past a narrow road's kerb is genuinely
+  // off it, and must not adopt (the narrow control below).
+  const distPtSeg = (p, a, b) => {
+    const ex = b[0] - a[0], ez = b[1] - a[1];
+    const L2 = ex * ex + ez * ez;
+    let t = L2 > 0 ? ((p[0] - a[0]) * ex + (p[1] - a[1]) * ez) / L2 : 0;
+    t = Math.max(0, Math.min(1, t));
+    return Math.hypot(p[0] - (a[0] + ex * t), p[1] - (a[1] + ez * t));
+  };
+  const distToPoly = (p, poly) => {
+    if (pointInPoly(p, poly)) return 0;
+    let best = Infinity;
+    for (let i = 0; i < poly.length; i++) best = Math.min(best, distPtSeg(p, poly[i], poly[(i + 1) % poly.length]));
+    return best;
+  };
   const classesAt = (p) => {
     const s = new Set();
-    for (const c of foreign) if (pointInPoly(p, c.ribbon)) s.add(surfaceClass({ highway: c.bed.highway }));
+    for (const c of foreign) if (distToPoly(p, c.ribbon) <= 0.15) s.add(surfaceClass({ highway: c.bed.highway }));
     return s;
   };
   const centreClasses = classesAt([j.x, j.z]);
@@ -1590,7 +1651,15 @@ export function planJunctionCaps(roadbeds, junctions, sitesIn = null, clipPolysI
     if (!j.arms || j.arms.length < 2) return;
     if (claimed.has(ji)) return;
     const kind = isMajorJunction(j) ? 'box' : 'fitted';
-    const hull = overlapRing(j, opts);
+    let hull = overlapRing(j, opts);
+    // Issue #389: the corner clamp can collapse a cap whose
+    // arms are nearly parallel (an acute Y — the 中興橋出口匝道
+    // pair 3° apart at ji939) into a degenerate hull. The clamp
+    // is a kerb-shape refinement, never a reason to lose the
+    // cap, so fall back to the unclamped hull rather than
+    // dropping the junction.
+    if (opts.cornerClamp && (hull.length < 3 || !(polyArea(hull) > 1)))
+      hull = overlapRing(j, { ...opts, cornerClamp: false });
     if (hull.length < 3) return;
     const area = polyArea(hull);
     if (!(area > 1)) return;

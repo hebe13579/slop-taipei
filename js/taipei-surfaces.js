@@ -12,6 +12,7 @@
 // single 0x33363b slab and move hue/lightness the way the aerials do.
 
 import { ribbonPoly, pointInPoly, buildPolyGrid, pointInAnyPoly } from './taipei-painted.js';
+import { trimBedsAtPolys } from './taipei-bedtrim.js'; // issue #389: beds are trimmed against junction caps before strip planning
 
 export const SURFACE_TONES = {
   deck: 0x2e3238,          // trunk / trunk_link — cooler + darker, weathered deck
@@ -174,12 +175,19 @@ const ptsOf = (b) => {
 // Default true: every existing caller (renderer, pier pass median
 // test, tests) sees byte-identical output.
 export function buildMedianStrips(roadbeds, capPolys = null, { minorCrossBreaks = true } = {}) {
+  // Issue #389: trim the beds against the cap polygons first, so no
+  // strip is planned inside a junction at all. The trim cuts the
+  // CENTRELINE; a median strip has width, so its EDGES still need
+  // the cap test (issue #173 MEDTIP) — a strip whose centre clears
+  // a cap can still drag a corner across it. The capBlocked point
+  // test is therefore kept here, for the strip's edges only.
+  const beds = capPolys ? trimBedsAtPolys(roadbeds, capPolys) : roadbeds;
   const capGrid = capPolys ? buildPolyGrid(capPolys) : null;
-  const capBlocked = (p) => pointInAnyPoly(capGrid, capPolys, p);
-  const polys = roadbeds.map(ribbonPoly);
+  const capBlocked = (p) => capGrid && pointInAnyPoly(capGrid, capPolys, p);
+  const polys = beds.map(ribbonPoly);
   const grid = new Map();
   polys.forEach((poly, i) => {
-    if ((roadbeds[i].width || 3) < MEDIAN_CLIP_MIN_WIDTH) return; // lane mouths don't break a median
+    if ((beds[i].width || 3) < MEDIAN_CLIP_MIN_WIDTH) return; // lane mouths don't break a median
     const xs = poly.map((p) => p[0]), zs = poly.map((p) => p[1]);
     for (let gx = Math.floor(Math.min(...xs) / GRID_M); gx <= Math.floor(Math.max(...xs) / GRID_M); gx++)
       for (let gz = Math.floor(Math.min(...zs) / GRID_M); gz <= Math.floor(Math.max(...zs) / GRID_M); gz++) {
@@ -192,7 +200,7 @@ export function buildMedianStrips(roadbeds, capPolys = null, { minorCrossBreaks 
     const cand = grid.get(`${Math.floor(p[0] / GRID_M)},${Math.floor(p[1] / GRID_M)}`) || [];
     for (const ci of cand) {
       if (ci === selfIdx) continue;
-      if ((roadbeds[ci].sourceWayIds || []).some((w) => selfWays.has(w))) continue;
+      if ((beds[ci].sourceWayIds || []).some((w) => selfWays.has(w))) continue;
       if (pointInPoly(p, polys[ci])) return true;
     }
     return false;
@@ -203,8 +211,8 @@ export function buildMedianStrips(roadbeds, capPolys = null, { minorCrossBreaks 
   // elevated crossing does not break the median under its deck).
   const minorGrid = new Map();
   polys.forEach((poly, i) => {
-    const w = roadbeds[i].width || 3;
-    if (w < MEDIAN_MINOR_CROSS_MIN_WIDTH || w >= MEDIAN_CLIP_MIN_WIDTH || roadbeds[i].deck) return;
+    const w = beds[i].width || 3;
+    if (w < MEDIAN_MINOR_CROSS_MIN_WIDTH || w >= MEDIAN_CLIP_MIN_WIDTH || beds[i].deck) return;
     const xs = poly.map((p) => p[0]), zs = poly.map((p) => p[1]);
     for (let gx = Math.floor(Math.min(...xs) / GRID_M); gx <= Math.floor(Math.max(...xs) / GRID_M); gx++)
       for (let gz = Math.floor(Math.min(...zs) / GRID_M); gz <= Math.floor(Math.max(...zs) / GRID_M); gz++) {
@@ -221,7 +229,7 @@ export function buildMedianStrips(roadbeds, capPolys = null, { minorCrossBreaks 
   // not apply under a deck. T18 itself has no deck overhead and
   // is unaffected.
   const deckIdx = [];
-  polys.forEach((poly, i) => { if (roadbeds[i].deck) deckIdx.push(i); });
+  polys.forEach((poly, i) => { if (beds[i].deck) deckIdx.push(i); });
   const deckGrid = new Map();
   deckIdx.forEach((i) => {
     const poly = polys[i];
@@ -244,7 +252,7 @@ export function buildMedianStrips(roadbeds, capPolys = null, { minorCrossBreaks 
     const reach = half + 0.75;
     for (const ci of cand) {
       if (ci === selfIdx) continue;
-      if ((roadbeds[ci].sourceWayIds || []).some((w) => selfWays.has(w))) continue;
+      if ((beds[ci].sourceWayIds || []).some((w) => selfWays.has(w))) continue;
       if (pointInPoly(p, polys[ci])
         && pointInPoly([p[0] + nx * reach, p[1] + nz * reach], polys[ci])
         && pointInPoly([p[0] - nx * reach, p[1] - nz * reach], polys[ci])) return true;
@@ -258,8 +266,16 @@ export function buildMedianStrips(roadbeds, capPolys = null, { minorCrossBreaks 
     plantedBeds: 0, plainBeds: 0, excludedUnderpass: 0, deckBedsSkipped: 0,
     plantedQuads: 0, plainQuads: 0, plantedKm: 0, plainKm: 0,
   };
-  roadbeds.forEach((r, selfIdx) => {
-    if (isUnderpassName(r.name) && Array.isArray(r.sourceWayIds) && r.sourceWayIds.length > 1 && (r.width || 0) >= MEDIAN_MIN_WIDTH) stats.excludedUnderpass++;
+  // Per-bed census counts are deduped by parent bed (issue #389):
+  // a bed the trim split into two sub-beds is still one road with
+  // one median. The underpass counter and the kind counter are
+  // independent (an underpass bed with a median kind counts in
+  // both), so they get separate sets.
+  const countedUnderpass = new Set();
+  const countedKind = new Set();
+  beds.forEach((r, selfIdx) => {
+    const parent = r.trimParent ?? selfIdx;
+    if (isUnderpassName(r.name) && Array.isArray(r.sourceWayIds) && r.sourceWayIds.length > 1 && (r.width || 0) >= MEDIAN_MIN_WIDTH && !countedUnderpass.has(parent)) { countedUnderpass.add(parent); stats.excludedUnderpass++; }
     const kind = medianKind(r);
     if (!kind) return;
     // Issue #167: a deck-flagged bed's strip is routed to
@@ -268,8 +284,11 @@ export function buildMedianStrips(roadbeds, capPolys = null, { minorCrossBreaks 
     // tile-wide delta is a measured number, not a guess: 68
     // eligible deck beds on the current tile.
     const isDeck = !!r.deck;
-    if (isDeck) stats.deckBedsSkipped++;
-    else stats[kind === 'planted' ? 'plantedBeds' : 'plainBeds']++;
+    if (!countedKind.has(parent)) {
+      countedKind.add(parent);
+      if (isDeck) stats.deckBedsSkipped++;
+      else stats[kind === 'planted' ? 'plantedBeds' : 'plainBeds']++;
+    }
     const half = medianStripWidth(r) / 2;
     const selfWays = new Set(r.sourceWayIds);
     const pts = densify(ptsOf(r));
@@ -285,15 +304,16 @@ export function buildMedianStrips(roadbeds, capPolys = null, { minorCrossBreaks 
       // median over cap tile-wide in the #169 sweep census). The
       // painted bands (js/taipei-painted.js) have always tested
       // their corners this way; the median now terminates with the
-      // same discipline.
+      // same discipline. (Issue #389: the trim cuts the centreline
+      // at caps, but the strip's edges still need this test.)
       const blocked =
+        capBlocked(p) ||
+        capBlocked([p[0] + nx * half, p[1] + nz * half]) ||
+        capBlocked([p[0] - nx * half, p[1] - nz * half]) ||
         foreignBlocked(p, selfIdx, selfWays) ||
         foreignBlocked([p[0] + nx * half, p[1] + nz * half], selfIdx, selfWays) ||
         foreignBlocked([p[0] - nx * half, p[1] - nz * half], selfIdx, selfWays) ||
-        (minorCrossBreaks && minorCrossBlocked(p, nx, nz, half, selfIdx, selfWays)) ||
-        capBlocked(p) ||
-        capBlocked([p[0] + nx * half, p[1] + nz * half]) ||
-        capBlocked([p[0] - nx * half, p[1] - nz * half]);
+        (minorCrossBreaks && minorCrossBlocked(p, nx, nz, half, selfIdx, selfWays));
       return { p, nx, nz, blocked };
     });
     const sink = isDeck ? deckBands : out[kind];
@@ -304,9 +324,9 @@ export function buildMedianStrips(roadbeds, capPolys = null, { minorCrossBreaks 
       const mnx = f0.nx + f1.nx, mnz = f0.nz + f1.nz;
       const mnl = Math.hypot(mnx, mnz) || 1;
       if (foreignBlocked(mid, selfIdx, selfWays) || capBlocked(mid)
-        || (minorCrossBreaks && minorCrossBlocked(mid, mnx / mnl, mnz / mnl, half, selfIdx, selfWays))
         || capBlocked([mid[0] + (mnx / mnl) * half, mid[1] + (mnz / mnl) * half])
-        || capBlocked([mid[0] - (mnx / mnl) * half, mid[1] - (mnz / mnl) * half])) continue;
+        || capBlocked([mid[0] - (mnx / mnl) * half, mid[1] - (mnz / mnl) * half])
+        || (minorCrossBreaks && minorCrossBlocked(mid, mnx / mnl, mnz / mnl, half, selfIdx, selfWays))) continue;
       sink.push([
         f0.p[0] + f0.nx * half, f0.p[1] + f0.nz * half,
         f1.p[0] + f1.nx * half, f1.p[1] + f1.nz * half,
